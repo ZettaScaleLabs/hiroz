@@ -158,7 +158,6 @@ pub fn compose_stamped(
         header: Header {
             frame_id: target_frame.to_string(),
             stamp: t2.header.stamp,
-            ..Default::default()
         },
         child_frame_id: source_frame.to_string(),
         transform: compose_transforms(&t1.transform, &t2.transform),
