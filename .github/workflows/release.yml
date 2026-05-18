@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-msgs:
-    name: Build ros-z-msgs-py wheel
+    name: Build hiroz-msgs-py wheel
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,7 +19,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Generate Python message types
-        run: cargo build -p ros-z-msgs --features python_registry -j4
+        run: cargo build -p hiroz-msgs --features python_registry -j4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,16 +31,16 @@ jobs:
 
       - name: Build wheel and sdist
         run: python -m build
-        working-directory: crates/ros-z-msgs/python
+        working-directory: crates/hiroz-msgs/python
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ros-z-msgs-py-dist
-          path: crates/ros-z-msgs/python/dist/*
+          name: hiroz-msgs-py-dist
+          path: crates/hiroz-msgs/python/dist/*
 
   build-wheels:
-    name: Build ros-z-py (${{ matrix.distro }}, ${{ matrix.target }})
+    name: Build hiroz-py (${{ matrix.distro }}, ${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -94,18 +94,18 @@ jobs:
             --no-default-features
             --out dist
             ${{ matrix.extra_args }}
-          working-directory: crates/ros-z-py
+          working-directory: crates/hiroz-py
           manylinux: auto
 
       - name: Rename wheel to include distro as build tag
         shell: bash
         run: |
           # Insert the distro as the PEP 427 build tag (field 3): 0{distro}
-          # e.g. ros_z_py-0.1.0-cp311-... → ros_z_py-0.1.0-0jazzy-cp311-...
+          # e.g. hiroz_py-0.1.0-cp311-... → hiroz_py-0.1.0-0jazzy-cp311-...
           # Build tags must start with a digit. The distribution name is unchanged
           # so pip can match it against the .dist-info directory inside the wheel.
           # sudo needed: manylinux container builds as root, wheel is root-owned.
-          for whl in crates/ros-z-py/dist/*.whl; do
+          for whl in crates/hiroz-py/dist/*.whl; do
             dir=$(dirname "$whl")
             base=$(basename "${whl%.whl}")
             name="${base%%-*}"
@@ -118,8 +118,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ros-z-py-${{ matrix.distro }}-${{ matrix.target }}
-          path: crates/ros-z-py/dist/*
+          name: hiroz-py-${{ matrix.distro }}-${{ matrix.target }}
+          path: crates/hiroz-py/dist/*
 
   build-binaries:
     name: Build ${{ matrix.bin }} (${{ matrix.label }}, ${{ matrix.target }})
@@ -128,58 +128,58 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ros-z-console — distro-agnostic, one binary per platform
-          - bin: ros-z-console
-            package: ros-z-console
+          # hiroz-console — distro-agnostic, one binary per platform
+          - bin: hiroz-console
+            package: hiroz-console
             features: ""
             artifact: bin-console-x86_64-linux
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-          - bin: ros-z-console
-            package: ros-z-console
+          - bin: hiroz-console
+            package: hiroz-console
             features: ""
             artifact: bin-console-aarch64-linux
             target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-          - bin: ros-z-console
-            package: ros-z-console
+          - bin: hiroz-console
+            package: hiroz-console
             features: ""
             artifact: bin-console-aarch64-macos
             target: aarch64-apple-darwin
             os: macos-latest
-          # ros-z-bridge — one binary per distro per platform
-          - bin: ros-z-bridge
-            package: ros-z-bridge
+          # hiroz-bridge — one binary per distro per platform
+          - bin: hiroz-bridge
+            package: hiroz-bridge
             features: "jazzy"
             artifact: bin-bridge-jazzy-x86_64-linux
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-          - bin: ros-z-bridge
-            package: ros-z-bridge
+          - bin: hiroz-bridge
+            package: hiroz-bridge
             features: "humble"
             artifact: bin-bridge-humble-x86_64-linux
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-          - bin: ros-z-bridge
-            package: ros-z-bridge
+          - bin: hiroz-bridge
+            package: hiroz-bridge
             features: "jazzy"
             artifact: bin-bridge-jazzy-aarch64-linux
             target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-          - bin: ros-z-bridge
-            package: ros-z-bridge
+          - bin: hiroz-bridge
+            package: hiroz-bridge
             features: "humble"
             artifact: bin-bridge-humble-aarch64-linux
             target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-          - bin: ros-z-bridge
-            package: ros-z-bridge
+          - bin: hiroz-bridge
+            package: hiroz-bridge
             features: "jazzy"
             artifact: bin-bridge-jazzy-aarch64-macos
             target: aarch64-apple-darwin
             os: macos-latest
-          - bin: ros-z-bridge
-            package: ros-z-bridge
+          - bin: hiroz-bridge
+            package: hiroz-bridge
             features: "humble"
             artifact: bin-bridge-humble-aarch64-macos
             target: aarch64-apple-darwin
@@ -238,7 +238,7 @@ jobs:
           path: bin-dist/*
 
   build-go-libs:
-    name: Build libros_z (${{ matrix.distro }}, ${{ matrix.target }})
+    name: Build libhiroz (${{ matrix.distro }}, ${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -283,7 +283,7 @@ jobs:
         with:
           tool: cargo-zigbuild
 
-      - name: Build libros_z (native)
+      - name: Build libhiroz (native)
         if: matrix.target != 'aarch64-unknown-linux-gnu' || matrix.os != 'ubuntu-latest'
         shell: bash
         run: |
@@ -291,38 +291,38 @@ jobs:
             --features ffi,${{ matrix.distro }} \
             --no-default-features \
             --target ${{ matrix.target }} \
-            -p ros-z
+            -p hiroz
 
-      - name: Build libros_z (aarch64 Linux via zigbuild)
+      - name: Build libhiroz (aarch64 Linux via zigbuild)
         if: matrix.target == 'aarch64-unknown-linux-gnu' && matrix.os == 'ubuntu-latest'
         run: >-
           cargo zigbuild --release
           --features ffi,${{ matrix.distro }}
           --no-default-features
           --target ${{ matrix.target }}
-          -p ros-z
+          -p hiroz
 
       - name: Package library
         shell: bash
         run: |
           mkdir -p go-dist
           src="target/${{ matrix.target }}/release"
-          name="libros_z-${{ matrix.distro }}-${{ matrix.target }}"
-          if [ -f "$src/libros_z.a" ]; then
-            cp "$src/libros_z.a" "go-dist/${name}.a"
+          name="libhiroz-${{ matrix.distro }}-${{ matrix.target }}"
+          if [ -f "$src/libhiroz.a" ]; then
+            cp "$src/libhiroz.a" "go-dist/${name}.a"
           fi
-          if [ -f "$src/libros_z.dylib" ]; then
-            cp "$src/libros_z.dylib" "go-dist/${name}.dylib"
+          if [ -f "$src/libhiroz.dylib" ]; then
+            cp "$src/libhiroz.dylib" "go-dist/${name}.dylib"
           fi
-          if [ -f "$src/libros_z.so" ]; then
-            cp "$src/libros_z.so" "go-dist/${name}.so"
+          if [ -f "$src/libhiroz.so" ]; then
+            cp "$src/libhiroz.so" "go-dist/${name}.so"
           fi
-          cp crates/ros-z-go/rosz/ros_z_ffi.h "go-dist/ros_z_ffi.h"
+          cp crates/hiroz-go/hiroz/hiroz_ffi.h "go-dist/hiroz_ffi.h"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libros_z-${{ matrix.distro }}-${{ matrix.target }}
+          name: libhiroz-${{ matrix.distro }}-${{ matrix.target }}
           path: go-dist/*
 
   smoke-test-python:
@@ -335,27 +335,27 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download ros-z-msgs-py
+      - name: Download hiroz-msgs-py
         uses: actions/download-artifact@v4
         with:
-          name: ros-z-msgs-py-dist
+          name: hiroz-msgs-py-dist
           path: dist/
 
-      - name: Download ros-z-py wheel (jazzy, x86_64)
+      - name: Download hiroz-py wheel (jazzy, x86_64)
         uses: actions/download-artifact@v4
         with:
-          name: ros-z-py-jazzy-x86_64-unknown-linux-gnu
+          name: hiroz-py-jazzy-x86_64-unknown-linux-gnu
           path: dist/
 
       - name: Install wheels into venv
         run: |
           python -m venv .venv
-          # Install msgs first so it is fully initialized before ros_z_py imports it
-          .venv/bin/pip install dist/ros_z_msgs_py-*.whl
-          .venv/bin/pip install "dist/ros_z_py-"*0jazzy*.whl
+          # Install msgs first so it is fully initialized before hiroz_py imports it
+          .venv/bin/pip install dist/hiroz_msgs_py-*.whl
+          .venv/bin/pip install "dist/hiroz_py-"*0jazzy*.whl
 
       - name: Import test
-        run: .venv/bin/python -c "import ros_z_py; print('ros_z_py import ok')"
+        run: .venv/bin/python -c "import hiroz_py; print('hiroz_py import ok')"
 
   smoke-test-binaries:
     name: Smoke test binaries
@@ -408,26 +408,26 @@ jobs:
         with:
           go-version: "1.23"
 
-      - name: Download libros_z (jazzy, x86_64)
+      - name: Download libhiroz (jazzy, x86_64)
         uses: actions/download-artifact@v4
         with:
-          name: libros_z-jazzy-x86_64-unknown-linux-gnu
+          name: libhiroz-jazzy-x86_64-unknown-linux-gnu
           path: dist/
 
       - name: Verify archive and header
         run: |
-          ar t dist/libros_z-jazzy-x86_64-unknown-linux-gnu.a | head -5
-          test -f dist/ros_z_ffi.h
+          ar t dist/libhiroz-jazzy-x86_64-unknown-linux-gnu.a | head -5
+          test -f dist/hiroz_ffi.h
           echo "Go library artifact ok"
 
       - name: Place library for CGO build
         run: |
           mkdir -p target/release
-          cp dist/libros_z-jazzy-x86_64-unknown-linux-gnu.a target/release/libros_z.a
+          cp dist/libhiroz-jazzy-x86_64-unknown-linux-gnu.a target/release/libhiroz.a
 
       - name: Build Go package (CGO link test)
-        working-directory: crates/ros-z-go
-        run: go build ./rosz/...
+        working-directory: crates/hiroz-go
+        run: go build ./hiroz/...
 
   release:
     name: Create GitHub Release
@@ -448,16 +448,16 @@ jobs:
           OUTPUT: CHANGELOG.md
           GITHUB_REPO: ${{ github.repository }}
 
-      - name: Download ros-z-msgs-py artifacts
+      - name: Download hiroz-msgs-py artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ros-z-msgs-py-dist
+          name: hiroz-msgs-py-dist
           path: dist/
 
-      - name: Download ros-z-py wheel artifacts
+      - name: Download hiroz-py wheel artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: ros-z-py-*
+          pattern: hiroz-py-*
           path: dist/
           merge-multiple: true
 
@@ -468,10 +468,10 @@ jobs:
           path: dist/
           merge-multiple: true
 
-      - name: Download libros_z artifacts
+      - name: Download libhiroz artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: libros_z-*
+          pattern: libhiroz-*
           path: dist/
           merge-multiple: true
 
@@ -501,11 +501,11 @@ jobs:
           REPO="${{ github.repository }}"
           mkdir release-dist
           gh release download "$TAG" --repo "$REPO" \
-            --pattern "ros_z_msgs_py-*.whl" \
+            --pattern "hiroz_msgs_py-*.whl" \
             --pattern "*0jazzy*x86_64*linux*.whl" \
             --dir release-dist/
-          .venv/bin/pip install release-dist/ros_z_msgs_py-*.whl
+          .venv/bin/pip install release-dist/hiroz_msgs_py-*.whl
           .venv/bin/pip install release-dist/*0jazzy*x86_64*linux*.whl
 
       - name: Import test
-        run: .venv/bin/python -c "import ros_z_py; print('ros_z_py install-from-release ok')"
+        run: .venv/bin/python -c "import hiroz_py; print('hiroz_py install-from-release ok')"

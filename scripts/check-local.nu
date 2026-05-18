@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-# Local pre-submission check script for ros-z contributors
+# Local pre-submission check script for hiroz contributors
 # Run this before opening a PR to catch issues early
 #
 # Suites:
@@ -54,7 +54,7 @@ def summarize [all_results: list] {
 def main [--suite: string = "full"] {
     # Lint suite: fmt + clippy only. Fast-fail gate before slow container builds.
     if $suite == "lint" {
-        log-header "Running ros-z Lint Checks"
+        log-header "Running hiroz Lint Checks"
         let checks = [
             {name: "Formatting (cargo fmt)", cmd: "cargo fmt --check"},
             {name: "Clippy (all targets)", cmd: "cargo clippy --all-targets -- -D warnings"},
@@ -67,7 +67,7 @@ def main [--suite: string = "full"] {
     }
 
     # Full suite
-    log-header "Running ros-z Pre-Submission Checks"
+    log-header "Running hiroz Pre-Submission Checks"
 
     let checks = [
         {name: "Formatting (cargo fmt)", cmd: "cargo fmt --check"},

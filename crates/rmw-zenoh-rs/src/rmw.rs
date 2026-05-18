@@ -15,7 +15,7 @@ use crate::ros::{
 };
 
 use crate::type_support::MessageTypeSupport;
-use ros_z::{
+use hiroz::{
     Builder,
     event::{RmEventHandle, ZenohEventType},
 };
@@ -163,7 +163,7 @@ pub extern "C" fn rmw_create_publisher(
         .inner
         .create_pub::<crate::msg::RosMessage>(topic_str)
         .with_serdes::<crate::msg::RosSerdes>();
-    let qos = crate::qos::rmw_qos_to_ros_z_qos(unsafe { &*qos_profile });
+    let qos = crate::qos::rmw_qos_to_hiroz_qos(unsafe { &*qos_profile });
     let zpub_builder = zpub_builder
         .with_qos(qos)
         .with_type_info(ts.get_type_info()); // Set type_info BEFORE build() so liveliness token has correct type
@@ -183,7 +183,7 @@ pub extern "C" fn rmw_create_publisher(
     let qualified_topic = zpub.entity().topic.clone();
     let entity = zpub.entity().clone();
     let entity_gid =
-        ros_z::entity::endpoint_gid(zpub.entity()).expect("publisher always has node identity");
+        hiroz::entity::endpoint_gid(zpub.entity()).expect("publisher always has node identity");
 
     // Get context to access the shared notifier
     let context = unsafe { (*node).context };
@@ -206,10 +206,10 @@ pub extern "C" fn rmw_create_publisher(
     if let Err(e) = graph.event_manager.register_event_callback(
         entity_gid,
         qualified_topic.clone(),
-        ros_z::event::ZenohEventType::PublicationMatched,
+        hiroz::event::ZenohEventType::PublicationMatched,
         move |change| {
             if let Ok(mut mgr) = events_mgr.lock() {
-                mgr.update_event_status(ros_z::event::ZenohEventType::PublicationMatched, change);
+                mgr.update_event_status(hiroz::event::ZenohEventType::PublicationMatched, change);
             }
             // Wake up wait sets
             notifier_clone_for_matched.notify_all();
@@ -225,14 +225,14 @@ pub extern "C" fn rmw_create_publisher(
     if let Err(e) = graph.event_manager.register_event_callback(
         entity_gid,
         qualified_topic.clone(),
-        ros_z::event::ZenohEventType::OfferedQosIncompatible,
+        hiroz::event::ZenohEventType::OfferedQosIncompatible,
         move |encoded_change| {
             // Decode policy_kind from upper 16 bits and change from lower 16 bits
             let policy_kind = ((encoded_change >> 16) & 0xFFFF) as u32;
             let change = encoded_change & 0xFFFF;
             if let Ok(mut mgr) = events_mgr_clone.lock() {
                 mgr.update_event_status_with_policy(
-                    ros_z::event::ZenohEventType::OfferedQosIncompatible,
+                    hiroz::event::ZenohEventType::OfferedQosIncompatible,
                     change,
                     policy_kind,
                 );
@@ -248,11 +248,11 @@ pub extern "C" fn rmw_create_publisher(
     }
 
     // Check if there are already existing subscriptions for this topic and trigger the event
-    let matching_sub_count = graph.count(ros_z::entity::EndpointKind::Subscription, &entity.topic);
+    let matching_sub_count = graph.count(hiroz::entity::EndpointKind::Subscription, &entity.topic);
     if matching_sub_count > 0 {
         if let Ok(mut mgr) = zpub.events_mgr().lock() {
             mgr.update_event_status(
-                ros_z::event::ZenohEventType::PublicationMatched,
+                hiroz::event::ZenohEventType::PublicationMatched,
                 matching_sub_count as i32,
             );
         }
@@ -262,7 +262,7 @@ pub extern "C" fn rmw_create_publisher(
     // Check for QoS incompatibility with existing subscriptions (only once per unique subscription GID)
     let pub_qos = crate::qos::normalize_rmw_qos(unsafe { &*qos_profile });
     let sub_entities =
-        graph.get_entities_by_topic(ros_z::entity::EndpointKind::Subscription, &entity.topic);
+        graph.get_entities_by_topic(hiroz::entity::EndpointKind::Subscription, &entity.topic);
 
     // Track which subscription GIDs we've already checked to avoid double-counting
     let local_zid = graph.zid;
@@ -270,7 +270,7 @@ pub extern "C" fn rmw_create_publisher(
     let mut incompatible_count = 0;
     let mut last_policy_kind = 0u32;
     for sub_entity in &sub_entities {
-        if let Some(endpoint) = ros_z::entity::entity_get_endpoint(sub_entity) {
+        if let Some(endpoint) = hiroz::entity::entity_get_endpoint(sub_entity) {
             // Skip Ros2Dds endpoints that carry no node identity
             let Some(node) = endpoint.node.as_ref() else {
                 continue;
@@ -283,13 +283,13 @@ pub extern "C" fn rmw_create_publisher(
             }
 
             // node is Some here, so endpoint_gid is always Some
-            let gid = ros_z::entity::endpoint_gid(endpoint).unwrap();
+            let gid = hiroz::entity::endpoint_gid(endpoint).unwrap();
             if !checked_gids.insert(gid) {
                 continue;
             }
 
-            let sub_qos = crate::qos::ros_z_qos_to_rmw_qos(
-                &crate::pubsub::protocol_qos_to_ros_z_qos(&endpoint.qos),
+            let sub_qos = crate::qos::hiroz_qos_to_rmw_qos(
+                &crate::pubsub::protocol_qos_to_hiroz_qos(&endpoint.qos),
             );
             let (compatible, policy_kind) =
                 crate::qos::check_qos_compatibility_with_policy(&pub_qos, &sub_qos);
@@ -299,7 +299,7 @@ pub extern "C" fn rmw_create_publisher(
                 // Also trigger the event on the subscription side (it's local, so it has an events_mgr)
                 graph.event_manager.trigger_event_with_policy(
                     &gid,
-                    ros_z::event::ZenohEventType::RequestedQosIncompatible,
+                    hiroz::event::ZenohEventType::RequestedQosIncompatible,
                     1,
                     policy_kind,
                 );
@@ -309,7 +309,7 @@ pub extern "C" fn rmw_create_publisher(
     if incompatible_count > 0 {
         if let Ok(mut mgr) = zpub.events_mgr().lock() {
             mgr.update_event_status_with_policy(
-                ros_z::event::ZenohEventType::OfferedQosIncompatible,
+                hiroz::event::ZenohEventType::OfferedQosIncompatible,
                 incompatible_count,
                 last_policy_kind,
             );
@@ -345,7 +345,7 @@ pub extern "C" fn rmw_create_publisher(
     // Add local entity to graph for immediate discovery
     if let Err(e) = publisher_impl
         .graph
-        .add_local_entity(ros_z::entity::Entity::Endpoint(entity))
+        .add_local_entity(hiroz::entity::Entity::Endpoint(entity))
     {
         tracing::error!("Failed to add local entity to graph: {:?}", e);
     }
@@ -389,7 +389,7 @@ pub extern "C" fn rmw_destroy_publisher(
 
     // Remove local entity from graph
     if let Ok(publisher_impl) = publisher.borrow_data() {
-        let entity = ros_z::entity::Entity::Endpoint(publisher_impl.entity.clone());
+        let entity = hiroz::entity::Entity::Endpoint(publisher_impl.entity.clone());
         tracing::debug!(
             "rmw_destroy_publisher: Removing publisher entity: topic={}, type={:?}, id={}",
             publisher_impl.entity.topic,
@@ -527,7 +527,7 @@ pub extern "C" fn rmw_create_subscription(
         .inner
         .create_sub::<crate::msg::RosMessage>(topic_str)
         .with_serdes::<crate::msg::RosSerdes>();
-    let qos = crate::qos::rmw_qos_to_ros_z_qos(unsafe { &*qos_policies });
+    let qos = crate::qos::rmw_qos_to_hiroz_qos(unsafe { &*qos_policies });
     let mut zsub_builder = zsub_builder.with_qos(qos);
 
     // Apply ignore_local_publications option by restricting to remote publishers only
@@ -578,7 +578,7 @@ pub extern "C" fn rmw_create_subscription(
 
     let entity = zsub.entity().clone();
     let entity_gid =
-        ros_z::entity::endpoint_gid(zsub.entity()).expect("subscriber always has node identity");
+        hiroz::entity::endpoint_gid(zsub.entity()).expect("subscriber always has node identity");
     let sub_topic = zsub.entity().topic.clone();
 
     // Register matched event callback with graph
@@ -592,10 +592,10 @@ pub extern "C" fn rmw_create_subscription(
     if let Err(e) = graph.event_manager.register_event_callback(
         entity_gid,
         sub_topic.clone(),
-        ros_z::event::ZenohEventType::SubscriptionMatched,
+        hiroz::event::ZenohEventType::SubscriptionMatched,
         move |change| {
             if let Ok(mut mgr) = events_mgr.lock() {
-                mgr.update_event_status(ros_z::event::ZenohEventType::SubscriptionMatched, change);
+                mgr.update_event_status(hiroz::event::ZenohEventType::SubscriptionMatched, change);
             }
             // Wake up wait sets
             notifier_clone_for_matched.notify_all();
@@ -611,14 +611,14 @@ pub extern "C" fn rmw_create_subscription(
     if let Err(e) = graph.event_manager.register_event_callback(
         entity_gid,
         sub_topic.clone(),
-        ros_z::event::ZenohEventType::RequestedQosIncompatible,
+        hiroz::event::ZenohEventType::RequestedQosIncompatible,
         move |encoded_change| {
             // Decode policy_kind from upper 16 bits and change from lower 16 bits
             let policy_kind = ((encoded_change >> 16) & 0xFFFF) as u32;
             let change = encoded_change & 0xFFFF;
             if let Ok(mut mgr) = events_mgr_clone.lock() {
                 mgr.update_event_status_with_policy(
-                    ros_z::event::ZenohEventType::RequestedQosIncompatible,
+                    hiroz::event::ZenohEventType::RequestedQosIncompatible,
                     change,
                     policy_kind,
                 );
@@ -634,11 +634,11 @@ pub extern "C" fn rmw_create_subscription(
     }
 
     // Check if there are already existing publishers for this topic and trigger the event
-    let matching_pub_count = graph.count(ros_z::entity::EndpointKind::Publisher, &entity.topic);
+    let matching_pub_count = graph.count(hiroz::entity::EndpointKind::Publisher, &entity.topic);
     if matching_pub_count > 0 {
         if let Ok(mut mgr) = zsub.events_mgr().lock() {
             mgr.update_event_status(
-                ros_z::event::ZenohEventType::SubscriptionMatched,
+                hiroz::event::ZenohEventType::SubscriptionMatched,
                 matching_pub_count as i32,
             );
         }
@@ -648,7 +648,7 @@ pub extern "C" fn rmw_create_subscription(
     // Check for QoS incompatibility with existing publishers (only once per unique publisher GID)
     let sub_qos = crate::qos::normalize_rmw_qos(unsafe { &*qos_policies });
     let pub_entities =
-        graph.get_entities_by_topic(ros_z::entity::EndpointKind::Publisher, &entity.topic);
+        graph.get_entities_by_topic(hiroz::entity::EndpointKind::Publisher, &entity.topic);
 
     // Track which publisher GIDs we've already checked to avoid double-counting
     let local_zid = graph.zid;
@@ -656,7 +656,7 @@ pub extern "C" fn rmw_create_subscription(
     let mut incompatible_count = 0;
     let mut last_policy_kind = 0u32;
     for pub_entity in &pub_entities {
-        if let Some(endpoint) = ros_z::entity::entity_get_endpoint(pub_entity) {
+        if let Some(endpoint) = hiroz::entity::entity_get_endpoint(pub_entity) {
             // Skip Ros2Dds endpoints that carry no node identity
             let Some(node) = endpoint.node.as_ref() else {
                 continue;
@@ -669,13 +669,13 @@ pub extern "C" fn rmw_create_subscription(
             }
 
             // node is Some here, so endpoint_gid is always Some
-            let gid = ros_z::entity::endpoint_gid(endpoint).unwrap();
+            let gid = hiroz::entity::endpoint_gid(endpoint).unwrap();
             if !checked_gids.insert(gid) {
                 continue;
             }
 
-            let pub_qos = crate::qos::ros_z_qos_to_rmw_qos(
-                &crate::pubsub::protocol_qos_to_ros_z_qos(&endpoint.qos),
+            let pub_qos = crate::qos::hiroz_qos_to_rmw_qos(
+                &crate::pubsub::protocol_qos_to_hiroz_qos(&endpoint.qos),
             );
             let (compatible, policy_kind) =
                 crate::qos::check_qos_compatibility_with_policy(&pub_qos, &sub_qos);
@@ -685,7 +685,7 @@ pub extern "C" fn rmw_create_subscription(
                 // Also trigger the event on the publisher side (it's local, so it has an events_mgr)
                 graph.event_manager.trigger_event_with_policy(
                     &gid,
-                    ros_z::event::ZenohEventType::OfferedQosIncompatible,
+                    hiroz::event::ZenohEventType::OfferedQosIncompatible,
                     1,
                     policy_kind,
                 );
@@ -695,7 +695,7 @@ pub extern "C" fn rmw_create_subscription(
     if incompatible_count > 0 {
         if let Ok(mut mgr) = zsub.events_mgr().lock() {
             mgr.update_event_status_with_policy(
-                ros_z::event::ZenohEventType::RequestedQosIncompatible,
+                hiroz::event::ZenohEventType::RequestedQosIncompatible,
                 incompatible_count,
                 last_policy_kind,
             );
@@ -726,7 +726,7 @@ pub extern "C" fn rmw_create_subscription(
     // Add local entity to graph for immediate discovery
     if let Err(e) = subscription_impl
         .graph
-        .add_local_entity(ros_z::entity::Entity::Endpoint(entity))
+        .add_local_entity(hiroz::entity::Entity::Endpoint(entity))
     {
         tracing::error!("Failed to add local entity to graph: {:?}", e);
     }
@@ -771,7 +771,7 @@ pub extern "C" fn rmw_destroy_subscription(
 
     // Remove local entity from graph
     if let Ok(subscription_impl) = subscription.borrow_data() {
-        let entity = ros_z::entity::Entity::Endpoint(subscription_impl.entity.clone());
+        let entity = hiroz::entity::Entity::Endpoint(subscription_impl.entity.clone());
         if let Err(e) = subscription_impl.graph.remove_local_entity(&entity) {
             tracing::trace!(
                 "rmw_destroy_subscription: Failed to remove local entity from graph: {:?}",
@@ -1009,9 +1009,9 @@ pub extern "C" fn rmw_create_client(
     };
     let notifier = context_impl.share_notifier();
 
-    // Create client using ros-z
-    let qos = crate::qos::rmw_qos_to_ros_z_qos(unsafe { &*qos_policies });
-    let qualified_service = match ros_z::topic_name::qualify_service_name(
+    // Create client using hiroz
+    let qos = crate::qos::rmw_qos_to_hiroz_qos(unsafe { &*qos_policies });
+    let qualified_service = match hiroz::topic_name::qualify_service_name(
         service_str,
         node_impl.inner.namespace(),
         node_impl.inner.name(),
@@ -1078,7 +1078,7 @@ pub extern "C" fn rmw_create_client(
     // Add local entity to graph for immediate discovery
     if let Err(e) = client_impl
         .graph
-        .add_local_entity(ros_z::entity::Entity::Endpoint(entity))
+        .add_local_entity(hiroz::entity::Entity::Endpoint(entity))
     {
         tracing::trace!(
             "rmw_create_client: Failed to add local entity to graph: {:?}",
@@ -1125,7 +1125,7 @@ pub extern "C" fn rmw_destroy_client(
     // Extract entity info before dropping the client
     let (entity, graph) = if let Ok(client_impl) = client.borrow_data() {
         (
-            Some(ros_z::entity::Entity::Endpoint(client_impl.entity.clone())),
+            Some(hiroz::entity::Entity::Endpoint(client_impl.entity.clone())),
             Some(client_impl.graph.clone()),
         )
     } else {
@@ -1205,9 +1205,9 @@ pub extern "C" fn rmw_create_service(
     };
     let notifier = context_impl.share_notifier();
 
-    // Create service using ros-z
-    let qos = crate::qos::rmw_qos_to_ros_z_qos(unsafe { &*qos_profile });
-    let qualified_service = match ros_z::topic_name::qualify_service_name(
+    // Create service using hiroz
+    let qos = crate::qos::rmw_qos_to_hiroz_qos(unsafe { &*qos_profile });
+    let qualified_service = match hiroz::topic_name::qualify_service_name(
         service_str,
         node_impl.inner.namespace(),
         node_impl.inner.name(),
@@ -1297,7 +1297,7 @@ pub extern "C" fn rmw_create_service(
     // Add local entity to graph for immediate discovery
     if let Err(e) = service_impl
         .graph
-        .add_local_entity(ros_z::entity::Entity::Endpoint(entity))
+        .add_local_entity(hiroz::entity::Entity::Endpoint(entity))
     {
         tracing::trace!(
             "rmw_create_service: Failed to add local entity to graph: {:?}",
@@ -1348,7 +1348,7 @@ pub extern "C" fn rmw_destroy_service(
     // Extract entity info before dropping the service
     let (entity, graph) = if let Ok(service_impl) = service.borrow_data() {
         (
-            Some(ros_z::entity::Entity::Endpoint(service_impl.entity.clone())),
+            Some(hiroz::entity::Entity::Endpoint(service_impl.entity.clone())),
             Some(service_impl.graph.clone()),
         )
     } else {
@@ -1691,7 +1691,7 @@ pub extern "C" fn rmw_count_publishers(
     let publisher_count = node_impl
         .inner
         .graph()
-        .count(ros_z::entity::EndpointKind::Publisher, topic_str);
+        .count(hiroz::entity::EndpointKind::Publisher, topic_str);
 
     unsafe {
         *count = publisher_count;
@@ -1741,7 +1741,7 @@ pub extern "C" fn rmw_count_subscribers(
     let subscriber_count = node_impl
         .inner
         .graph()
-        .count(ros_z::entity::EndpointKind::Subscription, topic_str);
+        .count(hiroz::entity::EndpointKind::Subscription, topic_str);
 
     unsafe {
         *count = subscriber_count;
@@ -1813,7 +1813,7 @@ pub extern "C" fn rmw_count_clients(
     let client_count = node_impl
         .inner
         .graph()
-        .count_by_service(ros_z::entity::EndpointKind::Client, service_str);
+        .count_by_service(hiroz::entity::EndpointKind::Client, service_str);
 
     unsafe {
         *count = client_count;
@@ -1863,7 +1863,7 @@ pub extern "C" fn rmw_count_services(
     let service_count = node_impl
         .inner
         .graph()
-        .count_by_service(ros_z::entity::EndpointKind::Service, service_str);
+        .count_by_service(hiroz::entity::EndpointKind::Service, service_str);
 
     unsafe {
         *count = service_count;
@@ -1914,7 +1914,7 @@ pub extern "C" fn rmw_get_publishers_info_by_topic(
     let publishers = node_impl
         .inner
         .graph()
-        .get_entities_by_topic(ros_z::entity::EndpointKind::Publisher, topic_str);
+        .get_entities_by_topic(hiroz::entity::EndpointKind::Publisher, topic_str);
 
     let count = publishers.len();
 
@@ -1933,7 +1933,7 @@ pub extern "C" fn rmw_get_publishers_info_by_topic(
         for (i, entity) in publishers.iter().enumerate() {
             // Extract endpoint entity from Entity enum
             let endpoint = match entity.as_ref() {
-                ros_z::entity::Entity::Endpoint(ep) => ep,
+                hiroz::entity::Entity::Endpoint(ep) => ep,
                 _ => continue, // Skip non-endpoint entities
             };
 
@@ -1999,33 +1999,33 @@ pub extern "C" fn rmw_get_publishers_info_by_topic(
             gid_data[..copy_len].copy_from_slice(&gid_bytes[..copy_len]);
             (*endpoint_info).endpoint_gid = gid_data;
 
-            // Set QoS profile - convert from protocol QoS to ros_z QoS to rmw QoS
-            let ros_z_qos = ros_z::qos::QosProfile {
+            // Set QoS profile - convert from protocol QoS to hiroz QoS to rmw QoS
+            let hiroz_qos = hiroz::qos::QosProfile {
                 reliability: match endpoint.qos.reliability {
-                    ros_z_protocol::qos::QosReliability::Reliable => {
-                        ros_z::qos::QosReliability::Reliable
+                    hiroz_protocol::qos::QosReliability::Reliable => {
+                        hiroz::qos::QosReliability::Reliable
                     }
-                    ros_z_protocol::qos::QosReliability::BestEffort => {
-                        ros_z::qos::QosReliability::BestEffort
+                    hiroz_protocol::qos::QosReliability::BestEffort => {
+                        hiroz::qos::QosReliability::BestEffort
                     }
                 },
                 durability: match endpoint.qos.durability {
-                    ros_z_protocol::qos::QosDurability::TransientLocal => {
-                        ros_z::qos::QosDurability::TransientLocal
+                    hiroz_protocol::qos::QosDurability::TransientLocal => {
+                        hiroz::qos::QosDurability::TransientLocal
                     }
-                    ros_z_protocol::qos::QosDurability::Volatile => {
-                        ros_z::qos::QosDurability::Volatile
+                    hiroz_protocol::qos::QosDurability::Volatile => {
+                        hiroz::qos::QosDurability::Volatile
                     }
                 },
                 history: match endpoint.qos.history {
-                    ros_z_protocol::qos::QosHistory::KeepLast(depth) => {
-                        ros_z::qos::QosHistory::from_depth(depth)
+                    hiroz_protocol::qos::QosHistory::KeepLast(depth) => {
+                        hiroz::qos::QosHistory::from_depth(depth)
                     }
-                    ros_z_protocol::qos::QosHistory::KeepAll => ros_z::qos::QosHistory::KeepAll,
+                    hiroz_protocol::qos::QosHistory::KeepAll => hiroz::qos::QosHistory::KeepAll,
                 },
                 ..Default::default()
             };
-            (*endpoint_info).qos_profile = crate::qos::ros_z_qos_to_rmw_qos(&ros_z_qos);
+            (*endpoint_info).qos_profile = crate::qos::hiroz_qos_to_rmw_qos(&hiroz_qos);
         }
     }
 
@@ -2115,7 +2115,7 @@ pub extern "C" fn rmw_get_subscriber_names_and_types_by_node(
     let entities_and_types = node_impl
         .inner
         .graph()
-        .get_names_and_types_by_node(node_key, ros_z::entity::EndpointKind::Subscription);
+        .get_names_and_types_by_node(node_key, hiroz::entity::EndpointKind::Subscription);
 
     // Group by entity name
     let mut entity_map: std::collections::BTreeMap<String, Vec<String>> =
@@ -2618,7 +2618,7 @@ pub extern "C" fn rmw_get_gid_for_publisher(
         Err(_) => return RMW_RET_INVALID_ARGUMENT as _,
     };
 
-    let gid_array = ros_z::entity::endpoint_gid(&publisher_impl.entity)
+    let gid_array = hiroz::entity::endpoint_gid(&publisher_impl.entity)
         .expect("publisher always has node identity");
     unsafe {
         (*gid).implementation_identifier = crate::RMW_ZENOH_IDENTIFIER.as_ptr() as *const _;
@@ -2651,7 +2651,7 @@ pub extern "C" fn rmw_get_gid_for_client(
     };
 
     let gid_array =
-        ros_z::entity::endpoint_gid(&client_impl.entity).expect("client always has node identity");
+        hiroz::entity::endpoint_gid(&client_impl.entity).expect("client always has node identity");
     unsafe {
         (*gid).implementation_identifier = crate::RMW_ZENOH_IDENTIFIER.as_ptr() as *const _;
         (*gid).data.copy_from_slice(&gid_array);
@@ -2767,7 +2767,7 @@ pub extern "C" fn rmw_service_server_is_available(
     let server_count = node_impl
         .inner
         .graph()
-        .count(ros_z::entity::EndpointKind::Service, service_name);
+        .count(hiroz::entity::EndpointKind::Service, service_name);
 
     unsafe {
         *is_available = server_count > 0;
@@ -2957,7 +2957,7 @@ pub extern "C" fn rmw_get_client_names_and_types_by_node(
     let entities_and_types = node_impl
         .inner
         .graph()
-        .get_names_and_types_by_node(node_key, ros_z::entity::EndpointKind::Client);
+        .get_names_and_types_by_node(node_key, hiroz::entity::EndpointKind::Client);
 
     let mut entity_map: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
@@ -3119,7 +3119,7 @@ pub extern "C" fn rmw_get_publisher_names_and_types_by_node(
     let entities_and_types = node_impl
         .inner
         .graph()
-        .get_names_and_types_by_node(node_key, ros_z::entity::EndpointKind::Publisher);
+        .get_names_and_types_by_node(node_key, hiroz::entity::EndpointKind::Publisher);
 
     let mut entity_map: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
@@ -3301,7 +3301,7 @@ pub extern "C" fn rmw_get_service_names_and_types_by_node(
     let entities_and_types = node_impl
         .inner
         .graph()
-        .get_names_and_types_by_node(node_key, ros_z::entity::EndpointKind::Service);
+        .get_names_and_types_by_node(node_key, hiroz::entity::EndpointKind::Service);
 
     let mut entity_map: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
@@ -3426,7 +3426,7 @@ pub extern "C" fn rmw_get_subscriptions_info_by_topic(
     let subscriptions = node_impl
         .inner
         .graph()
-        .get_entities_by_topic(ros_z::entity::EndpointKind::Subscription, topic_str);
+        .get_entities_by_topic(hiroz::entity::EndpointKind::Subscription, topic_str);
 
     let count = subscriptions.len();
 
@@ -3445,7 +3445,7 @@ pub extern "C" fn rmw_get_subscriptions_info_by_topic(
         for (i, entity) in subscriptions.iter().enumerate() {
             // Extract endpoint entity from Entity enum
             let endpoint = match entity.as_ref() {
-                ros_z::entity::Entity::Endpoint(ep) => ep,
+                hiroz::entity::Entity::Endpoint(ep) => ep,
                 _ => continue, // Skip non-endpoint entities
             };
 
@@ -3511,33 +3511,33 @@ pub extern "C" fn rmw_get_subscriptions_info_by_topic(
             gid_data[..copy_len].copy_from_slice(&gid_bytes[..copy_len]);
             (*endpoint_info).endpoint_gid = gid_data;
 
-            // Set QoS profile - convert from protocol QoS to ros_z QoS to rmw QoS
-            let ros_z_qos = ros_z::qos::QosProfile {
+            // Set QoS profile - convert from protocol QoS to hiroz QoS to rmw QoS
+            let hiroz_qos = hiroz::qos::QosProfile {
                 reliability: match endpoint.qos.reliability {
-                    ros_z_protocol::qos::QosReliability::Reliable => {
-                        ros_z::qos::QosReliability::Reliable
+                    hiroz_protocol::qos::QosReliability::Reliable => {
+                        hiroz::qos::QosReliability::Reliable
                     }
-                    ros_z_protocol::qos::QosReliability::BestEffort => {
-                        ros_z::qos::QosReliability::BestEffort
+                    hiroz_protocol::qos::QosReliability::BestEffort => {
+                        hiroz::qos::QosReliability::BestEffort
                     }
                 },
                 durability: match endpoint.qos.durability {
-                    ros_z_protocol::qos::QosDurability::TransientLocal => {
-                        ros_z::qos::QosDurability::TransientLocal
+                    hiroz_protocol::qos::QosDurability::TransientLocal => {
+                        hiroz::qos::QosDurability::TransientLocal
                     }
-                    ros_z_protocol::qos::QosDurability::Volatile => {
-                        ros_z::qos::QosDurability::Volatile
+                    hiroz_protocol::qos::QosDurability::Volatile => {
+                        hiroz::qos::QosDurability::Volatile
                     }
                 },
                 history: match endpoint.qos.history {
-                    ros_z_protocol::qos::QosHistory::KeepLast(depth) => {
-                        ros_z::qos::QosHistory::from_depth(depth)
+                    hiroz_protocol::qos::QosHistory::KeepLast(depth) => {
+                        hiroz::qos::QosHistory::from_depth(depth)
                     }
-                    ros_z_protocol::qos::QosHistory::KeepAll => ros_z::qos::QosHistory::KeepAll,
+                    hiroz_protocol::qos::QosHistory::KeepAll => hiroz::qos::QosHistory::KeepAll,
                 },
                 ..Default::default()
             };
-            (*endpoint_info).qos_profile = crate::qos::ros_z_qos_to_rmw_qos(&ros_z_qos);
+            (*endpoint_info).qos_profile = crate::qos::hiroz_qos_to_rmw_qos(&hiroz_qos);
         }
     }
 

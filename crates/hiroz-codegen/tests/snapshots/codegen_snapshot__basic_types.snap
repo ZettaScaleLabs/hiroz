@@ -1,0 +1,203 @@
+---
+source: crates/hiroz-codegen/tests/codegen_snapshot.rs
+assertion_line: 62
+expression: format_tokens(tokens)
+---
+#[derive(Debug, Clone, Default, ::serde::Serialize, ::serde::Deserialize)]
+#[cfg_attr(
+    feature = "python_registry",
+    derive(::hiroz_derive::FromPyMessage, ::hiroz_derive::IntoPyMessage)
+)]
+#[cfg_attr(
+    feature = "python_registry",
+    ros_msg(module = "hiroz_msgs_py.types.test_interface_files")
+)]
+pub struct BasicTypes {
+    pub bool_value: bool,
+    pub byte_value: u8,
+    pub char_value: i8,
+    pub float32_value: f32,
+    pub float64_value: f64,
+    pub int8_value: i8,
+    pub uint8_value: u8,
+    pub int16_value: i16,
+    pub uint16_value: u16,
+    pub int32_value: i32,
+    pub uint32_value: u32,
+    pub int64_value: i64,
+    pub uint64_value: u64,
+}
+impl BasicTypes {}
+impl ::hiroz::MessageTypeInfo for BasicTypes {
+    fn type_name() -> &'static str {
+        "test_interface_files::msg::dds_::BasicTypes_"
+    }
+    fn type_hash() -> ::hiroz::entity::TypeHash {
+        ::hiroz::entity::TypeHash::from_rihs_string(
+                "RIHS01_8614a017261eb9eecc4cf82f044feab34bedbd2b83c031f451ba15e8daa97247",
+            )
+            .expect("Invalid RIHS hash")
+    }
+    fn message_schema() -> Option<::std::sync::Arc<::hiroz::dynamic::MessageSchema>> {
+        static SCHEMA: ::std::sync::OnceLock<
+            ::std::sync::Arc<::hiroz::dynamic::MessageSchema>,
+        > = ::std::sync::OnceLock::new();
+        Some(
+            SCHEMA
+                .get_or_init(|| {
+                    ::hiroz::dynamic::MessageSchema::builder(
+                            "test_interface_files/msg/BasicTypes",
+                        )
+                        .field("bool_value", ::hiroz::dynamic::FieldType::Bool)
+                        .field("byte_value", ::hiroz::dynamic::FieldType::Uint8)
+                        .field("char_value", ::hiroz::dynamic::FieldType::Uint8)
+                        .field("float32_value", ::hiroz::dynamic::FieldType::Float32)
+                        .field("float64_value", ::hiroz::dynamic::FieldType::Float64)
+                        .field("int8_value", ::hiroz::dynamic::FieldType::Int8)
+                        .field("uint8_value", ::hiroz::dynamic::FieldType::Uint8)
+                        .field("int16_value", ::hiroz::dynamic::FieldType::Int16)
+                        .field("uint16_value", ::hiroz::dynamic::FieldType::Uint16)
+                        .field("int32_value", ::hiroz::dynamic::FieldType::Int32)
+                        .field("uint32_value", ::hiroz::dynamic::FieldType::Uint32)
+                        .field("int64_value", ::hiroz::dynamic::FieldType::Int64)
+                        .field("uint64_value", ::hiroz::dynamic::FieldType::Uint64)
+                        .build()
+                        .expect("generated message schema must be valid")
+                })
+                .clone(),
+        )
+    }
+}
+impl ::hiroz::ros_msg::WithTypeInfo for BasicTypes {}
+impl crate::size_estimation::SizeEstimation for BasicTypes {
+    fn estimated_cdr_size(&self) -> usize {
+        let mut size = 0usize;
+        size += 1usize;
+        size += 1usize;
+        size += 1usize;
+        size += 4usize;
+        size += 8usize;
+        size += 1usize;
+        size += 1usize;
+        size += 2usize;
+        size += 2usize;
+        size += 4usize;
+        size += 4usize;
+        size += 8usize;
+        size += 8usize;
+        size + 16
+    }
+}
+impl BasicTypes {
+    /// Get an accurate estimate of the serialized CDR size.
+    ///
+    /// This implementation accounts for dynamic fields (Vec, String, ZBuf)
+    /// and provides a conservative but accurate upper bound for SHM allocation.
+    pub fn estimated_serialized_size(&self) -> usize {
+        4 + crate::size_estimation::SizeEstimation::estimated_cdr_size(self)
+    }
+}
+impl ::hiroz_cdr::CdrSerialize for BasicTypes {
+    fn cdr_serialize<BO, B>(&self, __w: &mut ::hiroz_cdr::CdrWriter<'_, BO, B>)
+    where
+        BO: ::byteorder::ByteOrder,
+        B: ::hiroz_cdr::CdrBuffer,
+    {
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.bool_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.byte_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.char_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.float32_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.float64_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.int8_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.uint8_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.int16_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.uint16_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.int32_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.uint32_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.int64_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.uint64_value, __w);
+    }
+}
+impl ::hiroz_cdr::CdrDeserialize for BasicTypes {
+    fn cdr_deserialize<'__de, BO>(
+        __r: &mut ::hiroz_cdr::CdrReader<'__de, BO>,
+    ) -> ::hiroz_cdr::Result<Self>
+    where
+        BO: ::byteorder::ByteOrder,
+    {
+        let bool_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let byte_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let char_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let float32_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let float64_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let int8_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let uint8_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let int16_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let uint16_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let int32_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let uint32_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let int64_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let uint64_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        Ok(Self {
+            bool_value,
+            byte_value,
+            char_value,
+            float32_value,
+            float64_value,
+            int8_value,
+            uint8_value,
+            int16_value,
+            uint16_value,
+            int32_value,
+            uint32_value,
+            int64_value,
+            uint64_value,
+        })
+    }
+}
+impl ::hiroz_cdr::CdrSerializedSize for BasicTypes {
+    fn cdr_serialized_size(&self, __pos: usize) -> usize {
+        let mut __p = __pos;
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(&self.bool_value, __p);
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(&self.byte_value, __p);
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(&self.char_value, __p);
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.float32_value,
+            __p,
+        );
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.float64_value,
+            __p,
+        );
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(&self.int8_value, __p);
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.uint8_value,
+            __p,
+        );
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.int16_value,
+            __p,
+        );
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.uint16_value,
+            __p,
+        );
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.int32_value,
+            __p,
+        );
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.uint32_value,
+            __p,
+        );
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.int64_value,
+            __p,
+        );
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.uint64_value,
+            __p,
+        );
+        __p
+    }
+}

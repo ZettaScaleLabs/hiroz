@@ -2,7 +2,7 @@
 
 ## Generating Config Files
 
-ros-z can generate JSON5 config files matching [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) defaults. This is opt-in via the `generate-configs` feature flag.
+hiroz can generate JSON5 config files matching [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) defaults. This is opt-in via the `generate-configs` feature flag.
 
 ### Basic Generation
 
@@ -13,31 +13,31 @@ cargo build --features generate-configs
 **Output location:**
 
 ```console
-target/debug/build/ros-z-*/out/ros_z_config/
-  ├── DEFAULT_ROSZ_ROUTER_CONFIG.json5
-  └── DEFAULT_ROSZ_SESSION_CONFIG.json5
+target/debug/build/hiroz-*/out/hiroz_config/
+  ├── DEFAULT_HIROZ_ROUTER_CONFIG.json5
+  └── DEFAULT_HIROZ_SESSION_CONFIG.json5
 ```
 
 ### Custom Output Directory
 
-Specify a custom directory using the `ROS_Z_CONFIG_OUTPUT_DIR` environment variable:
+Specify a custom directory using the `HIROZ_CONFIG_OUTPUT_DIR` environment variable:
 
 **Absolute path:**
 
 ```bash
-ROS_Z_CONFIG_OUTPUT_DIR=/etc/zenoh cargo build --features generate-configs
+HIROZ_CONFIG_OUTPUT_DIR=/etc/zenoh cargo build --features generate-configs
 ```
 
 **Relative path (from package root):**
 
 ```bash
-ROS_Z_CONFIG_OUTPUT_DIR=./config cargo build --features generate-configs
+HIROZ_CONFIG_OUTPUT_DIR=./config cargo build --features generate-configs
 ```
 
 **From workspace root:**
 
 ```bash
-ROS_Z_CONFIG_OUTPUT_DIR=$PWD/config cargo build -p ros-z --features generate-configs
+HIROZ_CONFIG_OUTPUT_DIR=$PWD/config cargo build -p hiroz --features generate-configs
 ```
 
 !!! tip
@@ -47,7 +47,7 @@ ROS_Z_CONFIG_OUTPUT_DIR=$PWD/config cargo build -p ros-z --features generate-con
 
 ```rust
 let ctx = ZContextBuilder::default()
-    .with_config_file("./config/DEFAULT_ROSZ_SESSION_CONFIG.json5")
+    .with_config_file("./config/DEFAULT_HIROZ_SESSION_CONFIG.json5")
     .build()?;
 ```
 
@@ -71,7 +71,7 @@ let ctx = ZContextBuilder::default()
 
 ## Example: Full Session Config
 
-A typical generated `DEFAULT_ROSZ_SESSION_CONFIG.json5` looks like this. Copy it, edit
+A typical generated `DEFAULT_HIROZ_SESSION_CONFIG.json5` looks like this. Copy it, edit
 the fields you need, and pass it to `.with_config_file()`:
 
 ```json5
@@ -97,7 +97,7 @@ the fields you need, and pass it to `.with_config_file()`:
 
   scouting: {
     multicast: {
-      // Multicast disabled — ros-z uses router-based discovery
+      // Multicast disabled — hiroz uses router-based discovery
       enabled: false,
     },
     gossip: {
@@ -197,7 +197,7 @@ A valid config produces:
 
 ```text
 [INFO] Opening session...
-[INFO] Declaring Publisher on 'ros-z/example'...
+[INFO] Declaring Publisher on 'hiroz/example'...
 ```
 
 An invalid config produces a parse error before the session opens.

@@ -1,9 +1,9 @@
 #!/usr/bin/env nu
 # Extract --help text from examples and optionally generate markdown reference
 
-# Extract example names from ros-z/Cargo.toml
+# Extract example names from hiroz/Cargo.toml
 def extract_examples [] {
-    let content = (cat ros-z/Cargo.toml)
+    let content = (cat hiroz/Cargo.toml)
     $content
     | split row "[[example]]"
     | skip 1

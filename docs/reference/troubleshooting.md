@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Quick solutions to common ros-z build and runtime issues.** Click on any question to expand the answer.
+**Quick solutions to common hiroz build and runtime issues.** Click on any question to expand the answer.
 
 !!! tip
     Most issues fall into three categories: build configuration, runtime connectivity, or ROS 2 integration.
@@ -34,8 +34,8 @@
 
     4. **Clean and rebuild:**
        ```bash
-       cargo clean -p ros-z-msgs
-       cargo build -p ros-z-msgs
+       cargo clean -p hiroz-msgs
+       cargo build -p hiroz-msgs
        ```
 
     **Common Error Messages:**
@@ -46,20 +46,20 @@
     | "Cannot find ament_index" | Install ROS 2 or use bundled msgs |
     | "AMENT_PREFIX_PATH not set" | Run `source /opt/ros/jazzy/setup.bash` |
 
-??? question "Compiler error: cannot find crate ros_z_msgs"
-    **Root Cause:** `ros-z-msgs` is not part of default workspace members.
+??? question "Compiler error: cannot find crate hiroz_msgs"
+    **Root Cause:** `hiroz-msgs` is not part of default workspace members.
 
     **Solution:**
 
     ```bash
-    # Build ros-z-msgs explicitly
-    cargo build -p ros-z-msgs
+    # Build hiroz-msgs explicitly
+    cargo build -p hiroz-msgs
 
     # Then build your example
     cargo build --example z_srvcli
     ```
 
-    **Note:** `ros-z-msgs` is excluded from default builds to avoid requiring ROS 2 for core development. Build it explicitly when needed.
+    **Note:** `hiroz-msgs` is excluded from default builds to avoid requiring ROS 2 for core development. Build it explicitly when needed.
 
 ??? question "Build takes too long to complete"
     **Solutions:**
@@ -69,7 +69,7 @@
     cargo build -j $(nproc)
 
     # Build only what you need
-    cargo build -p ros-z-msgs --features std_msgs,geometry_msgs
+    cargo build -p hiroz-msgs --features std_msgs,geometry_msgs
     ```
 
 ??? question "Linker errors during build (especially with rcl-z)"
@@ -82,7 +82,7 @@
     cargo build -p rcl-z
     ```
 
-    **Warning:** After changing feature flags or updating ROS 2, run `cargo clean -p ros-z-msgs` to force message regeneration.
+    **Warning:** After changing feature flags or updating ROS 2, run `cargo clean -p hiroz-msgs` to force message regeneration.
 
 ## Runtime Issues
 
@@ -126,7 +126,7 @@
        ```
 
 ??? question "Can I skip the router and use peer-to-peer mode?"
-    **No** — ros-z requires a Zenoh router for reliable operation and ROS 2 interoperability. Peer-to-peer mode is not supported.
+    **No** — hiroz requires a Zenoh router for reliable operation and ROS 2 interoperability. Peer-to-peer mode is not supported.
 
     If you don't want to install a router locally, the easiest alternative is Docker:
     ```bash
@@ -138,15 +138,15 @@
 ??? question "Multi-segment topics like /robot/sensors/camera don't work"
     **Symptom:** Publisher publishes to `/robot/sensors/camera` but subscriber never receives messages.
 
-    **Root Cause:** Old versions of ros-z (before 0.1.0) incorrectly mangled slashes in topic key expressions, breaking multi-segment topic routing.
+    **Root Cause:** Old versions of hiroz (before 0.1.0) incorrectly mangled slashes in topic key expressions, breaking multi-segment topic routing.
 
-    **Solution:** Update to ros-z 0.1.0+ which correctly preserves internal slashes in topic key expressions.
+    **Solution:** Update to hiroz 0.1.0+ which correctly preserves internal slashes in topic key expressions.
 
     **Verify the fix:**
 
     ```bash
     # Enable debug logging to see key expressions
-    RUST_LOG=ros_z=debug cargo run --example z_pubsub
+    RUST_LOG=hiroz=debug cargo run --example z_pubsub
     ```
 
     Look for key expressions in the output:
@@ -164,15 +164,15 @@
 
     See [Key Expression Formats](../experimental/keyexpr-formats.md#key-expression-behavior-important) for details.
 
-??? question "ROS 2 nodes don't receive messages from ros-z (type hash mismatch)"
-    **Root Cause:** Type hash mismatch — ros-z and the ROS 2 node disagree on the message definition's RIHS01 hash.
+??? question "ROS 2 nodes don't receive messages from hiroz (type hash mismatch)"
+    **Root Cause:** Type hash mismatch — hiroz and the ROS 2 node disagree on the message definition's RIHS01 hash.
 
     **Diagnosis:**
 
     Enable debug logging to see the key expressions being advertised:
 
     ```bash
-    RUST_LOG=ros_z=debug cargo run --example z_pubsub
+    RUST_LOG=hiroz=debug cargo run --example z_pubsub
     ```
 
     Look for the hash in the key expression output:
@@ -189,7 +189,7 @@
     |-------|-----|
     | Wrong package used (e.g. `action_tutorials_interfaces` vs `example_interfaces`) | Use the exact package the ROS 2 node uses — check with `ros2 interface show` |
     | Message definition mismatch (extra/missing field) | Verify field names match: `ros2 interface show <pkg>/msg/<Msg>` |
-    | ros-z-msgs generated from stale `.msg` files | `cargo clean -p ros-z-msgs && cargo build -p ros-z-msgs` |
+    | hiroz-msgs generated from stale `.msg` files | `cargo clean -p hiroz-msgs && cargo build -p hiroz-msgs` |
 
     **Verify the correct type:**
 
@@ -197,13 +197,13 @@
     ros2 interface show std_msgs/msg/String
     ```
 
-    Then check that `ros-z-codegen/assets/jazzy/std_msgs/msg/String.msg` matches exactly.
+    Then check that `hiroz-codegen/assets/jazzy/std_msgs/msg/String.msg` matches exactly.
 
 ## Resources
 
 - **[Building Guide](../getting-started/building.md)** - Correct build procedures
 - **[Networking](../user-guide/networking.md)** - Zenoh router setup
 - **[Feature Flags](./feature-flags.md)** - Available features
-- **[GitHub Issues](https://github.com/ZettaScaleLabs/ros-z/issues)** - Report bugs
+- **[GitHub Issues](https://github.com/ZettaScaleLabs/hiroz/issues)** - Report bugs
 
 **Most issues are environmental. Verify your setup matches the build scenario requirements before diving deeper.**

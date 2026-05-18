@@ -62,10 +62,10 @@ jobs:
             ros-jazzy-test-msgs \
             ros-jazzy-osrf-testing-tools-cpp
 
-      - name: Checkout ros-z
+      - name: Checkout hiroz
         uses: actions/checkout@v4
         with:
-          path: ros-z
+          path: hiroz
 
       - name: Checkout rcl fork
         uses: actions/checkout@v4
@@ -89,12 +89,12 @@ jobs:
           NU_URL=https://github.com/nushell/nushell/releases/download
           curl -L ${NU_URL}/${NU_VERSION}/${NU_PKG}.tar.gz | tar xz
           mv ${NU_PKG}/nu /usr/local/bin/
-          chmod +x ros-z/scripts/test-ros-packages.nu
+          chmod +x hiroz/scripts/test-ros-packages.nu
 
       - name: Test ROS packages
         shell: bash
         run: |
-          cd ros-z
+          cd hiroz
           source /opt/ros/jazzy/setup.bash
           TEST_FILTER="${{ github.event.inputs.test_filter }}"
           if [ -z "$TEST_FILTER" ]; then
@@ -102,7 +102,7 @@ jobs:
           fi
           nu scripts/test-ros-packages.nu \
             --ws-dir $GITHUB_WORKSPACE/ws \
-            --rmw-path $GITHUB_WORKSPACE/ros-z/crates/rmw-zenoh-rs \
+            --rmw-path $GITHUB_WORKSPACE/hiroz/crates/rmw-zenoh-rs \
             --verbose \
             --include-filter "$TEST_FILTER" \
             --exclude-filter "test_count_matched|test_events"

@@ -1,0 +1,65 @@
+[package]
+name = "hiroz-tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# NOTE: This crate requires hiroz-msgs (which needs ROS dependencies) for integration tests.
+# To build without ROS, exclude this crate from the workspace build:
+#   cargo build --workspace --exclude hiroz-msgs --exclude hiroz-tests
+
+[dependencies]
+hiroz = { path = "../hiroz", default-features = false, features = ["protobuf"] }
+hiroz-msgs = { path = "../hiroz-msgs", default-features = false, optional = true }
+hiroz-cdr = { path = "../hiroz-cdr" }
+hiroz-schema = { path = "../hiroz-schema" }
+protobuf_demo = { path = "../hiroz/examples/protobuf_demo" }
+
+# Test runtime dependencies
+zenoh = { workspace = true } # For per-test router sessions
+zenoh-buffers = { workspace = true } # For ZBuf operations in tests
+tokio = { workspace = true, features = ["full"] }
+once_cell = { workspace = true } # For lazy static zenohd daemon
+serial_test = "3.0" # For sequential test execution
+tracing-subscriber = { version = "0.3", features = [
+  "env-filter",
+] } # For RUST_LOG in tests
+nix = { version = "0.29", features = [
+  "signal",
+] } # For graceful process shutdown
+prost = { workspace = true } # For protobuf service tests
+serde = { workspace = true } # For CDR serialization in dds_interop tests
+
+[features]
+default = []
+ros-msgs = [
+  "dep:hiroz-msgs",
+  "hiroz-msgs/std_msgs",
+  "hiroz-msgs/geometry_msgs",
+  "hiroz-msgs/sensor_msgs",
+  "hiroz-msgs/nav_msgs",
+  "hiroz-msgs/rcl_interfaces",
+]
+ros-interop = [
+  "ros-msgs",
+  "hiroz-msgs/example_interfaces",
+  "hiroz-msgs/action_tutorials_interfaces",
+]
+python-interop = ["ros-msgs"]
+
+# Humble ↔ Jazzy bridge integration tests (requires nix + ros-humble shell)
+humble-jazzy-bridge-tests = [
+  "ros-msgs",
+  "hiroz-msgs/example_interfaces",
+  "hiroz-msgs/action_tutorials_interfaces",
+]
+
+# ros2dds backend interop (with zenoh-bridge-ros2dds)
+# This enables testing hiroz with DDS-based ROS 2 nodes via zenoh-bridge-ros2dds
+ros2dds-interop = ["ros-msgs", "hiroz/ros2dds", "hiroz/rmw-zenoh"]
+
+# ROS 2 distro compatibility - propagate to hiroz and hiroz-msgs
+humble = ["hiroz/humble", "hiroz-msgs/humble"]
+jazzy = ["hiroz/jazzy", "hiroz-msgs/jazzy"]
+rolling = ["hiroz/rolling", "hiroz-msgs/rolling"]
+kilted = ["hiroz/kilted", "hiroz-msgs/kilted"]

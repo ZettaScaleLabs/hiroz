@@ -1,0 +1,181 @@
+//! Service Backend Tests
+//!
+//! Tests verifying that service clients and servers work correctly
+//! with different backends (RmwZenoh and Ros2Dds).
+//!
+//! Run with:
+//! ```bash
+//! # Test RmwZenoh backend
+//! cargo test -p hiroz-tests --test service_backend --features ros-msgs
+//!
+//! # Test Ros2Dds backend
+//! cargo test -p hiroz-tests --test service_backend --features ros2dds-interop
+//! ```
+
+#![cfg(feature = "ros-msgs")]
+
+use std::time::Duration;
+
+#[cfg(feature = "ros2dds-interop")]
+use hiroz::backend::Ros2DdsBackend;
+use hiroz::{Builder, backend::RmwZenohBackend, context::ZContextBuilder};
+use hiroz_msgs::example_interfaces::{AddTwoIntsRequest, AddTwoIntsResponse, srv::AddTwoInts};
+
+/// Test service communication with RmwZenoh backend
+#[tokio::test]
+async fn test_service_rmw_zenoh_backend() {
+    let result = std::panic::catch_unwind(|| {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            // Create context
+            let ctx = ZContextBuilder::default()
+                .with_connect_endpoints(["tcp/127.0.0.1:7447"])
+                .build()
+                .expect("Failed to create context");
+
+            // Server task
+            let ctx_server = ctx.clone();
+            let server_handle = tokio::spawn(async move {
+                let node = ctx_server
+                    .create_node("test_server")
+                    .build()
+                    .expect("Failed to create server node");
+
+                let mut service = node
+                    .create_service::<AddTwoInts>("add_two_ints_test")
+                    .with_backend::<RmwZenohBackend>()
+                    .build()
+                    .expect("Failed to create service");
+
+                // Handle one request
+                match service.take_request_async().await {
+                    Ok((key, req)) => {
+                        let resp = AddTwoIntsResponse { sum: req.a + req.b };
+                        service
+                            .send_response(&resp, &key)
+                            .expect("Failed to send response");
+                        true
+                    }
+                    Err(_) => false,
+                }
+            });
+
+            // Give server time to start
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            // Client
+            let node = ctx
+                .create_node("test_client")
+                .build()
+                .expect("Failed to create client node");
+
+            let client = node
+                .create_client::<AddTwoInts>("add_two_ints_test")
+                .with_backend::<RmwZenohBackend>()
+                .build()
+                .expect("Failed to create client");
+
+            let req = AddTwoIntsRequest { a: 10, b: 20 };
+            client
+                .send_request(&req)
+                .await
+                .expect("Failed to send request");
+
+            let resp = client
+                .take_response_timeout(Duration::from_secs(5))
+                .expect("Failed to receive response");
+
+            assert_eq!(resp.sum, 30, "Expected 10 + 20 = 30");
+
+            // Wait for server with timeout
+            let server_handled = tokio::time::timeout(Duration::from_secs(1), server_handle)
+                .await
+                .expect("Server timeout")
+                .expect("Server task panicked");
+            assert!(server_handled, "Server should have handled the request");
+        });
+    });
+
+    if result.is_err() {
+        eprintln!("Test skipped: Zenoh router may not be running on tcp/127.0.0.1:7447");
+    }
+}
+
+/// Test service communication with Ros2Dds backend
+#[cfg(feature = "ros2dds-interop")]
+#[tokio::test]
+async fn test_service_ros2dds_backend() {
+    let result = std::panic::catch_unwind(|| {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            // Create context
+            let ctx = ZContextBuilder::default()
+                .with_connect_endpoints(["tcp/127.0.0.1:7447"])
+                .build()
+                .expect("Failed to create context");
+
+            // Server task
+            let ctx_server = ctx.clone();
+            let server_handle = tokio::spawn(async move {
+                let node = ctx_server
+                    .create_node("test_server_dds")
+                    .build()
+                    .expect("Failed to create server node");
+
+                let mut service = node
+                    .create_service::<AddTwoInts>("add_two_ints_dds_test")
+                    .with_backend::<Ros2DdsBackend>()
+                    .build()
+                    .expect("Failed to create service with Ros2Dds backend");
+
+                // Handle one request
+                match service.take_request_async().await {
+                    Ok((key, req)) => {
+                        let resp = AddTwoIntsResponse { sum: req.a + req.b };
+                        service
+                            .send_response(&resp, &key)
+                            .expect("Failed to send response");
+                        true
+                    }
+                    Err(_) => false,
+                }
+            });
+
+            // Give server time to start
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            // Client
+            let node = ctx
+                .create_node("test_client_dds")
+                .build()
+                .expect("Failed to create client node");
+
+            let client = node
+                .create_client::<AddTwoInts>("add_two_ints_dds_test")
+                .with_backend::<Ros2DdsBackend>()
+                .build()
+                .expect("Failed to create client with Ros2Dds backend");
+
+            let req = AddTwoIntsRequest { a: 15, b: 25 };
+            client
+                .send_request(&req)
+                .await
+                .expect("Failed to send request");
+
+            let resp = client
+                .take_response_timeout(Duration::from_secs(5))
+                .expect("Failed to receive response");
+
+            assert_eq!(resp.sum, 40, "Expected 15 + 25 = 40");
+
+            // Wait for server with timeout
+            let server_handled = tokio::time::timeout(Duration::from_secs(1), server_handle)
+                .await
+                .expect("Server timeout")
+                .expect("Server task panicked");
+            assert!(server_handled, "Server should have handled the request");
+        });
+    });
+
+    if result.is_err() {
+        eprintln!("Test skipped: Zenoh router may not be running on tcp/127.0.0.1:7447");
+    }
+}

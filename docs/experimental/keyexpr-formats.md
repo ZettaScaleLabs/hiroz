@@ -1,13 +1,13 @@
 # Key Expression Formats
 
-**ros-z uses key expression formats to map ROS 2 entities (topics, services, actions) to Eclipse Zenoh key expressions.** The independent `ros-z-protocol` crate provides the format and determines how ros-z translates ROS 2 names for Zenoh routing and discovery.
+**hiroz uses key expression formats to map ROS 2 entities (topics, services, actions) to Eclipse Zenoh key expressions.** The independent `hiroz-protocol` crate provides the format and determines how hiroz translates ROS 2 names for Zenoh routing and discovery.
 
 !!! note
-    Key expression format is a runtime choice that affects how ros-z maps ROS 2 entities to Zenoh key expressions. Choose the format that matches your infrastructure for proper message routing.
+    Key expression format is a runtime choice that affects how hiroz maps ROS 2 entities to Zenoh key expressions. Choose the format that matches your infrastructure for proper message routing.
 
 ## Available Formats
 
-ros-z supports multiple key expression formats for interoperability with different Zenoh-ROS bridges:
+hiroz supports multiple key expression formats for interoperability with different Zenoh-ROS bridges:
 
 | Format | Compatibility | Use Case |
 |--------|--------------|----------|
@@ -35,7 +35,7 @@ Liveliness:      @ros2_lv/<domain_id>/<entity_kind>/<namespace>/<name>/...
 **Use this format when:**
 
 - Using [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) as your ROS 2 middleware
-- Running pure ros-z deployments
+- Running pure hiroz deployments
 - Requiring domain isolation via Zenoh
 
 ### Ros2Dds Format
@@ -69,7 +69,7 @@ robot/sensors/camera/**       # Topic /robot/sensors/camera
 
 ## Key Expression Behavior (IMPORTANT)
 
-Understanding how ros-z converts topic names to key expressions is critical for debugging:
+Understanding how hiroz converts topic names to key expressions is critical for debugging:
 
 ### Topic Key Expressions (For Data Routing)
 
@@ -124,15 +124,15 @@ This is **intentional design** in [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_
 - **Liveliness**: Machine-parsable, unambiguous (optimized for discovery protocol)
 
 !!! tip
-    If multi-segment topics like `/robot/sensors/camera` don't receive messages, check your ros-z version. Versions before 0.1.0 had a bug where publishers incorrectly mangled topic key expressions.
+    If multi-segment topics like `/robot/sensors/camera` don't receive messages, check your hiroz version. Versions before 0.1.0 had a bug where publishers incorrectly mangled topic key expressions.
 
 ## API Usage
 
 ### Specifying Format at Context Creation
 
 ```rust
-use ros_z::context::ZContextBuilder;
-use ros_z_protocol::KeyExprFormat;
+use hiroz::context::ZContextBuilder;
+use hiroz_protocol::KeyExprFormat;
 
 // Default (RmwZenoh)
 let ctx = ZContextBuilder::default().build()?;
@@ -160,8 +160,8 @@ let ctx = ZContextBuilder::default()
 Once you create the context with a format, all entities inherit it:
 
 ```rust
-use ros_z_msgs::std_msgs::String as RosString;
-use ros_z::Builder;
+use hiroz_msgs::std_msgs::String as RosString;
+use hiroz::Builder;
 
 // Create context with RmwZenoh format (default)
 let ctx = ZContextBuilder::default().build()?;
@@ -204,15 +204,15 @@ let node_dds = ctx_dds.create_node("dds_node").build()?;
 
 ```mermaid
 graph LR
-accTitle: RmwZenoh key expression format connecting ros-z and ROS 2 nodes
-accDescr: A ros-z node in RmwZenoh format communicates through a Zenoh router using domain-prefixed key expressions to reach a standard ROS 2 node running rmw_zenoh_cpp.
-    A[ros-z Node<br/>RmwZenoh Format] -->|"0/chatter/**"| B[Zenoh Router<br/>rmw_zenoh]
+accTitle: RmwZenoh key expression format connecting hiroz and ROS 2 nodes
+accDescr: A hiroz node in RmwZenoh format communicates through a Zenoh router using domain-prefixed key expressions to reach a standard ROS 2 node running rmw_zenoh_cpp.
+    A[hiroz Node<br/>RmwZenoh Format] -->|"0/chatter/**"| B[Zenoh Router<br/>rmw_zenoh]
     B -->|"0/chatter/**"| C[ROS 2 Node<br/>rmw_zenoh_cpp]
 ```
 
 **Use case:** Native Zenoh-based ROS 2 deployment
 
-- All nodes use rmw_zenoh or ros-z
+- All nodes use rmw_zenoh or hiroz
 - Direct Zenoh communication
 - Domain isolation via key expression prefix
 
@@ -221,8 +221,8 @@ accDescr: A ros-z node in RmwZenoh format communicates through a Zenoh router us
 ```mermaid
 graph LR
 accTitle: Ros2Dds key expression format bridging Zenoh and DDS networks
-accDescr: A ros-z node in Ros2Dds format sends messages via Zenoh to the zenoh-bridge-ros2dds, which translates them to DDS for standard ROS 2 nodes running CycloneDDS or FastDDS.
-    A[ros-z Node<br/>Ros2Dds Format] -->|"chatter/**"| B[zenoh-bridge-ros2dds<br/>Router + Bridge]
+accDescr: A hiroz node in Ros2Dds format sends messages via Zenoh to the zenoh-bridge-ros2dds, which translates them to DDS for standard ROS 2 nodes running CycloneDDS or FastDDS.
+    A[hiroz Node<br/>Ros2Dds Format] -->|"chatter/**"| B[zenoh-bridge-ros2dds<br/>Router + Bridge]
     B -->|DDS| C[ROS 2 Node<br/>CycloneDDS/FastDDS]
 ```
 
@@ -230,11 +230,11 @@ accDescr: A ros-z node in Ros2Dds format sends messages via Zenoh to the zenoh-b
 
 - ROS 2 nodes use standard DDS middleware
 - `zenoh-bridge-ros2dds` translates DDS ↔ Zenoh
-- ros-z communicates via Zenoh side of bridge
+- hiroz communicates via Zenoh side of bridge
 
 ## Key Expression Generation Details
 
-Understanding how `ros-z-protocol` generates key expressions helps with debugging and monitoring.
+Understanding how `hiroz-protocol` generates key expressions helps with debugging and monitoring.
 
 ### Topic Key Expression Structure
 
@@ -266,7 +266,7 @@ Key Expression:
 @ros2_lv/<domain>/<entity_kind>/<zid>/<id>/<namespace>/<name>/<type>/<hash>/<qos>
 ```
 
-**ros-z mangles all name fields** (/ → %):
+**hiroz mangles all name fields** (/ → %):
 
 ```text
 Namespace: /robot/arm  →  %robot%arm
@@ -279,9 +279,9 @@ Name:      /gripper    →  %gripper
 @ros2_lv/0/MP/01234567890abcdef/1/%robot%arm/%gripper/std_msgs::msg::String_/RIHS01_.../qos_string
 ```
 
-## ros-z-protocol Crate
+## hiroz-protocol Crate
 
-The independent `ros-z-protocol` crate provides the key expression logic:
+The independent `hiroz-protocol` crate provides the key expression logic:
 
 **Features:**
 
@@ -295,13 +295,13 @@ The independent `ros-z-protocol` crate provides the key expression logic:
 
 ```toml
 [dependencies]
-ros-z-protocol = { version = "0.1", features = ["rmw-zenoh", "ros2dds"] }
+hiroz-protocol = { version = "0.1", features = ["rmw-zenoh", "ros2dds"] }
 ```
 
-**Using ros-z-protocol directly:**
+**Using hiroz-protocol directly:**
 
 ```rust
-use ros_z_protocol::{KeyExprFormat, entity::*};
+use hiroz_protocol::{KeyExprFormat, entity::*};
 
 let format = KeyExprFormat::default(); // RmwZenoh
 
@@ -315,7 +315,7 @@ let lv_ke = format.liveliness_key_expr(&entity, &zid)?;
 let parsed_entity = format.parse_liveliness(&lv_ke)?;
 ```
 
-See the [ros-z-protocol crate](https://github.com/ZettaScaleLabs/ros-z/tree/main/crates/ros-z-protocol) for details.
+See the [hiroz-protocol crate](https://github.com/ZettaScaleLabs/hiroz/tree/main/crates/hiroz-protocol) for details.
 
 ## Troubleshooting
 
@@ -323,14 +323,14 @@ See the [ros-z-protocol crate](https://github.com/ZettaScaleLabs/ros-z/tree/main
 
 **Symptom:** Publisher publishes to `/robot/sensors/camera` but subscriber never receives messages.
 
-**Cause:** Old versions of ros-z (before 0.1.0) incorrectly mangled slashes in topic key expressions.
+**Cause:** Old versions of hiroz (before 0.1.0) incorrectly mangled slashes in topic key expressions.
 
-**Fix:** Update to ros-z 0.1.0+ which correctly uses `strip_slashes()` for all topic key expressions.
+**Fix:** Update to hiroz 0.1.0+ which correctly uses `strip_slashes()` for all topic key expressions.
 
 **Verify:** Enable debug logging to check key expressions:
 
 ```bash
-RUST_LOG=ros_z=debug cargo run --example z_pubsub
+RUST_LOG=hiroz=debug cargo run --example z_pubsub
 ```
 
 Look for key expressions like:
@@ -340,17 +340,17 @@ Look for key expressions like:
 ❌ Wrong:    0/robot%sensors%camera/sensor_msgs::msg::Image_/...
 ```
 
-### No Messages Between ros-z and rmw_zenoh_cpp?
+### No Messages Between hiroz and rmw_zenoh_cpp?
 
-**Check format:** Ensure ros-z uses `KeyExprFormat::RmwZenoh` (the default).
+**Check format:** Ensure hiroz uses `KeyExprFormat::RmwZenoh` (the default).
 
 **Check type hash:** Enable debug logging and compare type hashes:
 
 ```bash
-RUST_LOG=ros_z=debug cargo run
+RUST_LOG=hiroz=debug cargo run
 ```
 
-Type hashes must match between ros-z and rmw_zenoh_cpp. If they don't, you may have:
+Type hashes must match between hiroz and rmw_zenoh_cpp. If they don't, you may have:
 
 - Different message definitions
 - Different ROS 2 distros
@@ -358,7 +358,7 @@ Type hashes must match between ros-z and rmw_zenoh_cpp. If they don't, you may h
 
 ### No Messages Through zenoh-bridge-ros2dds?
 
-**Check format:** Ensure ros-z uses `KeyExprFormat::Ros2Dds`:
+**Check format:** Ensure hiroz uses `KeyExprFormat::Ros2Dds`:
 
 ```rust
 let ctx = ZContextBuilder::default()
@@ -366,7 +366,7 @@ let ctx = ZContextBuilder::default()
     .build()?;
 ```
 
-**Check bridge configuration:** Verify `zenoh-bridge-ros2dds` is running and connected to the same Zenoh router as ros-z.
+**Check bridge configuration:** Verify `zenoh-bridge-ros2dds` is running and connected to the same Zenoh router as hiroz.
 
 ## Format Comparison
 

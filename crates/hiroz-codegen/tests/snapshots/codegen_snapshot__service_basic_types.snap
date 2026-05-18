@@ -1,0 +1,21 @@
+---
+source: crates/hiroz-codegen/tests/codegen_snapshot.rs
+assertion_line: 108
+expression: format_tokens(tokens)
+---
+pub struct BasicTypes;
+impl ::hiroz::msg::ZService for BasicTypes {
+    type Request = super::BasicTypesRequest;
+    type Response = super::BasicTypesResponse;
+}
+impl ::hiroz::ServiceTypeInfo for BasicTypes {
+    fn service_type_info() -> ::hiroz::entity::TypeInfo {
+        ::hiroz::entity::TypeInfo::new(
+            "test_interface_files::srv::dds_::BasicTypes_",
+            ::hiroz::entity::TypeHash::from_rihs_string(
+                    "RIHS01_0000000000000000000000000000000000000000000000000000000000000000",
+                )
+                .expect("Invalid RIHS hash"),
+        )
+    }
+}

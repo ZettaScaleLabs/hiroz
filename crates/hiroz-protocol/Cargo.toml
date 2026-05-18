@@ -1,0 +1,30 @@
+[package]
+name = "hiroz-protocol"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["ZettaScale Technology <contact@zettascale.tech>"]
+description = "ROS 2 over Zenoh protocol: entity types and key expression formats"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/ZettaScaleLabs/hiroz"
+keywords = ["ros2", "zenoh", "robotics", "middleware", "protocol"]
+categories = ["network-programming", "robotics"]
+
+[features]
+default = ["std", "rmw-zenoh"]
+std = ["zenoh/default"]
+rmw-zenoh = []
+ros2dds = []
+no-type-hash = []              # ROS 2 Humble doesn't support type hashing
+
+[dependencies]
+zenoh = { version = "1.9.0", default-features = false }
+
+[dev-dependencies]
+zenoh = { version = "1.9.0", default-features = false }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
+
+[package.metadata.docs.rs]
+all-features = true

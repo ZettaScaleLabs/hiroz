@@ -6,7 +6,7 @@ use crate::rmw_impl_has_impl_ptr;
 use crate::ros::*;
 use crate::traits::*;
 use crate::utils::Notifier;
-use ros_z::Builder;
+use hiroz::Builder;
 
 /// Check implementation_identifier and return the appropriate error code.
 /// Returns RMW_RET_OK if it matches, RMW_RET_INVALID_ARGUMENT if NULL,
@@ -78,7 +78,7 @@ pub extern "C" fn rmw_reset_error() {
 
 /// Context implementation for RMW
 pub struct ContextImpl {
-    pub zcontext: Arc<ros_z::context::ZContext>,
+    pub zcontext: Arc<hiroz::context::ZContext>,
     pub enclave: String,
     pub next_entity_id: Arc<Mutex<usize>>,
     pub is_shutdown: Arc<Mutex<bool>>,
@@ -89,7 +89,7 @@ pub struct ContextImpl {
 impl ContextImpl {
     pub fn new(domain_id: usize, enclave: String) -> Result<Self, String> {
         // Create ZContext using the builder
-        let zcontext = ros_z::context::ZContextBuilder::default()
+        let zcontext = hiroz::context::ZContextBuilder::default()
             .with_domain_id(domain_id)
             .with_enclave(enclave.clone())
             .build()
@@ -97,7 +97,7 @@ impl ContextImpl {
 
         // Set up the guard condition trigger function for graph events
         // This allows graph changes to trigger RMW guard conditions
-        let trigger_fn: ros_z::event::GraphGuardConditionTrigger = Box::new(|gc_ptr| {
+        let trigger_fn: hiroz::event::GraphGuardConditionTrigger = Box::new(|gc_ptr| {
             crate::guard_condition::rmw_trigger_guard_condition(
                 gc_ptr as *const crate::ros::rmw_guard_condition_t,
             );

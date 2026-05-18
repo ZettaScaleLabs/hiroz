@@ -3,10 +3,10 @@
 !!! note "Go users"
     The code examples in this chapter are **Rust**. The Go service API is callback-based — handlers are registered instead of using `take_request()`. For Go service patterns and the typed service API, see the [Go Bindings](../bindings/go.md) chapter.
 
-**ros-z implements ROS 2's service pattern with type-safe request-response communication over Eclipse Zenoh.** This enables synchronous, point-to-point interactions between nodes using a pull-based model for full control over request processing.
+**hiroz implements ROS 2's service pattern with type-safe request-response communication over Eclipse Zenoh.** This enables synchronous, point-to-point interactions between nodes using a pull-based model for full control over request processing.
 
 !!! note
-    Services provide request-response communication for operations that need immediate feedback. Unlike topics, services are bidirectional and ensure a response for each request. ros-z uses a pull model that gives you explicit control over when to process requests.
+    Services provide request-response communication for operations that need immediate feedback. Unlike topics, services are bidirectional and ensure a response for each request. hiroz uses a pull model that gives you explicit control over when to process requests.
 
 ## What is a Service?
 
@@ -60,7 +60,7 @@ uint32 b
 uint32 sum
 ```
 
-Two sections, separated by `---`. Each is a message definition. ros-z generates a Rust trait:
+Two sections, separated by `---`. Each is a message definition. hiroz generates a Rust trait:
 
 ```rust
 trait AddTwoInts: ZService {
@@ -138,7 +138,7 @@ Services use **reliable + volatile** durability. Volatile means: if a server res
         <div class="flashcard-hint">Click to flip</div>
       </div>
       <div class="flashcard-back">
-        The call blocks until the server comes online or a timeout fires. ros-z uses Zenoh's query timeout (default: 10 minutes — configure with <strong>queries_default_timeout</strong>).
+        The call blocks until the server comes online or a timeout fires. hiroz uses Zenoh's query timeout (default: 10 minutes — configure with <strong>queries_default_timeout</strong>).
       </div>
     </div>
   </div>
@@ -146,7 +146,7 @@ Services use **reliable + volatile** durability. Volatile means: if a server res
     <div class="flashcard-inner">
       <div class="flashcard-front">
         <div class="flashcard-tag">Pull Model</div>
-        <div class="flashcard-term">What is the pull model in ros-z?</div>
+        <div class="flashcard-term">What is the pull model in hiroz?</div>
         <div class="flashcard-hint">Click to flip</div>
       </div>
       <div class="flashcard-back">
@@ -197,10 +197,10 @@ accDescr: ZContextBuilder creates a ZContext that spawns both a client node and 
 
 ## Service Server Example
 
-A server that adds two integers. Full source: [`crates/ros-z/examples/demo_nodes/add_two_ints_server.rs`](https://github.com/ZettaScaleLabs/ros-z/blob/main/crates/ros-z/examples/demo_nodes/add_two_ints_server.rs)
+A server that adds two integers. Full source: [`crates/hiroz/examples/demo_nodes/add_two_ints_server.rs`](https://github.com/ZettaScaleLabs/hiroz/blob/main/crates/hiroz/examples/demo_nodes/add_two_ints_server.rs)
 
 ```rust
---8<-- "crates/ros-z/examples/demo_nodes/add_two_ints_server.rs:full_example"
+--8<-- "crates/hiroz/examples/demo_nodes/add_two_ints_server.rs:full_example"
 ```
 
 **Key points:**
@@ -216,10 +216,10 @@ A server that adds two integers. Full source: [`crates/ros-z/examples/demo_nodes
 
 ## Service Client Example
 
-A client that sends an addition request and prints the result. Full source: [`crates/ros-z/examples/demo_nodes/add_two_ints_client.rs`](https://github.com/ZettaScaleLabs/ros-z/blob/main/crates/ros-z/examples/demo_nodes/add_two_ints_client.rs)
+A client that sends an addition request and prints the result. Full source: [`crates/hiroz/examples/demo_nodes/add_two_ints_client.rs`](https://github.com/ZettaScaleLabs/hiroz/blob/main/crates/hiroz/examples/demo_nodes/add_two_ints_client.rs)
 
 ```rust
---8<-- "crates/ros-z/examples/demo_nodes/add_two_ints_client.rs:full_example"
+--8<-- "crates/hiroz/examples/demo_nodes/add_two_ints_client.rs:full_example"
 ```
 
 **Key points:**
@@ -231,7 +231,7 @@ A client that sends an addition request and prints the result. Full source: [`cr
 ## Complete Service Workflow
 
 !!! note
-    These commands run the ready-made examples from the ros-z repository. Clone it first with `git clone https://github.com/ZettaScaleLabs/ros-z.git && cd ros-z`. If you're building your own project, run your binaries with `cargo run` instead.
+    These commands run the ready-made examples from the hiroz repository. Clone it first with `git clone https://github.com/ZettaScaleLabs/hiroz.git && cd hiroz`. If you're building your own project, run your binaries with `cargo run` instead.
 
 **Terminal 1 — Start Zenoh Router:**
 
@@ -262,7 +262,7 @@ cargo run --example demo_nodes_add_two_ints_client -- --a 100 --b 200
 
 ## Service Server Patterns
 
-Service servers in ros-z follow a **pull model** pattern, similar to subscribers. You explicitly receive requests when ready to process them, giving you full control over request handling timing and concurrency.
+Service servers in hiroz follow a **pull model** pattern, similar to subscribers. You explicitly receive requests when ready to process them, giving you full control over request handling timing and concurrency.
 
 !!! info
     This pull-based approach is consistent with subscriber's `recv()` pattern, allowing you to control when work happens without callbacks interrupting your flow.
@@ -272,7 +272,7 @@ Service servers in ros-z follow a **pull model** pattern, similar to subscribers
 Best for: Simple synchronous service implementations
 
 ```rust
-use ros_z::Builder;
+use hiroz::Builder;
 
 let mut service = node
     .create_service::<ServiceType>("service_name")
@@ -292,7 +292,7 @@ loop {
 Best for: Services that need to await other operations
 
 ```rust
-use ros_z::Builder;
+use hiroz::Builder;
 
 let mut service = node
     .create_service::<ServiceType>("service_name")
@@ -323,7 +323,7 @@ Service clients use a single `call` method — send and receive in one await.
 Best for: Simple request-response where you want to fail fast on a slow or absent server
 
 ```rust
-use ros_z::Builder;
+use hiroz::Builder;
 use std::time::Duration;
 
 let client = node
@@ -339,7 +339,7 @@ let response = client.call_with_timeout(&request, Duration::from_secs(5)).await?
 Best for: Integration with async codebases where you manage timeouts externally (e.g., `tokio::time::timeout`)
 
 ```rust
-use ros_z::Builder;
+use hiroz::Builder;
 
 let client = node
     .create_client::<ServiceType>("service_name")
@@ -350,11 +350,11 @@ let response = client.call(&request).await?;
 ```
 
 !!! tip
-    `use ros_z::Builder;` must be in scope to call `.build()`. Both patterns require an async runtime such as `tokio`. For logging, call `zenoh::init_log_from_env_or("error")` before building the context.
+    `use hiroz::Builder;` must be in scope to call `.build()`. Both patterns require an async runtime such as `tokio`. For logging, call `zenoh::init_log_from_env_or("error")` before building the context.
 
 ## ROS 2 Interoperability
 
-ros-z services interoperate with ROS 2 C++ and Python nodes when both sides share the same Zenoh transport:
+hiroz services interoperate with ROS 2 C++ and Python nodes when both sides share the same Zenoh transport:
 
 **Requirements:**
 
@@ -366,7 +366,7 @@ ros-z services interoperate with ROS 2 C++ and Python nodes when both sides shar
 # List available services
 ros2 service list
 
-# Call ros-z service from ROS 2 CLI
+# Call hiroz service from ROS 2 CLI
 ros2 service call /add_two_ints example_interfaces/srv/AddTwoInts "{a: 42, b: 58}"
 
 # Show service type

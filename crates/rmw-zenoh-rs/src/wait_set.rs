@@ -149,7 +149,7 @@ impl WaitSetImpl {
             unsafe {
                 let event = &*(*event_ptr);
                 if !event.data.is_null() {
-                    let event_handle = &*(event.data as *const ros_z::event::RmEventHandle);
+                    let event_handle = &*(event.data as *const hiroz::event::RmEventHandle);
                     if event_handle.is_ready() {
                         return true;
                     }
@@ -413,7 +413,7 @@ pub extern "C" fn rmw_wait(
                         let event = &*event_ptr;
                         // Check if event data is ready
                         let is_ready = if !event.data.is_null() {
-                            let event_handle = &*(event.data as *const ros_z::event::RmEventHandle);
+                            let event_handle = &*(event.data as *const hiroz::event::RmEventHandle);
                             event_handle.is_ready()
                         } else {
                             false

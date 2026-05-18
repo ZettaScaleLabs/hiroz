@@ -4,7 +4,7 @@
 !!! warning
     This is an advanced topic for users familiar with Nix. If you're new to Nix, you can safely skip this chapter and use the standard [Building](./building.md) instructions instead.
 
-ros-z provides Nix flakes for reproducible development environments with all dependencies pre-configured.
+hiroz provides Nix flakes for reproducible development environments with all dependencies pre-configured.
 
 ## Why Use Nix?
 
@@ -48,7 +48,7 @@ nix develop .#pureRust
 ### 1. Enter a Development Shell
 
 ```bash
-cd /path/to/ros-z
+cd /path/to/hiroz
 nix develop        # enters .#ros-jazzy by default
 ```
 
@@ -70,10 +70,10 @@ All standard commands work inside the shell:
 cargo build
 
 # Build with ROS 2 messages
-cargo build -p ros-z-msgs
+cargo build -p hiroz-msgs
 
 # Run tests
-cargo test -p ros-z
+cargo test -p hiroz
 
 # Run an example
 cargo run --example z_pubsub
@@ -137,4 +137,4 @@ Your system environment remains intact — Nix installed nothing globally.
 
 - **[Nix Official Guide](https://nixos.org/manual/nix/stable/)** — Introduction to Nix
 - **[Nix Flakes](https://wiki.nixos.org/wiki/Flakes)** — Understanding flakes
-- **[ros-z flake.nix](https://github.com/ZettaScaleLabs/ros-z/blob/main/flake.nix)** — Our Nix configuration
+- **[hiroz flake.nix](https://github.com/ZettaScaleLabs/hiroz/blob/main/flake.nix)** — Our Nix configuration

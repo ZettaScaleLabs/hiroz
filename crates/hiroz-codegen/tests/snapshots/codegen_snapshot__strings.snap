@@ -1,0 +1,278 @@
+---
+source: crates/hiroz-codegen/tests/codegen_snapshot.rs
+assertion_line: 71
+expression: format_tokens(tokens)
+---
+#[derive(Debug, Clone, Default, ::serde::Serialize, ::serde::Deserialize)]
+#[cfg_attr(
+    feature = "python_registry",
+    derive(::hiroz_derive::FromPyMessage, ::hiroz_derive::IntoPyMessage)
+)]
+#[cfg_attr(
+    feature = "python_registry",
+    ros_msg(module = "hiroz_msgs_py.types.test_interface_files")
+)]
+pub struct Strings {
+    pub string_value: ::std::string::String,
+    pub bounded_string_value: ::std::string::String,
+    pub unbounded_string_array: ::std::vec::Vec<::std::string::String>,
+    pub string_array_three: [::std::string::String; 3],
+    pub bounded_string_sequence: ::std::vec::Vec<::std::string::String>,
+    pub unbounded_bounded_string_array: ::std::vec::Vec<::std::string::String>,
+    pub bounded_string_array_three: [::std::string::String; 3],
+    pub bounded_string_bounded_sequence: ::std::vec::Vec<::std::string::String>,
+}
+impl Strings {}
+impl ::hiroz::MessageTypeInfo for Strings {
+    fn type_name() -> &'static str {
+        "test_interface_files::msg::dds_::Strings_"
+    }
+    fn type_hash() -> ::hiroz::entity::TypeHash {
+        ::hiroz::entity::TypeHash::from_rihs_string(
+                "RIHS01_909e50e6359955bed5e712561cd7946c25688525615dca4601697a77ee49934f",
+            )
+            .expect("Invalid RIHS hash")
+    }
+    fn message_schema() -> Option<::std::sync::Arc<::hiroz::dynamic::MessageSchema>> {
+        static SCHEMA: ::std::sync::OnceLock<
+            ::std::sync::Arc<::hiroz::dynamic::MessageSchema>,
+        > = ::std::sync::OnceLock::new();
+        Some(
+            SCHEMA
+                .get_or_init(|| {
+                    ::hiroz::dynamic::MessageSchema::builder(
+                            "test_interface_files/msg/Strings",
+                        )
+                        .field("string_value", ::hiroz::dynamic::FieldType::String)
+                        .field(
+                            "bounded_string_value",
+                            ::hiroz::dynamic::FieldType::BoundedString(10usize),
+                        )
+                        .field(
+                            "unbounded_string_array",
+                            ::hiroz::dynamic::FieldType::Sequence(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::String),
+                            ),
+                        )
+                        .field(
+                            "string_array_three",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::String),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "bounded_string_sequence",
+                            ::hiroz::dynamic::FieldType::BoundedSequence(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::String),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "unbounded_bounded_string_array",
+                            ::hiroz::dynamic::FieldType::Sequence(
+                                ::std::boxed::Box::new(
+                                    ::hiroz::dynamic::FieldType::BoundedString(10usize),
+                                ),
+                            ),
+                        )
+                        .field(
+                            "bounded_string_array_three",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(
+                                    ::hiroz::dynamic::FieldType::BoundedString(10usize),
+                                ),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "bounded_string_bounded_sequence",
+                            ::hiroz::dynamic::FieldType::BoundedSequence(
+                                ::std::boxed::Box::new(
+                                    ::hiroz::dynamic::FieldType::BoundedString(10usize),
+                                ),
+                                3usize,
+                            ),
+                        )
+                        .build()
+                        .expect("generated message schema must be valid")
+                })
+                .clone(),
+        )
+    }
+}
+impl ::hiroz::ros_msg::WithTypeInfo for Strings {}
+impl crate::size_estimation::SizeEstimation for Strings {
+    fn estimated_cdr_size(&self) -> usize {
+        let mut size = 0usize;
+        size += 4 + self.string_value.len();
+        size += 4 + self.bounded_string_value.len();
+        size += 4;
+        for s in &self.unbounded_string_array {
+            size += 4 + s.len();
+        }
+        for s in &self.string_array_three {
+            size += 4 + s.len();
+        }
+        size += 4;
+        for s in &self.bounded_string_sequence {
+            size += 4 + s.len();
+        }
+        size += 4;
+        for s in &self.unbounded_bounded_string_array {
+            size += 4 + s.len();
+        }
+        for s in &self.bounded_string_array_three {
+            size += 4 + s.len();
+        }
+        size += 4;
+        for s in &self.bounded_string_bounded_sequence {
+            size += 4 + s.len();
+        }
+        size + 16
+    }
+}
+impl Strings {
+    /// Get an accurate estimate of the serialized CDR size.
+    ///
+    /// This implementation accounts for dynamic fields (Vec, String, ZBuf)
+    /// and provides a conservative but accurate upper bound for SHM allocation.
+    pub fn estimated_serialized_size(&self) -> usize {
+        4 + crate::size_estimation::SizeEstimation::estimated_cdr_size(self)
+    }
+}
+impl ::hiroz_cdr::CdrSerialize for Strings {
+    fn cdr_serialize<BO, B>(&self, __w: &mut ::hiroz_cdr::CdrWriter<'_, BO, B>)
+    where
+        BO: ::byteorder::ByteOrder,
+        B: ::hiroz_cdr::CdrBuffer,
+    {
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.string_value, __w);
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.bounded_string_value, __w);
+        __w.write_sequence_length(self.unbounded_string_array.len());
+        for __item in &self.unbounded_string_array {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        for __item in &self.string_array_three {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        __w.write_sequence_length(self.bounded_string_sequence.len());
+        for __item in &self.bounded_string_sequence {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        __w.write_sequence_length(self.unbounded_bounded_string_array.len());
+        for __item in &self.unbounded_bounded_string_array {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        for __item in &self.bounded_string_array_three {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        __w.write_sequence_length(self.bounded_string_bounded_sequence.len());
+        for __item in &self.bounded_string_bounded_sequence {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+    }
+}
+impl ::hiroz_cdr::CdrDeserialize for Strings {
+    fn cdr_deserialize<'__de, BO>(
+        __r: &mut ::hiroz_cdr::CdrReader<'__de, BO>,
+    ) -> ::hiroz_cdr::Result<Self>
+    where
+        BO: ::byteorder::ByteOrder,
+    {
+        let string_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let bounded_string_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        let unbounded_string_array: Vec<::std::string::String> = {
+            let __count = __r.read_sequence_length()?;
+            let mut __v = Vec::with_capacity(__count);
+            for _ in 0..__count {
+                __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
+            }
+            __v
+        };
+        let string_array_three: [::std::string::String; 3] = {
+            let mut __arr = [Default::default(); 3];
+            for __slot in __arr.iter_mut() {
+                *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+            }
+            __arr
+        };
+        let bounded_string_sequence: Vec<::std::string::String> = {
+            let __count = __r.read_sequence_length()?;
+            let mut __v = Vec::with_capacity(__count);
+            for _ in 0..__count {
+                __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
+            }
+            __v
+        };
+        let unbounded_bounded_string_array: Vec<::std::string::String> = {
+            let __count = __r.read_sequence_length()?;
+            let mut __v = Vec::with_capacity(__count);
+            for _ in 0..__count {
+                __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
+            }
+            __v
+        };
+        let bounded_string_array_three: [::std::string::String; 3] = {
+            let mut __arr = [Default::default(); 3];
+            for __slot in __arr.iter_mut() {
+                *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+            }
+            __arr
+        };
+        let bounded_string_bounded_sequence: Vec<::std::string::String> = {
+            let __count = __r.read_sequence_length()?;
+            let mut __v = Vec::with_capacity(__count);
+            for _ in 0..__count {
+                __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
+            }
+            __v
+        };
+        Ok(Self {
+            string_value,
+            bounded_string_value,
+            unbounded_string_array,
+            string_array_three,
+            bounded_string_sequence,
+            unbounded_bounded_string_array,
+            bounded_string_array_three,
+            bounded_string_bounded_sequence,
+        })
+    }
+}
+impl ::hiroz_cdr::CdrSerializedSize for Strings {
+    fn cdr_serialized_size(&self, __pos: usize) -> usize {
+        let mut __p = __pos;
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.string_value,
+            __p,
+        );
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.bounded_string_value,
+            __p,
+        );
+        __p += (__p % 4 != 0) as usize * (4 - __p % 4) + 4;
+        for __item in &self.unbounded_string_array {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        for __item in &self.string_array_three {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        __p += (__p % 4 != 0) as usize * (4 - __p % 4) + 4;
+        for __item in &self.bounded_string_sequence {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        __p += (__p % 4 != 0) as usize * (4 - __p % 4) + 4;
+        for __item in &self.unbounded_bounded_string_array {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        for __item in &self.bounded_string_array_three {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        __p += (__p % 4 != 0) as usize * (4 - __p % 4) + 4;
+        for __item in &self.bounded_string_bounded_sequence {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        __p
+    }
+}

@@ -1,6 +1,6 @@
 # Go Bindings
 
-`ros-z-go` lets Go applications communicate with ROS 2 and Rust nodes over the same Eclipse Zenoh transport. It uses CGO to call the Rust FFI layer and exposes an idiomatic builder-pattern API.
+`hiroz-go` lets Go applications communicate with ROS 2 and Rust nodes over the same Eclipse Zenoh transport. It uses CGO to call the Rust FFI layer and exposes an idiomatic builder-pattern API.
 
 !!! tip
     New here? Start with **[Quick Start](./go-quick-start.md)** to get a publisher and subscriber running in five minutes.
@@ -11,24 +11,24 @@
 
 ### Pre-built Libraries (Recommended)
 
-Download the pre-built static library for your platform from the [GitHub Releases](https://github.com/ZettaScaleLabs/ros-z/releases) page.
-Artifacts are named `libros_z-{distro}-{target}.a` (e.g. `libros_z-jazzy-x86_64-unknown-linux-gnu.a`).
+Download the pre-built static library for your platform from the [GitHub Releases](https://github.com/ZettaScaleLabs/hiroz/releases) page.
+Artifacts are named `libhiroz-{distro}-{target}.a` (e.g. `libhiroz-jazzy-x86_64-unknown-linux-gnu.a`).
 
-Each release also includes the C header `ros_z_ffi.h`.
+Each release also includes the C header `hiroz_ffi.h`.
 
-Place the library somewhere stable (e.g. `vendor/libros_z/`) and point CGO at it:
+Place the library somewhere stable (e.g. `vendor/libhiroz/`) and point CGO at it:
 
 ```bash
-export CGO_LDFLAGS="-L/path/to/vendor/libros_z -lros_z -lm"
-export CGO_CFLAGS="-I/path/to/vendor/libros_z"
+export CGO_LDFLAGS="-L/path/to/vendor/libhiroz -lhiroz -lm"
+export CGO_CFLAGS="-I/path/to/vendor/libhiroz"
 go build ./...
 ```
 
 Or set them per-command:
 
 ```bash
-CGO_LDFLAGS="-L$(pwd)/vendor/libros_z -lros_z -lm" \
-CGO_CFLAGS="-I$(pwd)/vendor/libros_z" \
+CGO_LDFLAGS="-L$(pwd)/vendor/libhiroz -lhiroz -lm" \
+CGO_CFLAGS="-I$(pwd)/vendor/libhiroz" \
 go run main.go
 ```
 
@@ -36,20 +36,20 @@ Available targets:
 
 | File | Platform |
 |------|----------|
-| `libros_z-jazzy-x86_64-unknown-linux-gnu.a` | Linux x86_64, Jazzy |
-| `libros_z-humble-x86_64-unknown-linux-gnu.a` | Linux x86_64, Humble |
-| `libros_z-jazzy-aarch64-unknown-linux-gnu.a` | Linux ARM64, Jazzy |
-| `libros_z-humble-aarch64-unknown-linux-gnu.a` | Linux ARM64, Humble |
-| `libros_z-jazzy-aarch64-apple-darwin.a` | macOS Apple Silicon, Jazzy |
-| `libros_z-humble-aarch64-apple-darwin.a` | macOS Apple Silicon, Humble |
+| `libhiroz-jazzy-x86_64-unknown-linux-gnu.a` | Linux x86_64, Jazzy |
+| `libhiroz-humble-x86_64-unknown-linux-gnu.a` | Linux x86_64, Humble |
+| `libhiroz-jazzy-aarch64-unknown-linux-gnu.a` | Linux ARM64, Jazzy |
+| `libhiroz-humble-aarch64-unknown-linux-gnu.a` | Linux ARM64, Humble |
+| `libhiroz-jazzy-aarch64-apple-darwin.a` | macOS Apple Silicon, Jazzy |
+| `libhiroz-humble-aarch64-apple-darwin.a` | macOS Apple Silicon, Humble |
 
 ### Building from Source
 
 Requires Rust (stable) and `cargo`:
 
 ```bash
-cargo build --release --features ffi,jazzy --no-default-features -p ros-z
-# Output: target/release/libros_z.a
+cargo build --release --features ffi,jazzy --no-default-features -p hiroz
+# Output: target/release/libhiroz.a
 ```
 
 Then either use `${SRCDIR}`-relative `LDFLAGS` in the `go.mod` `replace` workflow (see below) or export `CGO_LDFLAGS` as shown above.
@@ -59,17 +59,17 @@ Then either use `${SRCDIR}`-relative `LDFLAGS` in the `go.mod` `replace` workflo
 Add to your `go.mod`:
 
 ```text
-require github.com/ZettaScaleLabs/ros-z/crates/ros-z-go v0.0.0
-replace github.com/ZettaScaleLabs/ros-z/crates/ros-z-go => /path/to/ros-z/crates/ros-z-go
+require github.com/ZettaScaleLabs/hiroz/crates/hiroz-go v0.0.0
+replace github.com/ZettaScaleLabs/hiroz/crates/hiroz-go => /path/to/hiroz/crates/hiroz-go
 ```
 
-The `#cgo LDFLAGS` in `rosz/context.go` resolves the library via `${SRCDIR}` — no extra `CGO_LDFLAGS` needed with a `replace` directive.
+The `#cgo LDFLAGS` in `hiroz/context.go` resolves the library via `${SRCDIR}` — no extra `CGO_LDFLAGS` needed with a `replace` directive.
 
 **Generate message types** (no ROS 2 install needed for bundled types):
 
 ```bash
-just -f crates/ros-z-go/justfile codegen-bundled   # std_msgs, geometry_msgs, example_interfaces
-just -f crates/ros-z-go/justfile codegen            # full set from a ROS 2 installation
+just -f crates/hiroz-go/justfile codegen-bundled   # std_msgs, geometry_msgs, example_interfaces
+just -f crates/hiroz-go/justfile codegen            # full set from a ROS 2 installation
 ```
 
 ---
@@ -79,18 +79,18 @@ just -f crates/ros-z-go/justfile codegen            # full set from a ROS 2 inst
 ```mermaid
 graph TD
 accTitle: Go bindings architecture through CGO and Rust to Zenoh network
-accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust ros-z core, which uses the Zenoh transport to communicate with ROS 2, Rust, and Python nodes.
+accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust hiroz core, which uses the Zenoh transport to communicate with ROS 2, Rust, and Python nodes.
     A[Go Code] -->|CGO| B[C FFI Layer]
-    B --> C[Rust ros-z]
+    B --> C[Rust hiroz]
     C -->|Zenoh| D[Network]
     D -->|Zenoh| E[ROS 2 / Rust / Python Nodes]
 ```
 
 | Layer | Location | Role |
 |-------|----------|------|
-| **Go** | `rosz/` package | Idiomatic API, builder pattern |
-| **C FFI** | `ros_z_ffi.h` | Auto-generated by cbindgen |
-| **Rust** | `ffi/` module | Bridges to ros-z core via Zenoh |
+| **Go** | `hiroz/` package | Idiomatic API, builder pattern |
+| **C FFI** | `hiroz_ffi.h` | Auto-generated by cbindgen |
+| **Rust** | `ffi/` module | Bridges to hiroz core via Zenoh |
 
 Callbacks flow in reverse: Rust invokes C function pointers → dispatched to Go via `//export` functions.
 
@@ -99,15 +99,15 @@ Callbacks flow in reverse: Rust invokes C function pointers → dispatched to Go
 ## Context
 
 ```go
-ctx, err := rosz.NewContext().WithDomainID(0).Build()
+ctx, err := hiroz.NewContext().WithDomainID(0).Build()
 defer ctx.Close()
 ```
 
 For cloud, Docker, or multi-machine deployments:
 
 ```go
-ctx, err := rosz.NewContext().
-    WithMode(rosz.ModeClient).
+ctx, err := hiroz.NewContext().
+    WithMode(hiroz.ModeClient).
     WithConnectEndpoints("tcp/192.168.1.100:7447").
     DisableMulticastScouting().
     Build()
@@ -158,7 +158,7 @@ sub, err := node.CreateSubscriber("chatter").
     })
 ```
 
-Apply QoS with `.WithQoS(rosz.QosSensorData())` on either builder.
+Apply QoS with `.WithQoS(hiroz.QosSensorData())` on either builder.
 
 ---
 
@@ -198,7 +198,7 @@ server, err := node.CreateActionServer("fibonacci").Build(
         g.DeserializeCDR(goalBytes)
         return g.Order > 0
     },
-    func(h *rosz.ServerGoalHandle, goalBytes []byte) ([]byte, error) {
+    func(h *hiroz.ServerGoalHandle, goalBytes []byte) ([]byte, error) {
         var g example_interfaces.FibonacciGoal
         g.DeserializeCDR(goalBytes)
         seq := []int32{0, 1}
@@ -231,7 +231,7 @@ handle.Cancel()       // request cancellation
 The execute callback runs in its own goroutine. Poll `IsCancelRequested()` at safe points:
 
 ```go
-func(h *rosz.ServerGoalHandle, goalBytes []byte) ([]byte, error) {
+func(h *hiroz.ServerGoalHandle, goalBytes []byte) ([]byte, error) {
     // ...
     for i := 2; i < int(g.Order); i++ {
         if h.IsCancelRequested() {
@@ -256,25 +256,25 @@ The typed helpers eliminate manual `SerializeCDR` / `DeserializeCDR` calls.
 
 ```go
 // Typed callback
-sub, err := rosz.BuildWithTypedCallback(
+sub, err := hiroz.BuildWithTypedCallback(
     node.CreateSubscriber("chatter"),
     func(msg *std_msgs.String) { log.Println(msg.Data) },
 )
 
 // Channel — range over messages
-sub, ch, cleanup, err := rosz.SubscriberWithChannel[*std_msgs.String](
+sub, ch, cleanup, err := hiroz.SubscriberWithChannel[*std_msgs.String](
     node.CreateSubscriber("chatter"), 10 /* buffer */)
 defer cleanup(); defer sub.Close()
 for msg := range ch { log.Println(msg.Data) }
 ```
 
-Use `rosz.NewRingChannel` (drops oldest on full) or `rosz.NewFifoChannel` (blocks on full) with `SubscriberWithHandler` for explicit buffering control.
+Use `hiroz.NewRingChannel` (drops oldest on full) or `hiroz.NewFifoChannel` (blocks on full) with `SubscriberWithHandler` for explicit buffering control.
 
 ### Service
 
 ```go
 // Typed server
-server, err := rosz.BuildTypedServiceServer(
+server, err := hiroz.BuildTypedServiceServer(
     node.CreateServiceServer("add_two_ints"),
     &example_interfaces.AddTwoInts{},
     func(req *example_interfaces.AddTwoIntsRequest) (*example_interfaces.AddTwoIntsResponse, error) {
@@ -284,18 +284,18 @@ server, err := rosz.BuildTypedServiceServer(
 
 // Typed call
 resp := &example_interfaces.AddTwoIntsResponse{}
-err := rosz.CallTyped(client, &example_interfaces.AddTwoIntsRequest{A: 5, B: 3}, resp)
-// rosz.CallTypedWithTimeout(client, req, resp, 10*time.Second)
+err := hiroz.CallTyped(client, &example_interfaces.AddTwoIntsRequest{A: 5, B: 3}, resp)
+// hiroz.CallTypedWithTimeout(client, req, resp, 10*time.Second)
 ```
 
 ### Action
 
 ```go
 // Typed server
-server, err := rosz.BuildTypedActionServer(
+server, err := hiroz.BuildTypedActionServer(
     node.CreateActionServer("fibonacci"), &example_interfaces.Fibonacci{},
     func(g *example_interfaces.FibonacciGoal) bool { return g.Order > 0 },
-    func(h *rosz.ServerGoalHandle, g *example_interfaces.FibonacciGoal) (*example_interfaces.FibonacciResult, error) {
+    func(h *hiroz.ServerGoalHandle, g *example_interfaces.FibonacciGoal) (*example_interfaces.FibonacciResult, error) {
         seq := []int32{0, 1}
         for i := 2; i < int(g.Order); i++ {
             if h.IsCancelRequested() {
@@ -308,10 +308,10 @@ server, err := rosz.BuildTypedActionServer(
 )
 
 // Typed client
-client, err := rosz.BuildTypedActionClient(node.CreateActionClient("fibonacci"), &example_interfaces.Fibonacci{})
-handle, err := rosz.SendTypedGoal(client, &example_interfaces.FibonacciGoal{Order: 10})
+client, err := hiroz.BuildTypedActionClient(node.CreateActionClient("fibonacci"), &example_interfaces.Fibonacci{})
+handle, err := hiroz.SendTypedGoal(client, &example_interfaces.FibonacciGoal{Order: 10})
 result := &example_interfaces.FibonacciResult{}
-err = rosz.GetTypedResult(handle, result)
+err = hiroz.GetTypedResult(handle, result)
 ```
 
 ---
@@ -319,11 +319,11 @@ err = rosz.GetTypedResult(handle, result)
 ## QoS
 
 ```go
-rosz.QosDefault()          // Reliable, Volatile, KeepLast(10)
-rosz.QosSensorData()       // BestEffort, Volatile, KeepLast(5) — high-rate streams
-rosz.QosServicesDefault()  // Reliable, Volatile, KeepLast(10)
-rosz.QosTransientLocal()   // Reliable, TransientLocal, KeepLast(1) — /tf_static, /robot_description
-rosz.QosKeepAll()          // Reliable, Volatile, KeepAll
+hiroz.QosDefault()          // Reliable, Volatile, KeepLast(10)
+hiroz.QosSensorData()       // BestEffort, Volatile, KeepLast(5) — high-rate streams
+hiroz.QosServicesDefault()  // Reliable, Volatile, KeepLast(10)
+hiroz.QosTransientLocal()   // Reliable, TransientLocal, KeepLast(1) — /tf_static, /robot_description
+hiroz.QosKeepAll()          // Reliable, Volatile, KeepAll
 ```
 
 Apply with `.WithQoS(profile)` on the publisher or subscriber builder.
@@ -352,24 +352,24 @@ All `Build()` calls and operations return `error`. Use `errors.Is()` with sentin
 
 | Sentinel | When raised |
 |----------|-------------|
-| `rosz.ErrBuildFailed` | `Build()` failed — FFI returned nil |
-| `rosz.ErrTimeout` | Service call timed out |
-| `rosz.ErrGoalRejected` | Action server rejected the goal |
-| `rosz.ErrResultFailed` | Could not retrieve action result |
-| `rosz.ErrCancelFailed` | Cancellation request failed |
+| `hiroz.ErrBuildFailed` | `Build()` failed — FFI returned nil |
+| `hiroz.ErrTimeout` | Service call timed out |
+| `hiroz.ErrGoalRejected` | Action server rejected the goal |
+| `hiroz.ErrResultFailed` | Could not retrieve action result |
+| `hiroz.ErrCancelFailed` | Cancellation request failed |
 
 ```go
-if errors.Is(err, rosz.ErrBuildFailed) { /* construction failed */ }
-if errors.Is(err, rosz.ErrTimeout)     { /* no server responded */ }
+if errors.Is(err, hiroz.ErrBuildFailed) { /* construction failed */ }
+if errors.Is(err, hiroz.ErrTimeout)     { /* no server responded */ }
 ```
 
 Inspect the error code directly when you need fine-grained handling:
 
 ```go
-var e rosz.RoszError
+var e hiroz.RoszError
 if errors.As(err, &e) {
     switch e.Code() {
-    case rosz.ErrorCodeServiceTimeout:
+    case hiroz.ErrorCodeServiceTimeout:
         // retry
     default:
         log.Fatalf("FFI error %d: %s", e.Code(), e.Message())
@@ -384,7 +384,7 @@ if errors.As(err, &e) {
 
 ## Logging & Debugging
 
-Set `ROSZ_LOG` to control the rosz package log level:
+Set `HIROZ_LOG` to control the hiroz package log level:
 
 ```bash
 ROSZ_LOG=debug go run main.go   # all callbacks, CDR lengths, FFI calls
@@ -413,10 +413,10 @@ Logs go to stderr via Go's `log/slog` structured text format. For Zenoh-level tr
 | `production_service/` | Graceful shutdown, circuit breaker, metrics |
 
 ```bash
-just -f crates/ros-z-go/justfile run-example <name>
+just -f crates/hiroz-go/justfile run-example <name>
 ```
 
-See `crates/ros-z-go/examples/production_service/README.md` for the production walkthrough.
+See `crates/hiroz-go/examples/production_service/README.md` for the production walkthrough.
 
 ---
 

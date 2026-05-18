@@ -94,7 +94,7 @@ jobs:
 
             const botCommented = comments.data.some(comment =>
               comment.user.type === 'Bot' &&
-              comment.body.includes('Welcome to ros-z!')
+              comment.body.includes('Welcome to hiroz!')
             );
 
             if (!botCommented) {
@@ -102,7 +102,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber,
-                body: `👋 Welcome to ros-z! Thank you for your contribution.
+                body: `👋 Welcome to hiroz! Thank you for your contribution.
 
             **For external contributors**, we recommend opening PRs as **drafts**
             initially. This helps us manage CI workflow approvals efficiently.
@@ -116,6 +116,6 @@ jobs:
 
             A maintainer will review your PR soon!
 
-            [1]: https://github.com/ZettaScaleLabs/ros-z/blob/main/CONTRIBUTING.md`
+            [1]: https://github.com/ZettaScaleLabs/hiroz/blob/main/CONTRIBUTING.md`
               });
             }

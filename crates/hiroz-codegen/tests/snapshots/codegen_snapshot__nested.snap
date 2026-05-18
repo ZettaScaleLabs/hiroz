@@ -1,0 +1,102 @@
+---
+source: crates/hiroz-codegen/tests/codegen_snapshot.rs
+assertion_line: 89
+expression: format_tokens(tokens)
+---
+#[derive(Debug, Clone, Default, ::serde::Serialize, ::serde::Deserialize)]
+#[cfg_attr(
+    feature = "python_registry",
+    derive(::hiroz_derive::FromPyMessage, ::hiroz_derive::IntoPyMessage)
+)]
+#[cfg_attr(
+    feature = "python_registry",
+    ros_msg(module = "hiroz_msgs_py.types.test_interface_files")
+)]
+pub struct Nested {
+    pub basic_types_value: super::test_interface_files::BasicTypes,
+}
+impl Nested {}
+impl ::hiroz::MessageTypeInfo for Nested {
+    fn type_name() -> &'static str {
+        "test_interface_files::msg::dds_::Nested_"
+    }
+    fn type_hash() -> ::hiroz::entity::TypeHash {
+        ::hiroz::entity::TypeHash::from_rihs_string(
+                "RIHS01_f7508dd21e8e3a45218396836e71303befa72c54067dc6ceb50f499e636379ae",
+            )
+            .expect("Invalid RIHS hash")
+    }
+    fn message_schema() -> Option<::std::sync::Arc<::hiroz::dynamic::MessageSchema>> {
+        static SCHEMA: ::std::sync::OnceLock<
+            ::std::sync::Arc<::hiroz::dynamic::MessageSchema>,
+        > = ::std::sync::OnceLock::new();
+        Some(
+            SCHEMA
+                .get_or_init(|| {
+                    ::hiroz::dynamic::MessageSchema::builder(
+                            "test_interface_files/msg/Nested",
+                        )
+                        .field(
+                            "basic_types_value",
+                            ::hiroz::dynamic::FieldType::Message(
+                                <super::test_interface_files::BasicTypes as ::hiroz::MessageTypeInfo>::message_schema()
+                                    .expect("generated nested message schema must be available"),
+                            ),
+                        )
+                        .build()
+                        .expect("generated message schema must be valid")
+                })
+                .clone(),
+        )
+    }
+}
+impl ::hiroz::ros_msg::WithTypeInfo for Nested {}
+impl crate::size_estimation::SizeEstimation for Nested {
+    fn estimated_cdr_size(&self) -> usize {
+        let mut size = 0usize;
+        size
+            += crate::size_estimation::SizeEstimation::estimated_cdr_size(
+                &self.basic_types_value,
+            );
+        size + 16
+    }
+}
+impl Nested {
+    /// Get an accurate estimate of the serialized CDR size.
+    ///
+    /// This implementation accounts for dynamic fields (Vec, String, ZBuf)
+    /// and provides a conservative but accurate upper bound for SHM allocation.
+    pub fn estimated_serialized_size(&self) -> usize {
+        4 + crate::size_estimation::SizeEstimation::estimated_cdr_size(self)
+    }
+}
+impl ::hiroz_cdr::CdrSerialize for Nested {
+    fn cdr_serialize<BO, B>(&self, __w: &mut ::hiroz_cdr::CdrWriter<'_, BO, B>)
+    where
+        BO: ::byteorder::ByteOrder,
+        B: ::hiroz_cdr::CdrBuffer,
+    {
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.basic_types_value, __w);
+    }
+}
+impl ::hiroz_cdr::CdrDeserialize for Nested {
+    fn cdr_deserialize<'__de, BO>(
+        __r: &mut ::hiroz_cdr::CdrReader<'__de, BO>,
+    ) -> ::hiroz_cdr::Result<Self>
+    where
+        BO: ::byteorder::ByteOrder,
+    {
+        let basic_types_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        Ok(Self { basic_types_value })
+    }
+}
+impl ::hiroz_cdr::CdrSerializedSize for Nested {
+    fn cdr_serialized_size(&self, __pos: usize) -> usize {
+        let mut __p = __pos;
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.basic_types_value,
+            __p,
+        );
+        __p
+    }
+}

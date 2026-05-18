@@ -1,0 +1,35 @@
+[package]
+name = "hiroz-bridge"
+version.workspace = true
+edition.workspace = true
+description = "Bridge between ROS 2 Humble and Jazzy Zenoh networks via key expression translation"
+
+[[bin]]
+name = "hiroz-bridge"
+path = "src/main.rs"
+
+[dependencies]
+hiroz-protocol = { path = "../hiroz-protocol", features = ["std", "rmw-zenoh"] }
+hiroz-msgs = { path = "../hiroz-msgs", default-features = false, features = [
+  "core_msgs",
+] }
+hiroz = { path = "../hiroz" }
+
+zenoh = { workspace = true }
+
+tokio = { workspace = true, features = [
+  "rt-multi-thread",
+  "macros",
+  "sync",
+  "signal",
+] }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { workspace = true, features = ["derive"] }
+parking_lot = { workspace = true }
+
+[features]
+default = ["jazzy"]
+jazzy = ["hiroz-msgs/jazzy"]
+humble = ["hiroz-msgs/humble", "hiroz/humble"]

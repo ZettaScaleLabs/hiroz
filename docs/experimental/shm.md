@@ -4,11 +4,11 @@ Shared Memory (SHM) enables zero-copy publishing of large messages by serializin
 
 ## Overview
 
-When publishing large messages (e.g., point clouds, images), copying data multiple times can significantly impact performance. ros-z's SHM support leverages Eclipse Zenoh's shared memory capabilities to achieve true zero-copy publishing.
+When publishing large messages (e.g., point clouds, images), copying data multiple times can significantly impact performance. hiroz's SHM support leverages Eclipse Zenoh's shared memory capabilities to achieve true zero-copy publishing.
 
 ### Key Benefits
 
-- **Zero-copy serialization**: ros-z serializes messages directly into shared memory
+- **Zero-copy serialization**: hiroz serializes messages directly into shared memory
 - **Automatic activation**: Configurable threshold-based switching
 - **Accurate buffer sizing**: Auto-generated size estimation prevents waste
 - **High performance**: Sub-millisecond serialization for 1MB messages
@@ -16,17 +16,17 @@ When publishing large messages (e.g., point clouds, images), copying data multip
 
 ## How SHM Works in ROS 2
 
-The following diagram illustrates how ros-z publishes a PointCloud2 message using shared memory:
+The following diagram illustrates how hiroz publishes a PointCloud2 message using shared memory:
 
 ```mermaid
 sequenceDiagram
 accTitle: Shared memory zero-copy publishing of a PointCloud2 message
-accDescr: The application allocates a shared memory buffer, writes point data directly into it, and the ros-z publisher sends only a reference through the Zenoh network so the subscriber reads data without any copy.
+accDescr: The application allocates a shared memory buffer, writes point data directly into it, and the hiroz publisher sends only a reference through the Zenoh network so the subscriber reads data without any copy.
     participant App as Application
-    participant Pub as ros-z Publisher
+    participant Pub as hiroz Publisher
     participant SHM as SHM Provider
     participant Zenoh as Zenoh Network
-    participant Sub as ros-z Subscriber
+    participant Sub as hiroz Subscriber
     participant RemoteApp as Remote Application
 
     Note over App,RemoteApp: Publishing Large PointCloud2 (1MB)
@@ -67,16 +67,16 @@ accDescr: The application allocates a shared memory buffer, writes point data di
 
 ### Default Behavior: SHM is OFF
 
-**By default, ros-z disables SHM.** It serializes messages using regular memory allocation. You must explicitly enable SHM to use zero-copy publishing.
+**By default, hiroz disables SHM.** It serializes messages using regular memory allocation. You must explicitly enable SHM to use zero-copy publishing.
 
 ### Enable SHM Globally
 
 The simplest way to enable SHM is at the context level:
 
 ```rust
-use ros_z::context::ZContextBuilder;
-use ros_z::Builder;
-use ros_z_msgs::sensor_msgs::PointCloud2;
+use hiroz::context::ZContextBuilder;
+use hiroz::Builder;
+use hiroz_msgs::sensor_msgs::PointCloud2;
 
 fn main() -> zenoh::Result<()> {
     let ctx = ZContextBuilder::default()
@@ -99,8 +99,8 @@ fn main() -> zenoh::Result<()> {
 Adjust pool size and threshold based on your needs:
 
 ```rust
-use ros_z::context::ZContextBuilder;
-use ros_z::Builder;
+use hiroz::context::ZContextBuilder;
+use hiroz::Builder;
 
 fn main() -> zenoh::Result<()> {
     let ctx = ZContextBuilder::default()
@@ -116,10 +116,10 @@ fn main() -> zenoh::Result<()> {
 Override SHM settings for specific publishers:
 
 ```rust
-use ros_z::context::ZContextBuilder;
-use ros_z::shm::{ShmConfig, ShmProviderBuilder};
-use ros_z::Builder;
-use ros_z_msgs::sensor_msgs::PointCloud2;
+use hiroz::context::ZContextBuilder;
+use hiroz::shm::{ShmConfig, ShmProviderBuilder};
+use hiroz::Builder;
+use hiroz_msgs::sensor_msgs::PointCloud2;
 use std::sync::Arc;
 
 fn main() -> zenoh::Result<()> {
@@ -134,7 +134,7 @@ fn main() -> zenoh::Result<()> {
         .build()?;
 
     // Explicitly disable SHM (even if context has it enabled)
-    let text_pub = node.create_pub::<ros_z_msgs::std_msgs::String>("text")
+    let text_pub = node.create_pub::<hiroz_msgs::std_msgs::String>("text")
         .without_shm()
         .build()?;
     Ok(())
@@ -166,10 +166,10 @@ SHM configuration follows a three-level hierarchy:
 3. **Publisher level**: Most specific override (can disable even if context has SHM)
 
 ```rust
-use ros_z::context::ZContextBuilder;
-use ros_z::shm::{ShmConfig, ShmProviderBuilder};
-use ros_z::Builder;
-use ros_z_msgs::sensor_msgs::{Image, PointCloud2};
+use hiroz::context::ZContextBuilder;
+use hiroz::shm::{ShmConfig, ShmProviderBuilder};
+use hiroz::Builder;
+use hiroz_msgs::sensor_msgs::{Image, PointCloud2};
 use std::sync::Arc;
 
 fn main() -> zenoh::Result<()> {
@@ -192,7 +192,7 @@ fn main() -> zenoh::Result<()> {
         .build()?;
 
     // Publisher 3: disable SHM
-    let pub3 = node.create_pub::<ros_z_msgs::std_msgs::String>("status")
+    let pub3 = node.create_pub::<hiroz_msgs::std_msgs::String>("status")
         .without_shm()
         .build()?;
     Ok(())
@@ -213,9 +213,9 @@ export ZENOH_SHM_MESSAGE_SIZE_THRESHOLD=10000  # Set 10KB threshold
 To use environment variables in your code:
 
 ```rust
-use ros_z::shm::ShmConfig;
-use ros_z::context::ZContextBuilder;
-use ros_z::Builder;
+use hiroz::shm::ShmConfig;
+use hiroz::context::ZContextBuilder;
+use hiroz::Builder;
 
 fn main() -> zenoh::Result<()> {
     let ctx = if let Some(shm_config) = ShmConfig::from_env()? {
@@ -262,7 +262,7 @@ Zenoh publish
 
 ### Size Estimation
 
-ros-z automatically generates accurate size estimation for all message types during code generation:
+hiroz automatically generates accurate size estimation for all message types during code generation:
 
 ```rust
 // Auto-generated implementation for PointCloud2
@@ -290,7 +290,7 @@ This ensures:
 
 ## Complete Example
 
-The following complete example demonstrates three patterns for using SHM with PointCloud2 messages. This code is from `ros-z/examples/shm_pointcloud2.rs`:
+The following complete example demonstrates three patterns for using SHM with PointCloud2 messages. This code is from `hiroz/examples/shm_pointcloud2.rs`:
 
 ```rust
 //! PointCloud2 example demonstrating user-managed SHM for zero-copy point clouds.
@@ -311,12 +311,12 @@ The following complete example demonstrates three patterns for using SHM with Po
 
 use std::{sync::Arc, time::Instant};
 
-use ros_z::{
+use hiroz::{
     Builder,
     context::ZContextBuilder,
     shm::{ShmConfig, ShmProviderBuilder},
 };
-use ros_z_msgs::{
+use hiroz_msgs::{
     sensor_msgs::{PointCloud2, PointField},
     std_msgs::Header,
 };
@@ -611,7 +611,7 @@ cargo run --example shm_pointcloud2
 The Python `ZContextBuilder` exposes the same methods as the Rust API:
 
 ```python
-import ros_z_py as rz
+import hiroz_py as rz
 
 ctx = rz.ZContextBuilder().with_shm_enabled().build()
 ctx = rz.ZContextBuilder().with_shm_pool_size(100 * 1024 * 1024).build()
@@ -628,14 +628,14 @@ The same environment variables apply: `ZENOH_SHM_ALLOC_SIZE` and
 
 ```bash
 # SHM integration tests
-cargo test -p ros-z --lib shm
-cargo test -p ros-z --test shm
+cargo test -p hiroz --lib shm
+cargo test -p hiroz --test shm
 
 # Size estimation tests
-cargo test -p ros-z-msgs --test shm_size_estimation
+cargo test -p hiroz-msgs --test shm_size_estimation
 
 # Performance tests
-cargo test -p ros-z-msgs --test size_estimation_performance
+cargo test -p hiroz-msgs --test size_estimation_performance
 ```
 
 ### Test Coverage
@@ -754,7 +754,7 @@ sudo sysctl -w kernel.shmall=32768       # 128MB in pages
 For custom message types, implement `SizeEstimation`:
 
 ```rust
-use ros_z_msgs::size_estimation::SizeEstimation;
+use hiroz_msgs::size_estimation::SizeEstimation;
 
 impl SizeEstimation for MyCustomMessage {
     fn estimated_serialized_size(&self) -> usize {
@@ -782,10 +782,10 @@ let policy = BlockOn::<GarbageCollect>;
 
 ### Integration with rmw_zenoh_cpp
 
-ros-z's SHM implementation is fully compatible with [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh). C++/Python nodes using [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) can receive zero-copy the messages ros-z publishes via SHM, and vice versa.
+hiroz's SHM implementation is fully compatible with [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh). C++/Python nodes using [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) can receive zero-copy the messages hiroz publishes via SHM, and vice versa.
 
 ```bash
-# ros-z publisher (Rust)
+# hiroz publisher (Rust)
 cargo run --example shm_pointcloud2
 
 # Standard ROS 2 subscriber (C++ with rmw_zenoh_cpp)
@@ -803,12 +803,12 @@ ros2 run my_package cloud_subscriber
 For detailed implementation information, see the branch documentation:
 
 - **Branch**: `dev/shm`
-- **Documentation**: `.claude/ros-z/branches/shm/CLAUDE.md`
+- **Documentation**: `.claude/hiroz/branches/shm/CLAUDE.md`
 - **Status**: Production ready
 
 Key files:
 
-- `ros-z/src/shm.rs` - Core SHM module
-- `ros-z/src/msg.rs` - Serialization with size estimation
-- `ros-z-codegen/src/generator/rust.rs` - Size estimation codegen
-- `ros-z-msgs/src/size_estimation.rs` - Trait definition
+- `hiroz/src/shm.rs` - Core SHM module
+- `hiroz/src/msg.rs` - Serialization with size estimation
+- `hiroz-codegen/src/generator/rust.rs` - Size estimation codegen
+- `hiroz-msgs/src/size_estimation.rs` - Trait definition

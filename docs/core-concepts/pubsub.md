@@ -3,10 +3,10 @@
 !!! note "Go users"
     The code examples in this chapter are **Rust**. For Go pub/sub patterns, QoS presets, and the typed subscriber API, see the [Go Bindings](../bindings/go.md) chapter.
 
-**ros-z implements ROS 2's publish-subscribe pattern with type-safe, zero-copy messaging over Eclipse Zenoh.** This enables efficient, decoupled communication between nodes with minimal overhead.
+**hiroz implements ROS 2's publish-subscribe pattern with type-safe, zero-copy messaging over Eclipse Zenoh.** This enables efficient, decoupled communication between nodes with minimal overhead.
 
 !!! note
-    The pub-sub pattern forms the foundation of ROS 2 communication, allowing nodes to exchange data without direct coupling. ros-z leverages Zenoh's efficient transport layer for optimal performance.
+    The pub-sub pattern forms the foundation of ROS 2 communication, allowing nodes to exchange data without direct coupling. hiroz leverages Zenoh's efficient transport layer for optimal performance.
 
 ## What is Publish-Subscribe?
 
@@ -115,7 +115,7 @@ QoS controls delivery guarantees. Incompatible settings = **silent** data loss.
         <div class="flashcard-hint">Click to flip</div>
       </div>
       <div class="flashcard-back">
-        No messages flow. ros-z checks type compatibility at connection time and rejects mismatches. This is a compile-time guarantee in Rust — the wrong type won't compile.
+        No messages flow. hiroz checks type compatibility at connection time and rejects mismatches. This is a compile-time guarantee in Rust — the wrong type won't compile.
       </div>
     </div>
   </div>
@@ -163,8 +163,8 @@ QoS controls delivery guarantees. Incompatible settings = **silent** data loss.
 Publish "Hello World" messages to `/chatter` once per second:
 
 ```rust
-use ros_z::{Builder, context::ZContextBuilder};
-use ros_z_msgs::std_msgs::String as RosString;
+use hiroz::{Builder, context::ZContextBuilder};
+use hiroz_msgs::std_msgs::String as RosString;
 use std::time::Duration;
 
 let ctx = ZContextBuilder::default()
@@ -197,8 +197,8 @@ loop {
 Receive and print every message on `/chatter`:
 
 ```rust
-use ros_z::{Builder, context::ZContextBuilder};
-use ros_z_msgs::std_msgs::String as RosString;
+use hiroz::{Builder, context::ZContextBuilder};
+use hiroz_msgs::std_msgs::String as RosString;
 
 let ctx = ZContextBuilder::default()
     .with_connect_endpoints(["tcp/127.0.0.1:7447"])
@@ -220,7 +220,7 @@ while let Ok(msg) = subscriber.async_recv().await {
 ## Complete Pub-Sub Workflow
 
 !!! note
-    These commands run the ready-made examples from the ros-z repository. Clone it first with `git clone https://github.com/ZettaScaleLabs/ros-z.git && cd ros-z`. If you're building your own project, run your binaries with `cargo run` instead.
+    These commands run the ready-made examples from the hiroz repository. Clone it first with `git clone https://github.com/ZettaScaleLabs/hiroz.git && cd hiroz`. If you're building your own project, run your binaries with `cargo run` instead.
 
 **Terminal 1 — Start Zenoh Router:**
 
@@ -245,17 +245,17 @@ cargo run --example demo_nodes_talker
 
 ## Subscriber Patterns
 
-ros-z provides three patterns for receiving messages, each suited for different use cases:
+hiroz provides three patterns for receiving messages, each suited for different use cases:
 
 !!! tip
-    `use ros_z::Builder;` must be in scope to call `.build()` on any ros-z builder type. Add it alongside your other ros-z imports.
+    `use hiroz::Builder;` must be in scope to call `.build()` on any hiroz builder type. Add it alongside your other hiroz imports.
 
 ### Pattern 1: Blocking Receive (Pull Model)
 
 Best for: Simple sequential processing, scripting
 
 ```rust
-use ros_z::Builder; // required to call .build()
+use hiroz::Builder; // required to call .build()
 
 let subscriber = node
     .create_sub::<RosString>("topic_name")
@@ -271,7 +271,7 @@ while let Ok(msg) = subscriber.recv() {
 Best for: Integration with async codebases, handling multiple streams
 
 ```rust
-use ros_z::Builder; // required to call .build()
+use hiroz::Builder; // required to call .build()
 
 let subscriber = node
     .create_sub::<RosString>("topic_name")
@@ -287,7 +287,7 @@ while let Ok(msg) = subscriber.async_recv().await {
 Best for: Event-driven architectures, low-latency response
 
 ```rust
-use ros_z::Builder; // required to call .build_with_callback()
+use hiroz::Builder; // required to call .build_with_callback()
 
 let subscriber = node
     .create_sub::<RosString>("topic_name")
@@ -318,8 +318,8 @@ QoS profiles control delivery guarantees. Apply a profile with `.with_qos(qos)` 
 
 ```rust
 use std::num::NonZeroUsize;
-use ros_z::Builder;
-use ros_z::qos::{QosProfile, QosHistory, QosReliability};
+use hiroz::Builder;
+use hiroz::qos::{QosProfile, QosHistory, QosReliability};
 
 // Sensor data: best-effort, keep only the latest value
 let qos = QosProfile {
@@ -344,10 +344,10 @@ Common presets:
 
 ## Name Remapping
 
-ros-z supports ROS 2-style topic remapping via `ZContextBuilder::with_remap_rule()`. Remapping rules apply to all nodes created from the same context and redirect topic/service names at the context level.
+hiroz supports ROS 2-style topic remapping via `ZContextBuilder::with_remap_rule()`. Remapping rules apply to all nodes created from the same context and redirect topic/service names at the context level.
 
 ```rust
-use ros_z::{Builder, context::ZContextBuilder};
+use hiroz::{Builder, context::ZContextBuilder};
 
 let ctx = ZContextBuilder::default()
     .with_connect_endpoints(["tcp/127.0.0.1:7447"])
@@ -359,7 +359,7 @@ let ctx = ZContextBuilder::default()
 Add multiple rules with `.with_remap_rules()`:
 
 ```rust
-use ros_z::{Builder, context::ZContextBuilder};
+use hiroz::{Builder, context::ZContextBuilder};
 
 let ctx = ZContextBuilder::default()
     .with_connect_endpoints(["tcp/127.0.0.1:7447"])
@@ -371,7 +371,7 @@ The rule format follows the ROS 2 convention: `from:=to`.
 
 ## ROS 2 Interoperability
 
-ros-z publishers and subscribers interoperate with ROS 2 C++ and Python nodes via the shared Zenoh transport. See the dedicated **[ROS 2 Interoperability](../user-guide/interop.md)** chapter for setup instructions covering Rust, Python, and Go.
+hiroz publishers and subscribers interoperate with ROS 2 C++ and Python nodes via the shared Zenoh transport. See the dedicated **[ROS 2 Interoperability](../user-guide/interop.md)** chapter for setup instructions covering Rust, Python, and Go.
 
 ## Resources
 

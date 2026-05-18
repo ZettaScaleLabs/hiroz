@@ -1,9 +1,9 @@
 # Parameters
 
-**ros-z implements the full ROS 2 parameter subsystem for native nodes.** Declare, get, set, and validate typed parameters at runtime — with config file loading, range constraints, and standard parameter services that interoperate with `ros2 param`.
+**hiroz implements the full ROS 2 parameter subsystem for native nodes.** Declare, get, set, and validate typed parameters at runtime — with config file loading, range constraints, and standard parameter services that interoperate with `ros2 param`.
 
 !!! note
-    Parameters let you configure node behavior at runtime without recompilation. ros-z parameters are fully compatible with the ROS 2 parameter protocol, so `ros2 param list`, `ros2 param get`, and `ros2 param set` work out of the box against ros-z nodes.
+    Parameters let you configure node behavior at runtime without recompilation. hiroz parameters are fully compatible with the ROS 2 parameter protocol, so `ros2 param list`, `ros2 param get`, and `ros2 param set` work out of the box against hiroz nodes.
 
 ## What is a Parameter?
 
@@ -22,7 +22,7 @@ accDescr: The robot_controller node owns three typed parameters and the ros2 par
 
 - Typed: `bool`, `integer`, `double`, `string`, or array variants
 - Declared: nodes reject unknown parameter names by default
-- Introspectable: `ros2 param list/get/set` works on any ros-z node
+- Introspectable: `ros2 param list/get/set` works on any hiroz node
 
 ### Parameters vs other config
 
@@ -82,7 +82,7 @@ accDescr: A CLI set command enters the node's three-stage callback pipeline wher
 
 ### Standard parameter services
 
-Every ros-z node auto-creates these services — no extra code needed:
+Every hiroz node auto-creates these services — no extra code needed:
 
 | Service | What it does |
 |---------|-------------|
@@ -160,12 +160,12 @@ Every ros-z node auto-creates these services — no extra code needed:
     <div class="flashcard-inner">
       <div class="flashcard-front">
         <div class="flashcard-tag">Interop</div>
-        <div class="flashcard-term">How do you change a ros-z parameter from the CLI?</div>
+        <div class="flashcard-term">How do you change a hiroz parameter from the CLI?</div>
         <div class="flashcard-hint">Click to flip</div>
       </div>
       <div class="flashcard-back">
         <strong>ros2 param set /my_node max_speed 2.5</strong>
-        ros-z exposes standard parameter services so any ROS 2 tool works out of the box.
+        hiroz exposes standard parameter services so any ROS 2 tool works out of the box.
       </div>
     </div>
   </div>
@@ -175,7 +175,7 @@ Every ros-z node auto-creates these services — no extra code needed:
 
 ```mermaid
 graph TD
-accTitle: Parameter subsystem components inside a ros-z node
+accTitle: Parameter subsystem components inside a hiroz node
 accDescr: A ZNodeBuilder creates a ZNode that owns both a ParameterStore and a ParameterService; the service hosts six ZServers for all standard parameter operations and publishes parameter events.
     A[ZNodeBuilder] -->|configure| B[ZNode]
     B -->|owns| C[ParameterStore]
@@ -206,7 +206,7 @@ accDescr: A ZNodeBuilder creates a ZNode that owns both a ParameterStore and a P
 ## Quick Start
 
 ```rust
-use ros_z::{Builder, parameter::*};
+use hiroz::{Builder, parameter::*};
 
 let node = ctx.create_node("my_node").build()?;
 
@@ -239,7 +239,7 @@ node.set_parameter(Parameter::new("max_speed", ParameterValue::Double(2.5)))?;
 Declare parameters before use. A `ParameterDescriptor` specifies the name, expected type, and optional constraints:
 
 ```rust
-use ros_z::parameter::*;
+use hiroz::parameter::*;
 
 // Basic declaration
 let desc = ParameterDescriptor::new("timeout", ParameterType::Double);
@@ -337,7 +337,7 @@ fn run(ctx: ZContext) -> Result<()> {
 
 The callback receives all parameters changing in a single batch. Return `SetParametersResult::success()` to accept or `SetParametersResult::failure("reason")` to reject the entire batch.
 
-ros-z treats `ParameterValue::NotSet` as an unset value for a still-declared parameter. It does **not** delete the parameter; call `undeclare_parameter` for that.
+hiroz treats `ParameterValue::NotSet` as an unset value for a still-declared parameter. It does **not** delete the parameter; call `undeclare_parameter` for that.
 
 ## Parameter Services
 
@@ -358,7 +358,7 @@ Use `ParameterClient` when you want a typed client for another node's parameter 
 
 ```rust
 use std::sync::Arc;
-use ros_z::parameter::{Parameter, ParameterClient, ParameterTarget, ParameterType, ParameterValue};
+use hiroz::parameter::{Parameter, ParameterClient, ParameterTarget, ParameterType, ParameterValue};
 
 let client_node = Arc::new(ctx.create_node("param_client").build()?);
 let client = ParameterClient::new(
@@ -377,7 +377,7 @@ let result = client
 
 ## Loading from YAML
 
-ros-z supports the standard ROS 2 parameter YAML format:
+hiroz supports the standard ROS 2 parameter YAML format:
 
 ```yaml
 /**:
@@ -419,14 +419,14 @@ If you use both a file and programmatic overrides, the last call wins.
 
 ## /parameter_events
 
-ros-z publishes a `ParameterEvent` message to `/parameter_events` for every successful parameter change, with QoS:
+hiroz publishes a `ParameterEvent` message to `/parameter_events` for every successful parameter change, with QoS:
 
 - **Topic**: `/parameter_events` (global, shared by all nodes)
 - **Reliability**: Reliable
 - **Durability**: Transient Local
 - **History**: Keep Last (1000)
 
-ros-z classifies events as:
+hiroz classifies events as:
 
 - `new_parameters` on declaration
 - `changed_parameters` on successful set, including `ParameterValue::NotSet`
@@ -436,7 +436,7 @@ This matches the ROS 2 default topic/QoS shape. Tools like `ros2 param` and `rqt
 
 ## ROS 2 Comparison
 
-| Operation | rclcpp (C++) | ros-z (Rust) |
+| Operation | rclcpp (C++) | hiroz (Rust) |
 |-----------|-------------|--------------|
 | Declare | `node->declare_parameter<T>("name", default)` | `node.declare_parameter("name", value, desc)` |
 | Get | `node->get_parameter<T>("name")` | `node.get_parameter("name")` → `Option<ParameterValue>` |
@@ -452,18 +452,18 @@ This matches the ROS 2 default topic/QoS shape. Tools like `ros2 param` and `rqt
 
 **Key differences:**
 
-- **Error handling**: ros-z returns `Result<(), String>` on set failures; rclcpp throws exceptions
-- **Callbacks**: ros-z callbacks receive `&[Parameter]` (slice) and return `SetParametersResult`; rclcpp receives `std::vector<rclcpp::Parameter>`
-- **Opt-out**: ros-z can disable parameter services with `.without_parameters()`; rclcpp always enables them
-- **Unset values**: ros-z keeps `ParameterValue::NotSet` declared; deletion is explicit via `undeclare_parameter`
+- **Error handling**: hiroz returns `Result<(), String>` on set failures; rclcpp throws exceptions
+- **Callbacks**: hiroz callbacks receive `&[Parameter]` (slice) and return `SetParametersResult`; rclcpp receives `std::vector<rclcpp::Parameter>`
+- **Opt-out**: hiroz can disable parameter services with `.without_parameters()`; rclcpp always enables them
+- **Unset values**: hiroz keeps `ParameterValue::NotSet` declared; deletion is explicit via `undeclare_parameter`
 - **No `declare_parameter_if_not_declared`**: check `node.get_parameter("name").is_some()` first
 
 ## ROS 2 Interoperability
 
-ros-z parameter services use the same CDR wire format and RIHS01 type hashes as rclcpp. In an environment where ROS 2 is using [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) and both sides connect to the same Eclipse Zenoh router, `ros2 param` commands work against ros-z nodes:
+hiroz parameter services use the same CDR wire format and RIHS01 type hashes as rclcpp. In an environment where ROS 2 is using [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) and both sides connect to the same Eclipse Zenoh router, `ros2 param` commands work against hiroz nodes:
 
 ```bash
-# List parameters on a ros-z node
+# List parameters on a hiroz node
 ros2 param list /my_node
 
 # Get a parameter value
@@ -482,7 +482,7 @@ ros2 param dump /my_node
 ## Focused Examples
 
 !!! note
-    These commands run the ready-made examples from the ros-z repository. Clone it first with `git clone https://github.com/ZettaScaleLabs/ros-z.git && cd ros-z`.
+    These commands run the ready-made examples from the hiroz repository. Clone it first with `git clone https://github.com/ZettaScaleLabs/hiroz.git && cd hiroz`.
 
 The parameter examples are now split into focused binaries:
 
@@ -507,4 +507,4 @@ cargo run --example z_parameter_client
 
 - **[Feature Flags](../reference/feature-flags.md)** — `rcl_interfaces` feature for parameter service client types
 - **[Services](./services.md)** — underlying service mechanism
-- **[Quick Start](../getting-started/quick-start.md)** — getting started with ros-z
+- **[Quick Start](../getting-started/quick-start.md)** — getting started with hiroz

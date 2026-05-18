@@ -55,8 +55,8 @@ accDescr: Shows the four primary states Unconfigured, Inactive, Active, and Fina
 ## Creating a Lifecycle Node
 
 ```rust
-use ros_z::lifecycle::{ZLifecycleNode, CallbackReturn, LifecycleState};
-use ros_z::{Builder, context::ZContextBuilder};
+use hiroz::lifecycle::{ZLifecycleNode, CallbackReturn, LifecycleState};
+use hiroz::{Builder, context::ZContextBuilder};
 
 let ctx = ZContextBuilder::default()
     .with_connect_endpoints(["tcp/127.0.0.1:7447"])
@@ -67,7 +67,7 @@ let mut node = ctx.create_lifecycle_node("my_node").build()?;
 ### With a Namespace
 
 ```rust
-use ros_z::{Builder, context::ZContextBuilder};
+use hiroz::{Builder, context::ZContextBuilder};
 
 let ctx = ZContextBuilder::default()
     .with_connect_endpoints(["tcp/127.0.0.1:7447"])
@@ -83,8 +83,8 @@ let mut node = ctx
 Set callbacks on the node before triggering any transitions. Each callback receives the previous state and returns a `CallbackReturn`.
 
 ```rust
-use ros_z::lifecycle::CallbackReturn;
-use ros_z::{Builder, context::ZContextBuilder};
+use hiroz::lifecycle::CallbackReturn;
+use hiroz::{Builder, context::ZContextBuilder};
 
 let ctx = ZContextBuilder::default()
     .with_connect_endpoints(["tcp/127.0.0.1:7447"])
@@ -131,7 +131,7 @@ node.on_shutdown = Box::new(|_prev| {
 The default `on_error` returns `Failure`, which drives the node to **Finalized**. Override it to recover to **Unconfigured** instead:
 
 ```rust
-use ros_z::lifecycle::CallbackReturn;
+use hiroz::lifecycle::CallbackReturn;
 
 // Recover to Unconfigured instead of crashing to Finalized
 node.on_error = Box::new(|_prev| CallbackReturn::Success);
@@ -142,9 +142,9 @@ node.on_error = Box::new(|_prev| CallbackReturn::Success);
 A lifecycle publisher wraps a regular publisher and **silently drops** publish calls while the node is not Active. This makes publishing code clean — no manual state checks needed.
 
 ```rust
-use ros_z::lifecycle::ZLifecycleNode;
-use ros_z::{Builder, context::ZContextBuilder};
-use ros_z_msgs::ros::std_msgs::String as RosString;
+use hiroz::lifecycle::ZLifecycleNode;
+use hiroz::{Builder, context::ZContextBuilder};
+use hiroz_msgs::ros::std_msgs::String as RosString;
 
 let ctx = ZContextBuilder::default()
     .with_connect_endpoints(["tcp/127.0.0.1:7447"])
@@ -163,7 +163,7 @@ node.deactivate()?;
 pub_.publish(&RosString { data: "dropped".to_string() })?;
 ```
 
-ros-z registers all publishers created with `create_publisher` as **managed entities**: they activate and deactivate automatically when the node transitions.
+hiroz registers all publishers created with `create_publisher` as **managed entities**: they activate and deactivate automatically when the node transitions.
 
 !!! note
     Publishers created **after** `activate()` are immediately activated. You can safely create publishers at any point in the node's lifetime.
@@ -216,8 +216,8 @@ The `~/transition_event` topic publishes a `TransitionEvent` message on every st
 
 ```rust
 use std::time::Duration;
-use ros_z::{Builder, context::ZContextBuilder};
-use ros_z::lifecycle::ZLifecycleClient;
+use hiroz::{Builder, context::ZContextBuilder};
+use hiroz::lifecycle::ZLifecycleClient;
 
 let ctx = ZContextBuilder::default()
     .with_connect_endpoints(["tcp/127.0.0.1:7447"])
@@ -246,8 +246,8 @@ client.shutdown(timeout).await?;
 ## Full Example: Managed Talker
 
 ```rust
-use ros_z::{Builder, Result, context::ZContextBuilder, lifecycle::CallbackReturn};
-use ros_z_msgs::std_msgs::String as RosString;
+use hiroz::{Builder, Result, context::ZContextBuilder, lifecycle::CallbackReturn};
+use hiroz_msgs::std_msgs::String as RosString;
 
 fn main() -> Result<()> {
     // Build an Eclipse Zenoh context and create a lifecycle node.
@@ -329,7 +329,7 @@ fn main() -> Result<()> {
 ```rust
 use std::time::Duration;
 
-use ros_z::{
+use hiroz::{
     Builder, Result,
     context::ZContextBuilder,
     lifecycle::{CallbackReturn, ZLifecycleClient},

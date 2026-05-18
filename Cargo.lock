@@ -1337,6 +1337,205 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hiroz"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
+ "clap",
+ "csv",
+ "dashmap",
+ "event-listener",
+ "flume",
+ "hiroz-cdr",
+ "hiroz-codegen",
+ "hiroz-derive",
+ "hiroz-msgs",
+ "hiroz-protocol",
+ "hiroz-schema",
+ "json5",
+ "parking_lot",
+ "paste",
+ "prost",
+ "prost-build",
+ "pyo3",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "serial_test",
+ "sha2",
+ "slab",
+ "strum 0.27.2",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+ "zenoh",
+ "zenoh-buffers",
+ "zenoh-ext",
+]
+
+[[package]]
+name = "hiroz-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hiroz",
+ "hiroz-msgs",
+ "hiroz-protocol",
+ "parking_lot",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "zenoh",
+]
+
+[[package]]
+name = "hiroz-cdr"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "byteorder",
+ "proptest",
+ "serde",
+ "thiserror 1.0.69",
+ "zenoh-buffers",
+]
+
+[[package]]
+name = "hiroz-codegen"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "hiroz-cdr",
+ "hiroz-schema",
+ "insta",
+ "prettyplease",
+ "proc-macro2",
+ "prost-build",
+ "quote",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sha2",
+ "syn 2.0.110",
+ "tempfile",
+]
+
+[[package]]
+name = "hiroz-console"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "crossterm 0.29.0",
+ "flume",
+ "hiroz",
+ "hiroz-msgs",
+ "hiroz-protocol",
+ "nix 0.29.0",
+ "once_cell",
+ "parking_lot",
+ "ratatui",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "zenoh",
+]
+
+[[package]]
+name = "hiroz-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.110",
+]
+
+[[package]]
+name = "hiroz-msgs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "byteorder",
+ "glob",
+ "hiroz",
+ "hiroz-cdr",
+ "hiroz-codegen",
+ "hiroz-derive",
+ "once_cell",
+ "parking_lot",
+ "prost",
+ "pyo3",
+ "serde",
+ "serde-big-array",
+ "serde_bytes",
+ "smart-default",
+ "zenoh-buffers",
+]
+
+[[package]]
+name = "hiroz-protocol"
+version = "0.1.0"
+dependencies = [
+ "zenoh",
+]
+
+[[package]]
+name = "hiroz-py"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "flume",
+ "hiroz",
+ "hiroz-cdr",
+ "hiroz-msgs",
+ "once_cell",
+ "pyo3",
+ "serde",
+ "tokio",
+ "zenoh",
+ "zenoh-buffers",
+]
+
+[[package]]
+name = "hiroz-schema"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "hiroz-tests"
+version = "0.1.0"
+dependencies = [
+ "hiroz",
+ "hiroz-cdr",
+ "hiroz-msgs",
+ "hiroz-schema",
+ "nix 0.29.0",
+ "once_cell",
+ "prost",
+ "protobuf_demo",
+ "serde",
+ "serial_test",
+ "tokio",
+ "tracing-subscriber",
+ "zenoh",
+ "zenoh-buffers",
+]
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2462,10 +2661,10 @@ name = "protobuf_demo"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "hiroz",
+ "hiroz-msgs",
  "prost",
  "prost-build",
- "ros-z",
- "ros-z-msgs",
  "serde",
  "tokio",
  "zenoh",
@@ -2816,10 +3015,10 @@ dependencies = [
  "cxx",
  "cxx-build",
  "flume",
+ "hiroz",
+ "hiroz-cdr",
+ "hiroz-protocol",
  "parking_lot",
- "ros-z",
- "ros-z-cdr",
- "ros-z-protocol",
  "serde",
  "strum 0.27.2",
  "tracing",
@@ -2839,205 +3038,6 @@ dependencies = [
  "serde_derive",
  "typeid",
  "unicode-ident",
-]
-
-[[package]]
-name = "ros-z"
-version = "0.1.0"
-dependencies = [
- "byteorder",
- "clap",
- "csv",
- "dashmap",
- "event-listener",
- "flume",
- "json5",
- "parking_lot",
- "paste",
- "prost",
- "prost-build",
- "pyo3",
- "ros-z-cdr",
- "ros-z-codegen",
- "ros-z-derive",
- "ros-z-msgs",
- "ros-z-protocol",
- "ros-z-schema",
- "serde",
- "serde_json",
- "serde_yaml",
- "serial_test",
- "sha2",
- "slab",
- "strum 0.27.2",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
- "zenoh",
- "zenoh-buffers",
- "zenoh-ext",
-]
-
-[[package]]
-name = "ros-z-bridge"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "parking_lot",
- "ros-z",
- "ros-z-msgs",
- "ros-z-protocol",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "zenoh",
-]
-
-[[package]]
-name = "ros-z-cdr"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "byteorder",
- "proptest",
- "serde",
- "thiserror 1.0.69",
- "zenoh-buffers",
-]
-
-[[package]]
-name = "ros-z-codegen"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "hex",
- "insta",
- "prettyplease",
- "proc-macro2",
- "prost-build",
- "quote",
- "ros-z-cdr",
- "ros-z-schema",
- "serde",
- "serde_json",
- "serial_test",
- "sha2",
- "syn 2.0.110",
- "tempfile",
-]
-
-[[package]]
-name = "ros-z-console"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "crossterm 0.29.0",
- "flume",
- "nix 0.29.0",
- "once_cell",
- "parking_lot",
- "ratatui",
- "ros-z",
- "ros-z-msgs",
- "ros-z-protocol",
- "rusqlite",
- "serde",
- "serde_json",
- "serial_test",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "zenoh",
-]
-
-[[package]]
-name = "ros-z-derive"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.110",
-]
-
-[[package]]
-name = "ros-z-msgs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytemuck",
- "byteorder",
- "glob",
- "once_cell",
- "parking_lot",
- "prost",
- "pyo3",
- "ros-z",
- "ros-z-cdr",
- "ros-z-codegen",
- "ros-z-derive",
- "serde",
- "serde-big-array",
- "serde_bytes",
- "smart-default",
- "zenoh-buffers",
-]
-
-[[package]]
-name = "ros-z-protocol"
-version = "0.1.0"
-dependencies = [
- "zenoh",
-]
-
-[[package]]
-name = "ros-z-py"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "flume",
- "once_cell",
- "pyo3",
- "ros-z",
- "ros-z-cdr",
- "ros-z-msgs",
- "serde",
- "tokio",
- "zenoh",
- "zenoh-buffers",
-]
-
-[[package]]
-name = "ros-z-schema"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "hex",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "ros-z-tests"
-version = "0.1.0"
-dependencies = [
- "nix 0.29.0",
- "once_cell",
- "prost",
- "protobuf_demo",
- "ros-z",
- "ros-z-cdr",
- "ros-z-msgs",
- "ros-z-schema",
- "serde",
- "serial_test",
- "tokio",
- "tracing-subscriber",
- "zenoh",
- "zenoh-buffers",
 ]
 
 [[package]]

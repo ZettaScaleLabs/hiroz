@@ -1,31 +1,31 @@
-# ros-z-console
+# hiroz-console
 
-**ros-z-console** is a monitoring tool for ROS 2 systems built on Eclipse Zenoh.
+**hiroz-console** is a monitoring tool for ROS 2 systems built on Eclipse Zenoh.
 It provides real-time graph inspection, dataflow monitoring, and metrics
 collection through two interfaces: an interactive TUI (Terminal User Interface)
 and a headless JSON streaming mode.
 
 !!! tip
-    ros-z-console uses zero-interference monitoring via pure Zenoh subscribers -
+    hiroz-console uses zero-interference monitoring via pure Zenoh subscribers -
     it never pollutes the ROS graph with its own presence.
 
 ## Network Topology
 
-ros-z-console connects to the ROS 2 graph via a Zenoh router. All ROS 2 nodes
+hiroz-console connects to the ROS 2 graph via a Zenoh router. All ROS 2 nodes
 using [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) communicate through the same router, enabling
-ros-z-console to observe the entire system.
+hiroz-console to observe the entire system.
 
 ```mermaid
 graph LR
-accTitle: ros-z-console monitoring topology via Zenoh router
-accDescr: The ros-z-console connects as a read-only observer to the same Zenoh router that the talker and listener nodes use, enabling zero-interference monitoring of the ROS 2 graph.
+accTitle: hiroz-console monitoring topology via Zenoh router
+accDescr: The hiroz-console connects as a read-only observer to the same Zenoh router that the talker and listener nodes use, enabling zero-interference monitoring of the ROS 2 graph.
     subgraph "ROS 2 System"
         T[talker<br/>rmw_zenoh_cpp]
         L[listener<br/>rmw_zenoh_cpp]
     end
 
     R[Zenoh Router<br/>rmw_zenohd]
-    C[ros-z-console]
+    C[hiroz-console]
 
     T <--> R
     L <--> R
@@ -37,7 +37,7 @@ accDescr: The ros-z-console connects as a read-only observer to the same Zenoh r
 
 ## Quick Start: Monitoring demo_nodes_cpp
 
-This example shows ros-z-console monitoring the classic talker/listener demo from `demo_nodes_cpp`.
+This example shows hiroz-console monitoring the classic talker/listener demo from `demo_nodes_cpp`.
 
 **Terminal 1 - Start the Zenoh router:**
 
@@ -62,22 +62,22 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 run demo_nodes_cpp listener
 ```
 
-**Terminal 4 - Monitor with ros-z-console:**
+**Terminal 4 - Monitor with hiroz-console:**
 
 ```bash
-./target/release/ros-z-console tcp/127.0.0.1:7447 0
+./target/release/hiroz-console tcp/127.0.0.1:7447 0
 ```
 
 !!! success
     You should see the `/chatter` topic, the `talker` and `listener` nodes, and
-    their services appear in ros-z-console. Use the TUI to browse topics, check
+    their services appear in hiroz-console. Use the TUI to browse topics, check
     message rates, and inspect QoS settings.
 
 ## Installation
 
 ### Pre-built Binary (Recommended)
 
-Download the latest release for your platform from the [Releases page](https://github.com/ZettaScaleLabs/ros-z/releases):
+Download the latest release for your platform from the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases):
 
 | Platform | File |
 |---|---|
@@ -87,12 +87,12 @@ Download the latest release for your platform from the [Releases page](https://g
 
 ```bash
 # Linux x86_64 example — replace <version> and filename for your platform
-curl -Lo ros-z-console https://github.com/ZettaScaleLabs/ros-z/releases/download/<version>/bin-console-x86_64-linux
-chmod +x ros-z-console
-./ros-z-console tcp/127.0.0.1:7447 0
+curl -Lo hiroz-console https://github.com/ZettaScaleLabs/hiroz/releases/download/<version>/bin-console-x86_64-linux
+chmod +x hiroz-console
+./hiroz-console tcp/127.0.0.1:7447 0
 ```
 
-`ros-z-console` has no ROS 2 dependency — it works with any [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) or ros-z deployment.
+`hiroz-console` has no ROS 2 dependency — it works with any [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) or hiroz deployment.
 
 ### Build from Source
 
@@ -100,34 +100,34 @@ Requires Rust 1.85+:
 
 ```bash
 # Build the console (release build)
-cargo build -p ros-z-console --release
+cargo build -p hiroz-console --release
 
 # Run directly from build output
-./target/release/ros-z-console tcp/127.0.0.1:7447 0
+./target/release/hiroz-console tcp/127.0.0.1:7447 0
 
-# Or install to ~/.cargo/bin so `ros-z-console` works from anywhere
-cargo install --path crates/ros-z-console
+# Or install to ~/.cargo/bin so `hiroz-console` works from anywhere
+cargo install --path crates/hiroz-console
 
 # Or use cargo run during development (debug build)
-cargo run -p ros-z-console -- tcp/127.0.0.1:7447 0
+cargo run -p hiroz-console -- tcp/127.0.0.1:7447 0
 
 # Headless JSON streaming
-./target/release/ros-z-console --headless --json tcp/127.0.0.1:7447 0
+./target/release/hiroz-console --headless --json tcp/127.0.0.1:7447 0
 
 # Echo messages from a topic
-./target/release/ros-z-console --headless --echo /chatter tcp/127.0.0.1:7447 0
+./target/release/hiroz-console --headless --echo /chatter tcp/127.0.0.1:7447 0
 
 # Echo multiple topics with JSON output
-./target/release/ros-z-console --headless --json --echo /chatter --echo /cmd_vel tcp/127.0.0.1:7447 0
+./target/release/hiroz-console --headless --json --echo /chatter --echo /cmd_vel tcp/127.0.0.1:7447 0
 
 # Export graph snapshot and exit
-./target/release/ros-z-console --export graph.json tcp/127.0.0.1:7447 0
+./target/release/hiroz-console --export graph.json tcp/127.0.0.1:7447 0
 ```
 
 ## Command Line Interface
 
 ```bash
-ros-z-console [OPTIONS] [ROUTER] [DOMAIN]
+hiroz-console [OPTIONS] [ROUTER] [DOMAIN]
 ```
 
 ### Arguments
@@ -151,7 +151,7 @@ ros-z-console [OPTIONS] [ROUTER] [DOMAIN]
 
 ### Backend Selection
 
-ros-z-console supports two discovery backends:
+hiroz-console supports two discovery backends:
 
 | Backend | Use when... |
 |---------|-------------|
@@ -160,10 +160,10 @@ ros-z-console supports two discovery backends:
 
 ```bash
 # Monitor nodes using rmw_zenoh_cpp (default)
-ros-z-console tcp/127.0.0.1:7447 0
+hiroz-console tcp/127.0.0.1:7447 0
 
 # Monitor nodes bridged via zenoh-bridge-ros2dds
-ros-z-console --backend ros2dds tcp/127.0.0.1:7447 0
+hiroz-console --backend ros2dds tcp/127.0.0.1:7447 0
 ```
 
 ## Modes
@@ -177,7 +177,7 @@ The interactive terminal interface provides:
 - **Rate Monitoring** - Quick rate check with `r` key (cached for 30s)
 - **Measurement Tracking** - Press `m` on a topic in the Topics tab to toggle it into the Measure panel tracking list
 - **Measurement Panel** - Navigate to the Measure tab to see real-time metrics (msg/s, KB/s, average payload) and a 60-second time-series chart
-- **SQLite Recording** - Press `w` to start/stop recording metrics to `ros-z-metrics.db`
+- **SQLite Recording** - Press `w` to start/stop recording metrics to `hiroz-metrics.db`
 - **Detail Drilling** - Press `Enter` to expand sections with QoS profiles
 - **Export** - Press `e` to export the current rate cache to a timestamped CSV file
 - **Screenshot** - Press `S` to capture the current TUI state
@@ -198,7 +198,7 @@ Headless mode streams events to stdout, making it ideal for:
 **Human-readable output:**
 
 ```bash
-ros-z-console --headless tcp/127.0.0.1:7447 0
+hiroz-console --headless tcp/127.0.0.1:7447 0
 ```
 
 ```console
@@ -216,7 +216,7 @@ Discovered Nodes:
 **JSON streaming output:**
 
 ```bash
-ros-z-console --headless --json tcp/127.0.0.1:7447 0
+hiroz-console --headless --json tcp/127.0.0.1:7447 0
 ```
 
 ```json
@@ -227,7 +227,7 @@ ros-z-console --headless --json tcp/127.0.0.1:7447 0
 
 ## Dynamic Topic Echo
 
-ros-z-console can subscribe to and display messages from **any ROS 2 topic**
+hiroz-console can subscribe to and display messages from **any ROS 2 topic**
 without compile-time knowledge of message types. Dynamic schema discovery via the ROS 2 Type Description service (REP-2016) powers this capability.
 
 !!! success "Universal Message Support"
@@ -235,7 +235,7 @@ without compile-time knowledge of message types. Dynamic schema discovery via th
 
 ### How It Works
 
-When you echo a topic, ros-z-console:
+When you echo a topic, hiroz-console:
 
 1. **Discovers publishers** on the topic using graph monitoring
 2. **Queries the Type Description service** from the publisher's node
@@ -245,9 +245,9 @@ When you echo a topic, ros-z-console:
 
 ```mermaid
 sequenceDiagram
-accTitle: ros-z-console topic echo flow using dynamic type discovery
+accTitle: hiroz-console topic echo flow using dynamic type discovery
 accDescr: The console queries the graph for publishers, retrieves the type schema from the publisher node, subscribes dynamically, then deserializes incoming CDR bytes for display.
-    participant C as ros-z-console
+    participant C as hiroz-console
     participant G as Graph
     participant P as Publisher Node
     participant Z as Zenoh
@@ -264,12 +264,12 @@ accDescr: The console queries the graph for publishers, retrieves the type schem
 ### Basic Usage
 
 !!! note
-    The examples below omit the `[ROUTER] [DOMAIN]` positional arguments. When omitted, they default to `tcp/127.0.0.1:7447` and `0` respectively. To use a different router or domain, add them at the end: `ros-z-console --headless --echo /chatter tcp/192.168.1.100:7447 1`.
+    The examples below omit the `[ROUTER] [DOMAIN]` positional arguments. When omitted, they default to `tcp/127.0.0.1:7447` and `0` respectively. To use a different router or domain, add them at the end: `hiroz-console --headless --echo /chatter tcp/192.168.1.100:7447 1`.
 
 **Echo a single topic:**
 
 ```bash
-ros-z-console --headless --echo /chatter
+hiroz-console --headless --echo /chatter
 ```
 
 **Output:**
@@ -290,7 +290,7 @@ data: "Hello World: 1"
 **JSON output mode:**
 
 ```bash
-ros-z-console --headless --json --echo /chatter
+hiroz-console --headless --json --echo /chatter
 ```
 
 ```json
@@ -304,7 +304,7 @@ ros-z-console --headless --json --echo /chatter
 Echo multiple topics simultaneously:
 
 ```bash
-ros-z-console --headless --echo /chatter --echo /cmd_vel --echo /odom
+hiroz-console --headless --echo /chatter --echo /cmd_vel --echo /odom
 ```
 
 Each topic is independently discovered and subscribed with its own dynamic schema.
@@ -315,18 +315,18 @@ Each topic is independently discovered and subscribed with its own dynamic schem
 
 ```bash
 # String messages
-ros-z-console --headless --echo /chatter
+hiroz-console --headless --echo /chatter
 
 # Numeric types
-ros-z-console --headless --echo /count      # Int32
-ros-z-console --headless --echo /sensor     # Float64
+hiroz-console --headless --echo /count      # Int32
+hiroz-console --headless --echo /sensor     # Float64
 ```
 
 #### Nested Messages
 
 ```bash
 # Twist (linear + angular vectors)
-ros-z-console --headless --echo /cmd_vel
+hiroz-console --headless --echo /cmd_vel
 ```
 
 **Output:**
@@ -347,7 +347,7 @@ angular:
 
 ```bash
 # Point cloud or array messages
-ros-z-console --headless --echo /scan
+hiroz-console --headless --echo /scan
 ```
 
 ### Use Cases
@@ -357,7 +357,7 @@ ros-z-console --headless --echo /scan
 Quickly inspect what publishers are sending:
 
 ```bash
-ros-z-console --headless --echo /diagnostics
+hiroz-console --headless --echo /diagnostics
 ```
 
 #### Data Analysis
@@ -365,7 +365,7 @@ ros-z-console --headless --echo /diagnostics
 Pipe JSON output to analysis tools:
 
 ```bash
-ros-z-console --headless --json --echo /pose | \
+hiroz-console --headless --json --echo /pose | \
   jq -r 'select(.event=="message_received") | .data.position.x'
 ```
 
@@ -374,7 +374,7 @@ ros-z-console --headless --json --echo /pose | \
 Extract and log specific data:
 
 ```bash
-ros-z-console --headless --json --echo /sensor_data | \
+hiroz-console --headless --json --echo /sensor_data | \
   jq '.data.temperature' >> temps.log
 ```
 
@@ -384,7 +384,7 @@ Verify message structure and content during development:
 
 ```bash
 # Check if messages match expected schema
-ros-z-console --headless --json --echo /my_custom_topic | \
+hiroz-console --headless --json --echo /my_custom_topic | \
   jq '.data | keys'
 ```
 
@@ -395,7 +395,7 @@ Monitor multiple robot topics simultaneously:
 ```bash
 #!/bin/bash
 # Monitor robot state
-ros-z-console --headless \
+hiroz-console --headless \
   --echo /cmd_vel \
   --echo /odom \
   --echo /battery_state \
@@ -405,18 +405,18 @@ ros-z-console --headless \
 
 ### Integration with Standard ROS 2
 
-ros-z-console echo works seamlessly with standard ROS 2 nodes:
+hiroz-console echo works seamlessly with standard ROS 2 nodes:
 
 ```bash
 # Terminal 1: Standard ROS 2 publisher
 ros2 run demo_nodes_cpp talker
 
-# Terminal 2: ros-z-console subscriber
-ros-z-console --headless --echo /chatter
+# Terminal 2: hiroz-console subscriber
+hiroz-console --headless --echo /chatter
 ```
 
 !!! info "Type Hash Matching"
-    ros-z-console uses RIHS01 type hashes to ensure message compatibility. If type hashes don't match, the subscription will fail with a clear error message.
+    hiroz-console uses RIHS01 type hashes to ensure message compatibility. If type hashes don't match, the subscription will fail with a clear error message.
 
 ### Advanced Options
 
@@ -425,7 +425,7 @@ ros-z-console --headless --echo /chatter
 Enable detailed logging to troubleshoot discovery issues:
 
 ```bash
-RUST_LOG=ros_z=debug ros-z-console --headless --echo /chatter
+RUST_LOG=hiroz=debug hiroz-console --headless --echo /chatter
 ```
 
 **Debug output shows:**
@@ -464,7 +464,7 @@ This occurs when the publisher and subscriber have different message definitions
 
 ### Comparison with ros2 topic echo
 
-| Feature | ros-z-console | ros2 topic echo |
+| Feature | hiroz-console | ros2 topic echo |
 |---------|---------------|-----------------|
 | **Compilation** | No recompilation needed | Requires message packages installed |
 | **Custom types** | Automatic discovery | Must have .msg files available |
@@ -481,7 +481,7 @@ This occurs when the publisher and subscriber have different message definitions
 - **CPU:** Minimal - only active when messages arrive
 
 !!! tip "Schema Caching"
-    ros-z-console caches message schemas in a global registry. Once it discovers a type, subsequent subscriptions to topics with the same type are instant.
+    hiroz-console caches message schemas in a global registry. Once it discovers a type, subsequent subscriptions to topics with the same type are instant.
 
 ## Export Formats
 
@@ -490,7 +490,7 @@ Export the current graph state with the `--export` flag:
 ### JSON Export
 
 ```bash
-ros-z-console --export graph.json tcp/127.0.0.1:7447 0
+hiroz-console --export graph.json tcp/127.0.0.1:7447 0
 ```
 
 Produces a structured JSON file with topics, nodes, services, and their relationships:
@@ -512,7 +512,7 @@ Produces a structured JSON file with topics, nodes, services, and their relation
 ### GraphViz DOT Export
 
 ```bash
-ros-z-console --export graph.dot tcp/127.0.0.1:7447 0
+hiroz-console --export graph.dot tcp/127.0.0.1:7447 0
 dot -Tpng graph.dot -o graph.png
 ```
 
@@ -526,7 +526,7 @@ Generates a visual graph representation with:
 ### CSV Export
 
 ```bash
-ros-z-console --export metrics.csv tcp/127.0.0.1:7447 0
+hiroz-console --export metrics.csv tcp/127.0.0.1:7447 0
 ```
 
 Exports metrics recorded during the current TUI session. Use `w` in the TUI to start recording before exporting:
@@ -541,7 +541,7 @@ timestamp,topic,rate_hz,bandwidth_kbps,avg_payload_bytes
 
 ## Event Types
 
-ros-z-console tracks these system events:
+hiroz-console tracks these system events:
 
 | Event | Description |
 |-------|-------------|
@@ -555,7 +555,7 @@ ros-z-console tracks these system events:
 
 ## Configuration
 
-Create a `ros-z-console.json` or `.ros-z-console.json` file:
+Create a `hiroz-console.json` or `.hiroz-console.json` file:
 
 ```json
 {
@@ -577,10 +577,10 @@ Create a `ros-z-console.json` or `.ros-z-console.json` file:
 
 ```bash
 # Filter for topic discovery events
-ros-z-console --headless --json | jq 'select(.TopicDiscovered != null)'
+hiroz-console --headless --json | jq 'select(.TopicDiscovered != null)'
 
 # Extract specific message fields
-ros-z-console --headless --json --echo /pose | \
+hiroz-console --headless --json --echo /pose | \
   jq -r 'select(.event=="message_received") | .data.position'
 ```
 
@@ -588,10 +588,10 @@ ros-z-console --headless --json --echo /pose | \
 
 ```bash
 # Watch for messages on specific topic
-ros-z-console --headless --json | grep -E '"topic":"/cmd_vel"'
+hiroz-console --headless --json | grep -E '"topic":"/cmd_vel"'
 
 # Echo and filter by field value
-ros-z-console --headless --json --echo /sensor | \
+hiroz-console --headless --json --echo /sensor | \
   jq 'select(.data.temperature > 50)'
 ```
 
@@ -599,22 +599,22 @@ ros-z-console --headless --json --echo /sensor | \
 
 ```bash
 # Log all graph events
-ros-z-console --headless --json >> ros-events.jsonl &
+hiroz-console --headless --json >> ros-events.jsonl &
 
 # Log all messages from a topic
-ros-z-console --headless --json --echo /diagnostics >> diagnostics.jsonl &
+hiroz-console --headless --json --echo /diagnostics >> diagnostics.jsonl &
 ```
 
 ### Real-time data extraction
 
 ```bash
 # Extract velocity commands
-ros-z-console --headless --json --echo /cmd_vel | \
+hiroz-console --headless --json --echo /cmd_vel | \
   jq -r '.data.linear.x' | \
   tee -a velocity.log
 
 # Monitor temperature sensor
-ros-z-console --headless --json --echo /temperature | \
+hiroz-console --headless --json --echo /temperature | \
   jq -r '[.timestamp, .data.value] | @csv' >> temp.csv
 ```
 
@@ -622,8 +622,8 @@ ros-z-console --headless --json --echo /temperature | \
 
 ```bash
 # After running TUI mode with measurements
-sqlite3 ros-z-metrics.db "SELECT topic, AVG(msgs_sec) FROM metrics GROUP BY topic"
+sqlite3 hiroz-metrics.db "SELECT topic, AVG(msgs_sec) FROM metrics GROUP BY topic"
 ```
 
 !!! tip "Interoperability"
-    Both ros-z and rmw_zenoh_cpp use the same Zenoh-based discovery protocol. ros-z-console subscribes to the graph liveliness tokens that rmw_zenoh_cpp nodes publish, enabling seamless interoperability without any configuration changes.
+    Both hiroz and rmw_zenoh_cpp use the same Zenoh-based discovery protocol. hiroz-console subscribes to the graph liveliness tokens that rmw_zenoh_cpp nodes publish, enabling seamless interoperability without any configuration changes.

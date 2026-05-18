@@ -44,13 +44,13 @@ jobs:
         include:
           - distro: humble
             image: ros:humble-ros-base
-            ros_z_feature: humble
+            hiroz_feature: humble
           - distro: jazzy
             image: ros:jazzy-ros-base
-            ros_z_feature: jazzy
+            hiroz_feature: jazzy
           - distro: kilted
             image: ros:kilted-ros-base
-            ros_z_feature: kilted
+            hiroz_feature: kilted
     container:
       image: ${{ matrix.image }}
     steps:
@@ -112,15 +112,15 @@ jobs:
         run: |
           source /opt/ros/${{ matrix.distro }}/setup.bash
           export RMW_IMPLEMENTATION=rmw_zenoh_cpp
-          export RUST_LOG=ros_z=debug,zenoh=warn
-          FEATURES="${{ matrix.ros_z_feature }}"
+          export RUST_LOG=hiroz=debug,zenoh=warn
+          FEATURES="${{ matrix.hiroz_feature }}"
           if [ "$FEATURES" = "humble" ]; then
-            cargo nextest run -p ros-z-tests --profile interop \
+            cargo nextest run -p hiroz-tests --profile interop \
               --no-default-features --features ros-interop,humble --release
           else
-            cargo nextest run -p ros-z-tests --profile interop \
+            cargo nextest run -p hiroz-tests --profile interop \
               --features "ros-interop,$FEATURES" --release
-            cargo nextest run -p ros-z-console --profile interop \
+            cargo nextest run -p hiroz-console --profile interop \
               --features ros-interop --release \
               -E 'test(dynamic_subscriber)'
           fi

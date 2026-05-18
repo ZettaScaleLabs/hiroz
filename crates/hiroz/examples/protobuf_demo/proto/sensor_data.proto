@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package examples;
+
+// A custom sensor data message - not from ROS
+// This demonstrates that hiroz can send ANY protobuf message
+message SensorData {
+    string sensor_id = 1;
+    double temperature = 2;
+    double humidity = 3;
+    int64 timestamp = 4;
+}
+
+// Calculator service - demonstrates protobuf services with hiroz
+message CalculateRequest {
+    double a = 1;
+    double b = 2;
+    string operation = 3; // "add", "subtract", "multiply", "divide"
+}
+
+message CalculateResponse {
+    bool success = 1;
+    double result = 2;
+    string message = 3;
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-# Shared utilities for ros-z test scripts
+# Shared utilities for hiroz test scripts
 
 export const DISTROS = ["humble", "jazzy", "kilted"]
 

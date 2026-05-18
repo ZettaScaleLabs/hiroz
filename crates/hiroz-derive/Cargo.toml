@@ -1,0 +1,13 @@
+[package]
+name = "hiroz-derive"
+version.workspace = true
+edition.workspace = true
+description = "Derive macros for hiroz Python bindings"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { workspace = true, features = ["full", "parsing", "extra-traits"] }
+quote.workspace = true
+proc-macro2.workspace = true

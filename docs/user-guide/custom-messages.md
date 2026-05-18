@@ -1,10 +1,10 @@
 # Custom Messages
 
-ros-z supports two approaches for defining custom message types:
+hiroz supports two approaches for defining custom message types:
 
 | Approach             | Definition                               | Best For                        |
 | -------------------- | ---------------------------------------- | ------------------------------- |
-| **Rust-Native**      | Write Rust structs directly              | Prototyping, ros-z-only systems |
+| **Rust-Native**      | Write Rust structs directly              | Prototyping, hiroz-only systems |
 | **Schema-Generated** | Write `.msg`/`.srv` files, generate Rust | Production, ROS 2 interop       |
 
 ```mermaid
@@ -23,7 +23,7 @@ accDescr: If custom messages are needed and ROS 2 interop is required use schema
 
 ## Rust-Native Messages
 
-**Define messages directly in Rust and derive their schema metadata.** This approach is fast for prototyping but only works between ros-z nodes.
+**Define messages directly in Rust and derive their schema metadata.** This approach is fast for prototyping but only works between hiroz nodes.
 
 !!! warning
     Rust-Native messages use `TypeHash::zero()` and won't interoperate with ROS 2 C++/Python nodes.
@@ -46,12 +46,12 @@ accDescr: Starting from defining the struct, the workflow proceeds through imple
 | ------------------------- | ------------------------------------ | ------------------------------------------------ |
 | **MessageTypeInfo**       | Type identification + runtime schema | `type_name()`, `type_hash()`, `message_schema()` |
 | **Serialize/Deserialize** | Data encoding                        | From `serde`                                     |
-| **ZMessage**              | ros-z serialization path             | `type Serdes = SerdeCdrSerdes<Self>`             |
+| **ZMessage**              | hiroz serialization path             | `type Serdes = SerdeCdrSerdes<Self>`             |
 
 ### Message Example
 
 ```rust,ignore
-use ros_z::MessageTypeInfo;
+use hiroz::MessageTypeInfo;
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, MessageTypeInfo)]
@@ -63,8 +63,8 @@ struct RobotStatus {
     is_moving: bool,
 }
 
-impl ros_z::msg::ZMessage for RobotStatus {
-    type Serdes = ros_z::msg::SerdeCdrSerdes<Self>;
+impl hiroz::msg::ZMessage for RobotStatus {
+    type Serdes = hiroz::msg::SerdeCdrSerdes<Self>;
 }
 ```
 
@@ -75,7 +75,7 @@ Tuple structs, unit structs, enums, `Option`, maps, and other richer Rust-only s
 ### Service Example
 
 ```rust
-use ros_z::{ServiceTypeInfo, TypeInfo, TypeHash, msg::ZService};
+use hiroz::{ServiceTypeInfo, TypeInfo, TypeHash, msg::ZService};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NavigateToRequest {
@@ -102,7 +102,7 @@ impl ZService for NavigateTo {
 }
 ```
 
-See the `z_custom_message` example (clone the repo first: `git clone https://github.com/ZettaScaleLabs/ros-z.git && cd ros-z`):
+See the `z_custom_message` example (clone the repo first: `git clone https://github.com/ZettaScaleLabs/hiroz.git && cd hiroz`):
 
 When a publisher node enables the type description service, derived custom message types
 automatically register their runtime schema so dynamic subscribers can discover them.
@@ -122,20 +122,20 @@ cargo run --example z_custom_message -- --mode status-pub
 
 ## Schema-Generated Messages
 
-**Define messages in `.msg`/`.srv` files and generate Rust code using `ros-z-codegen`.** This approach provides proper type hashes and can reference standard ROS 2 types.
+**Define messages in `.msg`/`.srv` files and generate Rust code using `hiroz-codegen`.** This approach provides proper type hashes and can reference standard ROS 2 types.
 
 !!! tip
-    Schema-Generated messages get proper RIHS01 type hashes and can reference types from `ros_z_msgs` like `geometry_msgs/Point`.
+    Schema-Generated messages get proper RIHS01 type hashes and can reference types from `hiroz_msgs` like `geometry_msgs/Point`.
 
 ### Workflow of Schema-Generated Messages
 
 ```mermaid
 graph LR
 accTitle: Schema-generated message workflow from msg files to Rust types
-accDescr: The developer writes dot-msg files, creates a Rust crate with a build.rs, sets ROS_Z_MSG_PATH, runs cargo build, and then uses the generated Rust types.
+accDescr: The developer writes dot-msg files, creates a Rust crate with a build.rs, sets HIROZ_MSG_PATH, runs cargo build, and then uses the generated Rust types.
     A[Write .msg files] --> B[Create Rust crate]
     B --> C[Add build.rs]
-    C --> D[Set ROS_Z_MSG_PATH]
+    C --> D[Set HIROZ_MSG_PATH]
     D --> E[cargo build]
     E --> F[Use generated types]
 ```
@@ -194,14 +194,14 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-ros-z-msgs = { git = "https://github.com/ZettaScaleLabs/ros-z.git" }
-ros-z = { git = "https://github.com/ZettaScaleLabs/ros-z.git", default-features = false }
+hiroz-msgs = { git = "https://github.com/ZettaScaleLabs/hiroz.git" }
+hiroz = { git = "https://github.com/ZettaScaleLabs/hiroz.git", default-features = false }
 serde = { version = "1", features = ["derive"] }
 smart-default = "0.7"
 zenoh-buffers = "1"
 
 [build-dependencies]
-ros-z-codegen = { git = "https://github.com/ZettaScaleLabs/ros-z.git" }
+hiroz-codegen = { git = "https://github.com/ZettaScaleLabs/hiroz.git" }
 anyhow = "1"
 ```
 
@@ -213,8 +213,8 @@ use std::env;
 
 fn main() -> anyhow::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
-    ros_z_codegen::generate_user_messages(&out_dir, false)?; // false = Jazzy-compatible (use true for Humble)
-    println!("cargo:rerun-if-env-changed=ROS_Z_MSG_PATH");
+    hiroz_codegen::generate_user_messages(&out_dir, false)?; // false = Jazzy-compatible (use true for Humble)
+    println!("cargo:rerun-if-env-changed=HIROZ_MSG_PATH");
     Ok(())
 }
 ```
@@ -222,8 +222,8 @@ fn main() -> anyhow::Result<()> {
 **src/lib.rs:**
 
 ```rust
-// Re-export standard types from ros-z-msgs
-pub use ros_z_msgs::*;
+// Re-export standard types from hiroz-msgs
+pub use hiroz_msgs::*;
 
 // Include generated user messages
 include!(concat!(env!("OUT_DIR"), "/generated.rs"));
@@ -231,16 +231,16 @@ include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 
 ### Step 4: Build
 
-Set `ROS_Z_MSG_PATH` and build:
+Set `HIROZ_MSG_PATH` and build:
 
 ```bash
-ROS_Z_MSG_PATH="./my_robot_msgs" cargo build
+HIROZ_MSG_PATH="./my_robot_msgs" cargo build
 ```
 
 For multiple packages, use colon-separated paths:
 
 ```bash
-ROS_Z_MSG_PATH="./my_msgs:./other_msgs" cargo build
+HIROZ_MSG_PATH="./my_msgs:./other_msgs" cargo build
 ```
 
 ### Step 5: Use Generated Types
@@ -248,8 +248,8 @@ ROS_Z_MSG_PATH="./my_msgs:./other_msgs" cargo build
 ```rust
 use my_robot_msgs::ros::my_robot_msgs::{RobotStatus, SensorReading};
 use my_robot_msgs::ros::my_robot_msgs::srv::NavigateTo;
-use ros_z_msgs::ros::geometry_msgs::Point;
-use ros_z_msgs::ros::builtin_interfaces::Time;
+use hiroz_msgs::ros::geometry_msgs::Point;
+use hiroz_msgs::ros::builtin_interfaces::Time;
 
 let status = RobotStatus {
     robot_id: "robot_1".to_string(),
@@ -264,11 +264,11 @@ let reading = SensorReading {
 };
 ```
 
-See `crates/ros-z/examples/custom_msgs_demo/` for a working example:
+See `crates/hiroz/examples/custom_msgs_demo/` for a working example:
 
 ```bash
-cd crates/ros-z/examples/custom_msgs_demo
-ROS_Z_MSG_PATH="./my_robot_msgs" cargo build
+cd crates/hiroz/examples/custom_msgs_demo
+HIROZ_MSG_PATH="./my_robot_msgs" cargo build
 ```
 
 ---
@@ -304,7 +304,7 @@ The trailing underscore and `dds_` infix match ROS 2's internal naming scheme.
 
 ## Resources
 
-- **[Message Generation](./message-generation.md)** - How ros-z-msgs generates standard types
+- **[Message Generation](./message-generation.md)** - How hiroz-msgs generates standard types
 - **[Protobuf Serialization](./protobuf.md)** - Alternative serialization format
 - **[Publishers & Subscribers](../core-concepts/pubsub.md)** - Using messages in pub-sub
 - **[Services](../core-concepts/services.md)** - Using messages in services

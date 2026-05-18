@@ -17,7 +17,7 @@ def clippy-rmw [] {
     if $distro == "humble" {
         log-step "Clippy (rmw feature) - SKIPPED for Humble"
         print "  ℹ️  rmw-zenoh-rs requires ROS 2 Iron or later"
-        print "  ℹ️  Humble users: use ros-z core library or rmw_zenoh_cpp"
+        print "  ℹ️  Humble users: use hiroz core library or rmw_zenoh_cpp"
         return
     }
 
@@ -39,9 +39,9 @@ def run-ros-interop [] {
 
     let distro = get-distro
     let cmd = if $distro == "humble" {
-        "cargo nextest run -p ros-z-tests --no-default-features --features ros-interop,humble"
+        "cargo nextest run -p hiroz-tests --no-default-features --features ros-interop,humble"
     } else {
-        $"cargo nextest run -p ros-z-tests --features ros-interop,($distro)"
+        $"cargo nextest run -p hiroz-tests --features ros-interop,($distro)"
     }
 
     # Pre-build with the same features nextest will use, so the build cache is
@@ -50,9 +50,9 @@ def run-ros-interop [] {
     # feature set) triggers a concurrent recompile that replaces the binary
     # while nextest is already running → double-spawn / "No such file" failure.
     let prebuild_cmd = if $distro == "humble" {
-        "cargo build -j4 -p ros-z-tests --tests --no-default-features --features ros-interop,humble"
+        "cargo build -j4 -p hiroz-tests --tests --no-default-features --features ros-interop,humble"
     } else {
-        $"cargo build -j4 -p ros-z-tests --tests --features ros-interop,($distro)"
+        $"cargo build -j4 -p hiroz-tests --tests --features ros-interop,($distro)"
     }
     run-cmd $prebuild_cmd
 
@@ -63,7 +63,7 @@ def run-ros-interop [] {
     # This is CRITICAL for debugging interop issues - shows type hashes, key expressions, service calls
     if $result.exit_code != 0 {
         print "\n⚠️  ROS interop tests failed. Retrying with trace logging..."
-        $env.RUST_LOG = "ros_z=trace,rmw_zenoh_cpp=debug,warn"
+        $env.RUST_LOG = "hiroz=trace,rmw_zenoh_cpp=debug,warn"
         run-cmd $cmd --distro $distro
     }
 }

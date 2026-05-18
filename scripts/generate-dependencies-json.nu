@@ -51,7 +51,7 @@ def main [
     }
 
     let temp_dir = mktemp -d
-    let assets_dir = $"ros-z-codegen/assets/($distro)"
+    let assets_dir = $"hiroz-codegen/assets/($distro)"
 
     log-step $"Generating dependencies.json for ROS ($distro)..."
 

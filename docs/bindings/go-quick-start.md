@@ -13,26 +13,26 @@ No Rust toolchain required when using the pre-built library.
 
 ### Option A — Pre-built library (recommended)
 
-Download the static library and C header for your platform from the [Releases page](https://github.com/ZettaScaleLabs/ros-z/releases):
+Download the static library and C header for your platform from the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases):
 
 | Platform | Jazzy / Kilted / Rolling | Humble |
 |---|---|---|
-| Linux x86_64 | `libros_z-jazzy-x86_64-unknown-linux-gnu.a` | `libros_z-humble-x86_64-unknown-linux-gnu.a` |
-| Linux aarch64 | `libros_z-jazzy-aarch64-unknown-linux-gnu.a` | `libros_z-humble-aarch64-unknown-linux-gnu.a` |
-| macOS aarch64 | `libros_z-jazzy-aarch64-apple-darwin.a` | `libros_z-humble-aarch64-apple-darwin.a` |
+| Linux x86_64 | `libhiroz-jazzy-x86_64-unknown-linux-gnu.a` | `libhiroz-humble-x86_64-unknown-linux-gnu.a` |
+| Linux aarch64 | `libhiroz-jazzy-aarch64-unknown-linux-gnu.a` | `libhiroz-humble-aarch64-unknown-linux-gnu.a` |
+| macOS aarch64 | `libhiroz-jazzy-aarch64-apple-darwin.a` | `libhiroz-humble-aarch64-apple-darwin.a` |
 
-Each release also includes `ros_z_ffi.h` (the C header required for CGO).
+Each release also includes `hiroz_ffi.h` (the C header required for CGO).
 
 ```bash
 # Clone the repo for the Go package source — no Rust build needed
-git clone https://github.com/ZettaScaleLabs/ros-z.git
-cd ros-z
+git clone https://github.com/ZettaScaleLabs/hiroz.git
+cd hiroz
 
 # Download the pre-built library and header — replace <version> and pick your platform file
-curl -Lo crates/ros-z-go/libros_z.a \
-  https://github.com/ZettaScaleLabs/ros-z/releases/download/<version>/libros_z-jazzy-x86_64-unknown-linux-gnu.a
-curl -Lo crates/ros-z-go/rosz/ros_z_ffi.h \
-  https://github.com/ZettaScaleLabs/ros-z/releases/download/<version>/ros_z_ffi.h
+curl -Lo crates/hiroz-go/libhiroz.a \
+  https://github.com/ZettaScaleLabs/hiroz/releases/download/<version>/libhiroz-jazzy-x86_64-unknown-linux-gnu.a
+curl -Lo crates/hiroz-go/hiroz/hiroz_ffi.h \
+  https://github.com/ZettaScaleLabs/hiroz/releases/download/<version>/hiroz_ffi.h
 ```
 
 ### Option B — Build from source
@@ -40,12 +40,12 @@ curl -Lo crates/ros-z-go/rosz/ros_z_ffi.h \
 Requires Rust 1.85+, `cbindgen`, and `just`:
 
 ```bash
-git clone https://github.com/ZettaScaleLabs/ros-z.git
-cd ros-z
-just -f crates/ros-z-go/justfile quickstart
+git clone https://github.com/ZettaScaleLabs/hiroz.git
+cd hiroz
+just -f crates/hiroz-go/justfile quickstart
 ```
 
-This generates message types, compiles `libros_z.a`, and verifies both are present.
+This generates message types, compiles `libhiroz.a`, and verifies both are present.
 
 ## 2. Write a publisher
 
@@ -59,12 +59,12 @@ import (
     "log"
     "time"
 
-    "github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
-    "github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/std_msgs"
+    "github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
+    "github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/std_msgs"
 )
 
 func main() {
-    ctx, err := rosz.NewContext().WithDomainID(0).Build()
+    ctx, err := hiroz.NewContext().WithDomainID(0).Build()
     if err != nil {
         log.Fatal(err)
     }
@@ -93,19 +93,19 @@ func main() {
 }
 ```
 
-Create `hello_pub/go.mod` — the `replace` directive points Go to the local `rosz` package:
+Create `hello_pub/go.mod` — the `replace` directive points Go to the local `hiroz` package:
 
 ```text
 module hello_pub
 
 go 1.23
 
-require github.com/ZettaScaleLabs/ros-z/crates/ros-z-go v0.0.0
+require github.com/ZettaScaleLabs/hiroz/crates/hiroz-go v0.0.0
 
-replace github.com/ZettaScaleLabs/ros-z/crates/ros-z-go => /path/to/ros-z/crates/ros-z-go
+replace github.com/ZettaScaleLabs/hiroz/crates/hiroz-go => /path/to/hiroz/crates/hiroz-go
 ```
 
-Replace `/path/to/ros-z` with the absolute path where you cloned the repo.
+Replace `/path/to/hiroz` with the absolute path where you cloned the repo.
 
 ## 3. Write a subscriber
 
@@ -117,12 +117,12 @@ package main
 import (
     "log"
 
-    "github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
-    "github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/std_msgs"
+    "github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
+    "github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/std_msgs"
 )
 
 func main() {
-    ctx, err := rosz.NewContext().WithDomainID(0).Build()
+    ctx, err := hiroz.NewContext().WithDomainID(0).Build()
     if err != nil {
         log.Fatal(err)
     }
@@ -170,28 +170,28 @@ cargo install zenohd && zenohd
 **Run the subscriber and publisher** — set `CGO_LDFLAGS` to point at the library:
 
 ```bash
-ROSZ=/path/to/ros-z
+HIROZ=/path/to/hiroz
 
 # Terminal 2: subscriber
 cd hello_sub
-CGO_LDFLAGS="-L$ROSZ/crates/ros-z-go -lros_z -lm" \
-CGO_CFLAGS="-I$ROSZ/crates/ros-z-go/rosz" \
+CGO_LDFLAGS="-L$HIROZ/crates/hiroz-go -lhiroz -lm" \
+CGO_CFLAGS="-I$HIROZ/crates/hiroz-go/hiroz" \
 go run main.go
 
 # Terminal 3: publisher
 cd hello_pub
-CGO_LDFLAGS="-L$ROSZ/crates/ros-z-go -lros_z -lm" \
-CGO_CFLAGS="-I$ROSZ/crates/ros-z-go/rosz" \
+CGO_LDFLAGS="-L$HIROZ/crates/hiroz-go -lhiroz -lm" \
+CGO_CFLAGS="-I$HIROZ/crates/hiroz-go/hiroz" \
 go run main.go
 ```
 
 You should see the subscriber printing messages from the publisher.
 
 !!! tip
-    Set `ROSZ` in your shell profile to avoid repeating the path.
+    Set `HIROZ` in your shell profile to avoid repeating the path.
 
 ## What's next
 
 - **[Go Bindings](./go.md)** — full API reference: typed helpers, graph introspection, QoS, error handling
 - **[Message Generation](../user-guide/message-generation.md)** — generate types from a full ROS 2 install
-- **[ROS 2 Interoperability](../user-guide/interop.md)** — connect a ros-z subscriber to a live ROS 2 talker
+- **[ROS 2 Interoperability](../user-guide/interop.md)** — connect a hiroz subscriber to a live ROS 2 talker

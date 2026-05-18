@@ -3,11 +3,11 @@ use std::ffi::CString;
 use crate::rmw_impl_has_data_ptr;
 use crate::ros::*;
 use crate::traits::*;
-use ros_z::Builder;
+use hiroz::Builder;
 
 /// Node implementation for RMW
 pub struct NodeImpl {
-    pub inner: ros_z::node::ZNode,
+    pub inner: hiroz::node::ZNode,
     pub name: CString,
     pub namespace: CString,
     pub fq_name: CString,
@@ -16,7 +16,7 @@ pub struct NodeImpl {
 
 impl NodeImpl {
     pub fn new(
-        zcontext: &ros_z::context::ZContext,
+        zcontext: &hiroz::context::ZContext,
         name: &str,
         namespace: &str,
     ) -> Result<Self, String> {
@@ -133,7 +133,7 @@ pub extern "C" fn rmw_create_node(
     if let Err(e) = node_impl
         .inner
         .graph()
-        .add_local_entity(ros_z::entity::Entity::Node(
+        .add_local_entity(hiroz::entity::Entity::Node(
             node_impl.inner.node_entity().clone(),
         ))
     {
@@ -180,7 +180,7 @@ pub extern "C" fn rmw_destroy_node(node: *mut rmw_node_t) -> rmw_ret_t {
         if let Err(e) = node_impl
             .inner
             .graph()
-            .remove_local_entity(&ros_z::entity::Entity::Node(
+            .remove_local_entity(&hiroz::entity::Entity::Node(
                 node_impl.inner.node_entity().clone(),
             ))
         {

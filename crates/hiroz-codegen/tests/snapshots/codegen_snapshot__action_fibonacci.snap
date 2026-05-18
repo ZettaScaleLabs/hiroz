@@ -1,0 +1,70 @@
+---
+source: crates/hiroz-codegen/tests/codegen_snapshot.rs
+assertion_line: 127
+expression: format_tokens(tokens)
+---
+pub struct Fibonacci;
+impl ::hiroz::action::ZAction for Fibonacci {
+    type Goal = super::FibonacciGoal;
+    type Result = super::FibonacciResult;
+    type Feedback = super::FibonacciFeedback;
+    fn name() -> &'static str {
+        "test_interface_files::action::dds_::Fibonacci_"
+    }
+    fn send_goal_type_info() -> ::hiroz::entity::TypeInfo {
+        ::hiroz::entity::TypeInfo::new(
+            "test_interface_files::action::dds_::Fibonacci_SendGoal_",
+            ::hiroz::entity::TypeHash::from_rihs_string(
+                    "RIHS01_0000000000000000000000000000000000000000000000000000000000000000",
+                )
+                .expect("Invalid RIHS hash"),
+        )
+    }
+    fn get_result_type_info() -> ::hiroz::entity::TypeInfo {
+        ::hiroz::entity::TypeInfo::new(
+            "test_interface_files::action::dds_::Fibonacci_GetResult_",
+            ::hiroz::entity::TypeHash::from_rihs_string(
+                    "RIHS01_0000000000000000000000000000000000000000000000000000000000000000",
+                )
+                .expect("Invalid RIHS hash"),
+        )
+    }
+    fn cancel_goal_type_info() -> ::hiroz::entity::TypeInfo {
+        ::hiroz::entity::TypeInfo::new(
+            "action_msgs::srv::dds_::CancelGoal_",
+            ::hiroz::entity::TypeHash::from_rihs_string(
+                    "RIHS01_0000000000000000000000000000000000000000000000000000000000000000",
+                )
+                .expect("Invalid RIHS hash"),
+        )
+    }
+    fn feedback_type_info() -> ::hiroz::entity::TypeInfo {
+        ::hiroz::entity::TypeInfo::new(
+            "test_interface_files::action::dds_::Fibonacci_FeedbackMessage_",
+            ::hiroz::entity::TypeHash::from_rihs_string(
+                    "RIHS01_00dda06a3151125d7c8b1f8108fcb5ff3a63cf9dc1a6bc21ad2a44c32de880c9",
+                )
+                .expect("Invalid RIHS hash"),
+        )
+    }
+    fn status_type_info() -> ::hiroz::entity::TypeInfo {
+        ::hiroz::entity::TypeInfo::new(
+            "action_msgs::msg::dds_::GoalStatusArray_",
+            ::hiroz::entity::TypeHash::from_rihs_string(
+                    "RIHS01_b73abae85fae0438c779e2729c5b4c90d7aafdde7242ade4ef9e3c495610bdad",
+                )
+                .expect("Invalid RIHS hash"),
+        )
+    }
+}
+impl ::hiroz::ActionTypeInfo for Fibonacci {
+    fn action_type_info() -> ::hiroz::entity::TypeInfo {
+        ::hiroz::entity::TypeInfo::new(
+            "test_interface_files::action::dds_::Fibonacci_",
+            ::hiroz::entity::TypeHash::from_rihs_string(
+                    "RIHS01_62386f9d87ee337d0377063c39ada617e5bba9ae8f3f8915b9d55471d4afa938",
+                )
+                .expect("Invalid RIHS hash"),
+        )
+    }
+}

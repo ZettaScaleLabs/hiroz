@@ -1,19 +1,19 @@
-# Building ros-z
+# Building hiroz
 
-**ros-z works without ROS 2 dependencies by default, enabling pure Rust development while optionally integrating with existing ROS 2 installations.** This flexible approach lets you choose your dependency level based on project requirements.
+**hiroz works without ROS 2 dependencies by default, enabling pure Rust development while optionally integrating with existing ROS 2 installations.** This flexible approach lets you choose your dependency level based on project requirements.
 
 ## Philosophy
 
-ros-z follows a **dependency-optional** design:
+hiroz follows a **dependency-optional** design:
 
 - Build pure Rust applications without ROS 2 installed
 - Use bundled message definitions for common types
 - Opt-in to ROS 2 integration when needed
 - Pay only for what you use
 
-## Adding ros-z to Your Project
+## Adding hiroz to Your Project
 
-Get started by adding ros-z to your `Cargo.toml`. Choose the dependency setup that matches your needs:
+Get started by adding hiroz to your `Cargo.toml`. Choose the dependency setup that matches your needs:
 
 ### Scenario 1: Pure Rust with Custom Messages
 
@@ -23,13 +23,13 @@ Get started by adding ros-z to your `Cargo.toml`. Choose the dependency setup th
 
 ```toml
 [dependencies]
-ros-z = { git = "https://github.com/ZettaScaleLabs/ros-z.git" }
+hiroz = { git = "https://github.com/ZettaScaleLabs/hiroz.git" }
 tokio = { version = "1", features = ["full"] }  # Async runtime required
 ```
 
 **What you get:**
 
-- Full ros-z functionality
+- Full hiroz functionality
 - Custom message support via derive macros
 - Zero external dependencies
 - Fast build times
@@ -42,8 +42,8 @@ tokio = { version = "1", features = ["full"] }  # Async runtime required
 
 ```toml
 [dependencies]
-ros-z = { git = "https://github.com/ZettaScaleLabs/ros-z.git" }
-ros-z-msgs = { git = "https://github.com/ZettaScaleLabs/ros-z.git" }  # Includes core_msgs by default
+hiroz = { git = "https://github.com/ZettaScaleLabs/hiroz.git" }
+hiroz-msgs = { git = "https://github.com/ZettaScaleLabs/hiroz.git" }  # Includes core_msgs by default
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -66,8 +66,8 @@ tokio = { version = "1", features = ["full"] }
 
 ```toml
 [dependencies]
-ros-z = { git = "https://github.com/ZettaScaleLabs/ros-z.git" }
-ros-z-msgs = { git = "https://github.com/ZettaScaleLabs/ros-z.git", features = ["all_msgs"] }
+hiroz = { git = "https://github.com/ZettaScaleLabs/hiroz.git" }
+hiroz-msgs = { git = "https://github.com/ZettaScaleLabs/hiroz.git", features = ["all_msgs"] }
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -92,7 +92,7 @@ cargo build
 
 ## ROS 2 Distribution Compatibility
 
-**ros-z defaults to ROS 2 Jazzy compatibility**, which is the recommended distribution for new projects. If you need to target a different distribution like Humble, see the [ROS 2 Distribution Compatibility](./distro-compatibility.md) chapter for detailed instructions.
+**hiroz defaults to ROS 2 Jazzy compatibility**, which is the recommended distribution for new projects. If you need to target a different distribution like Humble, see the [ROS 2 Distribution Compatibility](./distro-compatibility.md) chapter for detailed instructions.
 
 **Quick reference:**
 
@@ -111,26 +111,26 @@ The distribution choice affects type hash support and interoperability with ROS 
 
 ## Development
 
-This section is for contributors working on ros-z itself. If you're using ros-z in your project, you can skip this section.
+This section is for contributors working on hiroz itself. If you're using hiroz in your project, you can skip this section.
 
 ### Package Organization
 
-The ros-z repository uses a Cargo workspace with multiple packages:
+The hiroz repository uses a Cargo workspace with multiple packages:
 
 | Package | Default Build | Purpose | Dependencies |
 |---------|---------------|---------|--------------|
-| **ros-z** | Yes | Core Eclipse Zenoh-native ROS 2 library | None |
-| **ros-z-codegen** | Yes | Message generation utilities | None |
-| **ros-z-msgs** | No | Pre-generated message types | None (all vendored) |
-| **ros-z-tests** | No | Integration tests | ros-z-msgs |
+| **hiroz** | Yes | Core Eclipse Zenoh-native ROS 2 library | None |
+| **hiroz-codegen** | Yes | Message generation utilities | None |
+| **hiroz-msgs** | No | Pre-generated message types | None (all vendored) |
+| **hiroz-tests** | No | Integration tests | hiroz-msgs |
 | **rcl-z** | No | RCL C bindings | ROS 2 required |
 
 !!! note
-    Only `ros-z` and `ros-z-codegen` build by default. Other packages are optional for development, testing, and running examples.
+    Only `hiroz` and `hiroz-codegen` build by default. Other packages are optional for development, testing, and running examples.
 
 ### Building the Repository
 
-When contributing to ros-z, you can build different parts of the workspace:
+When contributing to hiroz, you can build different parts of the workspace:
 
 ```bash
 # Build core library
@@ -140,7 +140,7 @@ cargo build
 cargo test
 
 # Build with bundled messages for examples
-cargo build -p ros-z-msgs
+cargo build -p hiroz-msgs
 
 # Build all packages (requires ROS 2)
 source /opt/ros/jazzy/setup.bash
@@ -155,7 +155,7 @@ The build system automatically locates ROS message definitions:
 
 1. System ROS installation (`AMENT_PREFIX_PATH`, `CMAKE_PREFIX_PATH`)
 2. Common ROS paths (`/opt/ros/{rolling,jazzy,kilted,humble}`)
-3. Bundled assets (built-in message definitions in ros-z-codegen)
+3. Bundled assets (built-in message definitions in hiroz-codegen)
 
 This fallback mechanism enables builds without ROS 2 installed.
 
@@ -171,11 +171,11 @@ cargo clippy              # Lint checks
 
 # Clean builds
 cargo clean                # Remove all build artifacts
-cargo clean -p ros-z-msgs  # Clean specific package
+cargo clean -p hiroz-msgs  # Clean specific package
 ```
 
 !!! warning
-    After changing feature flags or updating ROS 2, run `cargo clean -p ros-z-msgs` to force message regeneration.
+    After changing feature flags or updating ROS 2, run `cargo clean -p hiroz-msgs` to force message regeneration.
 
 ## Next Steps
 

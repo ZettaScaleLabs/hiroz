@@ -10,7 +10,7 @@ This example demonstrates an action server that computes Fibonacci sequences. Th
 /// Fibonacci action server node that computes Fibonacci sequences
 ///
 /// # Arguments
-/// * `ctx` - The ros-z context
+/// * `ctx` - The hiroz context
 /// * `timeout` - Optional timeout duration. If None, runs until ctrl+c.
 pub async fn run_fibonacci_action_server(ctx: ZContext, timeout: Option<Duration>) -> Result<()> {
     // Create a node named "fibonacci_action_server"
@@ -92,7 +92,7 @@ pub async fn run_fibonacci_action_server(ctx: ZContext, timeout: Option<Duration
 - **Cancellation Support**: Checks `is_cancel_requested()` and handles graceful cancellation
 - **Completion**: Uses `.succeed()` or `.canceled()` to send final result
 
-**Running the server** (clone the repo first: `git clone https://github.com/ZettaScaleLabs/ros-z.git && cd ros-z`):
+**Running the server** (clone the repo first: `git clone https://github.com/ZettaScaleLabs/hiroz.git && cd hiroz`):
 
 ```bash
 # Start Eclipse Zenoh router first
@@ -110,7 +110,7 @@ This example demonstrates an action client that sends goals and monitors executi
 /// Fibonacci action client node that sends goals to compute Fibonacci sequences
 ///
 /// # Arguments
-/// * `ctx` - The ros-z context
+/// * `ctx` - The hiroz context
 /// * `order` - The order of the Fibonacci sequence to compute
 pub async fn run_fibonacci_action_client(ctx: ZContext, order: i32) -> Result<Vec<i32>> {
     // Create a node named "fibonacci_action_client"
@@ -195,7 +195,7 @@ cargo run --example demo_nodes_fibonacci_action_client -- --endpoint tcp/localho
 ## Complete Action Workflow
 
 !!! note
-    These commands run the ready-made examples from the ros-z repository. Clone it first with `git clone https://github.com/ZettaScaleLabs/ros-z.git && cd ros-z`. If you're building your own project, run your binaries with `cargo run` instead.
+    These commands run the ready-made examples from the hiroz repository. Clone it first with `git clone https://github.com/ZettaScaleLabs/hiroz.git && cd hiroz`. If you're building your own project, run your binaries with `cargo run` instead.
 
 **Terminal 1 - Start Zenoh Router:**
 
@@ -296,11 +296,11 @@ let result = goal_handle.result().await?;
 
 ## Defining a Custom Action Type
 
-The examples above use the pre-built `Fibonacci` action from `ros-z-msgs`. To define your own action type, implement the `ZAction` trait:
+The examples above use the pre-built `Fibonacci` action from `hiroz-msgs`. To define your own action type, implement the `ZAction` trait:
 
 ```rust
 use serde::{Deserialize, Serialize};
-use ros_z::action::ZAction;
+use hiroz::action::ZAction;
 
 // Define the three message structs
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -336,10 +336,10 @@ impl ZAction for CountAction {
 
 - `Goal`, `Feedback`, and `Result` can be any struct that implements `Serialize + Deserialize + Clone + Send + Sync + 'static` (blanket implementation via `ZMessage`)
 - `name()` sets the Zenoh key prefix for the action's internal services and topics
-- The default `send_goal_type_info()`, `get_result_type_info()`, etc. all return `TypeHash::zero()`, which is correct for ros-z-to-ros-z communication. For ROS 2 interop, override these with the correct RIHS01 hashes.
+- The default `send_goal_type_info()`, `get_result_type_info()`, etc. all return `TypeHash::zero()`, which is correct for hiroz-to-hiroz communication. For ROS 2 interop, override these with the correct RIHS01 hashes.
 
 !!! tip
-    For ros-z-to-ros-z-only actions, the defaults work without any additional configuration. For ROS 2 interop, use schema-generated types from a `.action` file via `ros-z-codegen` — see [Custom Messages](../user-guide/custom-messages.md).
+    For hiroz-to-hiroz-only actions, the defaults work without any additional configuration. For ROS 2 interop, use schema-generated types from a `.action` file via `hiroz-codegen` — see [Custom Messages](../user-guide/custom-messages.md).
 
 ## Comparison with Other Patterns
 
@@ -352,6 +352,6 @@ impl ZAction for CountAction {
 ## Resources
 
 - **[ROS 2 Actions Documentation](https://docs.ros.org/en/rolling/Tutorials/Intermediate/Writing-an-Action-Server-Client/Py.html)** - Official ROS 2 action guide
-- **[ros-z Examples](https://github.com/ZettaScaleLabs/ros-z/tree/main/crates/ros-z/examples)** - Working action implementations
+- **[hiroz Examples](https://github.com/ZettaScaleLabs/hiroz/tree/main/crates/hiroz/examples)** - Working action implementations
 - **[Services](./services.md)** - Simpler request-response pattern
 - **[Custom Messages](../user-guide/custom-messages.md)** - Defining custom action types with `.action` files

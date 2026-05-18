@@ -6,7 +6,7 @@ def main [] {
     let metadata = (cargo metadata --no-deps --format-version 1 | from json)
     let example_names = (
         $metadata.packages
-        | where name == "ros-z"
+        | where name == "hiroz"
         | each { |pkg| $pkg.targets }
         | flatten
         | where kind == ["example"]

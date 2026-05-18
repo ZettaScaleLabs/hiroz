@@ -2,18 +2,18 @@
 
 Three options for ROS 2 communication, from standard DDS to pure-Rust Zenoh.
 
-| | ROS 2 (DDS) | ROS 2 (Zenoh) | ros-z |
+| | ROS 2 (DDS) | ROS 2 (Zenoh) | hiroz |
 |-|-------------|---------------|-------|
 | **API** | rclcpp / rclpy | rclcpp / rclpy | Rust |
 | **Transport** | DDS (FastDDS, Cyclone) | Eclipse Zenoh | Eclipse Zenoh |
 | **RMW plugin** | rmw_fastrtps_cpp / rmw_cyclonedds_cpp | `rmw_zenoh_cpp` | No RMW — direct Zenoh API |
 | **ROS 2 install required** | Yes | Yes | No |
 
-ROS 2 (Zenoh) means `rmw_zenoh_cpp`: a drop-in RMW plugin that gives existing rclcpp/rclpy nodes a Zenoh transport without changing any application code. ros-z is an independent Rust API built directly on Zenoh — no ROS 2 installation needed.
+ROS 2 (Zenoh) means `rmw_zenoh_cpp`: a drop-in RMW plugin that gives existing rclcpp/rclpy nodes a Zenoh transport without changing any application code. hiroz is an independent Rust API built directly on Zenoh — no ROS 2 installation needed.
 
 ## Communication
 
-| Feature | ROS 2 (DDS) | ROS 2 (Zenoh) | ros-z |
+| Feature | ROS 2 (DDS) | ROS 2 (Zenoh) | hiroz |
 |---------|:--------------------:|:-------------:|:-----:|
 | Publishers | ✅ | ✅ | ✅ |
 | Subscribers | ✅ | ✅ | ✅ |
@@ -26,7 +26,7 @@ ROS 2 (Zenoh) means `rmw_zenoh_cpp`: a drop-in RMW plugin that gives existing rc
 
 ## Node Features
 
-| Feature | ROS 2 (DDS) | ROS 2 (Zenoh) | ros-z |
+| Feature | ROS 2 (DDS) | ROS 2 (Zenoh) | hiroz |
 |---------|:--------------------:|:-------------:|:-----:|
 | Named nodes | ✅ | ✅ | ✅ |
 | Namespaces | ✅ | ✅ | ✅ |
@@ -44,7 +44,7 @@ ROS 2 (Zenoh) means `rmw_zenoh_cpp`: a drop-in RMW plugin that gives existing rc
 
 ## Quality of Service
 
-| Feature | ROS 2 (DDS) | ROS 2 (Zenoh) | ros-z |
+| Feature | ROS 2 (DDS) | ROS 2 (Zenoh) | hiroz |
 |---------|:--------------------:|:-------------:|:-----:|
 | Reliability (reliable / best-effort) | ✅ | ✅ | ✅ |
 | History (keep-last / keep-all) | ✅ | ✅ | ✅ |
@@ -54,7 +54,7 @@ ROS 2 (Zenoh) means `rmw_zenoh_cpp`: a drop-in RMW plugin that gives existing rc
 
 ## Messages & Serialization
 
-| Feature | ROS 2 (DDS) | ROS 2 (Zenoh) | ros-z |
+| Feature | ROS 2 (DDS) | ROS 2 (Zenoh) | hiroz |
 |---------|:--------------------:|:-------------:|:-----:|
 | Typed CDR messages | ✅ | ✅ | ✅ |
 | Custom `.msg` / `.srv` / `.action` types | ✅ | ✅ | ✅ |
@@ -65,7 +65,7 @@ ROS 2 (Zenoh) means `rmw_zenoh_cpp`: a drop-in RMW plugin that gives existing rc
 
 ## Parameters
 
-| Feature | ROS 2 (DDS) | ROS 2 (Zenoh) | ros-z |
+| Feature | ROS 2 (DDS) | ROS 2 (Zenoh) | hiroz |
 |---------|:--------------------:|:-------------:|:-----:|
 | Declare / get / set parameters | ✅ | ✅ | ✅ |
 | Parameter event callbacks | ✅ | ✅ | ✅ |
@@ -75,25 +75,25 @@ ROS 2 (Zenoh) means `rmw_zenoh_cpp`: a drop-in RMW plugin that gives existing rc
 
 ## Interoperability & Distribution
 
-| Feature | ROS 2 (DDS) | ROS 2 (Zenoh) | ros-z |
+| Feature | ROS 2 (DDS) | ROS 2 (Zenoh) | hiroz |
 |---------|:--------------------:|:-------------:|:-----:|
 | ROS 2 CLI (`ros2 topic`, `ros2 service`, …) | ✅ | ✅ | ✅ via `rmw_zenoh_cpp` |
 | Jazzy / Kilted support | ✅ | ✅ | ✅ |
 | Humble support | ✅ | ✅ | ✅ |
 | Cross-distro bridge (Humble ↔ Jazzy) | ❌ | ❌ | ✅ |
-| Python bindings | native | native | ✅ (`ros-z-py`) |
-| Go bindings | ❌ | ❌ | ✅ (`ros-z-go`) |
+| Python bindings | native | native | ✅ (`hiroz-py`) |
+| Go bindings | ❌ | ❌ | ✅ (`hiroz-go`) |
 | No ROS 2 install needed | ❌ | ❌ | ✅ |
 
 ## Which to choose?
 
 **Use `rmw_zenoh_cpp`** when you have an existing rclcpp/rclpy codebase and want Zenoh transport without rewriting anything. You get the full ROS 2 feature set — executors, composable nodes, lifecycle — with Zenoh's routing and cross-network capabilities replacing DDS.
 
-**Use ros-z** when you are writing new code in Rust and want a minimal, dependency-light library. No ROS 2 installation, no DDS, no executor overhead. ros-z nodes interoperate transparently with `rmw_zenoh_cpp` nodes over the same Zenoh router.
+**Use hiroz** when you are writing new code in Rust and want a minimal, dependency-light library. No ROS 2 installation, no DDS, no executor overhead. hiroz nodes interoperate transparently with `rmw_zenoh_cpp` nodes over the same Zenoh router.
 
 ## Resources
 
-- **[ROS 2 → ros-z API Mapping](./ros2-to-rosz.md)** — method-by-method translation table
+- **[ROS 2 → hiroz API Mapping](./ros2-to-hiroz.md)** — method-by-method translation table
 - **[rmw-zenoh-rs](../experimental/rmw-zenoh-rs.md)** — the RMW plugin powering `rmw_zenoh_cpp`
-- **[ROS 2 Interoperability](../user-guide/interop.md)** — running ros-z alongside rclcpp/rclpy nodes
+- **[ROS 2 Interoperability](../user-guide/interop.md)** — running hiroz alongside rclcpp/rclpy nodes
 - **[Cross-Distro Bridge](../user-guide/bridge.md)** — Humble ↔ Jazzy bridging

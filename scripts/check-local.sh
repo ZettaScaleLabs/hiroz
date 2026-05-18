@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local pre-submission check script for ros-z contributors
+# Local pre-submission check script for hiroz contributors
 # Run this before opening a PR to catch issues early
 
 set -e  # Exit on first error
@@ -14,7 +14,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo "========================================="
-echo "Running ros-z Pre-Submission Checks"
+echo "Running hiroz Pre-Submission Checks"
 echo "========================================="
 echo ""
 
@@ -63,7 +63,7 @@ fi
 # 6. Build all examples
 run_check "Examples build (cargo build --examples)" "cargo build --examples"
 
-# 7. ros-z-console clippy (if nushell available)
+# 7. hiroz-console clippy (if nushell available)
 if command -v nu &> /dev/null; then
     run_check "Console clippy (check-console)" "nu scripts/test-pure-rust.nu check-console"
 else
@@ -90,7 +90,7 @@ fi
 # 10. Rustdoc link check
 check_rustdoc_links() {
     local warnings
-    warnings=$(cargo doc --no-deps -p ros-z --quiet 2>&1 | grep -E "unresolved link|broken_intra_doc_links" || true)
+    warnings=$(cargo doc --no-deps -p hiroz --quiet 2>&1 | grep -E "unresolved link|broken_intra_doc_links" || true)
     if [ -n "$warnings" ]; then
         echo "$warnings"
         return 1

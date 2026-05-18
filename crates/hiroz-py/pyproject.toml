@@ -1,0 +1,42 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "hiroz-py"
+version = "0.1.0"
+description = "Python bindings for hiroz: Native Rust ROS 2 implementation using Zenoh"
+requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
+keywords = ["ros2", "zenoh", "robotics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Typing :: Typed",
+]
+dependencies = [
+    "msgspec>=0.18.0",
+    "hiroz-msgs-py>=0.1.0",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module", "jazzy"]
+python-source = "python"
+module-name = "hiroz_py._native"
+include = [
+    { path = "python/hiroz_py/py.typed", format = "wheel" },
+    { path = "python/hiroz_py/__init__.pyi", format = "wheel" },
+]
+
+[tool.ruff.lint.per-file-ignores]
+# __init__.py uses star-import + re-export pattern controlled by __init__.pyi;
+# ruff cannot resolve names through the stub, so suppress the resulting false positives.
+"python/hiroz_py/__init__.py" = ["F401", "F403", "F405"]

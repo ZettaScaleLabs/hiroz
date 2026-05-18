@@ -41,18 +41,18 @@ def main [
         exit 1
     }
 
-    # Resolve paths relative to script location (ros-z root)
-    let ros_z_root = ($env.FILE_PWD | path dirname)
+    # Resolve paths relative to script location (hiroz root)
+    let hiroz_root = ($env.FILE_PWD | path dirname)
 
     let ws = if $ws_dir == "" {
-        $ros_z_root | path join "../ws" | path expand
+        $hiroz_root | path join "../ws" | path expand
     } else {
         $ws_dir | path expand
     }
 
     # Resolve rmw-zenoh-rs path (absolute path passed to colcon --paths)
     let rmw_zenoh_rs = if $rmw_path == "" {
-        $ros_z_root | path join "crates" "rmw-zenoh-rs" | path expand
+        $hiroz_root | path join "crates" "rmw-zenoh-rs" | path expand
     } else {
         $rmw_path | path expand
     }
@@ -173,7 +173,7 @@ def main [
     let rust_log = if $verbose {
         "debug"
     } else {
-        "warn,ros_z=warn,rmw_zenoh_rs=warn,zenoh=warn"
+        "warn,hiroz=warn,rmw_zenoh_rs=warn,zenoh=warn"
     }
 
     let test_cmd = $"source ($ws)/install/setup.bash && RUST_LOG=($rust_log) RMW_IMPLEMENTATION=($rmw_impl) colcon test --base-paths ($paths_arg) --packages-select ($packages_arg) --return-code-on-test-failure($verbose_arg)($filter_arg)($exclude_arg)"

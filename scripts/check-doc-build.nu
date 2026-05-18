@@ -19,8 +19,8 @@ const CARGO_CHECKS = [
     { name: "build z_pubsub",         cmd: "cargo build --example z_pubsub" }
     { name: "build z_srvcli",         cmd: "cargo build --example z_srvcli" }
     { name: "build z_custom_message", cmd: "cargo build --example z_custom_message" }
-    { name: "test ros-z-cdr",         cmd: "cargo test -p ros-z-cdr" }
-    { name: "test ros-z-codegen",     cmd: "cargo test -p ros-z-codegen" }
+    { name: "test hiroz-cdr",         cmd: "cargo test -p hiroz-cdr" }
+    { name: "test hiroz-codegen",     cmd: "cargo test -p hiroz-codegen" }
 ]
 
 # Check all ./xxx.md cross-references in book/src/chapters/ resolve to real files.
@@ -52,14 +52,14 @@ def check-book-snippets [cargo: string] {
     let rustdoc = $"($cargo | path dirname)/rustdoc"
 
     # Find most recently modified rlibs for the crates needed by book snippets
-    let ros_z_rlibs = (ls $deps_dir | where name =~ 'libros_z-.*\.rlib$' | sort-by modified -r)
+    let hiroz_rlibs = (ls $deps_dir | where name =~ 'libhiroz-.*\.rlib$' | sort-by modified -r)
     let zenoh_rlibs = (ls $deps_dir | where name =~ 'libzenoh-.*\.rlib$' | sort-by modified -r)
 
-    if ($ros_z_rlibs | length) == 0 {
-        return {passed: false, stderr: "libros_z.rlib not found — run cargo build first"}
+    if ($hiroz_rlibs | length) == 0 {
+        return {passed: false, stderr: "libhiroz.rlib not found — run cargo build first"}
     }
 
-    let ros_z_rlib = ($ros_z_rlibs | get name | first)
+    let hiroz_rlib = ($hiroz_rlibs | get name | first)
     let zenoh_rlib = if ($zenoh_rlibs | length) > 0 { $zenoh_rlibs | get name | first } else { "" }
 
     mut all_passed = true
@@ -71,7 +71,7 @@ def check-book-snippets [cargo: string] {
         mut args = [
             "--test" "--edition" "2021"
             "-L" $deps_dir
-            "--extern" $"ros_z=($ros_z_rlib)"
+            "--extern" $"hiroz=($hiroz_rlib)"
         ]
         if $zenoh_rlib != "" {
             $args = ($args | append ["--extern" $"zenoh=($zenoh_rlib)"])
@@ -188,7 +188,7 @@ def main [
 
     # --- cargo doc metric (informational, non-failing) ---
     print --stderr "→ cargo doc (warning count, informational)"
-    let doc_outcome = do -i { (^$cargo doc --no-deps -p ros-z | complete) }
+    let doc_outcome = do -i { (^$cargo doc --no-deps -p hiroz | complete) }
     let doc_warn_match = ($doc_outcome.stderr | parse --regex 'generated (\d+) warning' | get capture0 | first | default "?")
     let doc_warnings = if $doc_warn_match != "?" { $doc_warn_match | into int } else { -1 }
     print --stderr $"  ℹ️  rustdoc warnings: ($doc_warnings)\n"

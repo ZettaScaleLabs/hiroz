@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-# Master test orchestration script for ros-z type-description branch
+# Master test orchestration script for hiroz type-description branch
 # Runs all test suites with proper logging and AI-friendly output
 
 use ../lib/common.nu *
@@ -240,7 +240,7 @@ def main [
     }
     let log_dir = ensure-log-dir
     print "================================================"
-    print "Running All ros-z Tests"
+    print "Running All hiroz Tests"
     print "================================================"
     print $"Log directory: ($log_dir)"
 

@@ -10,7 +10,7 @@
    ============================================================ */
 
 :root {
-  --rosz-gradient: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  --hiroz-gradient: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
 }
 
 /* ============================================================
@@ -20,7 +20,7 @@
 .mdx-hero {
   position: relative;
   overflow: hidden;
-  background: var(--rosz-gradient);
+  background: var(--hiroz-gradient);
   color: #fff;
   padding: 6rem 0 5rem;
   margin-top: -0.5rem; /* flush under nav tabs */
@@ -326,7 +326,7 @@
 .mdx-cta {
   padding: 4.5rem 0;
   text-align: center;
-  background: var(--rosz-gradient);
+  background: var(--hiroz-gradient);
   color: #fff;
 }
 
