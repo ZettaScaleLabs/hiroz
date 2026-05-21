@@ -27,7 +27,6 @@ help:
     @echo "  build-rust       - Build Rust library with FFI support"
     @echo "  build-go         - Build Go library (requires build-rust)"
     @echo "  build-go-codegen - Build the Go code generator tool"
-    @echo "  build-go-examples - Build all example binaries"
     @echo "  codegen          - Generate message types from ROS IDL (needs ROS 2)"
     @echo "  codegen-bundled  - Generate common types from bundled IDL (no ROS 2 needed)"
     @echo ""
@@ -36,12 +35,17 @@ help:
     @echo "  test-rust        - Run Rust tests only"
     @echo "  test-go-pure     - Pure Go tests (no FFI, no external deps)"
     @echo "  test-go-ffi      - Go FFI unit tests (requires build-rust)"
-    @echo "  test-go          - All Go tests (pure + FFI + examples build)"
+    @echo "  test-go          - All non-integration Go tests (pure + FFI)"
+    @echo "  build-rust-examples - Build Rust example binaries for Go↔Rust interop tests"
+    @echo "  test-integration - Integration tests (requires zenohd + build-rust)"
+    @echo "  test-all         - Everything including integration tests"
+    @echo "  bench-go         - Run Go benchmarks"
     @echo ""
     @echo "Dev:"
     @echo "  quickstart       - Full setup: codegen-bundled + build-rust + verify"
     @echo "  run-example name - Build and run a named example (e.g. publisher)"
     @echo "  demo             - Run publisher + subscriber in parallel"
+    @echo "  demo-production  - Run production service server + client"
     @echo "  verify           - Verify installation (library, header, generated msgs)"
     @echo ""
     @echo "Maintenance:"
@@ -54,6 +58,7 @@ help:
     @echo "Test tiers:"
     @echo "  pure        - No dependencies, just Go (testdata serialization, codegen)"
     @echo "  ffi         - Requires libros_z.a (rosz package unit tests)"
+    @echo "  integration - Requires zenohd + libros_z.a (interop_tests with build tag)"
 
 # --- Build recipes ---
 
@@ -72,18 +77,6 @@ build-go-codegen:
     @echo "Building Go code generator..."
     cd {{workspace_root}}/crates/ros-z-codegen-go && go build -o ros-z-codegen-go .
 
-# Build all example binaries (publisher, subscriber, subscriber_channel)
-build-go-examples: build-rust codegen-bundled
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mkdir -p "{{workspace_root}}/_tmp"
-    for example in publisher subscriber subscriber_channel; do
-        echo "Building example: $example"
-        cd "{{workspace_root}}/crates/ros-z-go/examples/$example"
-        CGO_LDFLAGS="{{cgo_ldflags}}" go build -o "{{workspace_root}}/_tmp/go-example-$example" .
-    done
-    echo "All examples built successfully."
-
 # Generate message types from a full ROS 2 installation
 codegen: build-go-codegen
     @echo "Generating message types from {{ros_path}}..."
@@ -98,24 +91,26 @@ codegen: build-go-codegen
     @echo "Code generation complete."
 
 # Generate common message types from bundled IDL (no ROS 2 required)
-# Covers std_msgs, geometry_msgs
+# Covers std_msgs, geometry_msgs, example_interfaces
 codegen-bundled:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "Generating common message types from bundled IDL..."
-    mkdir -p "{{workspace_root}}/_tmp"
 
-    # Step 1: export JSON manifest from bundled IDL assets
+    mkdir -p "{{workspace_root}}/_tmp" "{{workspace_root}}/crates/ros-z-go/generated"
+
+    # Step 1: Export JSON manifest from bundled assets via Rust CLI
+    cd "{{workspace_root}}"
     cargo run -p ros-z-codegen --bin export_json -- \
-        --assets "{{workspace_root}}/crates/ros-z-codegen/assets/jazzy" \
-        --output "{{workspace_root}}/_tmp/codegen-manifest.json" \
-        --packages "builtin_interfaces,std_msgs,geometry_msgs"
+        --assets crates/ros-z-codegen/assets/jazzy \
+        --output _tmp/go-manifest.json \
+        --packages builtin_interfaces,service_msgs,std_msgs,example_interfaces
 
-    # Step 2: generate Go files from the manifest
-    mkdir -p "{{go_gen_dir}}"
-    cd "{{workspace_root}}/crates/ros-z-codegen-go" && go run . \
-        -input "{{workspace_root}}/_tmp/codegen-manifest.json" \
-        -output "{{go_gen_dir}}" \
+    # Step 2: Generate Go packages from the manifest
+    cd "{{workspace_root}}/crates/ros-z-codegen-go"
+    go run . \
+        -input "{{workspace_root}}/_tmp/go-manifest.json" \
+        -output "{{workspace_root}}/crates/ros-z-go/generated" \
         -prefix "github.com/ZettaScaleLabs/ros-z/crates/ros-z-go"
 
     echo "Generated messages in crates/ros-z-go/generated/"
@@ -133,21 +128,40 @@ test-rust:
 # Pure Go tests: no FFI, no external dependencies
 # Covers: testdata serialization, codegen unit tests
 test-go-pure:
-    @echo "=== Go pure tests (no FFI) ==="
-    @echo "--- codegen tests ---"
-    cd {{workspace_root}}/crates/ros-z-codegen-go && go test -v ./...
-    @echo "--- testdata serialization tests ---"
-    cd {{justfile_directory()}}/testdata && go test -v .
+    cd {{workspace_root}} && nu scripts/test-go.nu --codegen-only
 
 # Go FFI unit tests: requires libros_z.a
-# Covers: rosz package (types, callback registry, pub/sub interfaces)
-# Optional filter: just test-go-ffi TestCallbackSubscriber
-test-go-ffi filter=".": build-rust
-    @echo "=== Go FFI unit tests ==="
-    CGO_LDFLAGS="{{cgo_ldflags}}" go test -v -run "{{filter}}" ./rosz/...
+# Covers: rosz package (types, callback registry, service/action interfaces)
+test-go-ffi: build-rust
+    cd {{workspace_root}} && nu scripts/test-go.nu --ffi-only
 
-# All Go tests: pure + FFI + examples build check
-test-go: test-go-pure test-go-ffi build-go-examples
+# Static analysis: go vet across all Go packages
+# Does not require libros_z.a — vet parses and type-checks without linking
+vet-go:
+    cd {{workspace_root}} && nu scripts/test-go.nu --vet-only
+
+# All non-integration Go tests (pure + vet + FFI)
+test-go: test-go-pure vet-go test-go-ffi
+
+# Build Rust example binaries used by Go↔Rust interop tests
+build-rust-examples:
+    @echo "Building Rust example binaries..."
+    cd {{workspace_root}} && cargo build --release --example z_pubsub --example z_srvcli
+
+# Integration tests: requires zenohd + libros_z.a + codegen
+# Uses build tag 'integration' to select interop tests.
+# For Go↔Rust tests, also run: just build-rust-examples
+test-integration: build-rust
+    @echo "=== Go integration tests ==="
+    CGO_LDFLAGS="{{cgo_ldflags}}" go test -v -tags integration ./interop_tests/...
+
+# Run absolutely everything
+test-all: test-rust test-go test-integration
+
+# Run Go benchmarks
+bench-go:
+    @echo "=== Go benchmarks ==="
+    cd {{justfile_directory()}}/testdata && go test -bench=. -benchmem -v .
 
 # --- Dev recipes ---
 
@@ -174,6 +188,7 @@ quickstart: codegen-bundled
 # Run any example by name (handles CGO_LDFLAGS automatically)
 # Builds to _tmp/ so no binaries are left in the source tree.
 # Usage: just -f crates/ros-z-go/justfile run-example publisher
+#        just -f crates/ros-z-go/justfile run-example production_service/server
 run-example name:
     #!/usr/bin/env bash
     set -e
@@ -199,6 +214,20 @@ demo:
     (cd subscriber && CGO_LDFLAGS="-L{{workspace_root}}/{{rust_target_dir}}" go run . 2>&1 | sed 's/^/[SUB] /') &
     sleep 1
     (cd publisher && CGO_LDFLAGS="-L{{workspace_root}}/{{rust_target_dir}}" go run . 2>&1 | sed 's/^/[PUB] /')
+    wait
+
+# Run production service demo (server + client with structured JSON logging)
+demo-production:
+    #!/usr/bin/env bash
+    echo "Starting production service demo (server + client)..."
+    echo "Watch for JSON-structured logs and metrics"
+    echo "Press Ctrl+C to trigger graceful shutdown"
+    trap 'kill 0' SIGINT
+
+    cd {{workspace_root}}/crates/ros-z-go/examples/production_service
+    (CGO_LDFLAGS="-L{{workspace_root}}/{{rust_target_dir}} -lros_z" go run server.go 2>&1 | jq -C 2>/dev/null || cat) &
+    sleep 2
+    (CGO_LDFLAGS="-L{{workspace_root}}/{{rust_target_dir}} -lros_z" go run client.go 2>&1 | jq -C 2>/dev/null || cat)
     wait
 
 # Verify installation: check library, FFI header, generated messages

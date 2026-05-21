@@ -7,17 +7,24 @@ package rosz
 import "C"
 import (
 	"fmt"
+	"runtime"
 	"unsafe"
 )
 
-// SerializeMessage serializes raw bytes to CDR using Rust
-func SerializeMessage(typeName string, raw []byte) ([]byte, error) {
+// serializeMessage serializes raw bytes to CDR using Rust.
+// This is an internal helper; message types implement SerializeCDR directly.
+func serializeMessage(typeName string, raw []byte) ([]byte, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("cannot serialize empty input for %s", typeName)
 	}
 
 	typeNameC := C.CString(typeName)
 	defer C.free(unsafe.Pointer(typeNameC))
+
+	// Pin raw[0] so the GC does not move it during the C call.
+	pinner := &runtime.Pinner{}
+	defer pinner.Unpin()
+	pinner.Pin(&raw[0])
 
 	var outPtr *C.uint8_t
 	var outLen C.size_t
@@ -41,14 +48,20 @@ func SerializeMessage(typeName string, raw []byte) ([]byte, error) {
 	return goBytes, nil
 }
 
-// DeserializeMessage deserializes CDR bytes to raw format using Rust
-func DeserializeMessage(typeName string, cdr []byte) ([]byte, error) {
+// deserializeMessage deserializes CDR bytes to raw format using Rust.
+// This is an internal helper; message types implement DeserializeCDR directly.
+func deserializeMessage(typeName string, cdr []byte) ([]byte, error) {
 	if len(cdr) == 0 {
 		return nil, fmt.Errorf("cannot deserialize empty CDR data for %s", typeName)
 	}
 
 	typeNameC := C.CString(typeName)
 	defer C.free(unsafe.Pointer(typeNameC))
+
+	// Pin cdr[0] so the GC does not move it during the C call.
+	pinner := &runtime.Pinner{}
+	defer pinner.Unpin()
+	pinner.Pin(&cdr[0])
 
 	var outPtr *C.uint8_t
 	var outLen C.size_t

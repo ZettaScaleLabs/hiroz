@@ -30,6 +30,14 @@ struct Args {
     #[arg(short, long, default_value = "2", help = "Second number (client mode)")]
     b: i64,
 
+    /// Zenoh session mode: peer or client
+    #[arg(long, default_value = "peer")]
+    zenoh_mode: String,
+
+    /// Connect endpoint (e.g. tcp/127.0.0.1:7447); enables client mode when set
+    #[arg(long)]
+    endpoint: Option<String>,
+
     /// Backend selection: rmw-zenoh (default) or ros2-dds
     #[arg(long, value_enum, default_value = "rmw-zenoh")]
     backend: Backend,
@@ -47,7 +55,18 @@ async fn main() -> Result<()> {
         Backend::Ros2Dds => ros_z_protocol::KeyExprFormat::Ros2Dds,
     };
 
-    let ctx = ZContextBuilder::default().keyexpr_format(format).build()?;
+    let ctx = if let Some(ref ep) = args.endpoint {
+        ZContextBuilder::default()
+            .with_mode(args.zenoh_mode.clone())
+            .with_connect_endpoints([ep.as_str()])
+            .keyexpr_format(format)
+            .build()?
+    } else {
+        ZContextBuilder::default()
+            .with_mode(args.zenoh_mode.clone())
+            .keyexpr_format(format)
+            .build()?
+    };
 
     match args.mode.as_str() {
         "server" => run_server(ctx),

@@ -1,15 +1,13 @@
 // crates/ros-z-go/examples/subscriber_channel/main.go
 //
-// This example demonstrates three delivery patterns for the same "chatter" topic:
-//   - FifoChannel: buffered with backpressure (blocks when full)
-//   - RingChannel: non-blocking, drops oldest when full
-//   - Direct callback: zero allocation, lowest latency
+// This example demonstrates channel-based message delivery by manually
+// integrating the Handler interface with callbacks. Shows FIFO and Ring channel patterns.
 //
-// All three patterns subscribe to "chatter", so this example works with both
-// the publisher example and a ROS 2 demo_nodes_cpp talker out of the box.
+// Note: Direct Handler integration with Subscriber API is future work.
+// This example shows the manual pattern using callbacks + channels.
 //
 // Prerequisites:
-// 1. Run `just codegen-bundled` to generate the message types
+// 1. Run `just codegen` to generate the message types
 // 2. Build the Rust library with `just build-rust`
 //
 // Run this example with:
@@ -32,9 +30,9 @@ import (
 func main() {
 	log.Println("Starting ros-z Go channel-based subscriber example...")
 	log.Println()
-	log.Println("All three patterns subscribe to 'chatter':")
-	log.Println("  1. FifoChannel  - Buffered with backpressure (blocks when full)")
-	log.Println("  2. RingChannel  - Non-blocking (drops oldest when full)")
+	log.Println("This example demonstrates three message delivery patterns:")
+	log.Println("  1. FifoChannel - Buffered with backpressure (blocks when full)")
+	log.Println("  2. RingChannel - Non-blocking (drops oldest when full)")
 	log.Println("  3. Direct callback - Zero allocation (lowest latency)")
 	log.Println()
 
@@ -54,21 +52,22 @@ func main() {
 	}
 	defer node.Close()
 
-	// Pattern 1: FifoChannel — buffered delivery with backpressure
+	// Example 1: FifoChannel - manual integration with callback
 	log.Println("Creating FIFO channel subscriber (buffer=10)...")
 	fifoHandler := rosz.NewFifoChannel[[]byte](10)
 	callback, drop, fifoCh := fifoHandler.ToCbDropHandler()
 
-	fifoSub, err := node.CreateSubscriber("chatter").
+	fifoSub, err := node.CreateSubscriber("fifo_topic").
 		BuildWithCallback(&std_msgs.String{}, callback)
 	if err != nil {
 		log.Fatalf("Failed to create FIFO subscriber: %v", err)
 	}
 	defer func() {
 		fifoSub.Close()
-		drop()
+		drop() // Close the channel
 	}()
 
+	// Consumer goroutine for FIFO channel
 	go func() {
 		for data := range fifoCh {
 			var msg std_msgs.String
@@ -77,17 +76,17 @@ func main() {
 				continue
 			}
 			log.Printf("[FIFO] Received: %s", msg.Data)
-			// Simulate slow processing to show backpressure behaviour
+			// Simulate slow processing
 			time.Sleep(200 * time.Millisecond)
 		}
 	}()
 
-	// Pattern 2: RingChannel — non-blocking, drops oldest when full
+	// Example 2: RingChannel - drops oldest when full
 	log.Println("Creating Ring channel subscriber (capacity=3)...")
 	ringHandler := rosz.NewRingChannel[[]byte](3)
 	ringCallback, ringDrop, ringCh := ringHandler.ToCbDropHandler()
 
-	ringSub, err := node.CreateSubscriber("chatter").
+	ringSub, err := node.CreateSubscriber("ring_topic").
 		BuildWithCallback(&std_msgs.String{}, ringCallback)
 	if err != nil {
 		log.Fatalf("Failed to create Ring subscriber: %v", err)
@@ -97,6 +96,7 @@ func main() {
 		ringDrop()
 	}()
 
+	// Consumer goroutine for Ring channel
 	go func() {
 		for data := range ringCh {
 			var msg std_msgs.String
@@ -108,7 +108,7 @@ func main() {
 		}
 	}()
 
-	// Pattern 3: Direct callback — lowest latency, no buffering
+	// Example 3: Direct callback (for comparison)
 	log.Println("Creating direct callback subscriber...")
 	directSub, err := node.CreateSubscriber("chatter").
 		BuildWithCallback(&std_msgs.String{}, func(data []byte) {
@@ -125,17 +125,25 @@ func main() {
 	defer directSub.Close()
 
 	log.Println()
-	log.Println("All subscribers listening on 'chatter'. Press Ctrl+C to exit.")
+	log.Println("All subscribers created. Listening for messages...")
+	log.Println("Publish messages to:")
+	log.Println("  - /fifo_topic (FIFO buffering)")
+	log.Println("  - /ring_topic (ring buffer)")
+	log.Println("  - /chatter (direct callback)")
+	log.Println()
+	log.Println("Press Ctrl+C to exit")
 
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	// Create a context for graceful shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	<-sigChan
 	log.Println("Shutting down...")
 
+	// Give goroutines time to finish
 	<-shutdownCtx.Done()
 }

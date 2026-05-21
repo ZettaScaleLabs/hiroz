@@ -1,6 +1,5 @@
 package rosz
 
-import "sync/atomic"
 
 // TypedMessageHandler is a callback for strongly-typed messages
 type TypedMessageHandler[T Message] func(msg T)
@@ -49,33 +48,36 @@ func BuildWithTypedCallback[T Message](builder *SubscriberBuilder, handler Typed
 func SubscriberWithChannel[T Message](builder *SubscriberBuilder, bufferSize int) (*Subscriber, <-chan T, func(), error) {
 	var msgTemplate T
 
-	// Create output channel
+	// Create output channel and a done channel used to signal teardown.
+	// The done channel eliminates the TOCTOU window that existed with the
+	// old atomic.Bool guard: between Load()→false and the channel send,
+	// cleanup() could close outCh causing a panic. The select below races
+	// the send against <-done so the callback exits cleanly after cleanup.
 	outCh := make(chan T, bufferSize)
+	done := make(chan struct{})
 
-	// Guard against send-on-closed-channel during teardown
-	var closed atomic.Bool
-
-	// Wrap with deserialization
 	rawHandler := func(data []byte) {
-		if closed.Load() {
-			return // Channel closed, discard
-		}
 		var msg T
 		if err := msg.DeserializeCDR(data); err != nil {
-			return // Drop malformed messages
+			return // drop malformed messages
 		}
-		outCh <- msg
+		select {
+		case outCh <- msg:
+		case <-done:
+		}
 	}
 
 	sub, err := builder.BuildWithCallback(msgTemplate, rawHandler)
 	if err != nil {
+		close(done)
 		close(outCh)
 		return nil, nil, nil, err
 	}
 
-	// Cleanup function marks closed then closes the channel
+	// cleanup closes done first (unblocks any in-flight send), then outCh
+	// (signals range-loop consumers that the stream is finished).
 	cleanup := func() {
-		closed.Store(true)
+		close(done)
 		close(outCh)
 	}
 

@@ -10,6 +10,7 @@ import "C"
 import (
 	"fmt"
 	"runtime"
+	"runtime/cgo"
 	"sync"
 	"unsafe"
 )
@@ -69,7 +70,7 @@ func (b *SubscriberBuilder) BuildWithCallback(msg Message, handler MessageHandle
 			typeNameC,
 			typeHashC,
 			C.getSubscriberCallback(),
-			C.uintptr_t(uintptr(unsafe.Pointer(closure))),
+			closure.selfHandle,
 			&cQos,
 		)
 	} else {
@@ -79,7 +80,7 @@ func (b *SubscriberBuilder) BuildWithCallback(msg Message, handler MessageHandle
 			typeNameC,
 			typeHashC,
 			C.getSubscriberCallback(),
-			C.uintptr_t(uintptr(unsafe.Pointer(closure))),
+			closure.selfHandle,
 		)
 	}
 
@@ -112,7 +113,7 @@ func (s *Subscriber) Close() error {
 		result := C.ros_z_subscriber_destroy(s.handle)
 		s.handle = nil
 		if result != 0 {
-			err = fmt.Errorf("subscriber close failed with code %d", result)
+			err = fmt.Errorf("subscriber close failed (rc=%d): %w", result, ErrCloseFailed)
 		}
 	})
 	return err
@@ -121,7 +122,7 @@ func (s *Subscriber) Close() error {
 //export goSubscriberCallback
 func goSubscriberCallback(userData C.uintptr_t, data *C.uint8_t, length C.size_t) {
 	// Cast userData back to closureContext pointer
-	closure := (*closureContext[[]byte])(unsafe.Pointer(uintptr(userData)))
+	closure := cgo.Handle(userData).Value().(*closureContext[[]byte])
 
 	// Copy data to Go slice
 	goData := C.GoBytes(unsafe.Pointer(data), C.int(length))

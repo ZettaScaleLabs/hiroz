@@ -104,13 +104,6 @@ func (b *ContextBuilder) WithJSON(jsonStr string) *ContextBuilder {
 	return b
 }
 
-// WithRemapRule adds a name remapping rule in "from:=to" format
-func (b *ContextBuilder) WithRemapRule(rule string) *ContextBuilder {
-	b.remapRules = append(b.remapRules, rule)
-	b.hasAdvancedConfig = true
-	return b
-}
-
 // WithRemapRules adds multiple name remapping rules
 func (b *ContextBuilder) WithRemapRules(rules ...string) *ContextBuilder {
 	b.remapRules = append(b.remapRules, rules...)

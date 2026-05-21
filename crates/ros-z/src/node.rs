@@ -652,6 +652,233 @@ impl ZNode {
         Ok(crate::ffi::subscriber::RawSubscriber { inner: subscriber })
     }
 
+    /// Create a raw service client for FFI (no type safety)
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_service_client(
+        &self,
+        service: &str,
+        type_name: &str,
+        type_hash: &str,
+    ) -> Result<crate::ffi::service::RawServiceClient> {
+        use crate::entity::{EndpointEntity, EndpointKind};
+        use crate::topic_name;
+        use std::sync::atomic::AtomicUsize;
+
+        let qualified_service =
+            topic_name::qualify_service_name(service, &self.entity.namespace, &self.entity.name)
+                .map_err(|e| zenoh::Error::from(format!("Failed to qualify service: {}", e)))?;
+
+        let entity = EndpointEntity {
+            id: self.counter.increment(),
+            node: Some(self.entity.clone()),
+            topic: qualified_service.clone(),
+            kind: EndpointKind::Client,
+            type_info: Some(TypeInfo {
+                name: type_name.to_string(),
+                hash: TypeHash::from_rihs_string(type_hash).unwrap_or(TypeHash::zero()),
+            }),
+            qos: Default::default(),
+        };
+
+        let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
+        let key_expr: zenoh::key_expr::KeyExpr<'static> = (*topic_ke).clone();
+
+        let inner = self
+            .session
+            .declare_querier(key_expr.clone())
+            .target(zenoh::query::QueryTarget::AllComplete)
+            .consolidation(zenoh::query::ConsolidationMode::None)
+            .timeout(std::time::Duration::from_secs(10))
+            .wait()?;
+
+        let (tx, rx) = flume::bounded(10);
+
+        // Declare liveliness token so rmw_zenoh_cpp service servers can observe this client.
+        let lv_ke = self
+            .keyexpr_format
+            .liveliness_key_expr(&entity, &self.session.zid())?;
+        let lv_token = self
+            .session
+            .liveliness()
+            .declare_token((*lv_ke).clone())
+            .wait()?;
+
+        Ok(crate::ffi::service::RawServiceClient {
+            sn: AtomicUsize::new(1),
+            gid: crate::entity::endpoint_gid(&entity)
+                .expect("service client always has node identity"),
+            inner,
+            tx,
+            rx,
+            _key_expr: key_expr,
+            _lv_token: lv_token,
+            qualified_service,
+            graph: self.graph.clone(),
+        })
+    }
+
+    /// Create a raw service server for FFI (no type safety)
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_service_server(
+        &self,
+        service: &str,
+        type_name: &str,
+        type_hash: &str,
+    ) -> Result<crate::ffi::service::RawServiceServer> {
+        use crate::common::DataHandler;
+        use crate::entity::{EndpointEntity, EndpointKind};
+        use crate::topic_name;
+
+        let qualified_service =
+            topic_name::qualify_service_name(service, &self.entity.namespace, &self.entity.name)
+                .map_err(|e| zenoh::Error::from(format!("Failed to qualify service: {}", e)))?;
+
+        let entity = EndpointEntity {
+            id: self.counter.increment(),
+            node: Some(self.entity.clone()),
+            topic: qualified_service.clone(),
+            kind: EndpointKind::Service,
+            type_info: Some(TypeInfo {
+                name: type_name.to_string(),
+                hash: TypeHash::from_rihs_string(type_hash).unwrap_or(TypeHash::zero()),
+            }),
+            qos: Default::default(),
+        };
+
+        let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
+        let key_expr: zenoh::key_expr::KeyExpr<'static> = (*topic_ke).clone();
+
+        let queue = Arc::new(crate::queue::BoundedQueue::new(256));
+        let queue_clone = queue.clone();
+        let handler = DataHandler::Queue(queue_clone);
+
+        let inner = self
+            .session
+            .declare_queryable(&key_expr)
+            .complete(true)
+            .callback(move |query| {
+                handler.handle(query);
+            })
+            .wait()?;
+
+        // Declare liveliness token so rmw_zenoh_cpp clients can discover this server.
+        let lv_ke = self
+            .keyexpr_format
+            .liveliness_key_expr(&entity, &self.session.zid())?;
+        let lv_token = self
+            .session
+            .liveliness()
+            .declare_token((*lv_ke).clone())
+            .wait()?;
+
+        Ok(crate::ffi::service::RawServiceServer {
+            key_expr,
+            _inner: inner,
+            _lv_token: lv_token,
+            queue,
+            map: std::collections::HashMap::new(),
+        })
+    }
+
+    /// Create a raw action client for FFI (no type safety).
+    /// Creates 3 service clients (SendGoal, GetResult, CancelGoal) + 1 feedback subscriber.
+    #[cfg(feature = "ffi")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_raw_action_client(
+        &self,
+        action_name: &str,
+        action_type: &str,
+        _goal_type: &str,
+        goal_hash: &str,
+        _result_type: &str,
+        result_hash: &str,
+        _feedback_type: &str,
+        feedback_hash: &str,
+    ) -> Result<crate::ffi::action::RawActionClient> {
+        let send_goal_service = format!("{}/_action/send_goal", action_name);
+        let get_result_service = format!("{}/_action/get_result", action_name);
+        let cancel_goal_service = format!("{}/_action/cancel_goal", action_name);
+        let feedback_topic = format!("{}/_action/feedback", action_name);
+
+        // Compute DDS-style type names required by rmw_zenoh_cpp's graph discovery.
+        // action_type is e.g. "example_interfaces/action/Fibonacci" → package="example_interfaces", name="Fibonacci"
+        let (pkg, aname) = split_action_type(action_type);
+        let send_goal_type = format!("{}::action::dds_::{}_SendGoal_", pkg, aname);
+        let get_result_type = format!("{}::action::dds_::{}_GetResult_", pkg, aname);
+        let cancel_goal_type = "action_msgs::srv::dds_::CancelGoal_";
+        let feedback_type_dds = format!("{}::action::dds_::{}_FeedbackMessage_", pkg, aname);
+
+        let send_goal_client =
+            self.create_raw_service_client(&send_goal_service, &send_goal_type, goal_hash)?;
+        let get_result_client =
+            self.create_raw_service_client(&get_result_service, &get_result_type, result_hash)?;
+        let cancel_goal_client =
+            self.create_raw_service_client(&cancel_goal_service, cancel_goal_type, "")?;
+
+        // Feedback subscriber (no-op callback for now; Go handles via polling or separate mechanism)
+        let feedback_sub =
+            self.create_raw_subscriber(&feedback_topic, &feedback_type_dds, feedback_hash, |_| {})?;
+
+        Ok(crate::ffi::action::RawActionClient {
+            send_goal_client,
+            get_result_client,
+            cancel_goal_client,
+            _feedback_sub: feedback_sub,
+        })
+    }
+
+    /// Create a raw action server for FFI (no type safety).
+    /// Creates 3 service servers (SendGoal, GetResult, CancelGoal) + 2 publishers (Feedback, Status).
+    #[cfg(feature = "ffi")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_raw_action_server(
+        &self,
+        action_name: &str,
+        action_type: &str,
+        _goal_type: &str,
+        goal_hash: &str,
+        _result_type: &str,
+        result_hash: &str,
+        _feedback_type: &str,
+        feedback_hash: &str,
+    ) -> Result<crate::ffi::action::RawActionServer> {
+        let send_goal_service = format!("{}/_action/send_goal", action_name);
+        let get_result_service = format!("{}/_action/get_result", action_name);
+        let cancel_goal_service = format!("{}/_action/cancel_goal", action_name);
+        let feedback_topic = format!("{}/_action/feedback", action_name);
+        let status_topic = format!("{}/_action/status", action_name);
+
+        // Compute DDS-style type names required by rmw_zenoh_cpp's graph discovery.
+        // action_type is e.g. "example_interfaces/action/Fibonacci" → package="example_interfaces", name="Fibonacci"
+        let (pkg, aname) = split_action_type(action_type);
+        let send_goal_type = format!("{}::action::dds_::{}_SendGoal_", pkg, aname);
+        let get_result_type = format!("{}::action::dds_::{}_GetResult_", pkg, aname);
+        let cancel_goal_type = "action_msgs::srv::dds_::CancelGoal_";
+        let feedback_type_dds = format!("{}::action::dds_::{}_FeedbackMessage_", pkg, aname);
+        let status_type_dds = "action_msgs::msg::dds_::GoalStatusArray_";
+
+        let send_goal_server =
+            self.create_raw_service_server(&send_goal_service, &send_goal_type, goal_hash)?;
+        let get_result_server =
+            self.create_raw_service_server(&get_result_service, &get_result_type, result_hash)?;
+        let cancel_goal_server =
+            self.create_raw_service_server(&cancel_goal_service, cancel_goal_type, "")?;
+
+        let feedback_pub =
+            self.create_raw_publisher(&feedback_topic, &feedback_type_dds, feedback_hash)?;
+        let status_pub = self.create_raw_publisher(&status_topic, status_type_dds, "")?;
+
+        Ok(crate::ffi::action::RawActionServer {
+            send_goal_server,
+            get_result_server,
+            cancel_goal_server,
+            feedback_pub,
+            _status_pub: status_pub,
+            pending_results: std::collections::HashMap::new(),
+            pending_result_queries: std::collections::HashMap::new(),
+        })
+    }
+
     /// Create an action client for the given action name
     pub fn create_action_client<A>(&self, action_name: &str) -> ZActionClientBuilder<'_, A>
     where
@@ -973,6 +1200,16 @@ impl ZNode {
             }
         }
     }
+}
+
+/// Parse an action type string like `"example_interfaces/action/Fibonacci"` into
+/// `(package, action_name)` — i.e., `("example_interfaces", "Fibonacci")`.
+/// These are used to construct DDS-style type names for rmw_zenoh_cpp graph discovery.
+#[cfg(feature = "ffi")]
+fn split_action_type(action_type: &str) -> (&str, &str) {
+    let pkg = action_type.split('/').next().unwrap_or(action_type);
+    let name = action_type.split('/').next_back().unwrap_or(action_type);
+    (pkg, name)
 }
 
 #[cfg(test)]

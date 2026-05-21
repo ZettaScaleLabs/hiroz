@@ -20,7 +20,7 @@ type Node struct {
 	// ownedSubs keeps callback-based subscribers alive for the node's lifetime.
 	// Matches rmw_zenoh_cpp's NodeData::subs_ ownership pattern: the node is the
 	// source of truth for subscription lifetime, not the caller's variable.
-	ownedSubs []interface{}
+	ownedSubs []*Subscriber
 	subsMu    sync.Mutex
 }
 
@@ -101,7 +101,7 @@ func (n *Node) DestroySubscriber(sub *Subscriber) error {
 	n.subsMu.Lock()
 	idx := -1
 	for i, s := range n.ownedSubs {
-		if s == sub {
+		if s == sub { //nolint:gocritic // pointer comparison is intentional
 			idx = i
 			break
 		}
@@ -151,16 +151,14 @@ func (n *Node) Close() error {
 		subs := n.ownedSubs
 		n.ownedSubs = nil
 		n.subsMu.Unlock()
-		for _, s := range subs {
-			if sub, ok := s.(*Subscriber); ok {
-				sub.Close()
-			}
+		for _, sub := range subs {
+			sub.Close()
 		}
 
 		result := C.ros_z_node_destroy(n.handle)
 		n.handle = nil
 		if result != 0 {
-			err = fmt.Errorf("node close failed with code %d", result)
+			err = fmt.Errorf("node close failed (rc=%d): %w", result, ErrCloseFailed)
 		}
 	})
 	return err

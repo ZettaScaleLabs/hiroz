@@ -23,8 +23,7 @@ func TestNodeOwnedSubsField(t *testing.T) {
 	}
 
 	// Simulate what BuildWithCallback does: store a subscriber in the node.
-	// In production, this is a *Subscriber; here we use interface{} directly.
-	mockSub := &struct{ closed bool }{}
+	mockSub := &Subscriber{}
 
 	node.subsMu.Lock()
 	node.ownedSubs = append(node.ownedSubs, mockSub)

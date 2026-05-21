@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use ros_z::{Builder, Result, context::ZContextBuilder, define_action};
+use ros_z::{Builder, Result, action::GoalStatus, context::ZContextBuilder, define_action};
 use serde::{Deserialize, Serialize};
 use serial_test::serial;
 use tokio::time;
@@ -244,19 +244,24 @@ mod tests {
         // Signal server that we're ready to observe status changes
         let _ = ready_tx.send(());
 
-        // Wait for first status change (Accepted -> Executing)
-        time::timeout(Duration::from_secs(5), status_watch.changed())
-            .await
-            .expect("timeout waiting for first status change")?;
-        let mid_status = *status_watch.borrow();
-        tracing::debug!("Mid status: {:?}", mid_status);
-
-        // Wait for final status change (Executing -> Succeeded)
-        time::timeout(Duration::from_secs(5), status_watch.changed())
-            .await
-            .expect("timeout waiting for final status change")?;
-        let final_status = *status_watch.borrow();
-        tracing::debug!("Final status: {:?}", final_status);
+        // Wait for status changes until we reach a terminal state.
+        // execute() and succeed() may fire back-to-back before the first
+        // changed() call returns, so the watch channel may batch them into a
+        // single notification.  Loop until Succeeded/Aborted/Canceled rather
+        // than assuming a fixed number of intermediate transitions.
+        loop {
+            time::timeout(Duration::from_secs(5), status_watch.changed())
+                .await
+                .expect("timeout waiting for status change")?;
+            let status = *status_watch.borrow_and_update();
+            tracing::debug!("Status: {:?}", status);
+            if matches!(
+                status,
+                GoalStatus::Succeeded | GoalStatus::Aborted | GoalStatus::Canceled
+            ) {
+                break;
+            }
+        }
 
         Ok(())
     }

@@ -1,11 +1,13 @@
 //! C-compatible FFI layer for Go/Python/etc. bindings
 
+pub mod action;
 pub mod context;
 pub mod graph;
 pub mod node;
 pub mod publisher;
 pub mod qos;
 pub mod serialize;
+pub mod service;
 pub mod subscriber;
 
 use std::ffi::{CStr, c_char};
@@ -23,7 +25,13 @@ pub enum ErrorCode {
     SubscribeFailed = -6,
     NodeCreationFailed = -7,
     ContextCreationFailed = -8,
-    DeserializationFailed = -9,
+    ServiceCallFailed = -9,
+    ServiceTimeout = -10,
+    ActionGoalRejected = -11,
+    ActionCancelFailed = -12,
+    ActionResultFailed = -13,
+    ActionFeedbackFailed = -14,
+    DeserializationFailed = -15,
     Unknown = -100,
 }
 

@@ -14,9 +14,10 @@ import (
 // This pattern is based on zenoh-go's closure system and replaces the manual
 // callback registry (sync.RWMutex + map) with Go 1.17+ cgo.Handle.
 type closureContext[T any] struct {
-	onCall C.uintptr_t // cgo.Handle storing func(T)
-	onDrop C.uintptr_t // cgo.Handle storing func() (optional)
-	pinner C.uintptr_t // cgo.Handle storing *runtime.Pinner
+	onCall     C.uintptr_t // cgo.Handle storing func(T)
+	onDrop     C.uintptr_t // cgo.Handle storing func() (optional)
+	pinner     C.uintptr_t // cgo.Handle storing *runtime.Pinner
+	selfHandle C.uintptr_t // cgo.Handle storing *closureContext[T], used as userData in C callbacks
 }
 
 // call invokes the stored callback function with the given value.
@@ -34,6 +35,7 @@ func (context *closureContext[T]) drop() {
 		cgo.Handle(context.onDrop).Delete()
 	}
 	cgo.Handle(context.onCall).Delete()
+	cgo.Handle(context.selfHandle).Delete()
 	cgo.Handle(context.pinner).Value().(*runtime.Pinner).Unpin()
 	cgo.Handle(context.pinner).Delete()
 }
@@ -49,8 +51,10 @@ func newClosure[T any](callback func(T), drop func()) *closureContext[T] {
 	if drop != nil {
 		closure.onDrop = C.uintptr_t(cgo.NewHandle(drop))
 	}
-	context_pinner := &runtime.Pinner{}
-	context_pinner.Pin(&closure)
-	closure.pinner = C.uintptr_t(cgo.NewHandle(context_pinner))
+	contextPinner := &runtime.Pinner{}
+	contextPinner.Pin(&closure)
+	closure.pinner = C.uintptr_t(cgo.NewHandle(contextPinner))
+	// selfHandle is used as userData in C callbacks; recover via cgo.Handle(userData).Value()
+	closure.selfHandle = C.uintptr_t(cgo.NewHandle(&closure))
 	return &closure
 }

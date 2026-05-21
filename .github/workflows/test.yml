@@ -63,6 +63,14 @@ jobs:
       - name: Install system dependencies
         run: apt-get update && apt-get install -y nodejs
 
+      - name: Install Nushell
+        run: |
+          NU_VERSION=0.102.0
+          ARCH=$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')
+          NU_TARBALL="nu-${NU_VERSION}-${ARCH}-unknown-linux-gnu"
+          curl -fsSL "https://github.com/nushell/nushell/releases/download/${NU_VERSION}/${NU_TARBALL}.tar.gz" \
+            | tar -xz -C /usr/local/bin --strip-components=1 "${NU_TARBALL}/nu"
+
       - name: Install ROS dependencies
         run: |
           apt-get install -y \
@@ -116,3 +124,36 @@ jobs:
               --features ros-interop --release \
               -E 'test(dynamic_subscriber)'
           fi
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: false
+
+      - name: Build Rust FFI library + example binaries
+        run: |
+          FEATURES="ffi,${{ matrix.ros_z_feature }},rmw-zenoh"
+          cargo build --release --no-default-features --features "$FEATURES" \
+            --lib --example z_pubsub --example z_srvcli --example zenoh_router
+
+      - name: Generate Go message types (bundled IDL)
+        run: |
+          mkdir -p _tmp crates/ros-z-go/generated
+          cargo run -p ros-z-codegen --bin export_json -- \
+            --assets crates/ros-z-codegen/assets/jazzy \
+            --output _tmp/go-manifest.json \
+            --packages builtin_interfaces,service_msgs,action_msgs,unique_identifier_msgs,std_msgs,example_interfaces
+          cd crates/ros-z-codegen-go && go run . \
+            -input ../../_tmp/go-manifest.json \
+            -output ../ros-z-go/generated \
+            -prefix github.com/ZettaScaleLabs/ros-z/crates/ros-z-go
+
+      - name: Go vet (static analysis)
+        run: nu scripts/test-go.nu --vet-only
+
+      - name: Run Go integration tests (Go↔Go + Go↔Rust + Go↔ROS2)
+        shell: bash
+        run: |
+          source /opt/ros/${{ matrix.distro }}/setup.bash
+          export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+          nu scripts/test-go.nu --integration

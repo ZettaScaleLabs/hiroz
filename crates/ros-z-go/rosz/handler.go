@@ -58,23 +58,36 @@ func NewFifoChannel[T any](bufferSize int) *FifoChannel[T] {
 type RingChannel[T any] struct {
 	channel chan T
 	mu      sync.Mutex
+	closed  bool
 }
 
 // ToCbDropHandler returns a callback that sends to the channel with ring buffer behavior.
+//
+// The returned drop function is safe to call concurrently with an in-flight
+// callback: both acquire r.mu, so drop cannot close the channel while a
+// callback is mid-send.
 func (r *RingChannel[T]) ToCbDropHandler() (func(T), func(), <-chan T) {
 	callback := func(msg T) {
 		r.mu.Lock()
 		defer r.mu.Unlock()
+		if r.closed {
+			return
+		}
 		select {
 		case r.channel <- msg:
 		default:
-			// Channel full - drop oldest message and retry
+			// Channel full — drop oldest message and retry
 			<-r.channel
 			r.channel <- msg
 		}
 	}
 	drop := func() {
-		close(r.channel)
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if !r.closed {
+			r.closed = true
+			close(r.channel)
+		}
 	}
 	return callback, drop, r.channel
 }

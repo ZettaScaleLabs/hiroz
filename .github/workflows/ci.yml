@@ -241,6 +241,7 @@ jobs:
           source /tmp/nix-dev-env.sh
           cargo llvm-cov \
             -p ros-z -p ros-z-codegen -p ros-z-cdr -p ros-z-protocol -p ros-z-schema \
+            -p ros-z-tests \
             -j4 \
             --lcov --output-path lcov.info
         shell: bash
@@ -390,12 +391,19 @@ jobs:
         with:
           shared-key: ${{ runner.os }}-go-ffi
 
-      - name: Install just
-        uses: extractions/setup-just@v2
+      - name: Install Nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: '0.102'
 
-      - name: Run Go tests
-        working-directory: crates/ros-z-go
-        run: just test-go
+      - name: Go vet (static analysis)
+        run: nu scripts/test-go.nu --vet-only
+
+      - name: Go pure tests (codegen + testdata)
+        run: nu scripts/test-go.nu --codegen-only
+
+      - name: Go FFI tests (rosz unit tests)
+        run: nu scripts/test-go.nu --ffi-only
 
   python-tests:
     name: Python Tests (ros-z-py) (${{ matrix.distro }})

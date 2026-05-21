@@ -967,7 +967,6 @@ func GenerateGoAction(action ActionDefinition, prefix string) ([]byte, error) {
 	g.P("const (")
 	g.In()
 	g.P("%s_TypeName = %q", action.Name, action.FullName)
-	g.P("%s_TypeHash = %q", action.Name, action.TypeHash)
 	g.P("%s_SendGoalHash = %q", action.Name, action.SendGoalHash)
 	g.P("%s_GetResultHash = %q", action.Name, action.GetResultHash)
 	g.P("%s_CancelGoalHash = %q", action.Name, action.CancelGoalHash)
@@ -987,11 +986,8 @@ func GenerateGoAction(action ActionDefinition, prefix string) ([]byte, error) {
 	resultName := action.Name + "Result"
 	feedbackName := action.Name + "Feedback"
 
-	g.P("func (a *%s) TypeName() string              { return %s_TypeName }", action.Name, action.Name)
-	g.P("func (a *%s) TypeHash() string              { return %s_TypeHash }", action.Name, action.Name)
-	g.P("func (a *%s) SerializeCDR() ([]byte, error) { return nil, nil }", action.Name)
-	g.P("func (a *%s) DeserializeCDR(_ []byte) error { return nil }", action.Name)
-	g.P("func (a *%s) GetGoal() rosz.Message         { return &%s{} }", action.Name, goalName)
+	g.P("func (a *%s) TypeName() string      { return %s_TypeName }", action.Name, action.Name)
+	g.P("func (a *%s) GetGoal() rosz.Message { return &%s{} }", action.Name, goalName)
 	if action.Result != nil {
 		g.P("func (a *%s) GetResult() rosz.Message     { return &%s{} }", action.Name, resultName)
 	} else {
@@ -1004,7 +1000,7 @@ func GenerateGoAction(action ActionDefinition, prefix string) ([]byte, error) {
 	}
 	g.P("")
 
-	// ActionSubServiceHashes interface — provides compound hashes for rmw_zenoh_cpp interop
+	// Action interface sub-service hash methods — provide compound hashes for rmw_zenoh_cpp interop
 	g.P("// SendGoalHash returns the compound RIHS01 hash for the SendGoal sub-service.")
 	g.P("func (a *%s) SendGoalHash() string        { return %s_SendGoalHash }", action.Name, action.Name)
 	g.P("// GetResultHash returns the compound RIHS01 hash for the GetResult sub-service.")

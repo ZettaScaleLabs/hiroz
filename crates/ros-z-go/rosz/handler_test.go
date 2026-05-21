@@ -85,15 +85,13 @@ func TestFifoChannelBlocking(t *testing.T) {
 	// Fill the channel
 	callback(1)
 
-	// Second send should block
+	// Second send should block; check immediately (non-blocking) — if the callback
+	// returned already the channel was not actually full, which is a bug.
 	done := make(chan bool)
 	go func() {
 		callback(2) // This blocks
 		done <- true
 	}()
-
-	// Give it time to block
-	time.Sleep(100 * time.Millisecond)
 
 	select {
 	case <-done:

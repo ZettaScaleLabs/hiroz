@@ -51,9 +51,30 @@ ros-z-msgs/python/uv.lock
 # Generated Go message packages (codegen test output)
 /builtin_interfaces/
 /std_msgs/
+/action_msgs/
+/example_interfaces/
+/service_msgs/
+/unique_identifier_msgs/
 /crates/ros-z-codegen-go/builtin_interfaces/
 /crates/ros-z-codegen-go/std_msgs/
+/crates/ros-z-codegen-go/action_msgs/
+/crates/ros-z-codegen-go/example_interfaces/
+/crates/ros-z-codegen-go/service_msgs/
+/crates/ros-z-codegen-go/unique_identifier_msgs/
 /crates/ros-z-go/generated/
+
+# Built Go example binaries
+/crates/ros-z-go/action_client
+/crates/ros-z-go/action_client_errors
+/crates/ros-z-go/action_server
+/crates/ros-z-go/publisher
+/crates/ros-z-go/subscriber
+/crates/ros-z-go/subscriber_channel
+/crates/ros-z-go/service_client
+/crates/ros-z-go/service_client_errors
+/crates/ros-z-go/service_server
+/crates/ros-z-go/examples/production_service/client
+/crates/ros-z-go/examples/production_service/server
 
 # Core dumps
 /core

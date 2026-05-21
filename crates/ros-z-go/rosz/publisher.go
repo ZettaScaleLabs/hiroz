@@ -68,6 +68,10 @@ func (b *PublisherBuilder) Build(msg Message) (*Publisher, error) {
 
 // Publish publishes a message
 func (p *Publisher) Publish(msg Message) error {
+	if p.handle == nil {
+		return fmt.Errorf("publisher is closed")
+	}
+
 	data, err := msg.SerializeCDR()
 	if err != nil {
 		return fmt.Errorf("serialization failed: %w", err)
@@ -91,7 +95,7 @@ func (p *Publisher) Publish(msg Message) error {
 	logger.Debug("ros_z_publisher_publish", "topic", p.topic, "len", len(data), "rc", int(result))
 
 	if result != 0 {
-		return NewRoszError(ErrorCodePublishFailed,
+		return newRoszError(ErrorCodePublishFailed,
 			fmt.Sprintf("publisher[%s] publish failed (rc=%d)", p.topic, result))
 	}
 	return nil
@@ -107,7 +111,7 @@ func (p *Publisher) Close() error {
 		result := C.ros_z_publisher_destroy(p.handle)
 		p.handle = nil
 		if result != 0 {
-			err = fmt.Errorf("publisher close failed with code %d", result)
+			err = fmt.Errorf("publisher close failed (rc=%d): %w", result, ErrCloseFailed)
 		}
 	})
 	return err
