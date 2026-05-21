@@ -81,7 +81,7 @@ func (r *ZenohRouter) Endpoint() string {
 	return fmt.Sprintf("tcp/127.0.0.1:%d", r.port)
 }
 
-// Config returns the Zenoh config string for ros-z-go
+// Config returns the Zenoh config string for hiroz-go
 func (r *ZenohRouter) Config() string {
 	return fmt.Sprintf("connect/endpoints=[\"tcp/127.0.0.1:%d\"];scouting/multicast/enabled=false", r.port)
 }

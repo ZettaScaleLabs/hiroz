@@ -1,6 +1,6 @@
 // crates/ros-z-go/examples/action_server/main.go
 //
-// This example demonstrates how to create a ROS 2 action server using ros-z Go bindings.
+// This example demonstrates how to create a ROS 2 action server using hiroz Go bindings.
 // It creates a Fibonacci action server that computes Fibonacci sequences.
 //
 // Prerequisites:
@@ -19,15 +19,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/example_interfaces"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/example_interfaces"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
 func main() {
-	log.Println("Starting ros-z Go action server example...")
+	log.Println("Starting hiroz Go action server example...")
 
 	// Create a ROS 2 context
-	ctx, err := rosz.NewContext().
+	ctx, err := hiroz.NewContext().
 		WithDomainID(0).
 		Build()
 	if err != nil {
@@ -43,7 +43,7 @@ func main() {
 	defer node.Close()
 
 	// Create a typed action server — no manual SerializeCDR/DeserializeCDR needed.
-	server, err := rosz.BuildTypedActionServer(
+	server, err := hiroz.BuildTypedActionServer(
 		node.CreateActionServer("fibonacci"),
 		&example_interfaces.Fibonacci{},
 		// Goal callback: accept all goals with order > 0
@@ -52,7 +52,7 @@ func main() {
 			return goal.Order > 0
 		},
 		// Execute callback: compute Fibonacci sequence with feedback
-		func(handle *rosz.ServerGoalHandle, goal *example_interfaces.FibonacciGoal) (*example_interfaces.FibonacciResult, error) {
+		func(handle *hiroz.ServerGoalHandle, goal *example_interfaces.FibonacciGoal) (*example_interfaces.FibonacciResult, error) {
 			log.Printf("Executing goal: computing Fibonacci(%d)", goal.Order)
 
 			sequence := []int32{0, 1}

@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/examples/production_service/messages"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/examples/production_service/messages"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 	"golang.org/x/time/rate"
 )
 
@@ -83,9 +83,9 @@ type ProductionServiceServer struct {
 	rateLimiter *rate.Limiter
 	ctx         context.Context
 	cancel      context.CancelFunc
-	rosCtx      *rosz.Context
-	node        *rosz.Node
-	server      *rosz.ServiceServer
+	rosCtx      *hiroz.Context
+	node        *hiroz.Node
+	server      *hiroz.ServiceServer
 	wg          sync.WaitGroup
 }
 
@@ -111,7 +111,7 @@ func NewProductionServiceServer() (*ProductionServiceServer, error) {
 
 func (s *ProductionServiceServer) Start() error {
 	// Create ROS-Z context and node
-	rosCtx, err := rosz.NewContext().WithDomainID(0).Build()
+	rosCtx, err := hiroz.NewContext().WithDomainID(0).Build()
 	if err != nil {
 		return fmt.Errorf("failed to create context: %w", err)
 	}

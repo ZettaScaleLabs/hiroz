@@ -1,6 +1,6 @@
 // crates/ros-z-go/examples/service_server/main.go
 //
-// This example demonstrates how to create a ROS 2 service server using ros-z Go bindings.
+// This example demonstrates how to create a ROS 2 service server using hiroz Go bindings.
 // It creates an AddTwoInts service server that responds with the sum of two integers.
 //
 // Prerequisites:
@@ -19,15 +19,15 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/example_interfaces"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/example_interfaces"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
 func main() {
-	log.Println("Starting ros-z Go service server example...")
+	log.Println("Starting hiroz Go service server example...")
 
 	// Create a ROS 2 context
-	ctx, err := rosz.NewContext().
+	ctx, err := hiroz.NewContext().
 		WithDomainID(0).
 		Build()
 	if err != nil {

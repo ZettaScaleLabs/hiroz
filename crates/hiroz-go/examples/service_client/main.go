@@ -1,6 +1,6 @@
 // crates/ros-z-go/examples/service_client/main.go
 //
-// This example demonstrates how to call a ROS 2 service using ros-z Go bindings.
+// This example demonstrates how to call a ROS 2 service using hiroz Go bindings.
 // It calls an AddTwoInts service and prints the result.
 //
 // Prerequisites:
@@ -17,15 +17,15 @@ import (
 	"log"
 	"time"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/example_interfaces"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/example_interfaces"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
 func main() {
-	log.Println("Starting ros-z Go service client example...")
+	log.Println("Starting hiroz Go service client example...")
 
 	// Create a ROS 2 context
-	ctx, err := rosz.NewContext().
+	ctx, err := hiroz.NewContext().
 		WithDomainID(0).
 		Build()
 	if err != nil {
@@ -59,7 +59,7 @@ func main() {
 	resp := &example_interfaces.AddTwoIntsResponse{}
 	log.Printf("Sending request: %d + %d", req.A, req.B)
 
-	if err := rosz.CallTyped(client, req, resp); err != nil {
+	if err := hiroz.CallTyped(client, req, resp); err != nil {
 		log.Fatalf("Service call failed: %v", err)
 	}
 

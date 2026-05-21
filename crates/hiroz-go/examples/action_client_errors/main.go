@@ -18,15 +18,15 @@ import (
 	"errors"
 	"log"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/example_interfaces"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/example_interfaces"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
 func main() {
-	log.Println("Starting ros-z Go action client with error handling example...")
+	log.Println("Starting hiroz Go action client with error handling example...")
 
 	// Create a ROS 2 context
-	ctx, err := rosz.NewContext().
+	ctx, err := hiroz.NewContext().
 		WithDomainID(0).
 		Build()
 	if err != nil {
@@ -57,10 +57,10 @@ func main() {
 	goalHandle, err := client.SendGoal(goal)
 	if err != nil {
 		// Check if goal was rejected
-		if roszErr, ok := err.(rosz.RoszError); ok {
+		if roszErr, ok := err.(hiroz.HirozError); ok {
 			log.Printf("Goal failed with code %d: %s", roszErr.Code(), roszErr.Message())
 
-			if errors.Is(roszErr, rosz.ErrGoalRejected) {
+			if errors.Is(roszErr, hiroz.ErrGoalRejected) {
 				log.Println("✗ Goal was rejected by the action server")
 				log.Println()
 				log.Println("Possible reasons for rejection:")
@@ -76,9 +76,9 @@ func main() {
 			}
 
 			switch roszErr.Code() {
-			case rosz.ErrorCodeActionGoalRejected:
+			case hiroz.ErrorCodeActionGoalRejected:
 				log.Println("Goal explicitly rejected")
-			case rosz.ErrorCodeServiceTimeout:
+			case hiroz.ErrorCodeServiceTimeout:
 				log.Println("Goal send timed out (server may be unresponsive)")
 			default:
 				log.Printf("Unexpected error code: %d", roszErr.Code())
@@ -97,15 +97,15 @@ func main() {
 	resultBytes, err := goalHandle.GetResult()
 	if err != nil {
 		// Check for result retrieval errors
-		if roszErr, ok := err.(rosz.RoszError); ok {
+		if roszErr, ok := err.(hiroz.HirozError); ok {
 			log.Printf("Get result failed with code %d: %s", roszErr.Code(), roszErr.Message())
 
 			switch roszErr.Code() {
-			case rosz.ErrorCodeActionResultFailed:
+			case hiroz.ErrorCodeActionResultFailed:
 				log.Println("✗ Failed to retrieve action result")
 				log.Println("  - Goal may have been aborted")
 				log.Println("  - Server may have crashed")
-			case rosz.ErrorCodeServiceTimeout:
+			case hiroz.ErrorCodeServiceTimeout:
 				log.Println("✗ Result retrieval timed out")
 				log.Println("  - Goal may still be executing")
 				log.Println("  - Consider increasing timeout")
@@ -129,15 +129,15 @@ func main() {
 	log.Println()
 	log.Println("Cancellation example:")
 	log.Println("  err := goalHandle.Cancel()")
-	log.Println("  if roszErr, ok := err.(rosz.RoszError); ok {")
-	log.Println("    if roszErr.Code() == rosz.ErrorCodeActionCancelFailed {")
+	log.Println("  if roszErr, ok := err.(hiroz.HirozError); ok {")
+	log.Println("    if roszErr.Code() == hiroz.ErrorCodeActionCancelFailed {")
 	log.Println("      // Handle cancellation failure")
 	log.Println("    }")
 	log.Println("  }")
 
 	log.Println()
 	log.Println("Error handling patterns demonstrated:")
-	log.Println("  ✓ Goal rejection detection with errors.Is(err, rosz.ErrGoalRejected)")
+	log.Println("  ✓ Goal rejection detection with errors.Is(err, hiroz.ErrGoalRejected)")
 	log.Println("  ✓ Result retrieval error handling")
 	log.Println("  ✓ Action-specific error codes")
 	log.Println("  ✓ Timeout detection")

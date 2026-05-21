@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
 // AddTwoIntsRequest is the request message
@@ -69,10 +69,10 @@ func (s *AddTwoInts) DeserializeCDR(data []byte) error {
 	return fmt.Errorf("service definition cannot be deserialized")
 }
 
-func (s *AddTwoInts) GetRequest() rosz.Message {
+func (s *AddTwoInts) GetRequest() hiroz.Message {
 	return &AddTwoIntsRequest{}
 }
 
-func (s *AddTwoInts) GetResponse() rosz.Message {
+func (s *AddTwoInts) GetResponse() hiroz.Message {
 	return &AddTwoIntsResponse{}
 }

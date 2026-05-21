@@ -1,6 +1,6 @@
 // crates/ros-z-go/examples/service_client_errors/main.go
 //
-// This example demonstrates structured error handling with RoszError.
+// This example demonstrates structured error handling with HirozError.
 // Shows how to handle timeouts, service call failures, and retry logic.
 //
 // Prerequisites:
@@ -19,15 +19,15 @@ import (
 	"log"
 	"time"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/example_interfaces"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/example_interfaces"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
 func main() {
-	log.Println("Starting ros-z Go service client with error handling example...")
+	log.Println("Starting hiroz Go service client with error handling example...")
 
 	// Create a ROS 2 context
-	ctx, err := rosz.NewContext().
+	ctx, err := hiroz.NewContext().
 		WithDomainID(0).
 		Build()
 	if err != nil {
@@ -63,19 +63,19 @@ func main() {
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		log.Printf("Attempt %d/%d...", attempt, maxRetries)
 
-		callErr = rosz.CallTyped(client, req, &resp)
+		callErr = hiroz.CallTyped(client, req, &resp)
 
 		if callErr == nil {
 			// Success!
 			break
 		}
 
-		// Check if it's a RoszError and handle specific error codes
-		if roszErr, ok := callErr.(rosz.RoszError); ok {
+		// Check if it's a HirozError and handle specific error codes
+		if roszErr, ok := callErr.(hiroz.HirozError); ok {
 			log.Printf("Service call failed with code %d: %s", roszErr.Code(), roszErr.Message())
 
 			switch roszErr.Code() {
-			case rosz.ErrorCodeServiceTimeout:
+			case hiroz.ErrorCodeServiceTimeout:
 				// Timeout - retry with backoff
 				if attempt < maxRetries {
 					backoff := time.Duration(attempt) * time.Second
@@ -85,7 +85,7 @@ func main() {
 				}
 				log.Println("Max retries reached for timeout")
 
-			case rosz.ErrorCodeServiceCallFailed:
+			case hiroz.ErrorCodeServiceCallFailed:
 				// General service failure - could be network issue
 				log.Println("Service call failed, server may be unreachable")
 				if attempt < maxRetries {
@@ -93,7 +93,7 @@ func main() {
 					continue
 				}
 
-			case rosz.ErrorCodeSessionClosed:
+			case hiroz.ErrorCodeSessionClosed:
 				// Zenoh session closed - fatal
 				log.Fatal("Zenoh session closed, cannot retry")
 
@@ -103,11 +103,11 @@ func main() {
 			}
 
 			// Use errors.Is for idiomatic timeout check
-			if errors.Is(callErr, rosz.ErrTimeout) {
+			if errors.Is(callErr, hiroz.ErrTimeout) {
 				log.Println("(Confirmed: This is a timeout error)")
 			}
 		} else {
-			// Not a RoszError - handle as generic error
+			// Not a HirozError - handle as generic error
 			log.Printf("Non-Rosz error: %v", callErr)
 		}
 
@@ -120,10 +120,10 @@ func main() {
 	log.Printf("✓ Response: %d + %d = %d", req.A, req.B, resp.Sum)
 	log.Println()
 	log.Println("Error handling patterns demonstrated:")
-	log.Println("  - Type assertion to RoszError")
+	log.Println("  - Type assertion to HirozError")
 	log.Println("  - Error code switching (timeout, call failed, session closed)")
 	log.Println("  - Retry logic with exponential backoff")
-	log.Println("  - errors.Is(err, rosz.ErrTimeout) for idiomatic timeout check")
+	log.Println("  - errors.Is(err, hiroz.ErrTimeout) for idiomatic timeout check")
 
 	// Suppress unused import warning for binary (used by generated code indirectly)
 	_ = binary.LittleEndian

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/std_msgs"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/std_msgs"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
 // TestGoPublisherToROS2Subscriber tests ros-z-go publisher -> ROS2 subscriber
@@ -61,7 +61,7 @@ func TestGoPublisherToROS2Subscriber(t *testing.T) {
 	time.Sleep(2 * time.Second) // Wait for subscriber + discovery
 
 	// Create ros-z-go publisher
-	roszCtx, err := rosz.NewContext().
+	roszCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -129,7 +129,7 @@ func TestROS2PublisherToGoSubscriber(t *testing.T) {
 	time.Sleep(time.Second)
 
 	// Create ros-z-go subscriber
-	roszCtx, err := rosz.NewContext().
+	roszCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -217,7 +217,7 @@ func TestGoPublisherToGoSubscriber(t *testing.T) {
 	time.Sleep(time.Second)
 
 	// Create publisher context
-	pubCtx, err := rosz.NewContext().
+	pubCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -232,7 +232,7 @@ func TestGoPublisherToGoSubscriber(t *testing.T) {
 	defer pubNode.Close()
 
 	// Create subscriber context
-	subCtx, err := rosz.NewContext().
+	subCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {

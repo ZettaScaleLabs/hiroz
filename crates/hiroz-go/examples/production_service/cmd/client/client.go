@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/examples/production_service/messages"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/examples/production_service/messages"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
 // ClientMetrics tracks client-side statistics
@@ -51,7 +51,7 @@ func (m *ClientMetrics) AverageLatency() time.Duration {
 // ProductionClient implements production-ready service client patterns
 type ProductionClient struct {
 	logger  *slog.Logger
-	client  *rosz.ServiceClient
+	client  *hiroz.ServiceClient
 	metrics *ClientMetrics
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -80,7 +80,7 @@ func NewProductionClient(ctx context.Context) (*ProductionClient, error) {
 	childCtx, cancel := context.WithCancel(ctx)
 
 	// Create ROS-Z context and node
-	rosCtx, err := rosz.NewContext().WithDomainID(0).Build()
+	rosCtx, err := hiroz.NewContext().WithDomainID(0).Build()
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create context: %w", err)
@@ -139,7 +139,7 @@ func (c *ProductionClient) CallWithRetry(req *messages.AddTwoIntsRequest, config
 
 		// Make the call
 		var resp messages.AddTwoIntsResponse
-		err := rosz.CallTyped(c.client, req, &resp)
+		err := hiroz.CallTyped(c.client, req, &resp)
 		latency := time.Since(startTime)
 
 		if err == nil {

@@ -1,6 +1,6 @@
 // crates/ros-z-go/examples/action_client/main.go
 //
-// This example demonstrates how to send goals to a ROS 2 action server using ros-z Go bindings.
+// This example demonstrates how to send goals to a ROS 2 action server using hiroz Go bindings.
 // It sends a Fibonacci goal and retrieves the result.
 //
 // Prerequisites:
@@ -16,15 +16,15 @@ package main
 import (
 	"log"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/example_interfaces"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/example_interfaces"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
 func main() {
-	log.Println("Starting ros-z Go action client example...")
+	log.Println("Starting hiroz Go action client example...")
 
 	// Create a ROS 2 context
-	ctx, err := rosz.NewContext().
+	ctx, err := hiroz.NewContext().
 		WithDomainID(0).
 		Build()
 	if err != nil {

@@ -19,7 +19,7 @@ package interop_tests
 //
 // The Rust examples must be built before running these tests:
 //
-//	just -f crates/ros-z-go/justfile build-rust
+//	just -f crates/hiroz-go/justfile build-rust
 //	cargo build --release --example z_pubsub --example z_srvcli
 //
 // # How Rust processes are configured
@@ -39,9 +39,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/example_interfaces"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/std_msgs"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/example_interfaces"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/std_msgs"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
 // rustExampleBinary returns the path to a compiled Rust example binary.
@@ -49,7 +49,7 @@ import (
 // when Rust examples have not been built.
 func rustExampleBinary(name string) (string, bool) {
 	// Walk up from the interop_tests directory to find the workspace root.
-	// The package lives at crates/ros-z-go/interop_tests/, so workspace root
+	// The package lives at crates/hiroz-go/interop_tests/, so workspace root
 	// is three levels up.
 	dir, err := filepath.Abs(".")
 	if err != nil {
@@ -118,7 +118,7 @@ func TestGoPublisherToRustSubscriber(t *testing.T) {
 	time.Sleep(time.Second) // wait for Rust subscriber to start and discover
 
 	// Create Go publisher
-	ctx, err := rosz.NewContext().
+	ctx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -176,7 +176,7 @@ func TestRustPublisherToGoSubscriber(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Create Go subscriber first
-	ctx, err := rosz.NewContext().
+	ctx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -286,7 +286,7 @@ func TestGoServiceClientToRustServer(t *testing.T) {
 	}()
 
 	// Create Go client context pointing at the test router
-	goCtx, err := rosz.NewContext().
+	goCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -312,7 +312,7 @@ func TestGoServiceClientToRustServer(t *testing.T) {
 	deadline := time.Now().Add(30 * time.Second)
 	var resp example_interfaces.AddTwoIntsResponse
 	for {
-		err = rosz.CallTyped(client, req, &resp)
+		err = hiroz.CallTyped(client, req, &resp)
 		if err == nil {
 			break
 		}
@@ -339,7 +339,7 @@ func TestRustServiceClientToGoServer(t *testing.T) {
 	router := startZenohRouter(t)
 
 	// Create Go service server context pointing at the test router
-	goCtx, err := rosz.NewContext().
+	goCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -379,7 +379,7 @@ func TestRustServiceClientToGoServer(t *testing.T) {
 
 	deadline := time.Now().Add(15 * time.Second)
 	for {
-		err := rosz.CallTyped(selfClient, &example_interfaces.AddTwoIntsRequest{A: 1, B: 1}, &example_interfaces.AddTwoIntsResponse{})
+		err := hiroz.CallTyped(selfClient, &example_interfaces.AddTwoIntsRequest{A: 1, B: 1}, &example_interfaces.AddTwoIntsResponse{})
 		if err == nil {
 			break
 		}

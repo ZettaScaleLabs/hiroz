@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/example_interfaces"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/example_interfaces"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
 // TestGoServiceServerToROS2Client tests Go service server with ROS2 client.
@@ -30,16 +30,16 @@ func TestGoServiceServerToROS2Client(t *testing.T) {
 
 	router := startZenohRouter(t)
 
-	// Create ros-z-go service server connected to the test router
-	roszCtx, err := rosz.NewContext().
+	// Create hiroz-go service server connected to the test router
+	hirozCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
-	defer roszCtx.Close()
+	defer hirozCtx.Close()
 
-	node, err := roszCtx.CreateNode("go_service_server").Build()
+	node, err := hirozCtx.CreateNode("go_service_server").Build()
 	if err != nil {
 		t.Fatalf("Failed to create node: %v", err)
 	}
@@ -126,16 +126,16 @@ func TestROS2ServiceServerToGoClient(t *testing.T) {
 	// Wait for ROS2 server to be ready
 	time.Sleep(2 * time.Second)
 
-	// Create ros-z-go service client connected to the test router
-	roszCtx, err := rosz.NewContext().
+	// Create hiroz-go service client connected to the test router
+	hirozCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
-	defer roszCtx.Close()
+	defer hirozCtx.Close()
 
-	node, err := roszCtx.CreateNode("go_service_client").Build()
+	node, err := hirozCtx.CreateNode("go_service_client").Build()
 	if err != nil {
 		t.Fatalf("Failed to create node: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestROS2ServiceServerToGoClient(t *testing.T) {
 	// Call service
 	req := &example_interfaces.AddTwoIntsRequest{A: 10, B: 7}
 	var resp example_interfaces.AddTwoIntsResponse
-	if err := rosz.CallTyped(client, req, &resp); err != nil {
+	if err := hiroz.CallTyped(client, req, &resp); err != nil {
 		t.Fatalf("Service call failed: %v", err)
 	}
 
@@ -177,7 +177,7 @@ func TestGoServiceServerToGoClient(t *testing.T) {
 	router := startZenohRouter(t)
 
 	// Create server context and node
-	serverCtx, err := rosz.NewContext().
+	serverCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -212,7 +212,7 @@ func TestGoServiceServerToGoClient(t *testing.T) {
 	defer server.Close()
 
 	// Create client context and node
-	clientCtx, err := rosz.NewContext().
+	clientCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -249,7 +249,7 @@ func TestGoServiceServerToGoClient(t *testing.T) {
 	for _, tc := range testCases {
 		req := &example_interfaces.AddTwoIntsRequest{A: tc.a, B: tc.b}
 		var resp example_interfaces.AddTwoIntsResponse
-		if err := rosz.CallTyped(client, req, &resp); err != nil {
+		if err := hiroz.CallTyped(client, req, &resp); err != nil {
 			t.Errorf("Service call failed for %d + %d: %v", tc.a, tc.b, err)
 			continue
 		}

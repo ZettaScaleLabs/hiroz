@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/generated/example_interfaces"
-	"github.com/ZettaScaleLabs/ros-z/crates/ros-z-go/rosz"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/example_interfaces"
+	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
 // TestGoActionServerToROS2Client tests Go action server with ROS2 client.
@@ -29,16 +29,16 @@ func TestGoActionServerToROS2Client(t *testing.T) {
 
 	router := startZenohRouter(t)
 
-	// Create ros-z-go action server connected to the test router
-	roszCtx, err := rosz.NewContext().
+	// Create hiroz-go action server connected to the test router
+	hirozCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
-	defer roszCtx.Close()
+	defer hirozCtx.Close()
 
-	node, err := roszCtx.CreateNode("go_action_server").Build()
+	node, err := hirozCtx.CreateNode("go_action_server").Build()
 	if err != nil {
 		t.Fatalf("Failed to create node: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestGoActionServerToROS2Client(t *testing.T) {
 		func(goalBytes []byte) bool {
 			return true // accept all goals
 		},
-		func(handle *rosz.ServerGoalHandle, goalBytes []byte) ([]byte, error) {
+		func(handle *hiroz.ServerGoalHandle, goalBytes []byte) ([]byte, error) {
 			var goal example_interfaces.FibonacciGoal
 			if err := goal.DeserializeCDR(goalBytes); err != nil {
 				return nil, err
@@ -80,7 +80,7 @@ func TestGoActionServerToROS2Client(t *testing.T) {
 	defer server.Close()
 
 	// Verify action server is ready with a Go self-call before invoking ROS2 CLI
-	selfClientCtx, err := rosz.NewContext().
+	selfClientCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -168,16 +168,16 @@ func TestROS2ActionServerToGoClient(t *testing.T) {
 		serverCmd.Wait()
 	}()
 
-	// Create ros-z-go action client connected to the test router
-	roszCtx, err := rosz.NewContext().
+	// Create hiroz-go action client connected to the test router
+	hirozCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
-	defer roszCtx.Close()
+	defer hirozCtx.Close()
 
-	node, err := roszCtx.CreateNode("go_action_client").Build()
+	node, err := hirozCtx.CreateNode("go_action_client").Build()
 	if err != nil {
 		t.Fatalf("Failed to create node: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestROS2ActionServerToGoClient(t *testing.T) {
 	// Retry SendGoal until the Python server is ready (replaces fixed sleep)
 	goal := &example_interfaces.FibonacciGoal{Order: 10}
 	deadline := time.Now().Add(60 * time.Second)
-	var goalHandle *rosz.GoalHandle
+	var goalHandle *hiroz.GoalHandle
 	for {
 		goalHandle, err = client.SendGoal(goal)
 		if err == nil {
@@ -248,7 +248,7 @@ func TestGoActionServerToGoClient(t *testing.T) {
 	router := startZenohRouter(t)
 
 	// Create server context and node
-	serverCtx, err := rosz.NewContext().
+	serverCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -269,7 +269,7 @@ func TestGoActionServerToGoClient(t *testing.T) {
 		func(goalBytes []byte) bool {
 			return true // accept all goals
 		},
-		func(handle *rosz.ServerGoalHandle, goalBytes []byte) ([]byte, error) {
+		func(handle *hiroz.ServerGoalHandle, goalBytes []byte) ([]byte, error) {
 			var goal example_interfaces.FibonacciGoal
 			if err := goal.DeserializeCDR(goalBytes); err != nil {
 				return nil, err
@@ -300,7 +300,7 @@ func TestGoActionServerToGoClient(t *testing.T) {
 	defer server.Close()
 
 	// Create client context and node
-	clientCtx, err := rosz.NewContext().
+	clientCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -366,7 +366,7 @@ func TestActionFeedbackMonitoring(t *testing.T) {
 	router := startZenohRouter(t)
 
 	// Create server
-	serverCtx, err := rosz.NewContext().
+	serverCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -385,7 +385,7 @@ func TestActionFeedbackMonitoring(t *testing.T) {
 	server, err := serverNode.CreateActionServer("fibonacci_feedback").Build(
 		action,
 		func(goalBytes []byte) bool { return true },
-		func(handle *rosz.ServerGoalHandle, goalBytes []byte) ([]byte, error) {
+		func(handle *hiroz.ServerGoalHandle, goalBytes []byte) ([]byte, error) {
 			var goal example_interfaces.FibonacciGoal
 			if err := goal.DeserializeCDR(goalBytes); err != nil {
 				return nil, err
@@ -413,7 +413,7 @@ func TestActionFeedbackMonitoring(t *testing.T) {
 	defer server.Close()
 
 	// Create client
-	clientCtx, err := rosz.NewContext().
+	clientCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
 	if err != nil {
@@ -471,7 +471,7 @@ func TestActionFeedbackMonitoring(t *testing.T) {
 func TestActionGoalCancellation(t *testing.T) {
 	router := startZenohRouter(t)
 
-	serverCtx, err := rosz.NewContext().
+	serverCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().Build()
 	if err != nil {
 		t.Fatalf("failed to create server context: %v", err)
@@ -488,7 +488,7 @@ func TestActionGoalCancellation(t *testing.T) {
 	server, err := serverNode.CreateActionServer("fibonacci_cancel").Build(
 		action,
 		func(goalBytes []byte) bool { return true },
-		func(handle *rosz.ServerGoalHandle, goalBytes []byte) ([]byte, error) {
+		func(handle *hiroz.ServerGoalHandle, goalBytes []byte) ([]byte, error) {
 			var goal example_interfaces.FibonacciGoal
 			if err := goal.DeserializeCDR(goalBytes); err != nil {
 				return nil, err
@@ -512,7 +512,7 @@ func TestActionGoalCancellation(t *testing.T) {
 	}
 	defer server.Close()
 
-	clientCtx, err := rosz.NewContext().
+	clientCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().Build()
 	if err != nil {
 		t.Fatalf("failed to create client context: %v", err)
