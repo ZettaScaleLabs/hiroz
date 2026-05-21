@@ -63,7 +63,7 @@ func GetTypedResult[Result Message](handle *GoalHandle, result Result) error {
 		return err
 	}
 	if err := result.DeserializeCDR(resultBytes); err != nil {
-		return newRoszError(ErrorCodeDeserializationFailed, fmt.Sprintf("failed to deserialize result: %v", err))
+		return newHirozError(ErrorCodeDeserializationFailed, fmt.Sprintf("failed to deserialize result: %v", err))
 	}
 	return nil
 }

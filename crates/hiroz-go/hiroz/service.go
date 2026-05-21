@@ -151,10 +151,10 @@ func (c *ServiceClient) callRaw(requestBytes []byte, timeoutMs uint64) ([]byte, 
 	if result != 0 {
 		code := ErrorCode(result)
 		if code == ErrorCodeServiceTimeout {
-			return nil, newRoszError(ErrorCodeServiceTimeout,
+			return nil, newHirozError(ErrorCodeServiceTimeout,
 				fmt.Sprintf("service[%s] call timed out", c.service))
 		}
-		return nil, newRoszError(ErrorCodeServiceCallFailed,
+		return nil, newHirozError(ErrorCodeServiceCallFailed,
 			fmt.Sprintf("service[%s] call failed (rc=%d)", c.service, result))
 	}
 
@@ -216,10 +216,10 @@ func (c *ServiceClient) WaitForService(timeout time.Duration) error {
 	}
 	code := ErrorCode(rc)
 	if code == ErrorCodeServiceTimeout {
-		return newRoszError(ErrorCodeServiceTimeout,
+		return newHirozError(ErrorCodeServiceTimeout,
 			fmt.Sprintf("service[%s] not available after %s", c.service, timeout))
 	}
-	return newRoszError(code,
+	return newHirozError(code,
 		fmt.Sprintf("service[%s] wait_for_service failed (rc=%d)", c.service, rc))
 }
 

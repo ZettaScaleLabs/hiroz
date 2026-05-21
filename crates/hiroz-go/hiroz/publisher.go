@@ -95,7 +95,7 @@ func (p *Publisher) Publish(msg Message) error {
 	logger.Debug("hiroz_publisher_publish", "topic", p.topic, "len", len(data), "rc", int(result))
 
 	if result != 0 {
-		return newRoszError(ErrorCodePublishFailed,
+		return newHirozError(ErrorCodePublishFailed,
 			fmt.Sprintf("publisher[%s] publish failed (rc=%d)", p.topic, result))
 	}
 	return nil

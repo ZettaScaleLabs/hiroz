@@ -138,7 +138,7 @@ func (h *GoalHandle) Cancel() error {
 
 	result := C.hiroz_action_client_cancel_goal(hw.p)
 	if result != 0 {
-		return newRoszError(ErrorCodeActionCancelFailed, fmt.Sprintf("failed to cancel goal with code %d", result))
+		return newHirozError(ErrorCodeActionCancelFailed, fmt.Sprintf("failed to cancel goal with code %d", result))
 	}
 	h.setStatus(GoalStatusCanceling)
 	return nil
@@ -187,7 +187,7 @@ func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 		)
 
 		if result != 0 {
-			ch <- ffiResult{nil, newRoszError(ErrorCodeActionResultFailed, fmt.Sprintf("failed to get result with code %d", result))}
+			ch <- ffiResult{nil, newHirozError(ErrorCodeActionResultFailed, fmt.Sprintf("failed to get result with code %d", result))}
 			return
 		}
 
@@ -353,9 +353,9 @@ func (c *ActionClient) SendGoal(goal Message) (*GoalHandle, error) {
 
 	if result != 0 {
 		if ErrorCode(result) == ErrorCodeActionGoalRejected {
-			return nil, newRoszError(ErrorCodeActionGoalRejected, "goal was rejected by action server")
+			return nil, newHirozError(ErrorCodeActionGoalRejected, "goal was rejected by action server")
 		}
-		return nil, newRoszError(ErrorCode(result), fmt.Sprintf("send goal failed with code %d", result))
+		return nil, newHirozError(ErrorCode(result), fmt.Sprintf("send goal failed with code %d", result))
 	}
 
 	var id GoalID
@@ -452,7 +452,7 @@ func (h *ServerGoalHandle) PublishFeedback(feedback Message) error {
 	)
 
 	if result != 0 {
-		return newRoszError(ErrorCodeActionFeedbackFailed, fmt.Sprintf("publish feedback failed with code %d", result))
+		return newHirozError(ErrorCodeActionFeedbackFailed, fmt.Sprintf("publish feedback failed with code %d", result))
 	}
 
 	return nil

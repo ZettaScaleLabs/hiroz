@@ -20,7 +20,7 @@ func CallTyped[Resp Message](client *ServiceClient, request Message, response Re
 		return err
 	}
 	if err := response.DeserializeCDR(respBytes); err != nil {
-		return newRoszError(ErrorCodeDeserializationFailed, fmt.Sprintf("failed to deserialize response: %v", err))
+		return newHirozError(ErrorCodeDeserializationFailed, fmt.Sprintf("failed to deserialize response: %v", err))
 	}
 	return nil
 }
@@ -37,7 +37,7 @@ func CallTypedWithTimeout[Resp Message](client *ServiceClient, request Message, 
 		return err
 	}
 	if err := response.DeserializeCDR(respBytes); err != nil {
-		return newRoszError(ErrorCodeDeserializationFailed, fmt.Sprintf("failed to deserialize response: %v", err))
+		return newHirozError(ErrorCodeDeserializationFailed, fmt.Sprintf("failed to deserialize response: %v", err))
 	}
 	return nil
 }

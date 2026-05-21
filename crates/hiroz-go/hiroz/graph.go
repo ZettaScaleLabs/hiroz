@@ -39,7 +39,7 @@ func (c *Context) GetTopicNamesAndTypes() ([]TopicInfo, error) {
 
 	result := C.hiroz_graph_get_topic_names_and_types(c.handle, &cTopics, &count)
 	if result != 0 {
-		return nil, newRoszError(ErrorCode(result), "failed to get topic names and types")
+		return nil, newHirozError(ErrorCode(result), "failed to get topic names and types")
 	}
 
 	n := int(count)
@@ -71,7 +71,7 @@ func (c *Context) GetNodeNames() ([]NodeInfo, error) {
 
 	result := C.hiroz_graph_get_node_names(c.handle, &cNodes, &count)
 	if result != 0 {
-		return nil, newRoszError(ErrorCode(result), "failed to get node names")
+		return nil, newHirozError(ErrorCode(result), "failed to get node names")
 	}
 
 	n := int(count)
@@ -103,7 +103,7 @@ func (c *Context) GetServiceNamesAndTypes() ([]ServiceInfo, error) {
 
 	result := C.hiroz_graph_get_service_names_and_types(c.handle, &cServices, &count)
 	if result != 0 {
-		return nil, newRoszError(ErrorCode(result), "failed to get service names and types")
+		return nil, newHirozError(ErrorCode(result), "failed to get service names and types")
 	}
 
 	n := int(count)
@@ -138,7 +138,7 @@ func (c *Context) NodeExists(name, namespace string) (bool, error) {
 
 	result := C.hiroz_graph_node_exists(c.handle, cName, cNamespace)
 	if result < 0 {
-		return false, newRoszError(ErrorCode(result), "failed to check node existence")
+		return false, newHirozError(ErrorCode(result), "failed to check node existence")
 	}
 
 	return result == 1, nil
