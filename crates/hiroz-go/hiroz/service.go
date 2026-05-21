@@ -2,9 +2,9 @@ package hiroz
 
 /*
 #include <stdlib.h>
-#include "ros_z_ffi.h"
+#include "hiroz_ffi.h"
 
-extern ros_z_ServiceCallback getServiceCallback();
+extern hiroz_ServiceCallback getServiceCallback();
 */
 import "C"
 import (
@@ -19,8 +19,8 @@ import (
 
 // CGO opaque types are incomplete and cannot be used as type parameters.
 // These thin wrappers make atomic.Pointer usable with CGO handles.
-type cServiceClientHandle struct{ p *C.ros_z_service_client_t }
-type cServiceServerHandle struct{ p *C.ros_z_service_server_t }
+type cServiceClientHandle struct{ p *C.hiroz_service_client_t }
+type cServiceServerHandle struct{ p *C.hiroz_service_server_t }
 
 // Service represents a ROS 2 service (request/response pattern)
 type Service interface {
@@ -90,7 +90,7 @@ func (b *ServiceClientBuilder) Build(svc Service) (*ServiceClient, error) {
 	svcHashC := C.CString(svc.TypeHash())
 	defer C.free(unsafe.Pointer(svcHashC))
 
-	handle := C.ros_z_service_client_create(
+	handle := C.hiroz_service_client_create(
 		b.node.handle,
 		serviceC,
 		svcTypeC, svcHashC,
@@ -135,7 +135,7 @@ func (c *ServiceClient) callRaw(requestBytes []byte, timeoutMs uint64) ([]byte, 
 	var respPtr *C.uint8_t
 	var respLen C.uintptr_t
 
-	result := C.ros_z_service_client_call(
+	result := C.hiroz_service_client_call(
 		h,
 		(*C.uint8_t)(unsafe.Pointer(&requestBytes[0])),
 		C.uintptr_t(len(requestBytes)),
@@ -144,7 +144,7 @@ func (c *ServiceClient) callRaw(requestBytes []byte, timeoutMs uint64) ([]byte, 
 		C.uint64_t(timeoutMs),
 	)
 
-	logger.Debug("ros_z_service_client_call",
+	logger.Debug("hiroz_service_client_call",
 		"service", c.service, "req_len", len(requestBytes),
 		"resp_len", int(respLen), "rc", int(result))
 
@@ -159,7 +159,7 @@ func (c *ServiceClient) callRaw(requestBytes []byte, timeoutMs uint64) ([]byte, 
 	}
 
 	respBytes := C.GoBytes(unsafe.Pointer(respPtr), C.int(respLen))
-	C.ros_z_free_bytes((*C.uint8_t)(respPtr), C.uintptr_t(respLen))
+	C.hiroz_free_bytes((*C.uint8_t)(respPtr), C.uintptr_t(respLen))
 
 	return respBytes, nil
 }
@@ -210,7 +210,7 @@ func (c *ServiceClient) WaitForService(timeout time.Duration) error {
 		timeoutMs = 1
 	}
 
-	rc := C.ros_z_service_client_wait_for_service(hw.p, C.uint64_t(timeoutMs))
+	rc := C.hiroz_service_client_wait_for_service(hw.p, C.uint64_t(timeoutMs))
 	if rc == 0 {
 		return nil
 	}
@@ -232,7 +232,7 @@ func (c *ServiceClient) Close() error {
 			return
 		}
 		c.handle.Store(nil)
-		result := C.ros_z_service_client_destroy(hw.p)
+		result := C.hiroz_service_client_destroy(hw.p)
 		if result != 0 {
 			err = fmt.Errorf("service client close failed (rc=%d): %w", result, ErrCloseFailed)
 		}
@@ -287,7 +287,7 @@ func (b *ServiceServerBuilder) Build(svc Service, callback func([]byte) ([]byte,
 	// Create pinned closure
 	closure := newServiceClosure(b.service, callback)
 
-	handle := C.ros_z_service_server_create(
+	handle := C.hiroz_service_server_create(
 		b.node.handle,
 		serviceC,
 		svcTypeC, svcHashC,
@@ -323,7 +323,7 @@ func (s *ServiceServer) Close() error {
 			return
 		}
 		s.handle.Store(nil)
-		result := C.ros_z_service_server_destroy(hw.p)
+		result := C.hiroz_service_server_destroy(hw.p)
 		if s.closure != nil {
 			s.closure.drop()
 			s.closure = nil

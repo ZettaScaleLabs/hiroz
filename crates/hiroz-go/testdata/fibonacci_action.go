@@ -1,5 +1,5 @@
 // Package testdata provides sample generated message types for testing.
-// This simulates what ros-z-codegen-go would generate for example_interfaces/action/Fibonacci.
+// This simulates what hiroz-codegen-go would generate for example_interfaces/action/Fibonacci.
 package testdata
 
 import (

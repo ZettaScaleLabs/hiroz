@@ -2,10 +2,10 @@ package hiroz
 
 /*
 #include <stdlib.h>
-#include "ros_z_ffi.h"
+#include "hiroz_ffi.h"
 
-extern ros_z_ActionGoalCallback getActionGoalCallback();
-extern ros_z_ActionExecuteCallback getActionExecuteCallback();
+extern hiroz_ActionGoalCallback getActionGoalCallback();
+extern hiroz_ActionExecuteCallback getActionExecuteCallback();
 */
 import "C"
 import (
@@ -43,9 +43,9 @@ type Action interface {
 
 // CGO opaque types are incomplete and cannot be used as type parameters.
 // These thin wrappers make atomic.Pointer usable with CGO handles.
-type cGoalHandle struct{ p *C.ros_z_goal_handle_t }
-type cActionClientHandle struct{ p *C.ros_z_action_client_t }
-type cActionServerHandle struct{ p *C.ros_z_action_server_t }
+type cGoalHandle struct{ p *C.hiroz_goal_handle_t }
+type cActionClientHandle struct{ p *C.hiroz_action_client_t }
+type cActionServerHandle struct{ p *C.hiroz_action_server_t }
 
 // GoalStatus represents the status of an action goal
 type GoalStatus int8
@@ -136,7 +136,7 @@ func (h *GoalHandle) Cancel() error {
 		return fmt.Errorf("goal handle is closed")
 	}
 
-	result := C.ros_z_action_client_cancel_goal(hw.p)
+	result := C.hiroz_action_client_cancel_goal(hw.p)
 	if result != 0 {
 		return newRoszError(ErrorCodeActionCancelFailed, fmt.Sprintf("failed to cancel goal with code %d", result))
 	}
@@ -180,7 +180,7 @@ func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 		var resultPtr *C.uint8_t
 		var resultLen C.uintptr_t
 
-		result := C.ros_z_action_client_get_result(
+		result := C.hiroz_action_client_get_result(
 			goalHandle,
 			&resultPtr,
 			&resultLen,
@@ -192,7 +192,7 @@ func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 		}
 
 		resultBytes := C.GoBytes(unsafe.Pointer(resultPtr), C.int(resultLen))
-		C.ros_z_free_bytes((*C.uint8_t)(resultPtr), C.uintptr_t(resultLen))
+		C.hiroz_free_bytes((*C.uint8_t)(resultPtr), C.uintptr_t(resultLen))
 		ch <- ffiResult{resultBytes, nil}
 	}()
 
@@ -215,7 +215,7 @@ func (h *GoalHandle) Close() error {
 		if hw == nil {
 			return
 		}
-		result := C.ros_z_goal_handle_destroy(hw.p)
+		result := C.hiroz_goal_handle_destroy(hw.p)
 		if result != 0 {
 			err = fmt.Errorf("goal handle close failed (rc=%d): %w", result, ErrCloseFailed)
 		}
@@ -295,7 +295,7 @@ func (b *ActionClientBuilder) Build(action Action) (*ActionClient, error) {
 	feedbackHashC := C.CString(action.FeedbackMessageHash())
 	defer C.free(unsafe.Pointer(feedbackHashC))
 
-	handle := C.ros_z_action_client_create(
+	handle := C.hiroz_action_client_create(
 		b.node.handle,
 		actionC,
 		actionTypeC,
@@ -341,9 +341,9 @@ func (c *ActionClient) SendGoal(goal Message) (*GoalHandle, error) {
 	pinner.Pin(&goalBytes[0])
 
 	var goalID [16]C.uint8_t
-	var handlePtr *C.ros_z_goal_handle_t
+	var handlePtr *C.hiroz_goal_handle_t
 
-	result := C.ros_z_action_client_send_goal(
+	result := C.hiroz_action_client_send_goal(
 		h,
 		(*C.uint8_t)(unsafe.Pointer(&goalBytes[0])),
 		C.uintptr_t(len(goalBytes)),
@@ -386,7 +386,7 @@ func (c *ActionClient) Close() error {
 			return
 		}
 		c.handle.Store(nil)
-		result := C.ros_z_action_client_destroy(hw.p)
+		result := C.hiroz_action_client_destroy(hw.p)
 		if result != 0 {
 			err = fmt.Errorf("action client close failed (rc=%d): %w", result, ErrCloseFailed)
 		}
@@ -412,7 +412,7 @@ func (h *ServerGoalHandle) IsCancelRequested() bool {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 	pinner.Pin(&goalIDBytes[0])
-	result := C.ros_z_action_server_is_cancel_requested(
+	result := C.hiroz_action_server_is_cancel_requested(
 		srv,
 		(*[16]C.uint8_t)(unsafe.Pointer(&goalIDBytes[0])),
 	)
@@ -444,7 +444,7 @@ func (h *ServerGoalHandle) PublishFeedback(feedback Message) error {
 	pinner.Pin(&feedbackBytes[0])
 	pinner.Pin(&goalIDBytes[0])
 
-	result := C.ros_z_action_server_publish_feedback(
+	result := C.hiroz_action_server_publish_feedback(
 		srv,
 		(*[16]C.uint8_t)(unsafe.Pointer(&goalIDBytes[0])),
 		(*C.uint8_t)(unsafe.Pointer(&feedbackBytes[0])),
@@ -505,11 +505,11 @@ func (h *ServerGoalHandle) storeResult(result Message, op int) error {
 	var res C.int32_t
 	switch op {
 	case 0:
-		res = C.ros_z_action_server_succeed(srv, goalIDPtr, dataPtr, dataLen)
+		res = C.hiroz_action_server_succeed(srv, goalIDPtr, dataPtr, dataLen)
 	case 1:
-		res = C.ros_z_action_server_abort(srv, goalIDPtr, dataPtr, dataLen)
+		res = C.hiroz_action_server_abort(srv, goalIDPtr, dataPtr, dataLen)
 	case 2:
-		res = C.ros_z_action_server_canceled(srv, goalIDPtr, dataPtr, dataLen)
+		res = C.hiroz_action_server_canceled(srv, goalIDPtr, dataPtr, dataLen)
 	}
 
 	if res != 0 {
@@ -607,7 +607,7 @@ func (b *ActionServerBuilder) Build(
 	}
 	closure.server = server
 
-	handle := C.ros_z_action_server_create(
+	handle := C.hiroz_action_server_create(
 		b.node.handle,
 		actionC,
 		actionTypeC,
@@ -641,7 +641,7 @@ func (s *ActionServer) Close() error {
 			return
 		}
 		s.handle.Store(nil)
-		result := C.ros_z_action_server_destroy(hw.p)
+		result := C.hiroz_action_server_destroy(hw.p)
 		if s.closure != nil {
 			s.closure.drop()
 			s.closure = nil

@@ -1,5 +1,5 @@
 // Package testdata provides sample generated message types for testing.
-// This simulates what ros-z-codegen-go would generate for example_interfaces/srv/AddTwoInts.
+// This simulates what hiroz-codegen-go would generate for example_interfaces/srv/AddTwoInts.
 package testdata
 
 import (
@@ -83,7 +83,7 @@ func (s *AddTwoInts) DeserializeCDR(data []byte) error {
 	return fmt.Errorf("service definition cannot be deserialized")
 }
 
-// Message interface (compatible with rosz.Message)
+// Message interface (compatible with hiroz.Message)
 type Message interface {
 	TypeName() string
 	TypeHash() string
