@@ -138,15 +138,15 @@ jobs:
 
       - name: Generate Go message types (bundled IDL)
         run: |
-          mkdir -p _tmp crates/ros-z-go/generated
-          cargo run -p ros-z-codegen --bin export_json -- \
-            --assets crates/ros-z-codegen/assets/jazzy \
+          mkdir -p _tmp crates/hiroz-go/generated
+          cargo run -p hiroz-codegen --bin export_json -- \
+            --assets crates/hiroz-codegen/assets/jazzy \
             --output _tmp/go-manifest.json \
             --packages builtin_interfaces,service_msgs,action_msgs,unique_identifier_msgs,std_msgs,example_interfaces
-          cd crates/ros-z-codegen-go && go run . \
+          cd crates/hiroz-codegen-go && go run . \
             -input ../../_tmp/go-manifest.json \
-            -output ../ros-z-go/generated \
-            -prefix github.com/ZettaScaleLabs/ros-z/crates/ros-z-go
+            -output ../hiroz-go/generated \
+            -prefix github.com/ZettaScaleLabs/hiroz/crates/hiroz-go
 
       - name: Go vet (static analysis)
         run: nu scripts/test-go.nu --vet-only
