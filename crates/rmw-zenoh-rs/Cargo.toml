@@ -11,14 +11,14 @@ description = "ROS 2 RMW (ROS Middleware) implementation using Zenoh - Requires 
 #   - Discovery options (REP 2019)
 #   - FastCDR v2 API
 #
-# Humble users: Use ros-z core library or rmw_zenoh_cpp instead
-# See: https://zettascalelabs.github.io/ros-z/advanced/rmw-zenoh-rs.html
+# Humble users: Use hiroz core library or rmw_zenoh_cpp instead
+# See: https://zettascalelabs.github.io/hiroz/advanced/rmw-zenoh-rs.html
 #
 # Build Requirements:
 #   - ROS 2 Iron, Jazzy, Kilted, or Rolling
 #   - RMW development headers
 #   - To build without ROS:
-#     cargo build --workspace --exclude rmw-zenoh-rs --exclude ros-z-msgs --exclude ros-z-tests
+#     cargo build --workspace --exclude rmw-zenoh-rs --exclude hiroz-msgs --exclude hiroz-tests
 
 [dependencies]
 tracing = { workspace = true }
@@ -29,10 +29,10 @@ zenoh-buffers = { workspace = true }
 flume = { workspace = true }
 parking_lot = { workspace = true }
 cxx = { workspace = true }
-ros-z-cdr = { workspace = true }
+hiroz-cdr = { workspace = true }
 serde = { workspace = true, features = ["serde_derive"] }
-ros-z = { workspace = true, features = ["rmw"] }
-ros-z-protocol = { workspace = true }
+hiroz = { workspace = true, features = ["rmw"] }
+hiroz-protocol = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 
 [lib]

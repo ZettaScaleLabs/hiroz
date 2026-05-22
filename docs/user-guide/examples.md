@@ -1,20 +1,20 @@
 # Running Examples
 
 !!! note
-    The examples described here are part of the ros-z repository. To run them, you must first clone the repository.
+    The examples described here are part of the hiroz repository. To run them, you must first clone the repository.
 
 ```bash
-git clone https://github.com/ZettaScaleLabs/ros-z.git
-cd ros-z
+git clone https://github.com/ZettaScaleLabs/hiroz.git
+cd hiroz
 ```
 
 ## Start the Eclipse Zenoh Router
 
-All examples require a Zenoh router to be running first (see [Networking](./networking.md) for why ros-z uses router-based architecture by default).
+All examples require a Zenoh router to be running first (see [Networking](./networking.md) for why hiroz uses router-based architecture by default).
 
-## From the ros-z Repository
+## From the hiroz Repository
 
-If you're working in the ros-z repository, use the included router example:
+If you're working in the hiroz repository, use the included router example:
 
 ```bash
 cargo run --example zenoh_router
@@ -49,13 +49,13 @@ zenohd
 
 ## Available Examples
 
-Leave the router running in a separate terminal, then run any example from the ros-z repository root:
+Leave the router running in a separate terminal, then run any example from the hiroz repository root:
 
 | Example | What it demonstrates | Command |
 |---------|---------------------|---------|
 | `z_pubsub` | Basic publisher + subscriber exchanging `std_msgs/String` | `cargo run --example z_pubsub` |
 | `z_srvcli` | Service server + client using `example_interfaces/AddTwoInts` | `cargo run --example z_srvcli` |
-| `z_custom_message` | Custom `.msg` types without `ros-z-msgs`; shows the codegen workflow | `cargo run --example z_custom_message -- --mode status-pub` |
+| `z_custom_message` | Custom `.msg` types without `hiroz-msgs`; shows the codegen workflow | `cargo run --example z_custom_message -- --mode status-pub` |
 | `twist_pub` | Publishing `geometry_msgs/Twist` (common for robot velocity commands) | `cargo run --example twist_pub` |
 | `battery_state_sub` | Subscribing to `sensor_msgs/BatteryState` | `cargo run --example battery_state_sub` |
 | `z_parameter_declare` | Local parameter declare/get/set/undeclare flow | `cargo run --example z_parameter_declare` |
@@ -65,7 +65,7 @@ Leave the router running in a separate terminal, then run any example from the r
 | `zenoh_router` | Embedded Zenoh router for development without installing `zenohd` | `cargo run --example zenoh_router` |
 
 !!! tip
-    For a detailed walkthrough of creating your own project with ros-z (not using the repository examples), see the [Quick Start](../getting-started/quick-start.md#option-2-create-your-own-project) guide.
+    For a detailed walkthrough of creating your own project with hiroz (not using the repository examples), see the [Quick Start](../getting-started/quick-start.md#option-2-create-your-own-project) guide.
 
 ---
 
@@ -279,20 +279,20 @@ This example demonstrates how to generate Rust types from user-defined ROS 2 mes
 **Quick start:**
 
 ```bash
-cd crates/ros-z/examples/custom_msgs_demo
-ROS_Z_MSG_PATH="./my_robot_msgs" cargo build
+cd crates/hiroz/examples/custom_msgs_demo
+HIROZ_MSG_PATH="./my_robot_msgs" cargo build
 ```
 
 ---
 
 ## Protobuf Demo
 
-This example demonstrates using protobuf serialization with ros-z, both for ROS messages and custom protobuf messages. See the [Protobuf Serialization](./protobuf.md) chapter for comprehensive documentation.
+This example demonstrates using protobuf serialization with hiroz, both for ROS messages and custom protobuf messages. See the [Protobuf Serialization](./protobuf.md) chapter for comprehensive documentation.
 
 **Quick start:**
 
 ```bash
-cd crates/ros-z/examples/protobuf_demo
+cd crates/hiroz/examples/protobuf_demo
 cargo run
 ```
 
@@ -300,7 +300,7 @@ cargo run
 
 ## Parameter Examples
 
-These focused examples demonstrate the ros-z parameter subsystem without a mode-switching wrapper. See the [Parameters](../core-concepts/parameters.md) chapter for comprehensive documentation.
+These focused examples demonstrate the hiroz parameter subsystem without a mode-switching wrapper. See the [Parameters](../core-concepts/parameters.md) chapter for comprehensive documentation.
 
 **Quick start:**
 

@@ -1,8 +1,8 @@
-site_name: ros-z
-site_description: Native Rust ROS 2 implementation built on Zenoh
-site_url: https://zettascalelabs.github.io/ros-z/
-repo_url: https://github.com/ZettaScaleLabs/ros-z
-repo_name: ZettaScaleLabs/ros-z
+site_name: HIROZ
+site_description: High-performance Interoperable Robotics on Zenoh
+site_url: https://zettascalelabs.github.io/hiroz/
+repo_url: https://github.com/ZettaScaleLabs/hiroz
+repo_name: ZettaScaleLabs/hiroz
 edit_uri: edit/main/docs/
 
 theme:
@@ -105,7 +105,7 @@ nav:
           - Custom Messages: user-guide/custom-messages.md
           - Protobuf Serialization: user-guide/protobuf.md
   - Tools:
-      - ros-z-console: tools/console.md
+      - hiroz-console: tools/console.md
   - Language Bindings:
       - Python:
           - Quick Start: bindings/python-quick-start.md
@@ -118,7 +118,7 @@ nav:
       - Shared Memory (SHM): experimental/shm.md
   - Reference:
       - Feature Comparison: reference/feature-comparison.md
-      - ROS 2 → ros-z API Mapping: reference/ros2-to-rosz.md
+      - ROS 2 → hiroz API Mapping: reference/ros2-to-hiroz.md
       - rmw_zenoh_rs: experimental/rmw-zenoh-rs.md
       - Key Expression Formats: experimental/keyexpr-formats.md
       - Feature Flags: reference/feature-flags.md

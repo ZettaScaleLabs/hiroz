@@ -1,0 +1,30 @@
+language = "C"
+include_guard = "HIROZ_FFI_H"
+pragma_once = true
+cpp_compat = true
+
+[export]
+prefix = "hiroz_"
+
+[export.rename]
+"CContext" = "context_t"
+"CContextConfig" = "context_config_t"
+"CNode" = "node_t"
+"CNodeConfig" = "node_config_t"
+"CPublisher" = "publisher_t"
+"CSubscriber" = "subscriber_t"
+"CServiceClient" = "service_client_t"
+"CServiceServer" = "service_server_t"
+"CActionClient" = "action_client_t"
+"CActionServer" = "action_server_t"
+"CGoalHandle" = "goal_handle_t"
+"CQosProfile" = "qos_profile_t"
+"CTopicInfo" = "topic_info_t"
+"CNodeInfo" = "node_info_t"
+"CServiceInfo" = "service_info_t"
+
+[enum]
+rename_variants = "ScreamingSnakeCase"
+
+[fn]
+rename_args = "SnakeCase"

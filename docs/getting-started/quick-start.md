@@ -1,47 +1,47 @@
 <!-- markdownlint-disable MD046 -->
 # Quick Start
 
-**Get ros-z running in under 5 minutes.** Pick your language below — no ROS 2 installation required.
+**Get hiroz running in under 5 minutes.** Pick your language below — no ROS 2 installation required.
 
 ## Pre-built Releases
 
-Pre-built artifacts are available on the [Releases page](https://github.com/ZettaScaleLabs/ros-z/releases) — no Rust toolchain required:
+Pre-built artifacts are available on the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases) — no Rust toolchain required:
 
 | Artifact | Use case | Install |
 |---|---|---|
-| `ros-z-console` binary | Monitor any ROS 2 / ros-z system | [Console docs](../tools/console.md#installation) |
-| `ros-z-bridge` binary | Bridge Humble ↔ Jazzy/Kilted | [Bridge docs](../user-guide/bridge.md#installation) |
-| `ros_z_py` Python wheel | Python pub/sub & services | [Python quick start](../bindings/python-quick-start.md) |
-| `libros_z` Go library | Go pub/sub & services | [Go quick start](../bindings/go-quick-start.md) |
+| `hiroz-console` binary | Monitor any ROS 2 / hiroz system | [Console docs](../tools/console.md#installation) |
+| `hiroz-bridge` binary | Bridge Humble ↔ Jazzy/Kilted | [Bridge docs](../user-guide/bridge.md#installation) |
+| `hiroz_py` Python wheel | Python pub/sub & services | [Python quick start](../bindings/python-quick-start.md) |
+| `libhiroz` Go library | Go pub/sub & services | [Go quick start](../bindings/go-quick-start.md) |
 
 ---
 
-## Embed ros-z in a Rust Application
+## Embed hiroz in a Rust Application
 
-The rest of this page covers using ros-z from Rust. If you're using Python or Go, follow the quick start links in the table above instead.
+The rest of this page covers using hiroz from Rust. If you're using Python or Go, follow the quick start links in the table above instead.
 
 **Prerequisites:**
 
 - **Rust 1.85+** (requires edition 2024) — install via [rustup](https://rustup.rs/)
-- **Tokio 1.x** — ros-z requires an async runtime (added to `Cargo.toml` in Option 2 below)
+- **Tokio 1.x** — hiroz requires an async runtime (added to `Cargo.toml` in Option 2 below)
 - No ROS 2 installation needed
 
 There are two ways to get started:
 
-1. **Option 1: Try the Examples** — Clone the ros-z repository and run pre-built examples (fastest)
-2. **Option 2: Create Your Own Project** — Start a new Rust project with ros-z as a dependency
+1. **Option 1: Try the Examples** — Clone the hiroz repository and run pre-built examples (fastest)
+2. **Option 2: Create Your Own Project** — Start a new Rust project with hiroz as a dependency
 
 ---
 
 ## Option 1: Try the Examples
 
-The quickest way to experience ros-z is to run the included examples from the repository.
+The quickest way to experience hiroz is to run the included examples from the repository.
 
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/ZettaScaleLabs/ros-z.git
-cd ros-z
+git clone https://github.com/ZettaScaleLabs/hiroz.git
+cd hiroz
 ```
 
 ### Start the Eclipse Zenoh Router
@@ -56,7 +56,7 @@ cargo run --example zenoh_router
 
 ### Run the Pub/Sub Example
 
-Open two more terminals and navigate to the same `ros-z` directory:
+Open two more terminals and navigate to the same `hiroz` directory:
 
 **Terminal 2 — Start the Listener:**
 
@@ -82,17 +82,17 @@ The example you just ran does four things:
 3. **Publishes** — `node.create_pub::<RosString>("/chatter")` sends CDR-serialized ROS 2 messages on a topic.
 4. **Subscribes** — `node.create_sub::<RosString>("/chatter")` receives and deserializes them asynchronously.
 
-The full example source (with CLI flags and multi-backend support) is at [`examples/z_pubsub.rs`](https://github.com/ZettaScaleLabs/ros-z/blob/main/crates/ros-z/examples/z_pubsub.rs) in the repository.
+The full example source (with CLI flags and multi-backend support) is at [`examples/z_pubsub.rs`](https://github.com/ZettaScaleLabs/hiroz/blob/main/crates/hiroz/examples/z_pubsub.rs) in the repository.
 
 ---
 
 ## Option 2: Create Your Own Project
 
-Ready to build your own ros-z application? Follow these steps to create a new project from scratch.
+Ready to build your own hiroz application? Follow these steps to create a new project from scratch.
 
 ### 1. Install the Zenoh Router
 
-Since you won't have access to the `zenoh_router` example outside the ros-z repository, you'll need to install a Zenoh router. Here are the quickest options:
+Since you won't have access to the `zenoh_router` example outside the hiroz repository, you'll need to install a Zenoh router. Here are the quickest options:
 
 **Option A: Using cargo (if you have Rust):**
 
@@ -129,44 +129,44 @@ zenohd
     For more installation options (apt, brew, Windows, etc.), see the comprehensive [Zenoh Router Installation Guide](../user-guide/networking.md#running-the-zenoh-router).
 
 !!! note
-    Keep the router running in a separate terminal. All ros-z applications will connect to it.
+    Keep the router running in a separate terminal. All hiroz applications will connect to it.
 
 ### 2. Create a New Rust Project
 
 ```bash
-cargo new my_ros_z_project
-cd my_ros_z_project
+cargo new my_hiroz_project
+cd my_hiroz_project
 ```
 
 ### 3. Add Dependencies
 
-Add ros-z to your `Cargo.toml`:
+Add hiroz to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ros-z = { git = "https://github.com/ZettaScaleLabs/ros-z.git" }
-ros-z-msgs = { git = "https://github.com/ZettaScaleLabs/ros-z.git" }  # Standard ROS 2 message types
+hiroz = { git = "https://github.com/ZettaScaleLabs/hiroz.git" }
+hiroz-msgs = { git = "https://github.com/ZettaScaleLabs/hiroz.git" }  # Standard ROS 2 message types
 tokio = { version = "1", features = ["full"] }  # Async runtime
 ```
 
 !!! note
-    ros-z requires an async runtime. This example uses Tokio, the most popular choice in the Rust ecosystem.
+    hiroz requires an async runtime. This example uses Tokio, the most popular choice in the Rust ecosystem.
 
 ### 4. Write Your First Application
 
 Replace the contents of `src/main.rs` with this simple publisher example:
 
 !!! tip "Simpler imports with prelude"
-    Instead of importing `Builder`, `Result`, and `ZContextBuilder` separately, use `use ros_z::prelude::*;` to bring all common ros-z types into scope at once.
+    Instead of importing `Builder`, `Result`, and `ZContextBuilder` separately, use `use hiroz::prelude::*;` to bring all common hiroz types into scope at once.
 
 ```rust
 use std::time::Duration;
-use ros_z::{Builder, Result, context::ZContextBuilder};
-use ros_z_msgs::std_msgs::String as RosString;
+use hiroz::{Builder, Result, context::ZContextBuilder};
+use hiroz_msgs::std_msgs::String as RosString;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize ros-z context (connects to router on localhost:7447)
+    // Initialize hiroz context (connects to router on localhost:7447)
     let ctx = ZContextBuilder::default()
         .with_connect_endpoints(["tcp/127.0.0.1:7447"])
         .build()?;
@@ -181,7 +181,7 @@ async fn main() -> Result<()> {
     let mut count = 0;
     loop {
         let msg = RosString {
-            data: format!("Hello from ros-z #{}", count),
+            data: format!("Hello from hiroz #{}", count),
         };
         println!("Publishing: {}", msg.data);
         pub_handle.async_publish(&msg).await?;
@@ -209,8 +209,8 @@ Open another terminal and create a simple listener to verify communication:
 **Create `src/bin/listener.rs`:**
 
 ```rust
-use ros_z::{Builder, Result, context::ZContextBuilder};
-use ros_z_msgs::std_msgs::String as RosString;
+use hiroz::{Builder, Result, context::ZContextBuilder};
+use hiroz_msgs::std_msgs::String as RosString;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -247,14 +247,14 @@ cargo run --bin listener
 
 | Component | Purpose | Usage |
 |-----------|---------|-------|
-| **ZContextBuilder** | Initialize ros-z environment | Entry point, configure settings |
+| **ZContextBuilder** | Initialize hiroz environment | Entry point, configure settings |
 | **ZContext** | Manages ROS 2 connections | Create nodes from this |
 | **Node** | Logical unit of computation | Publishers/subscribers attach here |
 | **Publisher** | Sends messages to topics | `node.create_pub::<Type>("topic")` |
 | **Subscriber** | Receives messages from topics | `node.create_sub::<Type>("topic")` |
 
 !!! tip "Why a Zenoh router?"
-    ros-z uses router-based discovery by default, aligning with ROS 2's official Zenoh middleware ([`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh)). This provides:
+    hiroz uses router-based discovery by default, aligning with ROS 2's official Zenoh middleware ([`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh)). This provides:
     - **Better scalability** for large deployments with many nodes
     - **Lower network overhead** compared to multicast discovery
     - **Production-ready** architecture used in real ROS 2 systems

@@ -1,6 +1,6 @@
 # Configuration Options
 
-ros-z provides multiple ways to configure Eclipse Zenoh, from simple to advanced.
+hiroz provides multiple ways to configure Eclipse Zenoh, from simple to advanced.
 
 ## Option 1: Default Configuration (Recommended)
 
@@ -53,7 +53,7 @@ Override individual Zenoh configuration settings using the `ZENOH_CONFIG_OVERRID
 # Override mode and endpoint
 export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/192.168.1.100:7447"]'
 
-# Run any ros-z application — overrides apply automatically
+# Run any hiroz application — overrides apply automatically
 cargo run --example z_pubsub
 ```
 
@@ -89,7 +89,7 @@ export ZENOH_CONFIG_OVERRIDE='mode="client";connect/timeout_ms=5000;scouting/mul
 Fine-tune session or router settings programmatically:
 
 ```rust
-use ros_z::config::{SessionConfigBuilder, RouterConfigBuilder};
+use hiroz::config::{SessionConfigBuilder, RouterConfigBuilder};
 
 // Customize session config
 let session_config = SessionConfigBuilder::new()

@@ -1,0 +1,253 @@
+[package]
+name = "hiroz"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+flume = { workspace = true }
+serde = { workspace = true, features = ["serde_derive"] }
+tracing = { workspace = true }
+zenoh = { workspace = true, default-features = false, features = [
+  "transport_tcp",
+  "unstable",
+  "internal",
+  "shared-memory",
+] }
+zenoh-ext = { workspace = true }
+zenoh-buffers = { workspace = true }
+strum = { workspace = true, features = ["derive"] }
+sha2 = { workspace = true }
+parking_lot = { workspace = true }
+csv = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
+tokio-util = { workspace = true }
+event-listener = { workspace = true }
+slab = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+dashmap = "5.5"
+prost = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
+hiroz-cdr = { workspace = true }
+hiroz-codegen = { workspace = true, optional = true }
+hiroz-derive = { path = "../hiroz-derive" }
+hiroz-protocol = { path = "../hiroz-protocol", default-features = false, features = [
+  "std",
+] }
+hiroz-schema = { workspace = true }
+byteorder = { workspace = true }
+json5 = { workspace = true }
+uuid = { version = "1.0", features = ["v4"] }
+paste = "1.0"
+
+[dev-dependencies]
+hiroz-msgs = { path = "../hiroz-msgs" }
+hiroz-codegen = { path = "../hiroz-codegen" }
+serial_test = "3.0"
+
+[build-dependencies]
+serde = { workspace = true, features = ["serde_derive"] }
+serde_json = { workspace = true }
+zenoh = { workspace = true, default-features = false, features = [
+  "transport_tcp",
+  "unstable",
+  "internal",
+  "shared-memory",
+] }
+prost-build = { workspace = true, optional = true }
+
+[features]
+default = ["config-builders", "jazzy", "rmw-zenoh"]
+config-builders = []
+generate-configs = []
+protobuf = ["prost", "prost-build"]
+flatbuffers = []
+python = ["pyo3"]
+rmw = []
+# Dynamic message schema loading from .msg files (optional)
+dynamic-schema-loader = ["hiroz-codegen"]
+
+# Key expression format selection
+# rmw-zenoh: Compatible with rmw_zenoh_cpp (domain/topic/type/hash format)
+# ros2dds: Compatible with zenoh-bridge-ros2dds (simple topic format)
+rmw-zenoh = ["hiroz-protocol/rmw-zenoh"]
+ros2dds = ["hiroz-protocol/ros2dds"]
+rcl-z = []
+ffi = []
+
+# ROS 2 distro compatibility features
+# Default is jazzy (recommended for new projects)
+# For humble, use: --no-default-features --features humble,...
+# Note: Distro features are mutually exclusive - enabling multiple may cause conflicts
+humble = ["no-type-hash", "no-jazzy", "no-rolling", "no-kilted"]
+jazzy = ["type-hash", "no-humble", "no-rolling", "no-kilted"]
+rolling = ["type-hash", "no-humble", "no-jazzy", "no-kilted"]
+kilted = ["type-hash", "no-humble", "no-jazzy", "no-rolling"]
+
+# Internal features for distro compatibility
+humble-compat = []
+type-hash = []
+no-type-hash = ["hiroz-protocol/no-type-hash"]
+
+# Feature conflict markers (empty features to mark mutual exclusion)
+no-humble = []
+no-jazzy = []
+no-rolling = []
+no-kilted = []
+
+
+# NOTE: Examples that use hiroz-msgs must be built from workspace root
+# since hiroz-msgs depends on hiroz (circular dependency prevents direct dependency)
+
+# Examples that work without hiroz-msgs (using custom Rust-defined messages)
+[[example]]
+name = "z_custom_message"
+required-features = []
+
+# Examples using hiroz-msgs with bundled messages (no ROS installation required)
+# These use messages from hiroz-codegen/assets/jazzy: std_msgs, geometry_msgs, sensor_msgs
+[[example]]
+name = "z_pubsub"
+required-features = []
+
+[[example]]
+name = "z_pingpong"
+required-features = []
+
+[[example]]
+name = "twist_pub"
+required-features = []
+
+[[example]]
+name = "battery_state_sub"
+required-features = []
+
+[[example]]
+name = "laser_scan"
+required-features = []
+
+[[example]]
+name = "demo_nodes_talker"
+path = "examples/demo_nodes/talker.rs"
+required-features = []
+
+[[example]]
+name = "demo_nodes_listener"
+path = "examples/demo_nodes/listener.rs"
+required-features = []
+
+[[example]]
+name = "demo_nodes_add_two_ints_server"
+path = "examples/demo_nodes/add_two_ints_server.rs"
+
+[[example]]
+name = "demo_nodes_add_two_ints_client"
+path = "examples/demo_nodes/add_two_ints_client.rs"
+
+[[example]]
+name = "demo_nodes_fibonacci_action_client"
+path = "examples/demo_nodes/fibonacci_action_client.rs"
+
+[[example]]
+name = "demo_nodes_fibonacci_action_server"
+path = "examples/demo_nodes/fibonacci_action_server.rs"
+
+[[example]]
+name = "z_srvcli"
+
+[[example]]
+name = "z_parameter_declare"
+path = "examples/parameters/declare.rs"
+required-features = []
+
+[[example]]
+name = "z_parameter_callback"
+path = "examples/parameters/callback.rs"
+required-features = []
+
+[[example]]
+name = "z_parameter_yaml"
+path = "examples/parameters/yaml.rs"
+required-features = []
+
+[[example]]
+name = "z_parameter_client"
+path = "examples/parameters/client.rs"
+required-features = []
+
+[[example]]
+name = "zenoh_router"
+path = "examples/zenoh_router.rs"
+required-features = []
+
+# ros2dds backend examples for interop with zenoh-plugin-ros2dds
+[[example]]
+name = "z_pubsub_ros2dds"
+path = "examples/z_pubsub_ros2dds.rs"
+required-features = ["ros2dds"]
+
+[[example]]
+name = "z_srvcli_ros2dds"
+path = "examples/z_srvcli_ros2dds.rs"
+required-features = ["ros2dds"]
+
+# Dynamic message examples
+[[example]]
+name = "dynamic_message_basic"
+path = "examples/dynamic_message/basic.rs"
+required-features = []
+
+[[example]]
+name = "dynamic_message_serialization"
+path = "examples/dynamic_message/serialization.rs"
+required-features = []
+
+[[example]]
+name = "dynamic_message_interop"
+path = "examples/dynamic_message/interop.rs"
+required-features = []
+
+# Message cache examples
+[[example]]
+name = "z_cache_talker"
+path = "examples/z_cache/talker.rs"
+required-features = []
+
+[[example]]
+name = "z_cache_zenoh_stamp"
+path = "examples/z_cache/zenoh_stamp.rs"
+required-features = []
+
+[[example]]
+name = "z_cache_app_stamp"
+path = "examples/z_cache/app_stamp.rs"
+required-features = []
+
+[[example]]
+name = "shm_pointcloud2"
+path = "examples/shm_pointcloud2.rs"
+required-features = []
+
+[[example]]
+name = "encoding_demo"
+path = "examples/encoding_demo.rs"
+required-features = []
+
+[[example]]
+name = "protobuf_interop"
+path = "examples/protobuf_interop.rs"
+required-features = []
+
+[[example]]
+name = "lifecycle_talker"
+path = "examples/lifecycle/talker.rs"
+required-features = []
+
+[[example]]
+name = "lifecycle_bringup"
+path = "examples/lifecycle/bringup.rs"
+required-features = []

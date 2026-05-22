@@ -35,7 +35,7 @@ def main [
     }
 
     let temp_dir = mktemp -d
-    let assets_dir = $"ros-z-codegen/assets/($distro)"
+    let assets_dir = $"hiroz-codegen/assets/($distro)"
 
     log-step $"Updating vendored ROS ($distro) assets..."
 
@@ -154,6 +154,6 @@ def main [
     print ""
     print "Next steps:"
     print $"  1. Review changes: git diff ($assets_dir)"
-    print "  2. Test build: cargo build -p ros-z-msgs"
+    print "  2. Test build: cargo build -p hiroz-msgs"
     print $"  3. Commit: git add ($assets_dir) && git commit -m 'Update vendored ($distro) assets'"
 }

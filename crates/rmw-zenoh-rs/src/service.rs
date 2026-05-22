@@ -10,7 +10,7 @@ use zenoh::Result;
 
 /// Client implementation for RMW
 pub struct ClientImpl {
-    pub inner: ros_z::service::ZClient<crate::msg::RosService>,
+    pub inner: hiroz::service::ZClient<crate::msg::RosService>,
     pub service_name: CString,
     pub options: rmw_client_options_t,
     pub request_ts: crate::type_support::ServiceTypeSupport,
@@ -20,8 +20,8 @@ pub struct ClientImpl {
     pub notifier: std::sync::Arc<crate::utils::Notifier>,
     /// Tracks responses that arrived while no callback was set
     pub unread_count: std::sync::Arc<Mutex<usize>>,
-    pub graph: std::sync::Arc<ros_z::graph::Graph>,
-    pub entity: ros_z::entity::EndpointEntity,
+    pub graph: std::sync::Arc<hiroz::graph::Graph>,
+    pub entity: hiroz::entity::EndpointEntity,
 }
 
 impl ClientImpl {
@@ -99,7 +99,7 @@ impl ClientImpl {
                 let (sn, gid, source_timestamp) = if let Some(attachment_bytes) =
                     sample.attachment()
                 {
-                    match ros_z::attachment::Attachment::try_from(attachment_bytes) {
+                    match hiroz::attachment::Attachment::try_from(attachment_bytes) {
                         Ok(attachment) => {
                             tracing::debug!(
                                 "[ClientImpl::take_response] Extracted attachment: sn={}, gid={:?}",
@@ -154,9 +154,9 @@ impl ClientImpl {
 
 /// Service implementation for RMW
 pub struct ServiceImpl {
-    pub inner: ros_z::service::ZServer<crate::msg::RosService>,
+    pub inner: hiroz::service::ZServer<crate::msg::RosService>,
     pub pending:
-        HashMap<ros_z::service::RequestId, ros_z::service::ServiceReply<crate::msg::RosService>>,
+        HashMap<hiroz::service::RequestId, hiroz::service::ServiceReply<crate::msg::RosService>>,
     pub service_name: CString,
     pub request_ts: crate::type_support::ServiceTypeSupport,
     pub response_ts: crate::type_support::ServiceTypeSupport,
@@ -165,8 +165,8 @@ pub struct ServiceImpl {
     pub callback_user_data: std::sync::Arc<Mutex<usize>>,
     /// Tracks requests that arrived while no callback was set
     pub unread_count: std::sync::Arc<Mutex<usize>>,
-    pub graph: std::sync::Arc<ros_z::graph::Graph>,
-    pub entity: ros_z::entity::EndpointEntity,
+    pub graph: std::sync::Arc<hiroz::graph::Graph>,
+    pub entity: hiroz::entity::EndpointEntity,
 }
 
 impl ServiceImpl {
@@ -232,7 +232,7 @@ impl ServiceImpl {
         let request_id = unsafe {
             let mut gid = [0u8; 16];
             gid.copy_from_slice(&(*request_header).writer_guid);
-            ros_z::service::RequestId {
+            hiroz::service::RequestId {
                 writer_guid: gid,
                 sequence_number: (*request_header).sequence_number,
                 source_timestamp: 0,

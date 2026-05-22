@@ -14,7 +14,7 @@
 
 use lib/common.nu *
 
-const REPO = "ZettaScaleLabs/ros-z"
+const REPO = "ZettaScaleLabs/hiroz"
 const DEFAULT_TAG = "v0.0.0-smoke-test"
 
 def cleanup-tag [tag: string] {

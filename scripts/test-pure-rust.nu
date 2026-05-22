@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 
 # Pure Rust Test Suite - No ROS dependencies required
-# This script tests ros-z in a pure Rust environment using bundled message definitions
+# This script tests hiroz in a pure Rust environment using bundled message definitions
 
 use lib/common.nu *
 
@@ -23,25 +23,25 @@ def run-tests [] {
 }
 
 def check-bundled-msgs [] {
-    log-step "Check ros-z-msgs with bundled messages"
-    run-cmd "cargo check -p ros-z-msgs"
-    run-cmd "cargo check -p ros-z-msgs --features bundled_msgs"
-    run-cmd "cargo check -p ros-z-msgs --features common_interfaces"
-    run-cmd "cargo check -p ros-z-msgs --no-default-features --features std_msgs"
-    run-cmd "cargo check -p ros-z-msgs --no-default-features --features geometry_msgs"
-    run-cmd "cargo check -p ros-z-msgs --no-default-features --features sensor_msgs"
-    run-cmd "cargo check -p ros-z-msgs --no-default-features --features nav_msgs"
+    log-step "Check hiroz-msgs with bundled messages"
+    run-cmd "cargo check -p hiroz-msgs"
+    run-cmd "cargo check -p hiroz-msgs --features bundled_msgs"
+    run-cmd "cargo check -p hiroz-msgs --features common_interfaces"
+    run-cmd "cargo check -p hiroz-msgs --no-default-features --features std_msgs"
+    run-cmd "cargo check -p hiroz-msgs --no-default-features --features geometry_msgs"
+    run-cmd "cargo check -p hiroz-msgs --no-default-features --features sensor_msgs"
+    run-cmd "cargo check -p hiroz-msgs --no-default-features --features nav_msgs"
 }
 
 def check-console [] {
-    log-step "Check ros-z-console"
-    run-cmd "cargo check -p ros-z-console"
-    run-cmd "cargo clippy -p ros-z-console -- -D warnings"
+    log-step "Check hiroz-console"
+    run-cmd "cargo check -p hiroz-console"
+    run-cmd "cargo clippy -p hiroz-console -- -D warnings"
 }
 
-def clippy-ros-z-py [] {
-    log-step "Clippy (ros-z-py)"
-    run-cmd "cargo clippy -p ros-z-py --all-targets -- -D warnings"
+def clippy-hiroz-py [] {
+    log-step "Clippy (hiroz-py)"
+    run-cmd "cargo clippy -p hiroz-py --all-targets -- -D warnings"
 }
 
 def check-examples [] {
@@ -51,21 +51,21 @@ def check-examples [] {
 
 def check-distro-features [] {
     log-step "Check distro feature flags"
-    run-cmd "cargo check -p ros-z --no-default-features --features humble"
-    run-cmd "cargo check -p ros-z --no-default-features --features jazzy"
-    run-cmd "cargo check -p ros-z --no-default-features --features rolling"
-    run-cmd "cargo check -p ros-z --no-default-features --features kilted"
+    run-cmd "cargo check -p hiroz --no-default-features --features humble"
+    run-cmd "cargo check -p hiroz --no-default-features --features jazzy"
+    run-cmd "cargo check -p hiroz --no-default-features --features rolling"
+    run-cmd "cargo check -p hiroz --no-default-features --features kilted"
 }
 
 def test-shm [] {
     log-step "Test SHM functionality"
 
     # Library unit tests (ShmConfig, ShmProviderBuilder)
-    run-cmd "cargo test --package ros-z --lib shm"
+    run-cmd "cargo test --package hiroz --lib shm"
     # Integration-style unit tests (pub/sub with SHM)
-    run-cmd "cargo test --package ros-z --test shm"
+    run-cmd "cargo test --package hiroz --test shm"
     # Integration tests (validate shm_pointcloud2 example)
-    run-cmd "cargo test --package ros-z-tests --test shm_example"
+    run-cmd "cargo test --package hiroz-tests --test shm_example"
 }
 
 # ============================================================================
@@ -80,7 +80,7 @@ def get-test-map [] {
         check-console: { check-console }
         check-examples: { check-examples }
         check-distro-features: { check-distro-features }
-        clippy-ros-z-py: { clippy-ros-z-py }
+        clippy-hiroz-py: { clippy-hiroz-py }
         test-shm: { test-shm }
     }
 }
@@ -93,7 +93,7 @@ def get-test-pipeline [] {
         "check-console"
         "check-examples"
         "check-distro-features"
-        "clippy-ros-z-py"
+        "clippy-hiroz-py"
         "test-shm"
     ]
 }

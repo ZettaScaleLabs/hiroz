@@ -1,17 +1,17 @@
 # Python Code Generation Internals
 
-This chapter explains how ros-z generates Python bindings for ROS 2 messages, including the architecture, generated code structure, and design rationale.
+This chapter explains how hiroz generates Python bindings for ROS 2 messages, including the architecture, generated code structure, and design rationale.
 
 ## Architecture Overview
 
-ros-z uses a **hybrid approach**: Python classes for ergonomics, Rust for serialization performance. The architecture uses **derive macros** for automatic Python-Rust conversion of arbitrarily nested message types.
+hiroz uses a **hybrid approach**: Python classes for ergonomics, Rust for serialization performance. The architecture uses **derive macros** for automatic Python-Rust conversion of arbitrarily nested message types.
 
 ```mermaid
 graph TB
 accTitle: Python bindings code generation architecture from msg files to runtime
-accDescr: At build time ros-z-codegen parses msg files, resolves dependencies, and generates both Python msgspec structs and Rust PyO3 bindings; at runtime Python objects are converted to Rust structs and serialized to CDR bytes via derive macros.
+accDescr: At build time hiroz-codegen parses msg files, resolves dependencies, and generates both Python msgspec structs and Rust PyO3 bindings; at runtime Python objects are converted to Rust structs and serialized to CDR bytes via derive macros.
     subgraph "Build Time (cargo build)"
-        ROS[".msg/.srv files"] --> Parser["ros-z-codegen<br/>Parser"]
+        ROS[".msg/.srv files"] --> Parser["hiroz-codegen<br/>Parser"]
         Parser --> Resolver["Dependency<br/>Resolver"]
         Resolver --> PyGen["Python Generator"]
         Resolver --> RsGen["Rust Generator"]
@@ -20,7 +20,7 @@ accDescr: At build time ros-z-codegen parses msg files, resolves dependencies, a
         RsGen --> PyO3File["python_bindings.rs<br/>(serialize/deserialize)"]
     end
 
-    subgraph "Derive Macros (ros-z-derive)"
+    subgraph "Derive Macros (hiroz-derive)"
         Derive["FromPyMessage<br/>IntoPyMessage"]
         Derive -->|"generates"| Extract["Field extraction code"]
         Derive -->|"generates"| Construct["Object construction code"]
@@ -29,7 +29,7 @@ accDescr: At build time ros-z-codegen parses msg files, resolves dependencies, a
     subgraph "Runtime"
         PyFiles --> PyObj["Python Object"]
         PyObj -->|"FromPyMessage::from_py()"| RsStruct["Rust Struct"]
-        RsStruct -->|"ros-z-cdr::to_vec()"| CDR["CDR Bytes"]
+        RsStruct -->|"hiroz-cdr::to_vec()"| CDR["CDR Bytes"]
         CDR -->|"Eclipse Zenoh"| Network["Network"]
     end
 ```
@@ -38,14 +38,14 @@ accDescr: At build time ros-z-codegen parses msg files, resolves dependencies, a
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| **Python Generator** | `ros-z-codegen/src/generator/python.rs` | Generates msgspec struct classes |
-| **Rust Generator** | `ros-z-codegen/src/generator/rust.rs` | Generates Rust structs with derive attributes |
-| **PyO3 Generator** | `ros-z-codegen/src/python_msgspec_generator.rs` | Generates serialize/deserialize wrapper functions |
-| **Derive Macros** | `ros-z-derive/src/lib.rs` | `FromPyMessage` and `IntoPyMessage` derive macros |
-| **Bridge Traits** | `ros-z/src/python_bridge.rs` | Core traits for Python-Rust conversion |
-| **Build Script** | `ros-z-msgs/build.rs` | Orchestrates code generation at build time |
-| **Generated Python** | `ros-z-msgs/python/ros_z_msgs_py/types/*.py` | One file per ROS package |
-| **Generated Rust** | `$OUT_DIR/python_bindings.rs` | Compiled into `ros-z-msgs` crate |
+| **Python Generator** | `hiroz-codegen/src/generator/python.rs` | Generates msgspec struct classes |
+| **Rust Generator** | `hiroz-codegen/src/generator/rust.rs` | Generates Rust structs with derive attributes |
+| **PyO3 Generator** | `hiroz-codegen/src/python_msgspec_generator.rs` | Generates serialize/deserialize wrapper functions |
+| **Derive Macros** | `hiroz-derive/src/lib.rs` | `FromPyMessage` and `IntoPyMessage` derive macros |
+| **Bridge Traits** | `hiroz/src/python_bridge.rs` | Core traits for Python-Rust conversion |
+| **Build Script** | `hiroz-msgs/build.rs` | Orchestrates code generation at build time |
+| **Generated Python** | `hiroz-msgs/python/hiroz_msgs_py/types/*.py` | One file per ROS package |
+| **Generated Rust** | `$OUT_DIR/python_bindings.rs` | Compiled into `hiroz-msgs` crate |
 
 ## Generated Code Examples
 
@@ -101,8 +101,8 @@ The Rust code generator adds derive attributes to message structs:
 ```rust
 // Generated from std_msgs/msg/String.msg
 #[derive(Debug, Clone, Default, ::serde::Serialize, ::serde::Deserialize)]
-#[cfg_attr(feature = "python_registry", derive(::ros_z_derive::FromPyMessage, ::ros_z_derive::IntoPyMessage))]
-#[cfg_attr(feature = "python_registry", ros_msg(module = "ros_z_msgs_py.types.std_msgs"))]
+#[cfg_attr(feature = "python_registry", derive(::hiroz_derive::FromPyMessage, ::hiroz_derive::IntoPyMessage))]
+#[cfg_attr(feature = "python_registry", ros_msg(module = "hiroz_msgs_py.types.std_msgs"))]
 pub struct String {
     pub data: std::string::String,
 }
@@ -113,8 +113,8 @@ For nested messages with optional fields:
 ```rust
 // Generated from geometry_msgs/msg/Twist.msg
 #[derive(Debug, Clone, Default, ::serde::Serialize, ::serde::Deserialize)]
-#[cfg_attr(feature = "python_registry", derive(::ros_z_derive::FromPyMessage, ::ros_z_derive::IntoPyMessage))]
-#[cfg_attr(feature = "python_registry", ros_msg(module = "ros_z_msgs_py.types.geometry_msgs"))]
+#[cfg_attr(feature = "python_registry", derive(::hiroz_derive::FromPyMessage, ::hiroz_derive::IntoPyMessage))]
+#[cfg_attr(feature = "python_registry", ros_msg(module = "hiroz_msgs_py.types.geometry_msgs"))]
 pub struct Twist {
     pub linear: Vector3,
     pub angular: Vector3,
@@ -166,13 +166,13 @@ The serialize/deserialize functions use the derive macro traits:
 #[pyfunction]
 pub fn serialize_string(py: Python, msg: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
     use ::pyo3::types::PyAnyMethods;
-    use ::ros_z::python_bridge::FromPyMessage;
+    use ::hiroz::python_bridge::FromPyMessage;
 
     // Derive macro handles all field extraction recursively
     let rust_msg = <ros::std_msgs::String>::from_py(msg)?;
 
     // CDR serialization with 4-byte encapsulation header
-    let mut cdr_data = ros_z_cdr::to_vec::<_, ros_z_cdr::LittleEndian>(&rust_msg, 256)
+    let mut cdr_data = hiroz_cdr::to_vec::<_, hiroz_cdr::LittleEndian>(&rust_msg, 256)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     let mut result = vec![0x00, 0x01, 0x00, 0x00]; // CDR encapsulation header
     result.append(&mut cdr_data);
@@ -182,11 +182,11 @@ pub fn serialize_string(py: Python, msg: &Bound<'_, PyAny>) -> PyResult<Vec<u8>>
 // Generated deserialize function - uses IntoPyMessage trait
 #[pyfunction]
 pub fn deserialize_string(py: Python, bytes: &[u8]) -> PyResult<PyObject> {
-    use ::ros_z::python_bridge::IntoPyMessage;
+    use ::hiroz::python_bridge::IntoPyMessage;
 
     // Skip 4-byte CDR encapsulation header
     let cdr_data = &bytes[4..];
-    let (rust_msg, _): (ros::std_msgs::String, _) = ros_z_cdr::from_bytes::<_, ros_z_cdr::LittleEndian>(cdr_data)
+    let (rust_msg, _): (ros::std_msgs::String, _) = hiroz_cdr::from_bytes::<_, hiroz_cdr::LittleEndian>(cdr_data)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
     // Derive macro handles all field construction recursively
@@ -291,25 +291,25 @@ accDescr: Zenoh delivers CDR bytes which are zero-copy deserialized into a Rust 
 ```mermaid
 flowchart TD
 accTitle: Python bindings build process from cargo build to compiled output
-accDescr: Running cargo build triggers build.rs which discovers ROS packages, parses msg files, resolves dependencies, then generates both Python type files and a Rust PyO3 module compiled into ros-z-msgs.
-    A["cargo build ros-z-msgs<br/>--features python_registry"] --> B["build.rs executes"]
+accDescr: Running cargo build triggers build.rs which discovers ROS packages, parses msg files, resolves dependencies, then generates both Python type files and a Rust PyO3 module compiled into hiroz-msgs.
+    A["cargo build hiroz-msgs<br/>--features python_registry"] --> B["build.rs executes"]
     B --> C["Discover ROS packages<br/>(AMENT_PREFIX_PATH or bundled)"]
     C --> D["Parse .msg/.srv files"]
     D --> E["Resolve dependencies<br/>(type hashes, nested types)"]
     E --> F["Generate Python files"]
     E --> G["Generate Rust PyO3 module"]
-    F --> H["ros-z-msgs/python/<br/>ros_z_msgs_py/types/*.py"]
+    F --> H["hiroz-msgs/python/<br/>hiroz_msgs_py/types/*.py"]
     G --> I["$OUT_DIR/python_bindings.rs"]
     I --> J["include!() in lib.rs"]
-    J --> K["Compiled into ros-z-msgs"]
+    J --> K["Compiled into hiroz-msgs"]
 ```
 
 ### Output Locations
 
 | Output | Path | Committed? |
 |--------|------|------------|
-| Python msgspec classes | `ros-z-msgs/python/ros_z_msgs_py/types/*.py` | Yes |
-| Rust PyO3 bindings | `target/.../ros-z-msgs-.../out/python_bindings.rs` | No (generated) |
+| Python msgspec classes | `hiroz-msgs/python/hiroz_msgs_py/types/*.py` | Yes |
+| Rust PyO3 bindings | `target/.../hiroz-msgs-.../out/python_bindings.rs` | No (generated) |
 
 ### Feature Flags
 
@@ -322,4 +322,4 @@ The `python_registry` feature gate controls Python codegen:
 include!(concat!(env!("OUT_DIR"), "/python_bindings.rs"));
 ```
 
-The `ros-z-derive` crate provides the derive macros, and `ros-z/python` enables the `FromPyMessage` and `IntoPyMessage` traits.
+The `hiroz-derive` crate provides the derive macros, and `hiroz/python` enables the `FromPyMessage` and `IntoPyMessage` traits.

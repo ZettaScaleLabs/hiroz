@@ -1,10 +1,10 @@
 # ROS 2 Distribution Compatibility
 
-ros-z supports multiple ROS 2 distributions through compile-time feature flags. This chapter explains the differences between distributions and how to target specific ROS 2 versions.
+hiroz supports multiple ROS 2 distributions through compile-time feature flags. This chapter explains the differences between distributions and how to target specific ROS 2 versions.
 
-> **Important**: Different ros-z components have different ROS 2 version requirements:
+> **Important**: Different hiroz components have different ROS 2 version requirements:
 >
-> - **ros-z core library**: Supports Humble, Jazzy, Kilted, Rolling
+> - **hiroz core library**: Supports Humble, Jazzy, Kilted, Rolling
 > - **rmw-zenoh-rs**: Requires Jazzy or later (see [rmw-zenoh-rs chapter](../experimental/rmw-zenoh-rs.md#ros-2-version-requirements))
 
 ## Supported Distributions
@@ -17,7 +17,7 @@ ros-z supports multiple ROS 2 distributions through compile-time feature flags. 
 | Rolling Ridley | ✅ Supported | ✅ Supported | ✅ Yes | No |
 | Iron Irwini | ⚠️ EOL (Dec 2024) | ❌ Not Supported | ✅ Yes | No |
 
-**Default**: ros-z defaults to **Jazzy** compatibility, which is the recommended distribution for new projects.
+**Default**: hiroz defaults to **Jazzy** compatibility, which is the recommended distribution for new projects.
 
 ## Distribution Differences
 
@@ -30,7 +30,7 @@ The most significant difference between distributions is **type hash support**:
 - Supports real type hashes computed from message definitions
 - Format: `RIHS01_<64-hex-chars>` (ROS IDL Hash Standard version 1)
 - Enables type safety checks during pub/sub matching
-- ros-z embeds type hashes in Eclipse Zenoh key expressions for discovery
+- hiroz embeds type hashes in Eclipse Zenoh key expressions for discovery
 
 **Humble** (Legacy):
 
@@ -57,7 +57,7 @@ The most significant difference between distributions is **type hash support**:
 
 ### Using Jazzy (Default)
 
-By default, ros-z builds with Jazzy compatibility. No special flags needed:
+By default, hiroz builds with Jazzy compatibility. No special flags needed:
 
 ```bash
 # Build with default (Jazzy)

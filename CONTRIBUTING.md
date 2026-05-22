@@ -1,13 +1,13 @@
-# Contributing to ros-z
+# Contributing to hiroz
 
-Thank you for your interest in contributing to ros-z!
+Thank you for your interest in contributing to hiroz!
 
 ## Quick Start
 
 ```bash
 # Clone and setup
-git clone https://github.com/ZettaScaleLabs/ros-z.git
-cd ros-z
+git clone https://github.com/ZettaScaleLabs/hiroz.git
+cd hiroz
 nix develop  # or: install Rust via rustup
 
 # Build and test
@@ -77,16 +77,16 @@ This helps us manage CI workflow approvals.
 
 ## Documentation
 
-- Examples live in `crates/ros-z/examples/` as runnable programs
+- Examples live in `crates/hiroz/examples/` as runnable programs
 - Book chapters reference examples via `{{#include}}`
 - Test documentation: `mdbook serve book`
 
-See the [book](https://zettascalelabs.github.io/ros-z/) for detailed guides.
+See the [book](https://zettascalelabs.github.io/hiroz/) for detailed guides.
 
 ## Getting Help
 
-- **Questions**: [GitHub Discussions](https://github.com/ZettaScaleLabs/ros-z/discussions)
-- **Bugs**: [GitHub Issues](https://github.com/ZettaScaleLabs/ros-z/issues)
+- **Questions**: [GitHub Discussions](https://github.com/ZettaScaleLabs/hiroz/discussions)
+- **Bugs**: [GitHub Issues](https://github.com/ZettaScaleLabs/hiroz/issues)
 - **Chat**: [Zenoh Discord](https://discord.gg/vSDSpqnbkm)
 
 ## License
@@ -95,4 +95,4 @@ Contributions are licensed under the same license as the project (see LICENSE).
 
 ---
 
-Thank you for contributing to ros-z! 🦀
+Thank you for contributing to hiroz! 🦀

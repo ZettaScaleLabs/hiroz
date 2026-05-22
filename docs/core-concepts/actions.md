@@ -89,9 +89,9 @@ Sending a cancel does **not** immediately stop the action:
 3. Server sends `Result(status=Canceled)` to close the goal
 4. Until then, the goal remains in `Executing` state
 
-### ros-z type-state API
+### hiroz type-state API
 
-ros-z uses Rust's type system to enforce the action protocol at compile time:
+hiroz uses Rust's type system to enforce the action protocol at compile time:
 
 ```text
 RequestedGoal  →  AcceptedGoal  →  ExecutingGoal
@@ -161,8 +161,8 @@ The compiler prevents calling `publish_feedback` before `accept()`. Invalid stat
   <div class="flashcard">
     <div class="flashcard-inner">
       <div class="flashcard-front">
-        <div class="flashcard-tag">ros-z API</div>
-        <div class="flashcard-term">What is the type-state pattern in ros-z actions?</div>
+        <div class="flashcard-tag">hiroz API</div>
+        <div class="flashcard-term">What is the type-state pattern in hiroz actions?</div>
         <div class="flashcard-hint">Click to flip</div>
       </div>
       <div class="flashcard-back">
@@ -295,8 +295,8 @@ Before reading the full examples, here is the skeleton every action client and s
 **Client:**
 
 ```rust
-use ros_z::Builder;
-use ros_z::context::ZContextBuilder;
+use hiroz::Builder;
+use hiroz::context::ZContextBuilder;
 
 let ctx = ZContextBuilder::default()
     .with_connect_endpoints(["tcp/127.0.0.1:7447"])
@@ -328,9 +328,9 @@ println!("Done: {:?}", result);
 **Server:**
 
 ```rust
-use ros_z::Builder;
-use ros_z::action::server::ExecutingGoal;
-use ros_z::context::ZContextBuilder;
+use hiroz::Builder;
+use hiroz::action::server::ExecutingGoal;
+use hiroz::context::ZContextBuilder;
 
 let ctx = ZContextBuilder::default()
     .with_connect_endpoints(["tcp/127.0.0.1:7447"])

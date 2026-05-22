@@ -1,5 +1,5 @@
 {
-  description = "ros-z: Native Rust ROS 2 implementation using Zenoh";
+  description = "hiroz: Native Rust ROS 2 implementation using Zenoh";
 
   inputs = {
     nix-ros-overlay.url = "github:lopsided98/nix-ros-overlay";
@@ -200,7 +200,7 @@
           delve # Go debugger
         ];
 
-        # Python tools (ros-z-py bindings)
+        # Python tools (hiroz-py bindings)
         pythonTools = with pkgs; [
           maturin
           uv
@@ -312,7 +312,7 @@
           in
           {
             default = mkDevShell {
-              name = "ros-z-dev-${rosDistro}";
+              name = "hiroz-dev-${rosDistro}";
               packages = [
                 rustfmt-nightly-bin
               ]
@@ -330,7 +330,7 @@
                 ${pre-commit-check.shellHook}
               '';
               banner = ''
-                echo "🦀 ros-z development environment (with ROS)"
+                echo "🦀 hiroz development environment (with ROS)"
                 echo "ROS 2 Distribution: ${rosDistro}"
                 echo "Rust: $(rustc --version)"
                 echo "⚠️  Note: Nix Store paths are appended. Source your workspace setup.bash to overlay."
@@ -338,7 +338,7 @@
             };
 
             ci = mkDevShell {
-              name = "ros-z-ci-${rosDistro}";
+              name = "hiroz-ci-${rosDistro}";
               packages = commonBuildInputs ++ pythonTools ++ docTools ++ testTools ++ [ rosEnv.testFull ];
               rosEnvPath = rosEnv.testFull;
               pythonVersion = pythonVer;
@@ -382,7 +382,7 @@
 
           # Without ROS
           pureRust = mkDevShell {
-            name = "ros-z-pure-rust";
+            name = "hiroz-pure-rust";
             packages = [
               rustfmt-nightly-bin
             ]
@@ -396,14 +396,14 @@
               ${pre-commit-check.shellHook}
             '';
             banner = ''
-              echo "🦀 ros-z development environment (pure Rust)"
+              echo "🦀 hiroz development environment (pure Rust)"
               echo "Rust: $(rustc --version)"
             '';
           };
 
           # CI without ROS
           pureRust-ci = mkDevShell {
-            name = "ros-z-ci-pure-rust";
+            name = "hiroz-ci-pure-rust";
             packages = commonBuildInputs ++ pythonTools ++ docTools ++ testTools;
             extraShellHook = '''';
           };

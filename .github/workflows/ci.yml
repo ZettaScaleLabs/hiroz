@@ -36,16 +36,25 @@ jobs:
     name: Check Formatting
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://hiroz.cachix.org
+            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: hiroz
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Check formatting
         run: nix build .#checks.x86_64-linux.pre-commit-check -L
@@ -54,7 +63,6 @@ jobs:
     name: ROS-independent Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     permissions:
-      id-token: write
       contents: read
     strategy:
       fail-fast: false
@@ -78,10 +86,21 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Install Determinate Nix (Linux)
+      - name: Install Nix (Linux)
         if: runner.os == 'Linux'
-        uses: DeterminateSystems/determinate-nix-action@v3
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://hiroz.cachix.org
+            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
+      - name: Setup Cachix (Linux)
+        if: runner.os == 'Linux'
+        uses: cachix/cachix-action@v15
+        with:
+          name: hiroz
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell (Linux via Nix)
         if: runner.os == 'Linux'
@@ -147,7 +166,6 @@ jobs:
     name: SHM Tests (ubuntu-latest)
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
 
     steps:
@@ -165,9 +183,19 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Install Determinate Nix (Linux)
-        uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install Nix (Linux)
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://hiroz.cachix.org
+            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: hiroz
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell (Linux via Nix)
         run: |
@@ -196,7 +224,6 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: false
     permissions:
-      id-token: write
       contents: read
 
     steps:
@@ -214,9 +241,19 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://hiroz.cachix.org
+            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: hiroz
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell
         run: nix profile install nixpkgs#nushell
@@ -240,8 +277,8 @@ jobs:
         run: |
           source /tmp/nix-dev-env.sh
           cargo llvm-cov \
-            -p ros-z -p ros-z-codegen -p ros-z-cdr -p ros-z-protocol -p ros-z-schema \
-            -p ros-z-tests \
+            -p hiroz -p hiroz-codegen -p hiroz-cdr -p hiroz-protocol -p hiroz-schema \
+            -p hiroz-tests \
             -j4 \
             --lcov --output-path lcov.info
         shell: bash
@@ -257,7 +294,6 @@ jobs:
     name: ROS-independent Checks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     permissions:
-      id-token: write
       contents: read
     strategy:
       fail-fast: false
@@ -281,10 +317,21 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Install Determinate Nix (Linux)
+      - name: Install Nix (Linux)
         if: runner.os == 'Linux'
-        uses: DeterminateSystems/determinate-nix-action@v3
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://hiroz.cachix.org
+            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
+      - name: Setup Cachix (Linux)
+        if: runner.os == 'Linux'
+        uses: cachix/cachix-action@v15
+        with:
+          name: hiroz
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell (Linux via Nix)
         if: runner.os == 'Linux'
@@ -324,7 +371,7 @@ jobs:
           echo "CI=true" >> $GITHUB_ENV
 
       # Check steps
-      - name: Check ros-z-msgs feature flags
+      - name: Check hiroz-msgs feature flags
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
             source /tmp/nix-dev-env.sh
@@ -332,7 +379,7 @@ jobs:
           nu scripts/test-pure-rust.nu check-bundled-msgs
         shell: bash
 
-      - name: Check ros-z-console
+      - name: Check hiroz-console
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
             source /tmp/nix-dev-env.sh
@@ -356,12 +403,12 @@ jobs:
           nu scripts/test-pure-rust.nu check-distro-features
         shell: bash
 
-      - name: Clippy (ros-z-py)
+      - name: Clippy (hiroz-py)
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
             source /tmp/nix-dev-env.sh
           fi
-          nu scripts/test-pure-rust.nu clippy-ros-z-py
+          nu scripts/test-pure-rust.nu clippy-hiroz-py
         shell: bash
 
   go-tests:
@@ -402,14 +449,13 @@ jobs:
       - name: Go pure tests (codegen + testdata)
         run: nu scripts/test-go.nu --codegen-only
 
-      - name: Go FFI tests (rosz unit tests)
+      - name: Go FFI tests (hiroz unit tests)
         run: nu scripts/test-go.nu --ffi-only
 
   python-tests:
-    name: Python Tests (ros-z-py) (${{ matrix.distro }})
+    name: Python Tests (hiroz-py) (${{ matrix.distro }})
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
     strategy:
       fail-fast: false
@@ -424,22 +470,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
         with:
-          extra-conf: |
-            extra-substituters = https://ros-z.cachix.org https://ros.cachix.org
+          extra_nix_config: |
+            extra-substituters = https://ros.cachix.org https://hiroz.cachix.org
             extra-trusted-public-keys = ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo=
-            extra-trusted-public-keys = ros-z.cachix.org-1:5ts10DbY/BUWnBGqAW+gLn9AvlBNezUM+ITDrb9S8Pw=
+            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
         uses: cachix/cachix-action@v15
         with:
-          name: ros-z
+          name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          # Push ros-z's own built Nix derivations on main-branch runs so
+          # Push hiroz's own built Nix derivations on main-branch runs so
           # subsequent runs (including PRs) can download them from Cachix
-          # instead of rebuilding. ros-z.cachix.org is our own cache;
+          # instead of rebuilding. hiroz.cachix.org is our own cache;
           # ros.cachix.org is read-only for upstream ROS packages.
           skipPush: ${{ github.event_name == 'pull_request' }}
 
@@ -463,12 +509,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            crates/ros-z-py/.venv
-            crates/ros-z-msgs/python/ros_z_msgs_py/types
+            crates/hiroz-py/.venv
+            crates/hiroz-msgs/python/hiroz_msgs_py/types
           key: >-
             ${{ runner.os }}-${{ matrix.distro }}-venv-${{
-            hashFiles('Cargo.lock', 'crates/ros-z-py/src/**',
-            'crates/ros-z-py/Cargo.toml', 'crates/ros-z-msgs/python/**') }}
+            hashFiles('Cargo.lock', 'crates/hiroz-py/src/**',
+            'crates/hiroz-py/Cargo.toml', 'crates/hiroz-msgs/python/**') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.distro }}-venv-
 
@@ -481,10 +527,10 @@ jobs:
       - name: Build native extension
         if: >-
           steps.venv-cache.outputs.cache-hit != 'true' ||
-          !hashFiles('crates/ros-z-py/.venv/lib/**/ros_z_py/_native*.so')
+          !hashFiles('crates/hiroz-py/.venv/lib/**/hiroz_py/_native*.so')
         run: |
           source /tmp/nix-dev-env.sh
-          cd crates/ros-z-py && source .venv/bin/activate && maturin develop
+          cd crates/hiroz-py && source .venv/bin/activate && maturin develop
 
       - name: Ruff linting
         run: |
@@ -526,7 +572,6 @@ jobs:
     name: ROS Tests (clippy-rmw, interop) (${{ matrix.distro }})
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
     strategy:
       fail-fast: false
@@ -541,21 +586,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
         with:
-          extra-conf: |
-            extra-substituters = https://ros-z.cachix.org https://ros.cachix.org
+          extra_nix_config: |
+            extra-substituters = https://ros.cachix.org https://hiroz.cachix.org
             extra-trusted-public-keys = ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo=
-            extra-trusted-public-keys = ros-z.cachix.org-1:5ts10DbY/BUWnBGqAW+gLn9AvlBNezUM+ITDrb9S8Pw=
+            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
         uses: cachix/cachix-action@v15
         with:
-          name: ros-z
+          name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
           skipPush: ${{ github.event_name == 'pull_request' }}
-
 
       - name: Install Nushell
         run: |
@@ -582,7 +626,6 @@ jobs:
     name: Bridge Interop (humble ↔ jazzy)
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
     # Only run on push or non-draft PRs to save CI time
     if: |
@@ -593,18 +636,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
         with:
-          extra-conf: |
-            extra-substituters = https://ros-z.cachix.org https://ros.cachix.org
+          extra_nix_config: |
+            extra-substituters = https://ros.cachix.org https://hiroz.cachix.org
             extra-trusted-public-keys = ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo=
-            extra-trusted-public-keys = ros-z.cachix.org-1:5ts10DbY/BUWnBGqAW+gLn9AvlBNezUM+ITDrb9S8Pw=
+            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
         uses: cachix/cachix-action@v15
         with:
-          name: ros-z
+          name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
           skipPush: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
 
@@ -619,19 +662,19 @@ jobs:
             --accept-flake-config > /tmp/nix-dev-env-jazzy.sh
           echo "export CI=true" >> /tmp/nix-dev-env-jazzy.sh
 
-      - name: Build ros-z-bridge binary
+      - name: Build hiroz-bridge binary
         run: |
           source /tmp/nix-dev-env-jazzy.sh
-          cargo build -p ros-z-bridge --features jazzy -j4
+          cargo build -p hiroz-bridge --features jazzy -j4
 
       - name: Run bridge unit tests
         run: |
           source /tmp/nix-dev-env-jazzy.sh
-          cargo test -p ros-z-bridge --features jazzy -j4
+          cargo test -p hiroz-bridge --features jazzy -j4
 
       - name: Run bridge interop tests
         run: |
           source /tmp/nix-dev-env-jazzy.sh
-          cargo test -p ros-z-tests --test humble_jazzy_bridge \
+          cargo test -p hiroz-tests --test humble_jazzy_bridge \
             --features jazzy,humble-jazzy-bridge-tests -j4 \
             -- --nocapture 2>&1

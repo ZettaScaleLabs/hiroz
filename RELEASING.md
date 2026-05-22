@@ -1,4 +1,4 @@
-# Releasing ros-z
+# Releasing hiroz
 
 This document covers the full release process: local dry-run, CI smoke test, and cutting the real release.
 
@@ -9,17 +9,17 @@ Before releasing, bump the version in all three places consistently:
 | File | Field |
 |------|-------|
 | `Cargo.toml` | `[workspace.package] version` |
-| `crates/ros-z-msgs/python/pyproject.toml` | `version` |
-| `crates/ros-z-py/pyproject.toml` | `version` |
+| `crates/hiroz-msgs/python/pyproject.toml` | `version` |
+| `crates/hiroz-py/pyproject.toml` | `version` |
 
-The `ros-z-py` wheel depends on `ros-z-msgs-py>=<version>` — update that lower bound too when bumping.
+The `hiroz-py` wheel depends on `hiroz-msgs-py>=<version>` — update that lower bound too when bumping.
 
 ## Step 1 — Local dry-run (optional)
 
 Build the Python wheels locally to catch obvious issues before touching CI:
 
 ```bash
-# Build jazzy + humble wheels into crates/ros-z-py/dist/
+# Build jazzy + humble wheels into crates/hiroz-py/dist/
 ./scripts/build-python-wheels.nu
 
 # Build and immediately install into a local venv to verify import
@@ -29,7 +29,7 @@ Build the Python wheels locally to catch obvious issues before touching CI:
 ./scripts/build-python-wheels.nu jazzy
 ```
 
-The script produces the same wheel filenames as CI (e.g. `ros_z_py-0.2.0-0jazzy-cp311-abi3-linux_x86_64.whl`).
+The script produces the same wheel filenames as CI (e.g. `hiroz_py-0.2.0-0jazzy-cp311-abi3-linux_x86_64.whl`).
 
 ## Step 2 — Smoke-test the release workflow
 
@@ -52,9 +52,9 @@ This pushes `v0.0.0-smoke-test`, waits for all CI jobs to pass (builds, smoke te
 The CI pipeline exercises:
 
 - All wheel builds (jazzy + humble × x86_64 Linux, aarch64 Linux, aarch64 macOS)
-- All binary builds (`ros-z-bridge`, `ros-z-console`)
-- All Go library builds (`libros_z` static + shared)
-- Python smoke test: install into venv, `import ros_z_py`
+- All binary builds (`hiroz-bridge`, `hiroz-console`)
+- All Go library builds (`libhiroz` static + shared)
+- Python smoke test: install into venv, `import hiroz_py`
 - Binary smoke test: `--help` + 3-second runtime check (no crash)
 - Go smoke test: CGO compilation against the downloaded `.a`
 - Install-from-release-URL test: `pip install` from the actual GitHub Release artifacts

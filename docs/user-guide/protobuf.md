@@ -1,12 +1,12 @@
 <!-- markdownlint-disable MD046 -->
 # Protobuf Serialization
 
-**Use Protocol Buffers as an alternative serialization format for ros-z messages.** While CDR is the default ROS 2-compatible format, protobuf offers schema evolution, cross-language compatibility, and familiar tooling for teams already using the protobuf ecosystem.
+**Use Protocol Buffers as an alternative serialization format for hiroz messages.** While CDR is the default ROS 2-compatible format, protobuf offers schema evolution, cross-language compatibility, and familiar tooling for teams already using the protobuf ecosystem.
 
 !!! info
-    Protobuf support in ros-z enables two powerful use cases:
+    Protobuf support in hiroz enables two powerful use cases:
     1. **ROS messages with protobuf encoding** - Use standard ROS message types serialized via protobuf
-    2. **Pure protobuf messages** - Send custom `.proto` messages directly through ros-z
+    2. **Pure protobuf messages** - Send custom `.proto` messages directly through hiroz
 
 ## When to Use Protobuf
 
@@ -29,8 +29,8 @@ Enable protobuf in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ros-z = { version = "0.1", features = ["protobuf"] }
-ros-z-msgs = { version = "0.1", features = ["geometry_msgs", "protobuf"] }
+hiroz = { version = "0.1", features = ["protobuf"] }
+hiroz-msgs = { version = "0.1", features = ["geometry_msgs", "protobuf"] }
 prost = "0.13"
 
 [build-dependencies]
@@ -44,7 +44,7 @@ For custom `.proto` files, add a `build.rs`:
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = prost_build::Config::new();
-    // Enable serde support for ros-z compatibility
+    // Enable serde support for hiroz compatibility
     config.type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
     config.compile_protos(&["proto/sensor_data.proto"], &["proto/"])?;
     println!("cargo:rerun-if-changed=proto/sensor_data.proto");
@@ -57,10 +57,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 Use auto-generated ROS message types with protobuf serialization:
 
 ```rust
-use ros_z::msg::ProtobufSerdes;
-use ros_z_msgs::proto::geometry_msgs::Vector3 as Vector3Proto;
+use hiroz::msg::ProtobufSerdes;
+use hiroz_msgs::proto::geometry_msgs::Vector3 as Vector3Proto;
 
-let ctx = ros_z::context::ZContextBuilder::default().build()?;
+let ctx = hiroz::context::ZContextBuilder::default().build()?;
 let node = ctx.create_node("protobuf_node").build()?;
 
 // Create publisher with protobuf serialization
@@ -80,7 +80,7 @@ pub.publish(&msg)?;
 
 **Key points:**
 
-- Import from `ros_z_msgs::proto::*` namespace (not `ros_z_msgs::ros::*`)
+- Import from `hiroz_msgs::proto::*` namespace (not `hiroz_msgs::ros::*`)
 - Use `.with_serdes::<ProtobufSerdes<T>>()` to select protobuf encoding
 - Message types automatically implement `MessageTypeInfo` trait
 - Full type safety and compile-time checking
@@ -123,7 +123,7 @@ use sensor_data::SensorData;
 ### Step 4: Implement Required Traits
 
 ```rust
-use ros_z::{MessageTypeInfo, WithTypeInfo, entity::TypeHash};
+use hiroz::{MessageTypeInfo, WithTypeInfo, entity::TypeHash};
 
 impl MessageTypeInfo for SensorData {
     fn type_name() -> &'static str {
@@ -138,7 +138,7 @@ impl MessageTypeInfo for SensorData {
 impl WithTypeInfo for SensorData {}
 ```
 
-### Step 5: Use in ros-z
+### Step 5: Use in hiroz
 
 ```rust
 let pub = node
@@ -163,12 +163,12 @@ The `protobuf_demo` example demonstrates both approaches:
 ```rust
 use clap::Parser;
 use protobuf_demo::{run_pubsub_demo, run_service_client, run_service_server};
-use ros_z::{Builder, Result, context::ZContextBuilder};
+use hiroz::{Builder, Result, context::ZContextBuilder};
 
 #[derive(Debug, Parser)]
 #[command(
     name = "protobuf_demo",
-    about = "Protobuf demonstration for ros-z - pub/sub and services"
+    about = "Protobuf demonstration for hiroz - pub/sub and services"
 )]
 struct Args {
     /// Mode to run: pubsub, service-server, service-client, or combined
@@ -198,7 +198,7 @@ fn main() -> Result<()> {
     // Initialize logging
     zenoh::init_log_from_env_or("info");
 
-    // Create the ros-z context
+    // Create the hiroz context
     let ctx = if let Some(ref e) = args.endpoint {
         ZContextBuilder::default()
             .with_mode(&args.zenoh_mode)
@@ -283,7 +283,7 @@ fn main() -> Result<()> {
 Receive protobuf-encoded messages:
 
 ```rust
-use ros_z::msg::ProtobufSerdes;
+use hiroz::msg::ProtobufSerdes;
 
 let sub = node
     .create_sub::<Vector3Proto>("/vector_proto")
@@ -331,31 +331,31 @@ let response = client.call_with_timeout(&request, Duration::from_secs(5)).await?
 
 ## Available ROS Messages
 
-When ros-z-msgs is built with `protobuf` feature, it generates protobuf versions of ROS messages:
+When hiroz-msgs is built with `protobuf` feature, it generates protobuf versions of ROS messages:
 
 ```rust
 // Import from proto namespace
-use ros_z_msgs::proto::std_msgs::String as StringProto;
-use ros_z_msgs::proto::geometry_msgs::{Point, Pose, Twist};
-use ros_z_msgs::proto::sensor_msgs::{LaserScan, Image};
+use hiroz_msgs::proto::std_msgs::String as StringProto;
+use hiroz_msgs::proto::geometry_msgs::{Point, Pose, Twist};
+use hiroz_msgs::proto::sensor_msgs::{LaserScan, Image};
 ```
 
 **Namespace mapping:**
 
 | Format | Namespace | Use |
 |--------|-----------|-----|
-| **CDR** | `ros_z_msgs::ros::*` | ROS 2 interop |
-| **Protobuf** | `ros_z_msgs::proto::*` | Protobuf encoding |
+| **CDR** | `hiroz_msgs::ros::*` | ROS 2 interop |
+| **Protobuf** | `hiroz_msgs::proto::*` | Protobuf encoding |
 
 ## Type Information
 
 ### ROS Messages
 
-Auto-generated messages from ros-z-msgs include `MessageTypeInfo`:
+Auto-generated messages from hiroz-msgs include `MessageTypeInfo`:
 
 ```rust
 // No manual implementation needed
-use ros_z_msgs::proto::geometry_msgs::Vector3;
+use hiroz_msgs::proto::geometry_msgs::Vector3;
 // Vector3 already implements MessageTypeInfo
 ```
 
@@ -382,7 +382,7 @@ impl WithTypeInfo for MyProtoMessage {}
 ```
 
 !!! note
-    `TypeHash::zero()` indicates the message doesn't have ROS 2 type compatibility. This is fine for ros-z-to-ros-z communication.
+    `TypeHash::zero()` indicates the message doesn't have ROS 2 type compatibility. This is fine for hiroz-to-hiroz communication.
 
 ## Protobuf vs CDR Comparison
 
@@ -394,7 +394,7 @@ impl WithTypeInfo for MyProtoMessage {}
 | **Tooling** | ROS ecosystem | ✅ Protobuf ecosystem |
 | **Message Size** | Efficient | Efficient |
 | **Setup Complexity** | Simple | Moderate |
-| **ros-z Support** | Default | Requires feature flag |
+| **hiroz Support** | Default | Requires feature flag |
 
 ## Common Patterns
 
@@ -449,8 +449,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ros-z = { version = "0.1", features = ["protobuf"] }
-ros-z-msgs = { version = "0.1", features = ["geometry_msgs", "protobuf"] }
+hiroz = { version = "0.1", features = ["protobuf"] }
+hiroz-msgs = { version = "0.1", features = ["geometry_msgs", "protobuf"] }
 prost = "0.13"
 serde = { version = "1.0", features = ["derive"] }
 
@@ -466,7 +466,7 @@ use std::io::Result;
 fn main() -> Result<()> {
     let mut config = prost_build::Config::new();
 
-    // Enable serde for ros-z compatibility
+    // Enable serde for hiroz compatibility
     config.type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
 
     // Compile all proto files
@@ -493,17 +493,17 @@ fn main() -> Result<()> {
 
     ```toml
     [dependencies]
-    ros-z = { version = "0.1", features = ["protobuf"] }
-    ros-z-msgs = { version = "0.1", features = ["geometry_msgs", "protobuf"] }
+    hiroz = { version = "0.1", features = ["protobuf"] }
+    hiroz-msgs = { version = "0.1", features = ["geometry_msgs", "protobuf"] }
 
     ```
 
 ??? question "Error: MessageTypeInfo not implemented"
-    Custom protobuf messages need to implement required ros-z traits.
+    Custom protobuf messages need to implement required hiroz traits.
     **Solution:** Implement the required traits for your custom message:
 
     ```rust
-    use ros_z::{MessageTypeInfo, WithTypeInfo, entity::TypeHash};
+    use hiroz::{MessageTypeInfo, WithTypeInfo, entity::TypeHash};
 
     impl MessageTypeInfo for MyMessage {
         fn type_name() -> &'static str {

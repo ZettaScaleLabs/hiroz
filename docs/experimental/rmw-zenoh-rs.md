@@ -22,7 +22,7 @@ ROS 2 uses a middleware abstraction layer called RMW (ROS Middleware) that allow
 │  ┌──────────────────────────────────────────┐   │
 │  │  FFI Layer (bindgen + cxx)               │   │
 │  ├──────────────────────────────────────────┤   │
-│  │  ros-z primitives                        │   │
+│  │  hiroz primitives                        │   │
 │  │  (pubsub, service, guard_condition)      │   │
 │  ├──────────────────────────────────────────┤   │
 │  │  Zenoh                                   │   │
@@ -84,8 +84,8 @@ source /opt/ros/jazzy/setup.bash
 mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws/src
 
-# Clone ros-z repository
-git clone https://github.com/ZettaScaleLabs/ros-z.git
+# Clone hiroz repository
+git clone https://github.com/ZettaScaleLabs/hiroz.git
 
 # Build rmw_zenoh_rs
 cd ~/ros2_ws
@@ -138,13 +138,13 @@ Your nodes will now communicate via Zenoh instead of DDS!
 
 **Why a Zenoh router?**
 
-ros-z, rmw_zenoh_rs, and rmw_zenoh_cpp all use router-based discovery by default, which provides:
+hiroz, rmw_zenoh_rs, and rmw_zenoh_cpp all use router-based discovery by default, which provides:
 
 - **Better scalability** - Handles large deployments with many nodes
 - **Lower network overhead** - More efficient than multicast discovery
 - **Cross-network communication** - Nodes can discover each other across network boundaries
 - **Production-ready architecture** - Standard approach used in real ROS 2 systems
-- **Interoperability** - Required for ros-z nodes to work with rmw_zenoh_cpp nodes
+- **Interoperability** - Required for hiroz nodes to work with rmw_zenoh_cpp nodes
 
 !!! info
     The router runs as a separate process and manages discovery and routing between all Zenoh-based nodes. You only need one router per network, regardless of how many nodes you run.
@@ -214,12 +214,12 @@ Supporting Humble would require:
 
 If you need ROS 2 Humble support, you have two options:
 
-#### Option 1: Use ros-z Core Library (Recommended)
+#### Option 1: Use hiroz Core Library (Recommended)
 
-The **ros-z core library** has full Humble support:
+The **hiroz core library** has full Humble support:
 
 ```rust
-use ros_z::{Builder, ZContext};
+use hiroz::{Builder, ZContext};
 
 let ctx = ZContext::default();
 let node = ctx.create_node("my_node").build()?;
@@ -245,7 +245,7 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 run demo_nodes_cpp talker
 ```
 
-**Interoperability**: ros-z nodes can communicate seamlessly with rmw_zenoh_cpp nodes, so you can mix Rust and C++/Python nodes.
+**Interoperability**: hiroz nodes can communicate seamlessly with rmw_zenoh_cpp nodes, so you can mix Rust and C++/Python nodes.
 
 ## rmw_zenoh_rs vs rmw_zenoh_cpp
 
@@ -253,12 +253,12 @@ Both [`rmw_zenoh_rs`](https://github.com/ros2/rmw_zenoh) and [`rmw_zenoh_cpp`](h
 
 | Feature | rmw_zenoh_rs | rmw_zenoh_cpp |
 |---------|--------------|---------------|
-| **Implementation Language** | Rust (using ros-z) | C++ |
-| **Primary Use Case** | Integration with ros-z ecosystem | Standalone Zenoh RMW |
+| **Implementation Language** | Rust (using hiroz) | C++ |
+| **Primary Use Case** | Integration with hiroz ecosystem | Standalone Zenoh RMW |
 | **ROS 2 Compatibility** | Jazzy, Jazzy, Kilted, Rolling | Humble, Jazzy, Jazzy, Kilted, Rolling |
 | **Humble Support** | ❌ No | ✅ Yes |
 | **Status** | Experimental | Production-ready |
-| **Dependencies** | ros-z, Zenoh Rust | Zenoh C++ binding |
+| **Dependencies** | hiroz, Zenoh Rust | Zenoh C++ binding |
 | **Performance** | Optimized for Rust stack | Optimized for C++ stack |
 | **Interoperability** | ✅ Works with rmw_zenoh_cpp | ✅ Works with rmw_zenoh_rs |
 
@@ -271,4 +271,4 @@ rmw_zenoh_rs uses the same Zenoh configuration as rmw_zenoh_cpp. See [Configurat
 
 - [Zenoh Documentation](https://zenoh.io/docs/)
 - [ROS 2 RMW Documentation](https://docs.ros.org/en/jazzy/Concepts/Intermediate/About-Different-Middleware-Vendors.html)
-- [ros-z GitHub Repository](https://github.com/ZettaScaleLabs/ros-z)
+- [hiroz GitHub Repository](https://github.com/ZettaScaleLabs/hiroz)

@@ -1,0 +1,15 @@
+[package]
+name = "hiroz-schema"
+version.workspace = true
+edition.workspace = true
+description = "ROS 2 type description schema types for hiroz"
+homepage.workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4"
+
+[dev-dependencies]
+anyhow = { workspace = true }

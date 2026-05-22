@@ -1,6 +1,6 @@
 # Networking
 
-**Configure ros-z's Eclipse Zenoh transport layer for optimal performance in your deployment environment.** ros-z uses router-based architecture by default, matching ROS 2's official [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) middleware for production-ready scalability.
+**Configure hiroz's Eclipse Zenoh transport layer for optimal performance in your deployment environment.** hiroz uses router-based architecture by default, matching ROS 2's official [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) middleware for production-ready scalability.
 
 ```mermaid
 graph TB
@@ -27,7 +27,7 @@ ROS 2 nodes find each other automatically through a discovery process — no cen
 3. **Periodic heartbeat**: nodes re-broadcast periodically so nodes that join later can discover the system
 4. **Departure**: nodes announce when going offline (best-effort — the system may not detect crashes immediately)
 
-**Why ros-z replaces DDS discovery with Zenoh:**
+**Why hiroz replaces DDS discovery with Zenoh:**
 
 Standard DDS multicast discovery has known limitations:
 
@@ -35,7 +35,7 @@ Standard DDS multicast discovery has known limitations:
 - Discovery traffic grows quadratically with node count in large systems
 - Configuration (tuning QoS, domain separation) is complex
 
-ros-z and [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) use **router-based discovery** instead. All nodes connect to a `zenohd` router via TCP. The router acts as the rendezvous point — nodes announce themselves to the router, which propagates the information to interested peers. This works across subnets, containers, and cloud environments without multicast, and scales linearly: adding more nodes does not increase per-node discovery traffic.
+hiroz and [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) use **router-based discovery** instead. All nodes connect to a `zenohd` router via TCP. The router acts as the rendezvous point — nodes announce themselves to the router, which propagates the information to interested peers. This works across subnets, containers, and cloud environments without multicast, and scales linearly: adding more nodes does not increase per-node discovery traffic.
 
 ```mermaid
 sequenceDiagram
@@ -53,13 +53,13 @@ accDescr: Node A declares a publisher and Node B declares a subscriber through t
     A->>B: Messages (Eclipse Zenoh transport)
 ```
 
-**QoS and discovery:** even after discovery, a publisher and subscriber will not exchange messages if their QoS policies are incompatible (e.g., a best-effort publisher and a reliable subscriber). ros-z checks compatibility at connection time.
+**QoS and discovery:** even after discovery, a publisher and subscriber will not exchange messages if their QoS policies are incompatible (e.g., a best-effort publisher and a reliable subscriber). hiroz checks compatibility at connection time.
 
-The following sections describe how to configure ros-z's router connection for your deployment environment.
+The following sections describe how to configure hiroz's router connection for your deployment environment.
 
 ## Router-Based Architecture
 
-ros-z uses a centralized Zenoh router for node discovery and communication, providing:
+hiroz uses a centralized Zenoh router for node discovery and communication, providing:
 
 | Benefit | Description |
 |---------|-------------|
@@ -70,11 +70,11 @@ ros-z uses a centralized Zenoh router for node discovery and communication, prov
 
 ## Quick Start
 
-The default ros-z configuration connects to a Zenoh router on `tcp/localhost:7447`:
+The default hiroz configuration connects to a Zenoh router on `tcp/localhost:7447`:
 
 ```rust
-use ros_z::context::ZContextBuilder;
-use ros_z::Builder;
+use hiroz::context::ZContextBuilder;
+use hiroz::Builder;
 
 let ctx = ZContextBuilder::default()
     .with_connect_endpoints(["tcp/127.0.0.1:7447"])
@@ -87,7 +87,7 @@ let node = ctx.create_node("my_node").build()?;
 
 ## Running the Zenoh Router
 
-ros-z applications require a Zenoh router to be running. There are several ways to get one - choose based on your environment and requirements.
+hiroz applications require a Zenoh router to be running. There are several ways to get one - choose based on your environment and requirements.
 
 ### Quick Comparison
 
@@ -97,7 +97,7 @@ ros-z applications require a Zenoh router to be running. There are several ways 
 | [Pre-built Binary](#method-2-pre-built-binary) | Quick setup, no Rust | None | Fast |
 | [Docker](#method-3-docker) | Containers, CI/CD | Docker | Fast |
 | [Package Manager](#method-4-package-manager-apt-brew) | System-wide install | apt/brew/etc | Fast |
-| [ros-z Example](#method-5-ros-z-example-router) | ros-z repo developers | ros-z repository | Fast |
+| [hiroz Example](#method-5-hiroz-example-router) | hiroz repo developers | hiroz repository | Fast |
 | [ROS 2 rmw_zenoh](#method-6-ros-2-rmw_zenoh) | ROS 2 interop testing | ROS 2 installed | Already installed |
 
 ---
@@ -188,19 +188,19 @@ yay -S zenoh && zenohd
 
 ---
 
-### Method 5: ros-z Example Router
+### Method 5: hiroz Example Router
 
-**Only available when working in the ros-z repository.**
+**Only available when working in the hiroz repository.**
 
 ```bash
-cd /path/to/ros-z
+cd /path/to/hiroz
 cargo run --example zenoh_router
 ```
 
-Pre-configured for ros-z defaults. Not suitable for standalone projects.
+Pre-configured for hiroz defaults. Not suitable for standalone projects.
 
 !!! warning
-    This method is for ros-z repository development only. If you're building your own project with ros-z as a dependency, use one of the other methods instead.
+    This method is for hiroz repository development only. If you're building your own project with hiroz as a dependency, use one of the other methods instead.
 
 ---
 
@@ -217,7 +217,7 @@ ros2 run rmw_zenoh_cpp rmw_zenohd
 Already installed with ROS 2 Jazzy+. Guaranteed compatibility with C++/Python ROS 2 nodes. Requires a full ROS 2 installation.
 
 !!! tip
-    Use this when testing ros-z interoperability with standard ROS 2 nodes — they share the same router.
+    Use this when testing hiroz interoperability with standard ROS 2 nodes — they share the same router.
 
 ---
 
@@ -235,14 +235,14 @@ netstat -an | grep 7447
 lsof -i :7447
 ```
 
-**Test with a ros-z application:**
+**Test with a hiroz application:**
 
 ```bash
-# In another terminal, try running a ros-z node
+# In another terminal, try running a hiroz node
 # If it connects successfully, the router is working
 ```
 
-You should see log output from the router showing connections when your ros-z nodes start.
+You should see log output from the router showing connections when your hiroz nodes start.
 
 ## Next Steps
 

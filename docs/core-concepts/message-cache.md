@@ -8,8 +8,8 @@
 ## Quick Start
 
 ```rust
-use ros_z::prelude::*;
-use ros_z_msgs::sensor_msgs::Imu;
+use hiroz::prelude::*;
+use hiroz_msgs::sensor_msgs::Imu;
 use std::time::{Duration, SystemTime};
 
 let ctx = ZContextBuilder::default().build()?;
@@ -25,7 +25,7 @@ println!("Messages in window: {}", window.len());
 ```
 
 !!! tip
-    `use ros_z::Builder;` must be in scope to call `.build()`. It is re-exported by `ros_z::prelude::*`.
+    `use hiroz::Builder;` must be in scope to call `.build()`. It is re-exported by `hiroz::prelude::*`.
 
 ## Stamp Strategies
 
@@ -41,8 +41,8 @@ Two indexing strategies are available and selected at **compile time** via the t
 No configuration needed. The cache reads the `uhlc::Timestamp` that the Zenoh transport attaches to every published sample and converts it to `SystemTime`. If the peer has timestamping disabled, the cache falls back to `SystemTime::now()` at receive time and logs a one-time warning.
 
 ```rust
-use ros_z::prelude::*;
-use ros_z_msgs::sensor_msgs::LaserScan;
+use hiroz::prelude::*;
+use hiroz_msgs::sensor_msgs::LaserScan;
 
 let cache = node.create_cache::<LaserScan>("/scan", 100).build()?;
 ```
@@ -52,8 +52,8 @@ let cache = node.create_cache::<LaserScan>("/scan", 100).build()?;
 Supply a closure that extracts a `SystemTime` from the deserialized message. Use this when you need messages aligned by their logical capture time instead of network arrival time — the classic sensor fusion use case.
 
 ```rust
-use ros_z::prelude::*;
-use ros_z_msgs::sensor_msgs::Imu;
+use hiroz::prelude::*;
+use hiroz_msgs::sensor_msgs::Imu;
 use std::time::{Duration, SystemTime};
 
 let cache = node
@@ -142,7 +142,7 @@ let cache = node
 | `getSurroundingInterval` | ✅ | Not implemented |
 | `get_nearest` | Not present | ✅ nearest-neighbor lookup |
 | `clear` / `len` / `is_empty` | Not present | ✅ |
-| Filter chaining (`signalMessage`) | ✅ (passes through to downstream) | Not applicable (ros-z has no filter chain) |
+| Filter chaining (`signalMessage`) | ✅ (passes through to downstream) | Not applicable (hiroz has no filter chain) |
 | Subscriber lifecycle | External, via `connectInput` | Owned by `ZCache`, dropped on `ZCache` drop |
 
 !!! note
@@ -167,4 +167,4 @@ cargo run --example z_cache_app_stamp
 
 - **[Pub/Sub](./pubsub.md)** — Publisher and subscriber patterns that `ZCache` builds on
 - **[Services](./services.md)** — Request/reply communication
-- **API docs** — `cargo doc -p ros-z --open`, then navigate to `ros_z::cache`
+- **API docs** — `cargo doc -p hiroz --open`, then navigate to `hiroz::cache`

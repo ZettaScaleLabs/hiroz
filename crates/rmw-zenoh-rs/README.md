@@ -1,6 +1,6 @@
 <!--
 DO NOT EXPAND THIS README
-Documentation source: docs/ - Published: https://zettascalelabs.github.io/ros-z/
+Documentation source: docs/ - Published: https://zettascalelabs.github.io/hiroz/
 Keep this file minimal. Point readers to the book.
 -->
 
@@ -8,4 +8,4 @@ Keep this file minimal. Point readers to the book.
 
 Experimental Rust-based RMW Zenoh implementation.
 
-**📚 [Full Documentation](https://zettascalelabs.github.io/ros-z/experimental/rmw-zenoh-rs/)**
+**📚 [Full Documentation](https://zettascalelabs.github.io/hiroz/experimental/rmw-zenoh-rs/)**

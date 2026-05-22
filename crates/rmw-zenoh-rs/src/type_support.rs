@@ -79,7 +79,7 @@ mod ffi {
 }
 
 use ffi::*;
-use ros_z::entity::{TypeHash, TypeInfo};
+use hiroz::entity::{TypeHash, TypeInfo};
 
 use crate::ros::rosidl_type_hash_t;
 

@@ -5,26 +5,26 @@ use crate::ros::*;
 use crate::traits::{BorrowData, Waitable};
 use zenoh::{Result, sample::Sample};
 
-// Helper function to convert protocol QoS to ros_z QoS
-pub fn protocol_qos_to_ros_z_qos(qos: &ros_z_protocol::qos::QosProfile) -> ros_z::qos::QosProfile {
-    ros_z::qos::QosProfile {
+// Helper function to convert protocol QoS to hiroz QoS
+pub fn protocol_qos_to_hiroz_qos(qos: &hiroz_protocol::qos::QosProfile) -> hiroz::qos::QosProfile {
+    hiroz::qos::QosProfile {
         reliability: match qos.reliability {
-            ros_z_protocol::qos::QosReliability::Reliable => ros_z::qos::QosReliability::Reliable,
-            ros_z_protocol::qos::QosReliability::BestEffort => {
-                ros_z::qos::QosReliability::BestEffort
+            hiroz_protocol::qos::QosReliability::Reliable => hiroz::qos::QosReliability::Reliable,
+            hiroz_protocol::qos::QosReliability::BestEffort => {
+                hiroz::qos::QosReliability::BestEffort
             }
         },
         durability: match qos.durability {
-            ros_z_protocol::qos::QosDurability::TransientLocal => {
-                ros_z::qos::QosDurability::TransientLocal
+            hiroz_protocol::qos::QosDurability::TransientLocal => {
+                hiroz::qos::QosDurability::TransientLocal
             }
-            ros_z_protocol::qos::QosDurability::Volatile => ros_z::qos::QosDurability::Volatile,
+            hiroz_protocol::qos::QosDurability::Volatile => hiroz::qos::QosDurability::Volatile,
         },
         history: match qos.history {
-            ros_z_protocol::qos::QosHistory::KeepLast(depth) => {
-                ros_z::qos::QosHistory::from_depth(depth)
+            hiroz_protocol::qos::QosHistory::KeepLast(depth) => {
+                hiroz::qos::QosHistory::from_depth(depth)
             }
-            ros_z_protocol::qos::QosHistory::KeepAll => ros_z::qos::QosHistory::KeepAll,
+            hiroz_protocol::qos::QosHistory::KeepAll => hiroz::qos::QosHistory::KeepAll,
         },
         ..Default::default()
     }
@@ -32,13 +32,13 @@ pub fn protocol_qos_to_ros_z_qos(qos: &ros_z_protocol::qos::QosProfile) -> ros_z
 
 /// Publisher implementation for RMW
 pub struct PublisherImpl {
-    pub inner: ros_z::pubsub::ZPub<crate::msg::RosMessage, crate::msg::RosSerdes>,
+    pub inner: hiroz::pubsub::ZPub<crate::msg::RosMessage, crate::msg::RosSerdes>,
     pub ts: crate::type_support::MessageTypeSupport,
     pub topic: CString,
     pub options: rmw_publisher_options_t,
     pub qos: rmw_qos_profile_t,
-    pub graph: std::sync::Arc<ros_z::graph::Graph>,
-    pub entity: ros_z::entity::EndpointEntity,
+    pub graph: std::sync::Arc<hiroz::graph::Graph>,
+    pub entity: hiroz::entity::EndpointEntity,
 }
 
 impl PublisherImpl {
@@ -54,7 +54,7 @@ impl PublisherImpl {
 
 /// Subscription implementation for RMW
 pub struct SubscriptionImpl {
-    pub inner: ros_z::pubsub::ZSub<crate::msg::RosMessage, Sample, crate::msg::RosSerdes>,
+    pub inner: hiroz::pubsub::ZSub<crate::msg::RosMessage, Sample, crate::msg::RosSerdes>,
     pub ts: crate::type_support::MessageTypeSupport,
     pub topic: CString,
     pub options: rmw_subscription_options_t,
@@ -63,8 +63,8 @@ pub struct SubscriptionImpl {
         std::sync::Arc<std::sync::Mutex<crate::ros::rmw_subscription_new_message_callback_t>>,
     pub callback_user_data: std::sync::Arc<std::sync::Mutex<usize>>, // Store pointer as usize for thread safety
     pub unread_count: std::sync::Arc<std::sync::Mutex<usize>>, // Track messages arrived before callback was set
-    pub graph: std::sync::Arc<ros_z::graph::Graph>,
-    pub entity: ros_z::entity::EndpointEntity,
+    pub graph: std::sync::Arc<hiroz::graph::Graph>,
+    pub entity: hiroz::entity::EndpointEntity,
     pub notifier: std::sync::Arc<crate::utils::Notifier>,
     /// Per-subscriber reception counter. Incremented on every successful take.
     pub reception_sn: std::sync::atomic::AtomicU64,
@@ -117,7 +117,7 @@ impl SubscriptionImpl {
                     let (source_timestamp, pub_sn, gid) = if let Some(attachment_bytes) =
                         sample.attachment()
                     {
-                        if let Ok(att) = ros_z::attachment::Attachment::try_from(attachment_bytes) {
+                        if let Ok(att) = hiroz::attachment::Attachment::try_from(attachment_bytes) {
                             (
                                 att.source_timestamp,
                                 att.sequence_number as u64,
@@ -204,7 +204,7 @@ impl SubscriptionImpl {
                     let (source_timestamp, pub_sn, gid) = if let Some(attachment_bytes) =
                         sample.attachment()
                     {
-                        if let Ok(att) = ros_z::attachment::Attachment::try_from(attachment_bytes) {
+                        if let Ok(att) = hiroz::attachment::Attachment::try_from(attachment_bytes) {
                             (
                                 att.source_timestamp,
                                 att.sequence_number as u64,
@@ -333,16 +333,16 @@ pub extern "C" fn rmw_publisher_count_matched_subscriptions(
     let topic_name = publisher_impl.topic.to_str().unwrap_or("");
     let entities = publisher_impl
         .graph
-        .get_entities_by_topic(ros_z::entity::EndpointKind::Subscription, topic_name);
+        .get_entities_by_topic(hiroz::entity::EndpointKind::Subscription, topic_name);
 
     // Filter by QoS compatibility
     let pub_qos = &publisher_impl.qos;
     let count = entities
         .iter()
         .filter(|entity| {
-            if let Some(endpoint) = ros_z::entity::entity_get_endpoint(entity) {
+            if let Some(endpoint) = hiroz::entity::entity_get_endpoint(entity) {
                 let sub_qos =
-                    crate::qos::ros_z_qos_to_rmw_qos(&protocol_qos_to_ros_z_qos(&endpoint.qos));
+                    crate::qos::hiroz_qos_to_rmw_qos(&protocol_qos_to_hiroz_qos(&endpoint.qos));
                 crate::qos::qos_profiles_are_compatible(pub_qos, &sub_qos)
             } else {
                 false
@@ -651,16 +651,16 @@ pub extern "C" fn rmw_subscription_count_matched_publishers(
     let topic_name = subscription_impl.topic.to_str().unwrap_or("");
     let entities = subscription_impl
         .graph
-        .get_entities_by_topic(ros_z::entity::EndpointKind::Publisher, topic_name);
+        .get_entities_by_topic(hiroz::entity::EndpointKind::Publisher, topic_name);
 
     // Filter by QoS compatibility
     let sub_qos = &subscription_impl.qos;
     let count = entities
         .iter()
         .filter(|entity| {
-            if let Some(endpoint) = ros_z::entity::entity_get_endpoint(entity) {
+            if let Some(endpoint) = hiroz::entity::entity_get_endpoint(entity) {
                 let pub_qos =
-                    crate::qos::ros_z_qos_to_rmw_qos(&protocol_qos_to_ros_z_qos(&endpoint.qos));
+                    crate::qos::hiroz_qos_to_rmw_qos(&protocol_qos_to_hiroz_qos(&endpoint.qos));
                 crate::qos::qos_profiles_are_compatible(&pub_qos, sub_qos)
             } else {
                 false

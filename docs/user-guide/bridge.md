@@ -1,6 +1,6 @@
 # Cross-Distro Bridge
 
-`ros-z-bridge` is a standalone binary that transparently connects a **legacy** ROS 2 network
+`hiroz-bridge` is a standalone binary that transparently connects a **legacy** ROS 2 network
 (Humble and earlier) and a **modern** ROS 2 network (Jazzy, Kilted, Rolling) over a shared
 Eclipse Zenoh backbone.
 
@@ -34,14 +34,14 @@ The bridge fixes this by:
 ```mermaid
 graph TD
 accTitle: Cross-distro bridge connecting Humble and Jazzy Zenoh networks
-accDescr: ros-z-bridge opens two Zenoh sessions, one to the legacy Humble router and one to the modern Jazzy or Kilted router, transparently forwarding messages between them.
+accDescr: hiroz-bridge opens two Zenoh sessions, one to the legacy Humble router and one to the modern Jazzy or Kilted router, transparently forwarding messages between them.
     H_node["Humble node<br>(TypeHashNotSupported)"]
     J_node["Jazzy / Kilted node<br>(RIHS01_abcd…)"]
 
     H_router(["Legacy router<br>127.0.0.1:7447"])
     J_router(["Modern router<br>127.0.0.1:7448"])
 
-    bridge["ros-z-bridge"]
+    bridge["hiroz-bridge"]
 
     H_node <-->|rmw_zenoh_cpp v0.1.x| H_router
     J_node <-->|rmw_zenoh_cpp v0.2.x| J_router
@@ -56,7 +56,7 @@ never interfere with each other.
 
 ### Pre-built Binary (Recommended)
 
-Download the latest release for your platform from the [Releases page](https://github.com/ZettaScaleLabs/ros-z/releases). The bridge ships as separate binaries per ROS 2 distro generation:
+Download the latest release for your platform from the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases). The bridge ships as separate binaries per ROS 2 distro generation:
 
 | Platform | Jazzy / Kilted / Rolling | Humble |
 |---|---|---|
@@ -66,8 +66,8 @@ Download the latest release for your platform from the [Releases page](https://g
 
 ```bash
 # Linux x86_64, Jazzy side — replace <version> for your release
-curl -Lo ros-z-bridge https://github.com/ZettaScaleLabs/ros-z/releases/download/<version>/bin-bridge-jazzy-x86_64-linux
-chmod +x ros-z-bridge
+curl -Lo hiroz-bridge https://github.com/ZettaScaleLabs/hiroz/releases/download/<version>/bin-bridge-jazzy-x86_64-linux
+chmod +x hiroz-bridge
 ```
 
 !!! tip
@@ -78,10 +78,10 @@ chmod +x ros-z-bridge
 Requires Rust 1.85+:
 
 ```bash
-cargo build --release -p ros-z-bridge
+cargo build --release -p hiroz-bridge
 ```
 
-The binary is at `target/release/ros-z-bridge`.
+The binary is at `target/release/hiroz-bridge`.
 
 ## Quickstart
 
@@ -103,7 +103,7 @@ zenohd --listen tcp/127.0.0.1:7448 --rest-http-port disabled
 ### 2 — Start the bridge
 
 ```bash
-ros-z-bridge \
+hiroz-bridge \
   --humble-endpoint tcp/127.0.0.1:7447 \
   --jazzy-endpoint  tcp/127.0.0.1:7448 \
   --domain-id 0
@@ -119,7 +119,7 @@ ros2 run demo_nodes_cpp talker
 ```
 
 ```bash
-# Terminal D — Jazzy/Kilted listener (ros-z)
+# Terminal D — Jazzy/Kilted listener (hiroz)
 cargo run --example demo_nodes_listener -- --endpoint tcp/127.0.0.1:7448
 ```
 
@@ -157,7 +157,7 @@ missing, the bridge has not yet re-announced the entity — wait a second and re
 
 ```text
 USAGE:
-    ros-z-bridge [OPTIONS]
+    hiroz-bridge [OPTIONS]
 
 OPTIONS:
     --humble-endpoint <LOCATOR>    Zenoh locator for the legacy (Humble) network
@@ -197,14 +197,14 @@ The bridge includes the following packages out of the box:
 
 ## Custom Messages
 
-Add your message crate to `crates/ros-z-bridge/Cargo.toml`:
+Add your message crate to `crates/hiroz-bridge/Cargo.toml`:
 
 ```toml
 [dependencies]
 my_msgs = { path = "../../crates/my_msgs" }
 ```
 
-Then register the types in `crates/ros-z-bridge/src/hash_registry.rs`:
+Then register the types in `crates/hiroz-bridge/src/hash_registry.rs`:
 
 ```rust
 // In build_registry():
@@ -214,7 +214,7 @@ reg!(map, my_msgs::ros::my_package::MyMessage);
 Rebuild the bridge:
 
 ```bash
-cargo build --release -p ros-z-bridge
+cargo build --release -p hiroz-bridge
 ```
 
 ## Troubleshooting
@@ -227,7 +227,7 @@ may take a few seconds to reflect them. Wait ~5 s after both nodes are running.
 Enable debug logging to watch the re-announcement:
 
 ```bash
-RUST_LOG=ros_z_bridge=debug ros-z-bridge ...
+RUST_LOG=hiroz_bridge=debug hiroz-bridge ...
 ```
 
 Look for lines like:
@@ -254,7 +254,7 @@ may time out. Retry after the server has had a chance to register on the bridge.
 Enable debug logging to verify the proxy was set up:
 
 ```text
-INFO  ros_z_bridge::bridge: Entity appeared: Humble Service topic=/add_two_ints type=…
+INFO  hiroz_bridge::bridge: Entity appeared: Humble Service topic=/add_two_ints type=…
 ```
 
 ## Limitations

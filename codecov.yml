@@ -1,6 +1,6 @@
 coverage:
   status:
-    # Patch coverage is informational: C FFI bridge functions (crates/ros-z/src/ffi/)
+    # Patch coverage is informational: C FFI bridge functions (crates/hiroz/src/ffi/)
     # are called from Go via CGo and exercised by the Go interop CI job — they cannot
     # be instrumented by cargo-llvm-cov.  Overall project coverage is still enforced.
     patch:
@@ -13,6 +13,6 @@ coverage:
 
 ignore:
   # C FFI bridge — exercised by Go interop tests, not Rust unit tests
-  - "crates/ros-z/src/ffi/**"
+  - "crates/hiroz/src/ffi/**"
   # Go source files (not instrumented by cargo-llvm-cov)
-  - "crates/ros-z-go/**"
+  - "crates/hiroz-go/**"

@@ -1,8 +1,8 @@
 use crate::type_support::MessageTypeSupport;
-use ros_z::entity::{TypeHash, TypeInfo};
-use ros_z::msg::{ZDeserializer, ZMessage, ZSerializer, ZService};
-use ros_z::ros_msg::WithTypeInfo;
-use ros_z::{MessageTypeInfo, ServiceTypeInfo};
+use hiroz::entity::{TypeHash, TypeInfo};
+use hiroz::msg::{ZDeserializer, ZMessage, ZSerializer, ZService};
+use hiroz::ros_msg::WithTypeInfo;
+use hiroz::{MessageTypeInfo, ServiceTypeInfo};
 
 pub struct RosMessage {
     msg: *const crate::c_void,

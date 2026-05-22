@@ -1,0 +1,18 @@
+[package]
+name = "custom-msgs-demo"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone package, not part of parent workspace
+[workspace]
+
+[dependencies]
+hiroz-msgs = { path = "../../../hiroz-msgs", default-features = true }
+hiroz = { path = "../..", default-features = false }
+serde = { version = "1", features = ["derive"] }
+smart-default = "0.7"
+zenoh-buffers = "1"
+
+[build-dependencies]
+hiroz-codegen = { path = "../../../hiroz-codegen" }
+anyhow = "1"

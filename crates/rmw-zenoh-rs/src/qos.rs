@@ -14,7 +14,7 @@ pub fn normalize_rmw_qos(qos: &rmw_qos_profile_t) -> rmw_qos_profile_t {
     if normalized.history == rmw_qos_history_policy_e_RMW_QOS_POLICY_HISTORY_KEEP_LAST
         && normalized.depth == 0
     {
-        normalized.depth = ros_z::qos::DEFAULT_HISTORY_DEPTH;
+        normalized.depth = hiroz::qos::DEFAULT_HISTORY_DEPTH;
     }
 
     // Resolve SYSTEM_DEFAULT reliability to RELIABLE
@@ -132,10 +132,10 @@ pub fn check_qos_compatibility_with_policy(
     (true, 0)
 }
 
-/// Convert ros-z Duration to rmw_time_t.
-/// ros-z uses {0, 0} for "infinite/no limit", but RMW uses RMW_DURATION_INFINITE.
+/// Convert hiroz Duration to rmw_time_t.
+/// hiroz uses {0, 0} for "infinite/no limit", but RMW uses RMW_DURATION_INFINITE.
 /// {0, 0} in RMW means RMW_DURATION_UNSPECIFIED which displays as "0 nanoseconds".
-fn duration_to_rmw_time(dur: &ros_z::qos::QosDuration) -> rmw_time_t {
+fn duration_to_rmw_time(dur: &hiroz::qos::QosDuration) -> rmw_time_t {
     if dur.sec == 0 && dur.nsec == 0 {
         // RMW_DURATION_INFINITE = {9223372036, 854775807}
         rmw_time_t {
@@ -150,22 +150,22 @@ fn duration_to_rmw_time(dur: &ros_z::qos::QosDuration) -> rmw_time_t {
     }
 }
 
-/// Convert rmw_time_t to ros-z Duration.
-/// RMW_DURATION_INFINITE maps back to ros-z {0, 0} (infinite).
-fn rmw_time_to_duration(time: &rmw_time_t) -> ros_z::qos::QosDuration {
+/// Convert rmw_time_t to hiroz Duration.
+/// RMW_DURATION_INFINITE maps back to hiroz {0, 0} (infinite).
+fn rmw_time_to_duration(time: &rmw_time_t) -> hiroz::qos::QosDuration {
     if time.sec == 9223372036 && time.nsec == 854775807 {
-        ros_z::qos::QosDuration { sec: 0, nsec: 0 }
+        hiroz::qos::QosDuration { sec: 0, nsec: 0 }
     } else {
-        ros_z::qos::QosDuration {
+        hiroz::qos::QosDuration {
             sec: time.sec,
             nsec: time.nsec,
         }
     }
 }
 
-/// Convert ros-z QoS profile to RMW QoS profile
-pub fn ros_z_qos_to_rmw_qos(qos: &ros_z::qos::QosProfile) -> rmw_qos_profile_t {
-    use ros_z::qos::*;
+/// Convert hiroz QoS profile to RMW QoS profile
+pub fn hiroz_qos_to_rmw_qos(qos: &hiroz::qos::QosProfile) -> rmw_qos_profile_t {
+    use hiroz::qos::*;
 
     #[allow(non_upper_case_globals)]
     let (history, depth) = match &qos.history {
@@ -210,7 +210,7 @@ pub fn ros_z_qos_to_rmw_qos(qos: &ros_z::qos::QosProfile) -> rmw_qos_profile_t {
         _ => rmw_qos_liveliness_policy_e_RMW_QOS_POLICY_LIVELINESS_AUTOMATIC,
     };
 
-    // Convert duration: ros-z uses {0, 0} for "infinite/no limit",
+    // Convert duration: hiroz uses {0, 0} for "infinite/no limit",
     // but RMW uses {9223372036, 854775807} (RMW_DURATION_INFINITE).
     // {0, 0} in RMW means RMW_DURATION_UNSPECIFIED which displays as "0 nanoseconds".
     let deadline = duration_to_rmw_time(&qos.deadline);
@@ -230,14 +230,14 @@ pub fn ros_z_qos_to_rmw_qos(qos: &ros_z::qos::QosProfile) -> rmw_qos_profile_t {
     }
 }
 
-/// Convert RMW QoS profile to ros-z QoS profile
-pub fn rmw_qos_to_ros_z_qos(qos: &rmw_qos_profile_t) -> ros_z::qos::QosProfile {
-    use ros_z::qos::*;
+/// Convert RMW QoS profile to hiroz QoS profile
+pub fn rmw_qos_to_hiroz_qos(qos: &rmw_qos_profile_t) -> hiroz::qos::QosProfile {
+    use hiroz::qos::*;
 
     #[allow(non_upper_case_globals)]
     let history = match qos.history {
         rmw_qos_history_policy_e_RMW_QOS_POLICY_HISTORY_KEEP_LAST => {
-            // Use ros-z normalization function to handle depth=0 (SYSTEM_DEFAULT)
+            // Use hiroz normalization function to handle depth=0 (SYSTEM_DEFAULT)
             QosHistory::from_depth(qos.depth)
         }
         rmw_qos_history_policy_e_RMW_QOS_POLICY_HISTORY_KEEP_ALL => QosHistory::KeepAll,

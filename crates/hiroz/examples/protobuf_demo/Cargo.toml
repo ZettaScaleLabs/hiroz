@@ -1,0 +1,34 @@
+[package]
+name = "protobuf_demo"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+name = "protobuf_demo"
+path = "src/lib.rs"
+
+[[bin]]
+name = "protobuf_demo"
+path = "src/demo.rs"
+
+[dependencies]
+hiroz = { workspace = true, features = ["protobuf"] }
+hiroz-msgs = { path = "../../../hiroz-msgs", features = [
+  "geometry_msgs",
+  "protobuf",
+] }
+prost = { workspace = true }
+serde = { workspace = true }
+zenoh = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+clap = { workspace = true, features = ["derive"] }
+
+[build-dependencies]
+prost-build = { workspace = true }
+
+[features]
+# ROS 2 distro compatibility - pass-through to dependencies
+humble = ["hiroz/humble", "hiroz-msgs/humble"]
+jazzy = ["hiroz/jazzy", "hiroz-msgs/jazzy"]
+rolling = ["hiroz/rolling", "hiroz-msgs/rolling"]

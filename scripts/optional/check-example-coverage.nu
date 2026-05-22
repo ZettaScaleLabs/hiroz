@@ -2,13 +2,13 @@
 # Check documentation coverage for examples
 # This script parses Cargo.toml for [[example]] entries and scans docs for references
 
-# Extract example names from ros-z/Cargo.toml or crates/ros-z/Cargo.toml
+# Extract example names from hiroz/Cargo.toml or crates/hiroz/Cargo.toml
 def extract_examples [] {
-    # Determine the correct path (worktree uses crates/, main uses ros-z/)
-    let cargo_path = if ('crates/ros-z/Cargo.toml' | path exists) {
-        'crates/ros-z/Cargo.toml'
+    # Determine the correct path (worktree uses crates/, main uses hiroz/)
+    let cargo_path = if ('crates/hiroz/Cargo.toml' | path exists) {
+        'crates/hiroz/Cargo.toml'
     } else {
-        'ros-z/Cargo.toml'
+        'hiroz/Cargo.toml'
     }
 
     # Read file as raw string, then split by [[example]] sections

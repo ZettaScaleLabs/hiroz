@@ -1,7 +1,7 @@
 <!-- markdownlint-disable MD046 -->
 # Python Bindings
 
-**ros-z provides Python bindings via `ros-z-py`, enabling Python applications to communicate with Rust and ROS 2 nodes using the same Eclipse Zenoh transport.** The bindings use PyO3 for Rust-Python interop and msgspec for efficient message serialization.
+**hiroz provides Python bindings via `hiroz-py`, enabling Python applications to communicate with Rust and ROS 2 nodes using the same Eclipse Zenoh transport.** The bindings use PyO3 for Rust-Python interop and msgspec for efficient message serialization.
 
 !!! note
     Python bindings provide the same pub/sub and service patterns as Rust, with Pythonic APIs. Messages are automatically serialized/deserialized between Python objects and CDR format for ROS 2 compatibility.
@@ -13,24 +13,24 @@
 Pre-built wheels are available for Linux (x86_64, aarch64) and macOS (aarch64),
 Python 3.11+. No Rust toolchain required.
 
-Pick a release version from the [Releases page](https://github.com/ZettaScaleLabs/ros-z/releases) and substitute `<version>` below (e.g. `v0.2.0`).
+Pick a release version from the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases) and substitute `<version>` below (e.g. `v0.2.0`).
 
 **Jazzy / Kilted / Rolling:**
 
 ```bash
-pip install https://github.com/ZettaScaleLabs/ros-z/releases/download/<version>/ros_z_msgs_py-<version>-py3-none-any.whl
-pip install https://github.com/ZettaScaleLabs/ros-z/releases/download/<version>/ros_z_py-<version>-0jazzy-cp311-abi3-linux_x86_64.whl
+pip install https://github.com/ZettaScaleLabs/hiroz/releases/download/<version>/hiroz_msgs_py-<version>-py3-none-any.whl
+pip install https://github.com/ZettaScaleLabs/hiroz/releases/download/<version>/hiroz_py-<version>-0jazzy-cp311-abi3-linux_x86_64.whl
 ```
 
 **Humble:**
 
 ```bash
-pip install https://github.com/ZettaScaleLabs/ros-z/releases/download/<version>/ros_z_msgs_py-<version>-py3-none-any.whl
-pip install https://github.com/ZettaScaleLabs/ros-z/releases/download/<version>/ros_z_py-<version>-0humble-cp311-abi3-linux_x86_64.whl
+pip install https://github.com/ZettaScaleLabs/hiroz/releases/download/<version>/hiroz_msgs_py-<version>-py3-none-any.whl
+pip install https://github.com/ZettaScaleLabs/hiroz/releases/download/<version>/hiroz_py-<version>-0humble-cp311-abi3-linux_x86_64.whl
 ```
 
 !!! tip
-    `ros-z-msgs-py` (message definitions) is a dependency of `ros-z-py` and is installed automatically when using `pip install`. The explicit install above is only needed when pinning a specific version or installing from a direct URL.
+    `hiroz-msgs-py` (message definitions) is a dependency of `hiroz-py` and is installed automatically when using `pip install`. The explicit install above is only needed when pinning a specific version or installing from a direct URL.
 
 ### Local Dry-Run (before releasing)
 
@@ -38,10 +38,10 @@ To verify the wheel build locally before pushing a release tag, use the build sc
 which mirrors the CI release workflow exactly:
 
 ```bash
-# Build jazzy + humble wheels into crates/ros-z-py/dist/
+# Build jazzy + humble wheels into crates/hiroz-py/dist/
 ./scripts/build-python-wheels.nu
 
-# Build and immediately install into crates/ros-z-py/.venv
+# Build and immediately install into crates/hiroz-py/.venv
 ./scripts/build-python-wheels.nu --install jazzy
 
 # Build a single distro only
@@ -65,14 +65,14 @@ For development or platforms without pre-built wheels:
 
 ```bash
 # Create and activate virtual environment
-cd crates/ros-z-py
+cd crates/hiroz-py
 python -m venv .venv
 source .venv/bin/activate
 
 # Install message types
-pip install -e ../ros-z-msgs/python/
+pip install -e ../hiroz-msgs/python/
 
-# Build and install ros-z-py
+# Build and install hiroz-py
 maturin develop
 ```
 
@@ -84,9 +84,9 @@ maturin develop
 ```mermaid
 graph TD
 accTitle: Python bindings architecture from Python code to Zenoh network
-accDescr: Python code imports ros_z_py which calls through PyO3 into the Rust ros-z core, which uses the Zenoh transport to reach ROS 2 and Rust nodes; Python messages go through msgspec and CDR serialization.
-    A[Python Code] -->|import| B[ros_z_py]
-    B -->|PyO3| C[Rust ros-z]
+accDescr: Python code imports hiroz_py which calls through PyO3 into the Rust hiroz core, which uses the Zenoh transport to reach ROS 2 and Rust nodes; Python messages go through msgspec and CDR serialization.
+    A[Python Code] -->|import| B[hiroz_py]
+    B -->|PyO3| C[Rust hiroz]
     C -->|Zenoh| D[Network]
     D -->|Zenoh| E[ROS 2 / Rust Nodes]
     F[Python Message] -->|msgspec| G[Struct]
@@ -96,25 +96,25 @@ accDescr: Python code imports ros_z_py which calls through PyO3 into the Rust ro
 
 ## Quick Start
 
-Here's a complete publisher and subscriber example from [`crates/ros-z-py/examples/topic_demo.py`](https://github.com/ZettaScaleLabs/ros-z/blob/main/crates/ros-z-py/examples/topic_demo.py):
+Here's a complete publisher and subscriber example from [`crates/hiroz-py/examples/topic_demo.py`](https://github.com/ZettaScaleLabs/hiroz/blob/main/crates/hiroz-py/examples/topic_demo.py):
 
 ### Publisher (Talker)
 
 ```python
---8<-- "crates/ros-z-py/examples/topic_demo.py:run_talker"
+--8<-- "crates/hiroz-py/examples/topic_demo.py:run_talker"
 ```
 
 ### Subscriber (Listener)
 
 ```python
---8<-- "crates/ros-z-py/examples/topic_demo.py:run_listener"
+--8<-- "crates/hiroz-py/examples/topic_demo.py:run_listener"
 ```
 
 ## Key Components
 
 | Component | Purpose | Python API |
 |-----------|---------|------------|
-| **ZContextBuilder** | Configure ros-z environment | `ZContextBuilder().with_domain_id(0).build()` |
+| **ZContextBuilder** | Configure hiroz environment | `ZContextBuilder().with_domain_id(0).build()` |
 | **ZContext** | Manages ROS 2 connections | Entry point for creating nodes |
 | **Node** | Logical unit of computation | `ctx.create_node("name").build()` |
 | **Publisher** | Sends messages to topics | `node.create_publisher(topic, type)` |
@@ -125,18 +125,18 @@ Here's a complete publisher and subscriber example from [`crates/ros-z-py/exampl
 
 ## Service Patterns
 
-Examples from [`crates/ros-z-py/examples/service_demo.py`](https://github.com/ZettaScaleLabs/ros-z/blob/main/crates/ros-z-py/examples/service_demo.py):
+Examples from [`crates/hiroz-py/examples/service_demo.py`](https://github.com/ZettaScaleLabs/hiroz/blob/main/crates/hiroz-py/examples/service_demo.py):
 
 ### Service Server
 
 ```python
---8<-- "crates/ros-z-py/examples/service_demo.py:run_server"
+--8<-- "crates/hiroz-py/examples/service_demo.py:run_server"
 ```
 
 ### Service Client
 
 ```python
---8<-- "crates/ros-z-py/examples/service_demo.py:run_client"
+--8<-- "crates/hiroz-py/examples/service_demo.py:run_client"
 ```
 
 !!! tip
@@ -148,7 +148,7 @@ Actions extend services with long-running execution, incremental feedback, and c
 A goal is sent by the client, accepted or rejected by the server, executed with feedback
 published at each step, and finally terminated with a result.
 
-Examples from [`crates/ros-z-py/examples/action_demo.py`](https://github.com/ZettaScaleLabs/ros-z/blob/main/crates/ros-z-py/examples/action_demo.py).
+Examples from [`crates/hiroz-py/examples/action_demo.py`](https://github.com/ZettaScaleLabs/hiroz/blob/main/crates/hiroz-py/examples/action_demo.py).
 
 ### Defining Message Types
 
@@ -156,18 +156,18 @@ Actions require three message structs: Goal, Result, and Feedback.
 Each must have a `__msgtype__` class attribute:
 
 ```python
---8<-- "crates/ros-z-py/examples/action_demo.py:message_types"
+--8<-- "crates/hiroz-py/examples/action_demo.py:message_types"
 ```
 
 !!! tip
-    Types from `ros_z_msgs_py` already have `__msgtype__` and a ROS 2 type hash. Inline
+    Types from `hiroz_msgs_py` already have `__msgtype__` and a ROS 2 type hash. Inline
     `msgspec.Struct` types (as above) use a zero hash and are **Python-to-Python only** —
     they are not compatible with [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) typed actions.
 
 ### Action Server
 
 ```python
---8<-- "crates/ros-z-py/examples/action_demo.py:run_server"
+--8<-- "crates/hiroz-py/examples/action_demo.py:run_server"
 ```
 
 
@@ -183,7 +183,7 @@ Each must have a `__msgtype__` class attribute:
 ### Action Client
 
 ```python
---8<-- "crates/ros-z-py/examples/action_demo.py:run_client"
+--8<-- "crates/hiroz-py/examples/action_demo.py:run_client"
 ```
 
 #### Client Lifecycle
@@ -207,7 +207,7 @@ Each must have a `__msgtype__` class attribute:
 | `ABORTED` | 6 | — | ✓ |
 
 ```python
-status = ros_z_py.GoalStatus(handle.status)
+status = hiroz_py.GoalStatus(handle.status)
 if status.is_terminal():
     print("Done:", status)
 ```
@@ -221,7 +221,7 @@ if status.is_terminal():
 Python bindings support nested message types like `geometry_msgs/Twist`:
 
 ```python
-from ros_z_py import geometry_msgs
+from hiroz_py import geometry_msgs
 
 # Create a Twist message with nested Vector3
 twist = geometry_msgs.Twist(
@@ -239,7 +239,7 @@ pub.publish(twist)
 
 ```python
 ctx = (
-    ros_z_py.ZContextBuilder()
+    hiroz_py.ZContextBuilder()
     .with_connect_endpoints(["tcp/192.168.1.100:7447"])
     .build()
 )
@@ -249,7 +249,7 @@ ctx = (
 
 ```python
 ctx = (
-    ros_z_py.ZContextBuilder()
+    hiroz_py.ZContextBuilder()
     .with_domain_id(0)
     .disable_multicast_scouting()
     .build()
@@ -264,11 +264,11 @@ node = ctx.create_node("my_node").with_namespace("/robot1").build()
 
 ## Performance: Zero-Copy Large Payloads
 
-When working with large byte arrays (sensor data, images, point clouds), ros-z-py minimizes memory copies using a zero-copy optimization for `uint8[]` and `byte[]` fields.
+When working with large byte arrays (sensor data, images, point clouds), hiroz-py minimizes memory copies using a zero-copy optimization for `uint8[]` and `byte[]` fields.
 
 ### ZBufView
 
-When a subscriber receives a message, ros-z exposes byte array fields as a `ZBufView` — a zero-copy view into the received network buffer. `ZBufView` implements Python's buffer protocol:
+When a subscriber receives a message, hiroz exposes byte array fields as a `ZBufView` — a zero-copy view into the received network buffer. `ZBufView` implements Python's buffer protocol:
 
 ```python
 msg = sub.recv(timeout=1.0)
@@ -312,7 +312,7 @@ pub.publish(echo)
 
 The optimization operates at three layers:
 
-1. **Deserialization bypass**: When the Python subscriber receives a message, ros-z stores the raw network buffer (ZBuf) in a thread-local. During CDR deserialization, byte array fields create sub-views into this buffer instead of copying (`ZSlice::subslice()`).
+1. **Deserialization bypass**: When the Python subscriber receives a message, hiroz stores the raw network buffer (ZBuf) in a thread-local. During CDR deserialization, byte array fields create sub-views into this buffer instead of copying (`ZSlice::subslice()`).
 
 2. **Buffer protocol**: `ZBufView` wraps the ZBuf and exposes its bytes to Python via `__getbuffer__`/`__releasebuffer__`. For contiguous buffers (the common case), this is a direct pointer — no copy at all.
 
@@ -326,31 +326,31 @@ Python nodes interoperate with ROS 2 C++ nodes via the shared Zenoh transport. S
 
 ```bash
 # Python unit tests
-cd crates/ros-z-py
+cd crates/hiroz-py
 source .venv/bin/activate
 python -m pytest tests/ -v
 
 # Python-Rust interop tests
-cargo test --features python-interop -p ros-z-tests --test python_interop -- --test-threads=1
+cargo test --features python-interop -p hiroz-tests --test python_interop -- --test-threads=1
 ```
 
 ## Troubleshooting
 
-??? question "Import errors when using ros_z_py"
+??? question "Import errors when using hiroz_py"
     This error occurs when the package hasn't been built or installed correctly.
     **Solution:** Rebuild and install the package:
 
     ```bash
-    cd crates/ros-z-py
+    cd crates/hiroz-py
     source .venv/bin/activate
-    pip install -e ../ros-z-msgs/python/
+    pip install -e ../hiroz-msgs/python/
     maturin develop
 
     ```
 
 ??? question "Message type not found"
     This error occurs when trying to use a message type that isn't supported by the Python bindings.
-    **Solution:** Check the supported message types by looking at the match arms in `crates/ros-z-py/src/node.rs`.
+    **Solution:** Check the supported message types by looking at the match arms in `crates/hiroz-py/src/node.rs`.
     Currently supported: `std_msgs/String`, `std_msgs/ByteMultiArray`, `geometry_msgs/Vector3`,
     `geometry_msgs/Twist`, `sensor_msgs/LaserScan`, and `example_interfaces/AddTwoInts`.
 
@@ -367,7 +367,7 @@ cargo test --features python-interop -p ros-z-tests --test python_interop -- --t
 
 ## Resources
 
-- **[Code Generation Internals](./python-codegen.md)** - How ros-z generates Python bindings
+- **[Code Generation Internals](./python-codegen.md)** - How hiroz generates Python bindings
 - **[Pub/Sub](../core-concepts/pubsub.md)** - Deep dive into pub-sub patterns
 - **[Services](../core-concepts/services.md)** - Request-response communication
 - **[Message Generation](../user-guide/message-generation.md)** - How message types work

@@ -1,9 +1,9 @@
-# git-cliff configuration for ros-z
+# git-cliff configuration for hiroz
 # https://git-cliff.org/docs/configuration
 
 [remote.github]
 owner = "ZettaScaleLabs"
-repo = "ros-z"
+repo = "hiroz"
 
 [changelog]
 header = ""
@@ -21,11 +21,11 @@ body = """
 <summary><strong>{{ group | striptags | trim | upper_first }}</strong></summary>
 
 {% for commit in commits | filter(attribute="scope") | sort(attribute="scope") %}\
-  - {% if commit.scope %}**({{ commit.scope }})** {% endif %}{{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/ZettaScaleLabs/ros-z/commit/{{ commit.id }}))
+  - {% if commit.scope %}**({{ commit.scope }})** {% endif %}{{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/ZettaScaleLabs/hiroz/commit/{{ commit.id }}))
 {% endfor %}\
 {% for commit in commits %}\
 {%- if not commit.scope %}\
-  - {{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/ZettaScaleLabs/ros-z/commit/{{ commit.id }}))
+  - {{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/ZettaScaleLabs/hiroz/commit/{{ commit.id }}))
 {% endif %}\
 {% endfor %}
 </details>
@@ -34,7 +34,7 @@ body = """
 ### New Contributors
 {% for contributor in github.contributors | filter(attribute="is_first_time", value=true) %}\
   - @{{ contributor.username }} made their first contribution\
-{% if contributor.pr_number %} in [#{{ contributor.pr_number }}](https://github.com/ZettaScaleLabs/ros-z/pull/{{ contributor.pr_number }}){% endif %}
+{% if contributor.pr_number %} in [#{{ contributor.pr_number }}](https://github.com/ZettaScaleLabs/hiroz/pull/{{ contributor.pr_number }}){% endif %}
 {% endfor %}\
 {% endif %}\
 """

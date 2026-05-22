@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 
 # Go Binding Health Test Suite
-# Tests the ros-z-go and ros-z-codegen-go packages to ensure they build and run correctly
+# Tests the hiroz-go and hiroz-codegen-go packages to ensure they build and run correctly
 
 use lib/common.nu *
 
@@ -9,8 +9,8 @@ use lib/common.nu *
 # Configuration
 # ============================================================================
 
-const CODEGEN_DIR = "crates/ros-z-codegen-go"
-const RUNTIME_DIR = "crates/ros-z-go"
+const CODEGEN_DIR = "crates/hiroz-codegen-go"
+const RUNTIME_DIR = "crates/hiroz-go"
 
 # ============================================================================
 # Helpers
@@ -18,7 +18,7 @@ const RUNTIME_DIR = "crates/ros-z-go"
 
 # Check if the Rust FFI library is available for linking
 def has-ffi-library [] {
-    ("target/release/libros_z.a" | path exists) or ("target/debug/libros_z.a" | path exists)
+    ("target/release/libhiroz.a" | path exists) or ("target/debug/libhiroz.a" | path exists)
 }
 
 # ============================================================================
@@ -43,9 +43,9 @@ def check-go-installation [] {
     }
 }
 
-# Test ros-z-codegen-go (code generator)
+# Test hiroz-codegen-go (code generator)
 def test-codegen [] {
-    log-step "Testing ros-z-codegen-go (code generator)"
+    log-step "Testing hiroz-codegen-go (code generator)"
 
     # Format check
     log-step "Running gofmt on code generator"
@@ -56,7 +56,7 @@ def test-codegen [] {
     } else {
         print "⚠️  Code generator has formatting issues:"
         print $fmt_result.stdout
-        print "   Run 'gofmt -w .' in crates/ros-z-codegen-go to fix"
+        print "   Run 'gofmt -w .' in crates/hiroz-codegen-go to fix"
     }
     cd ../..
 
@@ -87,9 +87,9 @@ def test-codegen [] {
     cd ../..
 }
 
-# Test ros-z-go runtime library
+# Test hiroz-go runtime library
 def test-runtime [] {
-    log-step "Testing ros-z-go (runtime library)"
+    log-step "Testing hiroz-go (runtime library)"
 
     # Format check
     log-step "Running gofmt on runtime library"
@@ -100,7 +100,7 @@ def test-runtime [] {
     } else {
         print "⚠️  Runtime library has formatting issues:"
         print $fmt_result.stdout
-        print "   Run 'gofmt -w .' in crates/ros-z-go to fix"
+        print "   Run 'gofmt -w .' in crates/hiroz-go to fix"
     }
     cd ../..
 
@@ -120,29 +120,29 @@ def test-runtime [] {
 
     # FFI tests (requires compiled Rust library)
     if (has-ffi-library) {
-        let lib_dir = if ("target/release/libros_z.a" | path exists) {
+        let lib_dir = if ("target/release/libhiroz.a" | path exists) {
             $"(pwd)/target/release"
         } else {
             $"(pwd)/target/debug"
         }
-        log-step "Running rosz FFI tests (QoS, types, handlers, subscribers)"
+        log-step "Running hiroz FFI tests (QoS, types, handlers, subscribers)"
         cd $RUNTIME_DIR
         let ffi_result = (with-env {CGO_LDFLAGS: $"-L($lib_dir)"} {
-            go test -v -count=1 ./rosz/ | complete
+            go test -v -count=1 ./hiroz/ | complete
         })
         if $ffi_result.exit_code != 0 {
-            print "❌ rosz FFI tests failed:"
+            print "❌ hiroz FFI tests failed:"
             print $ffi_result.stdout
             print $ffi_result.stderr
             exit 1
         }
         print $ffi_result.stdout
-        log-success "rosz FFI tests pass"
+        log-success "hiroz FFI tests pass"
         cd ../..
     } else {
         print ""
-        log-warning "Skipping rosz FFI tests (Rust library not built)"
-        print "   Build with: cargo build -p ros-z --features ffi --release"
+        log-warning "Skipping hiroz FFI tests (Rust library not built)"
+        print "   Build with: cargo build -p hiroz --features ffi --release"
     }
 }
 
@@ -156,14 +156,14 @@ def has-rust-examples [] {
     (("target/release/examples/z_pubsub" | path exists) and ("target/release/examples/z_srvcli" | path exists))
 }
 
-# Run integration tests (requires zenohd + libros_z.a)
+# Run integration tests (requires zenohd + libhiroz.a)
 # Covers: Go↔Go pubsub/service/action and Go↔Rust interop tests
 def test-integration [--race] {
     log-step "Running Go integration tests"
 
     if not (has-ffi-library) {
         log-warning "Skipping integration tests (Rust library not built)"
-        print "   Build with: just -f crates/ros-z-go/justfile build-rust"
+        print "   Build with: just -f crates/hiroz-go/justfile build-rust"
         return
     }
 
@@ -171,7 +171,7 @@ def test-integration [--race] {
         log-warning "zenohd not on PATH — tests will use compiled zenoh_router example instead"
     }
 
-    let lib_dir = if ("target/release/libros_z.a" | path exists) {
+    let lib_dir = if ("target/release/libhiroz.a" | path exists) {
         $"(pwd)/target/release"
     } else {
         $"(pwd)/target/debug"
@@ -182,7 +182,7 @@ def test-integration [--race] {
         log-step "Rust example binaries found — Go↔Rust interop tests will run"
     } else {
         log-warning "Rust example binaries not found — Go↔Rust tests will be skipped"
-        print "   Build with: just -f crates/ros-z-go/justfile build-rust-examples"
+        print "   Build with: just -f crates/hiroz-go/justfile build-rust-examples"
     }
 
     cd $RUNTIME_DIR
@@ -208,7 +208,7 @@ def test-examples [] {
 
     if not (has-ffi-library) {
         log-warning "Skipping examples (Rust FFI library not built)"
-        print "   Build with: cargo build -p ros-z --features ffi --release"
+        print "   Build with: cargo build -p hiroz --features ffi --release"
         return
     }
 
@@ -226,7 +226,7 @@ def test-examples [] {
     ]
 
     # These examples need generated message packages to compile
-    let needs_generated = ("crates/ros-z-go/generated" | path exists)
+    let needs_generated = ("crates/hiroz-go/generated" | path exists)
 
     if not $needs_generated {
         log-warning "Generated messages not found — examples that import them will be skipped"
@@ -255,9 +255,9 @@ def test-examples [] {
     cd ../..
 
     # production_service has its own go.mod — test separately
-    if ("crates/ros-z-go/examples/production_service/go.mod" | path exists) {
+    if ("crates/hiroz-go/examples/production_service/go.mod" | path exists) {
         log-step "Building example: production_service (separate module)"
-        cd "crates/ros-z-go/examples/production_service"
+        cd "crates/hiroz-go/examples/production_service"
         let result = (go build -v ./... | complete)
         if $result.exit_code != 0 {
             print "⚠️  production_service build failed (may need local replace directives):"
@@ -287,16 +287,16 @@ def test-vet [] {
     cd ../..
 
     # Vet runtime library packages
-    # rosz uses CGO but go vet does not link — no libros_z.a needed
-    log-step "Vetting rosz package"
+    # hiroz uses CGO but go vet does not link — no libhiroz.a needed
+    log-step "Vetting hiroz package"
     cd $RUNTIME_DIR
-    let vet_rosz = (go vet ./rosz/... | complete)
-    if $vet_rosz.exit_code != 0 {
-        print "❌ rosz package failed go vet:"
-        print $vet_rosz.stderr
+    let vet_hiroz = (go vet ./hiroz/... | complete)
+    if $vet_hiroz.exit_code != 0 {
+        print "❌ hiroz package failed go vet:"
+        print $vet_hiroz.stderr
         exit 1
     }
-    log-success "rosz package passes go vet"
+    log-success "hiroz package passes go vet"
 
     log-step "Vetting testdata package"
     let vet_testdata = (go vet ./testdata/ | complete)
@@ -330,8 +330,8 @@ def main [
     --runtime-only    # Only test the runtime library
     --examples-only   # Only test the examples
     --vet-only        # Only run go vet
-    --ffi-only        # Only run the rosz FFI tests
-    --integration     # Run integration tests (requires zenohd + libros_z.a)
+    --ffi-only        # Only run the hiroz FFI tests
+    --integration     # Run integration tests (requires zenohd + libhiroz.a)
     --race            # Enable race detector in all Go test runs
 ] {
     log-header "Go Binding Health Test Suite"
@@ -342,7 +342,7 @@ def main [
         log-success "Rust FFI library found — full test coverage enabled"
     } else {
         log-warning "Rust FFI library not found — some tests will be skipped"
-        print "   Build with: just -f crates/ros-z-go/justfile build-rust"
+        print "   Build with: just -f crates/hiroz-go/justfile build-rust"
     }
 
     if $integration {
@@ -356,7 +356,7 @@ def main [
             print $"   Rust examples found — Go↔Rust tests will run"
         } else {
             print $"   Rust examples not built — Go↔Rust tests will be skipped"
-            print "   Build: just -f crates/ros-z-go/justfile build-rust-examples"
+            print "   Build: just -f crates/hiroz-go/justfile build-rust-examples"
         }
     }
     print ""

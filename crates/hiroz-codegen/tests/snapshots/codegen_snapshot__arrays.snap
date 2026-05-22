@@ -1,0 +1,1220 @@
+---
+source: crates/hiroz-codegen/tests/codegen_snapshot.rs
+assertion_line: 80
+expression: format_tokens(tokens)
+---
+#[derive(Debug, Clone, Default, ::serde::Serialize, ::serde::Deserialize)]
+#[cfg_attr(
+    feature = "python_registry",
+    derive(::hiroz_derive::FromPyMessage, ::hiroz_derive::IntoPyMessage)
+)]
+#[cfg_attr(
+    feature = "python_registry",
+    ros_msg(module = "hiroz_msgs_py.types.test_interface_files")
+)]
+pub struct Arrays {
+    pub bool_values: [bool; 3],
+    pub byte_values: [u8; 3],
+    pub char_values: [i8; 3],
+    pub float32_values: [f32; 3],
+    pub float64_values: [f64; 3],
+    pub int8_values: [i8; 3],
+    pub uint8_values: [u8; 3],
+    pub int16_values: [i16; 3],
+    pub uint16_values: [u16; 3],
+    pub int32_values: [i32; 3],
+    pub uint32_values: [u32; 3],
+    pub int64_values: [i64; 3],
+    pub uint64_values: [u64; 3],
+    pub string_values: [::std::string::String; 3],
+    pub basic_types_values: [super::test_interface_files::BasicTypes; 3],
+    pub constants_values: [super::test_interface_files::Constants; 3],
+    pub defaults_values: [super::test_interface_files::Defaults; 3],
+    pub bool_values_default: [bool; 3],
+    pub byte_values_default: [u8; 3],
+    pub char_values_default: [i8; 3],
+    pub float32_values_default: [f32; 3],
+    pub float64_values_default: [f64; 3],
+    pub int8_values_default: [i8; 3],
+    pub uint8_values_default: [u8; 3],
+    pub int16_values_default: [i16; 3],
+    pub uint16_values_default: [u16; 3],
+    pub int32_values_default: [i32; 3],
+    pub uint32_values_default: [u32; 3],
+    pub int64_values_default: [i64; 3],
+    pub uint64_values_default: [u64; 3],
+    pub string_values_default: [::std::string::String; 3],
+    pub alignment_check: i32,
+}
+impl Arrays {}
+impl ::hiroz::MessageTypeInfo for Arrays {
+    fn type_name() -> &'static str {
+        "test_interface_files::msg::dds_::Arrays_"
+    }
+    fn type_hash() -> ::hiroz::entity::TypeHash {
+        ::hiroz::entity::TypeHash::from_rihs_string(
+                "RIHS01_f2a373b74b93feccf53bd195bfd5d6d33f3b8770c44fbe07e5bdb80bcba91b0a",
+            )
+            .expect("Invalid RIHS hash")
+    }
+    fn message_schema() -> Option<::std::sync::Arc<::hiroz::dynamic::MessageSchema>> {
+        static SCHEMA: ::std::sync::OnceLock<
+            ::std::sync::Arc<::hiroz::dynamic::MessageSchema>,
+        > = ::std::sync::OnceLock::new();
+        Some(
+            SCHEMA
+                .get_or_init(|| {
+                    ::hiroz::dynamic::MessageSchema::builder(
+                            "test_interface_files/msg/Arrays",
+                        )
+                        .field(
+                            "bool_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Bool),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "byte_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint8),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "char_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint8),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "float32_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(
+                                    ::hiroz::dynamic::FieldType::Float32,
+                                ),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "float64_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(
+                                    ::hiroz::dynamic::FieldType::Float64,
+                                ),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "int8_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Int8),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "uint8_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint8),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "int16_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Int16),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "uint16_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint16),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "int32_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Int32),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "uint32_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint32),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "int64_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Int64),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "uint64_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint64),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "string_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::String),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "basic_types_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(
+                                    ::hiroz::dynamic::FieldType::Message(
+                                        <super::test_interface_files::BasicTypes as ::hiroz::MessageTypeInfo>::message_schema()
+                                            .expect("generated nested message schema must be available"),
+                                    ),
+                                ),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "constants_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(
+                                    ::hiroz::dynamic::FieldType::Message(
+                                        <super::test_interface_files::Constants as ::hiroz::MessageTypeInfo>::message_schema()
+                                            .expect("generated nested message schema must be available"),
+                                    ),
+                                ),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "defaults_values",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(
+                                    ::hiroz::dynamic::FieldType::Message(
+                                        <super::test_interface_files::Defaults as ::hiroz::MessageTypeInfo>::message_schema()
+                                            .expect("generated nested message schema must be available"),
+                                    ),
+                                ),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "bool_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Bool),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "byte_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint8),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "char_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint8),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "float32_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(
+                                    ::hiroz::dynamic::FieldType::Float32,
+                                ),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "float64_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(
+                                    ::hiroz::dynamic::FieldType::Float64,
+                                ),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "int8_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Int8),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "uint8_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint8),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "int16_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Int16),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "uint16_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint16),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "int32_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Int32),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "uint32_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint32),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "int64_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Int64),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "uint64_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint64),
+                                3usize,
+                            ),
+                        )
+                        .field(
+                            "string_values_default",
+                            ::hiroz::dynamic::FieldType::Array(
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::String),
+                                3usize,
+                            ),
+                        )
+                        .field("alignment_check", ::hiroz::dynamic::FieldType::Int32)
+                        .build()
+                        .expect("generated message schema must be valid")
+                })
+                .clone(),
+        )
+    }
+}
+impl ::hiroz::ros_msg::WithTypeInfo for Arrays {}
+impl crate::size_estimation::SizeEstimation for Arrays {
+    fn estimated_cdr_size(&self) -> usize {
+        let mut size = 0usize;
+        size += 3usize;
+        size += 3usize;
+        size += 3usize;
+        size += 12usize;
+        size += 24usize;
+        size += 3usize;
+        size += 3usize;
+        size += 6usize;
+        size += 6usize;
+        size += 12usize;
+        size += 12usize;
+        size += 24usize;
+        size += 24usize;
+        for s in &self.string_values {
+            size += 4 + s.len();
+        }
+        for item in &self.basic_types_values {
+            size += crate::size_estimation::SizeEstimation::estimated_cdr_size(item);
+        }
+        for item in &self.constants_values {
+            size += crate::size_estimation::SizeEstimation::estimated_cdr_size(item);
+        }
+        for item in &self.defaults_values {
+            size += crate::size_estimation::SizeEstimation::estimated_cdr_size(item);
+        }
+        size += 3usize;
+        size += 3usize;
+        size += 3usize;
+        size += 12usize;
+        size += 24usize;
+        size += 3usize;
+        size += 3usize;
+        size += 6usize;
+        size += 6usize;
+        size += 12usize;
+        size += 12usize;
+        size += 24usize;
+        size += 24usize;
+        for s in &self.string_values_default {
+            size += 4 + s.len();
+        }
+        size += 4usize;
+        size + 16
+    }
+}
+impl Arrays {
+    /// Get an accurate estimate of the serialized CDR size.
+    ///
+    /// This implementation accounts for dynamic fields (Vec, String, ZBuf)
+    /// and provides a conservative but accurate upper bound for SHM allocation.
+    pub fn estimated_serialized_size(&self) -> usize {
+        4 + crate::size_estimation::SizeEstimation::estimated_cdr_size(self)
+    }
+}
+impl ::hiroz_cdr::CdrSerialize for Arrays {
+    fn cdr_serialize<BO, B>(&self, __w: &mut ::hiroz_cdr::CdrWriter<'_, BO, B>)
+    where
+        BO: ::byteorder::ByteOrder,
+        B: ::hiroz_cdr::CdrBuffer,
+    {
+        for __item in &self.bool_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.byte_values);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.byte_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        for __item in &self.char_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.float32_values);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.float32_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.float64_values);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.float64_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.int8_values);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.int8_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.uint8_values);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.uint8_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.int16_values);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.int16_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.uint16_values);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.uint16_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.int32_values);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.int32_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.uint32_values);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.uint32_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.int64_values);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.int64_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.uint64_values);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.uint64_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        for __item in &self.string_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        for __item in &self.basic_types_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        for __item in &self.constants_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        for __item in &self.defaults_values {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        for __item in &self.bool_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.byte_values_default);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.byte_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        for __item in &self.char_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")]
+        __w.write_pod_slice(&self.float32_values_default);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.float32_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")]
+        __w.write_pod_slice(&self.float64_values_default);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.float64_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.int8_values_default);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.int8_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.uint8_values_default);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.uint8_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.int16_values_default);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.int16_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")]
+        __w.write_pod_slice(&self.uint16_values_default);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.uint16_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.int32_values_default);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.int32_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")]
+        __w.write_pod_slice(&self.uint32_values_default);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.uint32_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")] __w.write_pod_slice(&self.int64_values_default);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.int64_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        #[cfg(target_endian = "little")]
+        __w.write_pod_slice(&self.uint64_values_default);
+        #[cfg(not(target_endian = "little"))]
+        for __item in &self.uint64_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        for __item in &self.string_values_default {
+            ::hiroz_cdr::CdrSerialize::cdr_serialize(__item, __w);
+        }
+        ::hiroz_cdr::CdrSerialize::cdr_serialize(&self.alignment_check, __w);
+    }
+}
+impl ::hiroz_cdr::CdrDeserialize for Arrays {
+    fn cdr_deserialize<'__de, BO>(
+        __r: &mut ::hiroz_cdr::CdrReader<'__de, BO>,
+    ) -> ::hiroz_cdr::Result<Self>
+    where
+        BO: ::byteorder::ByteOrder,
+    {
+        let bool_values: [bool; 3] = {
+            let mut __arr = [Default::default(); 3];
+            for __slot in __arr.iter_mut() {
+                *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+            }
+            __arr
+        };
+        let byte_values: [u8; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<u8>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let char_values: [i8; 3] = {
+            let mut __arr = [Default::default(); 3];
+            for __slot in __arr.iter_mut() {
+                *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+            }
+            __arr
+        };
+        let float32_values: [f32; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<f32>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let float64_values: [f64; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<f64>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let int8_values: [i8; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<i8>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let uint8_values: [u8; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<u8>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let int16_values: [i16; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<i16>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let uint16_values: [u16; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<u16>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let int32_values: [i32; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<i32>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let uint32_values: [u32; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<u32>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let int64_values: [i64; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<i64>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let uint64_values: [u64; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<u64>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let string_values: [::std::string::String; 3] = {
+            let mut __arr = [Default::default(); 3];
+            for __slot in __arr.iter_mut() {
+                *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+            }
+            __arr
+        };
+        let basic_types_values: [super::test_interface_files::BasicTypes; 3] = {
+            let mut __arr = [Default::default(); 3];
+            for __slot in __arr.iter_mut() {
+                *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+            }
+            __arr
+        };
+        let constants_values: [super::test_interface_files::Constants; 3] = {
+            let mut __arr = [Default::default(); 3];
+            for __slot in __arr.iter_mut() {
+                *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+            }
+            __arr
+        };
+        let defaults_values: [super::test_interface_files::Defaults; 3] = {
+            let mut __arr = [Default::default(); 3];
+            for __slot in __arr.iter_mut() {
+                *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+            }
+            __arr
+        };
+        let bool_values_default: [bool; 3] = {
+            let mut __arr = [Default::default(); 3];
+            for __slot in __arr.iter_mut() {
+                *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+            }
+            __arr
+        };
+        let byte_values_default: [u8; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<u8>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let char_values_default: [i8; 3] = {
+            let mut __arr = [Default::default(); 3];
+            for __slot in __arr.iter_mut() {
+                *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+            }
+            __arr
+        };
+        let float32_values_default: [f32; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<f32>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let float64_values_default: [f64; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<f64>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let int8_values_default: [i8; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<i8>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let uint8_values_default: [u8; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<u8>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let int16_values_default: [i16; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<i16>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let uint16_values_default: [u16; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<u16>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let int32_values_default: [i32; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<i32>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let uint32_values_default: [u32; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<u32>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let int64_values_default: [i64; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<i64>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let uint64_values_default: [u64; 3] = {
+            #[cfg(target_endian = "little")]
+            {
+                let __slice = __r.read_pod_slice::<u64>(3)?;
+                ::std::convert::TryInto::try_into(__slice)
+                    .map_err(|_| ::hiroz_cdr::Error::UnexpectedEof)?
+            }
+            #[cfg(not(target_endian = "little"))]
+            {
+                let mut __arr = [Default::default(); 3];
+                for __slot in __arr.iter_mut() {
+                    *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+                }
+                __arr
+            }
+        };
+        let string_values_default: [::std::string::String; 3] = {
+            let mut __arr = [Default::default(); 3];
+            for __slot in __arr.iter_mut() {
+                *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+            }
+            __arr
+        };
+        let alignment_check = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
+        Ok(Self {
+            bool_values,
+            byte_values,
+            char_values,
+            float32_values,
+            float64_values,
+            int8_values,
+            uint8_values,
+            int16_values,
+            uint16_values,
+            int32_values,
+            uint32_values,
+            int64_values,
+            uint64_values,
+            string_values,
+            basic_types_values,
+            constants_values,
+            defaults_values,
+            bool_values_default,
+            byte_values_default,
+            char_values_default,
+            float32_values_default,
+            float64_values_default,
+            int8_values_default,
+            uint8_values_default,
+            int16_values_default,
+            uint16_values_default,
+            int32_values_default,
+            uint32_values_default,
+            int64_values_default,
+            uint64_values_default,
+            string_values_default,
+            alignment_check,
+        })
+    }
+}
+impl ::hiroz_cdr::CdrSerializedSize for Arrays {
+    fn cdr_serialized_size(&self, __pos: usize) -> usize {
+        let mut __p = __pos;
+        for __item in &self.bool_values {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        if !self.byte_values.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.byte_values[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.byte_values.len()
+                    * ::std::mem::size_of_val(&self.byte_values[0]);
+        }
+        for __item in &self.char_values {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        if !self.float32_values.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.float32_values[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.float32_values.len()
+                    * ::std::mem::size_of_val(&self.float32_values[0]);
+        }
+        if !self.float64_values.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.float64_values[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.float64_values.len()
+                    * ::std::mem::size_of_val(&self.float64_values[0]);
+        }
+        if !self.int8_values.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.int8_values[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.int8_values.len()
+                    * ::std::mem::size_of_val(&self.int8_values[0]);
+        }
+        if !self.uint8_values.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.uint8_values[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.uint8_values.len()
+                    * ::std::mem::size_of_val(&self.uint8_values[0]);
+        }
+        if !self.int16_values.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.int16_values[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.int16_values.len()
+                    * ::std::mem::size_of_val(&self.int16_values[0]);
+        }
+        if !self.uint16_values.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.uint16_values[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.uint16_values.len()
+                    * ::std::mem::size_of_val(&self.uint16_values[0]);
+        }
+        if !self.int32_values.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.int32_values[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.int32_values.len()
+                    * ::std::mem::size_of_val(&self.int32_values[0]);
+        }
+        if !self.uint32_values.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.uint32_values[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.uint32_values.len()
+                    * ::std::mem::size_of_val(&self.uint32_values[0]);
+        }
+        if !self.int64_values.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.int64_values[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.int64_values.len()
+                    * ::std::mem::size_of_val(&self.int64_values[0]);
+        }
+        if !self.uint64_values.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.uint64_values[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.uint64_values.len()
+                    * ::std::mem::size_of_val(&self.uint64_values[0]);
+        }
+        for __item in &self.string_values {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        for __item in &self.basic_types_values {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        for __item in &self.constants_values {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        for __item in &self.defaults_values {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        for __item in &self.bool_values_default {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        if !self.byte_values_default.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.byte_values_default[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.byte_values_default.len()
+                    * ::std::mem::size_of_val(&self.byte_values_default[0]);
+        }
+        for __item in &self.char_values_default {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        if !self.float32_values_default.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.float32_values_default[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.float32_values_default.len()
+                    * ::std::mem::size_of_val(&self.float32_values_default[0]);
+        }
+        if !self.float64_values_default.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.float64_values_default[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.float64_values_default.len()
+                    * ::std::mem::size_of_val(&self.float64_values_default[0]);
+        }
+        if !self.int8_values_default.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.int8_values_default[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.int8_values_default.len()
+                    * ::std::mem::size_of_val(&self.int8_values_default[0]);
+        }
+        if !self.uint8_values_default.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.uint8_values_default[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.uint8_values_default.len()
+                    * ::std::mem::size_of_val(&self.uint8_values_default[0]);
+        }
+        if !self.int16_values_default.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.int16_values_default[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.int16_values_default.len()
+                    * ::std::mem::size_of_val(&self.int16_values_default[0]);
+        }
+        if !self.uint16_values_default.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.uint16_values_default[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.uint16_values_default.len()
+                    * ::std::mem::size_of_val(&self.uint16_values_default[0]);
+        }
+        if !self.int32_values_default.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.int32_values_default[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.int32_values_default.len()
+                    * ::std::mem::size_of_val(&self.int32_values_default[0]);
+        }
+        if !self.uint32_values_default.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.uint32_values_default[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.uint32_values_default.len()
+                    * ::std::mem::size_of_val(&self.uint32_values_default[0]);
+        }
+        if !self.int64_values_default.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.int64_values_default[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.int64_values_default.len()
+                    * ::std::mem::size_of_val(&self.int64_values_default[0]);
+        }
+        if !self.uint64_values_default.is_empty() {
+            let __elem_align = ::std::mem::align_of_val(&self.uint64_values_default[0]);
+            __p
+                += (__p % __elem_align != 0) as usize
+                    * (__elem_align - __p % __elem_align);
+            __p
+                += self.uint64_values_default.len()
+                    * ::std::mem::size_of_val(&self.uint64_values_default[0]);
+        }
+        for __item in &self.string_values_default {
+            __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(__item, __p);
+        }
+        __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(
+            &self.alignment_check,
+            __p,
+        );
+        __p
+    }
+}

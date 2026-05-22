@@ -44,13 +44,13 @@ jobs:
         include:
           - distro: humble
             image: ros:humble-ros-base
-            ros_z_feature: humble
+            hiroz_feature: humble
           - distro: jazzy
             image: ros:jazzy-ros-base
-            ros_z_feature: jazzy
+            hiroz_feature: jazzy
           - distro: kilted
             image: ros:kilted-ros-base
-            ros_z_feature: kilted
+            hiroz_feature: kilted
     container:
       image: ${{ matrix.image }}
     steps:
@@ -112,15 +112,15 @@ jobs:
         run: |
           source /opt/ros/${{ matrix.distro }}/setup.bash
           export RMW_IMPLEMENTATION=rmw_zenoh_cpp
-          export RUST_LOG=ros_z=debug,zenoh=warn
-          FEATURES="${{ matrix.ros_z_feature }}"
+          export RUST_LOG=hiroz=debug,zenoh=warn
+          FEATURES="${{ matrix.hiroz_feature }}"
           if [ "$FEATURES" = "humble" ]; then
-            cargo nextest run -p ros-z-tests --profile interop \
+            cargo nextest run -p hiroz-tests --profile interop \
               --no-default-features --features ros-interop,humble --release
           else
-            cargo nextest run -p ros-z-tests --profile interop \
+            cargo nextest run -p hiroz-tests --profile interop \
               --features "ros-interop,$FEATURES" --release
-            cargo nextest run -p ros-z-console --profile interop \
+            cargo nextest run -p hiroz-console --profile interop \
               --features ros-interop --release \
               -E 'test(dynamic_subscriber)'
           fi
@@ -132,21 +132,21 @@ jobs:
 
       - name: Build Rust FFI library + example binaries
         run: |
-          FEATURES="ffi,${{ matrix.ros_z_feature }},rmw-zenoh"
+          FEATURES="ffi,${{ matrix.hiroz_feature }},rmw-zenoh"
           cargo build --release --no-default-features --features "$FEATURES" \
             --lib --example z_pubsub --example z_srvcli --example zenoh_router
 
       - name: Generate Go message types (bundled IDL)
         run: |
-          mkdir -p _tmp crates/ros-z-go/generated
-          cargo run -p ros-z-codegen --bin export_json -- \
-            --assets crates/ros-z-codegen/assets/jazzy \
+          mkdir -p _tmp crates/hiroz-go/generated
+          cargo run -p hiroz-codegen --bin export_json -- \
+            --assets crates/hiroz-codegen/assets/jazzy \
             --output _tmp/go-manifest.json \
             --packages builtin_interfaces,service_msgs,action_msgs,unique_identifier_msgs,std_msgs,example_interfaces
-          cd crates/ros-z-codegen-go && go run . \
+          cd crates/hiroz-codegen-go && go run . \
             -input ../../_tmp/go-manifest.json \
-            -output ../ros-z-go/generated \
-            -prefix github.com/ZettaScaleLabs/ros-z/crates/ros-z-go
+            -output ../hiroz-go/generated \
+            -prefix github.com/ZettaScaleLabs/hiroz/crates/hiroz-go
 
       - name: Go vet (static analysis)
         run: nu scripts/test-go.nu --vet-only

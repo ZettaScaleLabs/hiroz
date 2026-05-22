@@ -72,7 +72,7 @@ git-hooks.lib.${system}.run {
       description = "Run ruff linter";
       entry = "${pkgs.ruff}/bin/ruff check --fix";
       files = "\\.py$";
-      excludes = [ "crates/ros-z-msgs/python/ros_z_msgs_py/types/.*\\.py$" ];
+      excludes = [ "crates/hiroz-msgs/python/hiroz_msgs_py/types/.*\\.py$" ];
     };
 
     ruff-format = {
@@ -80,14 +80,14 @@ git-hooks.lib.${system}.run {
       description = "Run ruff formatter";
       entry = "${pkgs.ruff}/bin/ruff format";
       files = "\\.py$";
-      excludes = [ "crates/ros-z-msgs/python/ros_z_msgs_py/types/.*\\.py$" ];
+      excludes = [ "crates/hiroz-msgs/python/hiroz_msgs_py/types/.*\\.py$" ];
     };
 
     mypy = {
       enable = true;
       description = "Run mypy type checker";
       entry = "${pkgs.mypy}/bin/mypy";
-      files = "crates/ros-z-py/tests/.*\\.py$|crates/ros-z-py/examples/.*\\.py$";
+      files = "crates/hiroz-py/tests/.*\\.py$|crates/hiroz-py/examples/.*\\.py$";
       pass_filenames = true;
       args = [
         "--ignore-missing-imports"

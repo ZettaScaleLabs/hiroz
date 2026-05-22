@@ -3,15 +3,15 @@
 **Automatic Rust type generation from ROS 2 message definitions at build time.** The code generation system converts `.msg`, `.srv`, and `.action` files into type-safe Rust structs with full serialization support and ROS 2 compatibility.
 
 !!! success
-    Message generation happens automatically during builds. You write ROS 2 message definitions, ros-z generates idiomatic Rust code.
+    Message generation happens automatically during builds. You write ROS 2 message definitions, hiroz generates idiomatic Rust code.
 
 ## System Architecture
 
 ```mermaid
 graph LR
-accTitle: Message generation system architecture from msg files to ros-z-msgs
-accDescr: ROS message and service files are parsed and resolved by ros-z-codegen, hashed for type safety, then fed to Rust and Protobuf generators whose output is collected into the ros-z-msgs crate.
-    A[.msg/.srv files] --> B[ros-z-codegen]
+accTitle: Message generation system architecture from msg files to hiroz-msgs
+accDescr: ROS message and service files are parsed and resolved by hiroz-codegen, hashed for type safety, then fed to Rust and Protobuf generators whose output is collected into the hiroz-msgs crate.
+    A[.msg/.srv files] --> B[hiroz-codegen]
     B --> C[Parse & Resolve]
     C --> D[Type Hashing]
     D --> E[Code Generation]
@@ -19,7 +19,7 @@ accDescr: ROS message and service files are parsed and resolved by ros-z-codegen
     E --> G[Protobuf Generator]
     F --> H[Rust Structs + Traits]
     G --> I[Proto Files + Rust]
-    H --> J[ros-z-msgs]
+    H --> J[hiroz-msgs]
     I --> J
 ```
 
@@ -35,9 +35,9 @@ accDescr: ROS message and service files are parsed and resolved by ros-z-codegen
 
 ## Component Stack
 
-### ros-z-codegen
+### hiroz-codegen
 
-Internal message generation library for ros-z:
+Internal message generation library for hiroz:
 
 - Parses `.msg`, `.srv`, and `.action` file syntax
 - Resolves message dependencies across packages
@@ -46,16 +46,16 @@ Internal message generation library for ros-z:
 - Bundles common message definitions
 
 !!! info
-    ros-z-codegen provides bundled messages for `std_msgs`, `geometry_msgs`, `sensor_msgs`, and `nav_msgs`. These work without ROS 2 installation.
+    hiroz-codegen provides bundled messages for `std_msgs`, `geometry_msgs`, `sensor_msgs`, and `nav_msgs`. These work without ROS 2 installation.
 
 ### Orchestration Layer
 
-ros-z-codegen's orchestration capabilities:
+hiroz-codegen's orchestration capabilities:
 
 - Coordinates message discovery across sources
 - Manages build-time code generation
 - Provides code generators for different serialization formats
-- Generates ros-z-specific traits
+- Generates hiroz-specific traits
 
 **Discovery workflow:**
 
@@ -89,7 +89,7 @@ accDescr: build.rs asks the discovery layer to find packages, which checks AMENT
 **Rust Generator (default):**
 
 - Generates structs with serde
-- CDR-compatible serialization via ros-z-cdr
+- CDR-compatible serialization via hiroz-cdr
 - Full ROS 2 DDS interoperability
 - No additional dependencies
 
@@ -102,7 +102,7 @@ accDescr: build.rs asks the discovery layer to find packages, which checks AMENT
 
 ## Generated Code
 
-For each ROS 2 message, ros-z generates:
+For each ROS 2 message, hiroz generates:
 
 ### Message Struct
 
@@ -146,13 +146,13 @@ impl WithTypeInfo for std_msgs::String {
 
 ## Build Process
 
-### ros-z-msgs Build Script
+### hiroz-msgs Build Script
 
 The generation happens in `build.rs`:
 
 ```mermaid
 flowchart TD
-accTitle: ros-z-msgs build script flow from feature flags to compiled output
+accTitle: hiroz-msgs build script flow from feature flags to compiled output
 accDescr: The build script reads enabled features, discovers package paths, parses and resolves message definitions if found, generates Rust code written to OUT_DIR, then compilation completes.
     A[Start build.rs] --> B[Read enabled features]
     B --> C[Discover package paths]
@@ -195,7 +195,7 @@ accDescr: Feature flags trigger discovery that checks for a system ROS installat
 
 1. **System ROS:** `$AMENT_PREFIX_PATH`, `$CMAKE_PREFIX_PATH`
 2. **Standard paths:** `/opt/ros/{rolling,jazzy,kilted,humble}`
-3. **Bundled assets:** Built-in message definitions in ros-z-codegen
+3. **Bundled assets:** Built-in message definitions in hiroz-codegen
 
 This fallback enables development without ROS 2 installation.
 
@@ -204,22 +204,22 @@ This fallback enables development without ROS 2 installation.
 ### Import Pattern
 
 ```rust
-use ros_z_msgs::ros::std_msgs::String as RosString;
-use ros_z_msgs::ros::geometry_msgs::Twist;
-use ros_z_msgs::ros::sensor_msgs::LaserScan;
+use hiroz_msgs::ros::std_msgs::String as RosString;
+use hiroz_msgs::ros::geometry_msgs::Twist;
+use hiroz_msgs::ros::sensor_msgs::LaserScan;
 ```
 
 ### Namespace Structure
 
 ```text
-ros_z_msgs::ros::{package}::{MessageName}
+hiroz_msgs::ros::{package}::{MessageName}
 ```
 
 **Examples:**
 
-- `ros_z_msgs::ros::std_msgs::String`
-- `ros_z_msgs::ros::geometry_msgs::Point`
-- `ros_z_msgs::ros::sensor_msgs::Image`
+- `hiroz_msgs::ros::std_msgs::String`
+- `hiroz_msgs::ros::geometry_msgs::Point`
+- `hiroz_msgs::ros::sensor_msgs::Image`
 
 ### Service Types
 
@@ -227,13 +227,13 @@ Services generate three types:
 
 ```rust
 // Service definition
-use ros_z_msgs::ros::example_interfaces::AddTwoInts;
+use hiroz_msgs::ros::example_interfaces::AddTwoInts;
 
 // Request type
-use ros_z_msgs::ros::example_interfaces::AddTwoIntsRequest;
+use hiroz_msgs::ros::example_interfaces::AddTwoIntsRequest;
 
 // Response type
-use ros_z_msgs::ros::example_interfaces::AddTwoIntsResponse;
+use hiroz_msgs::ros::example_interfaces::AddTwoIntsResponse;
 ```
 
 !!! tip
@@ -254,12 +254,12 @@ Available without ROS 2:
 
 ```bash
 # Build with bundled messages
-cargo build -p ros-z-msgs --features bundled_msgs
+cargo build -p hiroz-msgs --features bundled_msgs
 ```
 
 ### Additional Packages
 
-ros-z bundles these packages so they are available without ROS 2 installation:
+hiroz bundles these packages so they are available without ROS 2 installation:
 
 | Package | Messages | Use Cases |
 |---------|----------|-----------|
@@ -269,7 +269,7 @@ ros-z bundles these packages so they are available without ROS 2 installation:
 
 ```bash
 # All packages are bundled by default
-cargo build -p ros-z-msgs --features all_msgs
+cargo build -p hiroz-msgs --features all_msgs
 ```
 
 ## Manual Custom Messages
@@ -293,7 +293,7 @@ pub struct RobotStatus {
 ### Implement Required Traits
 
 ```rust
-use ros_z::{MessageTypeInfo, WithTypeInfo, entity::TypeHash};
+use hiroz::{MessageTypeInfo, WithTypeInfo, entity::TypeHash};
 
 impl MessageTypeInfo for RobotStatus {
     fn type_name() -> &'static str {
@@ -301,7 +301,7 @@ impl MessageTypeInfo for RobotStatus {
     }
 
     fn type_hash() -> TypeHash {
-        // For ros-z-to-ros-z only
+        // For hiroz-to-hiroz only
         TypeHash::zero()
     }
 }
@@ -310,7 +310,7 @@ impl WithTypeInfo for RobotStatus {}
 ```
 
 !!! warning
-    Manual messages with `TypeHash::zero()` work only between ros-z nodes. For ROS 2 interoperability, use generated messages with proper type hashes.
+    Manual messages with `TypeHash::zero()` work only between hiroz nodes. For ROS 2 interoperability, use generated messages with proper type hashes.
 
 ### When to Use Each Approach
 
@@ -356,8 +356,8 @@ pub struct String {
 Protocol Buffers alternative:
 
 ```bash
-cargo build -p ros-z-msgs --features protobuf
-cargo build -p ros-z --features protobuf
+cargo build -p hiroz-msgs --features protobuf
+cargo build -p hiroz --features protobuf
 ```
 
 **Benefits:**
@@ -378,11 +378,11 @@ cargo build -p ros-z --features protobuf
 
 ## Extending Message Packages
 
-Add new packages to ros-z-msgs:
+Add new packages to hiroz-msgs:
 
 ### 1. Add Feature Flag
 
-Edit `ros-z-msgs/Cargo.toml`:
+Edit `hiroz-msgs/Cargo.toml`:
 
 ```toml
 [features]
@@ -392,7 +392,7 @@ your_package = []
 
 ### 2. Update Build Script
 
-Edit `ros-z-msgs/build.rs`:
+Edit `hiroz-msgs/build.rs`:
 
 ```rust
 fn get_bundled_packages() -> Vec<&'static str> {
@@ -408,7 +408,7 @@ fn get_bundled_packages() -> Vec<&'static str> {
 ### 3. Rebuild
 
 ```bash
-cargo build -p ros-z-msgs --features your_package
+cargo build -p hiroz-msgs --features your_package
 ```
 
 The build system automatically:
@@ -430,7 +430,7 @@ The generator automatically filters:
 
 ### Type Hash Calculation
 
-ros-z uses the RIHS (ROS IDL Hash) algorithm:
+hiroz uses the RIHS (ROS IDL Hash) algorithm:
 
 ```mermaid
 flowchart LR
@@ -462,7 +462,7 @@ TypeHash::from_rihs_string("RIHS01_1234567890abcdef...")
 For custom build scripts:
 
 ```rust
-use ros_z_codegen::{MessageGenerator, GeneratorConfig};
+use hiroz_codegen::{MessageGenerator, GeneratorConfig};
 
 let config = GeneratorConfig {
     generate_cdr: true,
@@ -489,8 +489,8 @@ ros2 pkg list | grep your_package
 # Install if missing
 sudo apt install ros-jazzy-your-package
 
-# Bundled packages are built into ros-z-codegen
-cargo build -p ros-z-msgs --features bundled_msgs
+# Bundled packages are built into hiroz-codegen
+cargo build -p hiroz-msgs --features bundled_msgs
 ```
 
 ### Build Failures
@@ -499,7 +499,7 @@ cargo build -p ros-z-msgs --features bundled_msgs
 |-------|-------|----------|
 | "Cannot find package" | Missing dependency | Enable feature or install ROS 2 package |
 | "Type conflict" | Duplicate definition | Remove manual implementation |
-| "Hash error" | Version mismatch | Update ros-z-codegen dependency |
+| "Hash error" | Version mismatch | Update hiroz-codegen dependency |
 
 See [Troubleshooting Guide](../reference/troubleshooting.md) for detailed solutions.
 
@@ -510,4 +510,4 @@ See [Troubleshooting Guide](../reference/troubleshooting.md) for detailed soluti
 - **[Custom Messages](./custom-messages.md)** - Manual implementation
 - **[Protobuf Serialization](./protobuf.md)** - Alternative serialization format
 
-**Message generation is transparent. Focus on writing ROS 2 message definitions and let ros-z handle the Rust code generation.**
+**Message generation is transparent. Focus on writing ROS 2 message definitions and let hiroz handle the Rust code generation.**

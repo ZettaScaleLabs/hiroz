@@ -2,41 +2,41 @@
 version = "0.1.0"
 edition = "2024"
 description = "Native Rust ROS 2 implementation using Zenoh"
-homepage = "https://github.com/ZettaScaleLabs/ros-z"
+homepage = "https://github.com/ZettaScaleLabs/hiroz"
 
 [workspace]
 resolver = "2"
 members = [
-  "crates/ros-z",
-  "crates/ros-z-cdr",
-  "crates/ros-z-codegen",
-  "crates/ros-z-derive",
-  "crates/ros-z-protocol",
-  "crates/ros-z-py",
+  "crates/hiroz",
+  "crates/hiroz-cdr",
+  "crates/hiroz-codegen",
+  "crates/hiroz-derive",
+  "crates/hiroz-protocol",
+  "crates/hiroz-py",
   "crates/rmw-zenoh-rs",
-  "crates/ros-z-schema",
-  "crates/ros-z-msgs",
-  "crates/ros-z-tests",
-  "crates/ros-z-console",
-  "crates/ros-z-bridge",
-  "crates/ros-z/examples/protobuf_demo",
+  "crates/hiroz-schema",
+  "crates/hiroz-msgs",
+  "crates/hiroz-tests",
+  "crates/hiroz-console",
+  "crates/hiroz-bridge",
+  "crates/hiroz/examples/protobuf_demo",
 ]
-default-members = ["crates/ros-z", "crates/ros-z-codegen"]
+default-members = ["crates/hiroz", "crates/hiroz-codegen"]
 # Note: protobuf_demo is an advanced example demonstrating protobuf serialization
 # Note: Go packages are in:
-# - crates/ros-z-codegen-go/ (code generator)
-# - crates/ros-z-go/ (runtime library)
+# - crates/hiroz-codegen-go/ (code generator)
+# - crates/hiroz-go/ (runtime library)
 
 [workspace.dependencies]
 # Workspace members
-ros-z = { version = "*", path = "crates/ros-z" }
-ros-z-codegen = { version = "*", path = "crates/ros-z-codegen" }
-ros-z-protocol = { version = "*", path = "crates/ros-z-protocol" }
+hiroz = { version = "*", path = "crates/hiroz" }
+hiroz-codegen = { version = "*", path = "crates/hiroz-codegen" }
+hiroz-protocol = { version = "*", path = "crates/hiroz-protocol" }
 rmw-zenoh-rs = { version = "*", path = "crates/rmw-zenoh-rs" }
-ros-z-schema = { version = "*", path = "crates/ros-z-schema" }
+hiroz-schema = { version = "*", path = "crates/hiroz-schema" }
 
 # Serialization
-ros-z-cdr = { path = "crates/ros-z-cdr" }
+hiroz-cdr = { path = "crates/hiroz-cdr" }
 serde = "1.0.219"
 serde_bytes = "0.11"
 serde_json = "1.0"
