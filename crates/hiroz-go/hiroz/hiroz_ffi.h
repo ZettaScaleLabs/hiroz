@@ -74,9 +74,9 @@ typedef struct hiroz_RawServiceClient hiroz_RawServiceClient;
 typedef struct hiroz_RawSubscriber hiroz_RawSubscriber;
 
 /**
- * A live ros-z context backed by an open Zenoh session.
+ * A live hiroz context backed by an open Zenoh session.
  *
- * `ZContext` is the root object for all ros-z communication. Create one with
+ * `ZContext` is the root object for all hiroz communication. Create one with
  * [`ZContextBuilder`] and use it to create [`ZNode`](crate::node::ZNode)s.
  *
  * # Example
@@ -405,7 +405,7 @@ int32_t hiroz_action_server_destroy(struct hiroz_action_server_t *server);
 int32_t hiroz_goal_handle_destroy(struct hiroz_goal_handle_t *handle);
 
 /**
- * Create a new ros-z context with default config (convenience)
+ * Create a new hiroz context with default config (convenience)
  *
  * # Safety
  * Must be called from a valid thread. The returned pointer must be freed
@@ -414,7 +414,7 @@ int32_t hiroz_goal_handle_destroy(struct hiroz_goal_handle_t *handle);
 struct hiroz_context_t *hiroz_context_create(uint32_t domain_id);
 
 /**
- * Create a new ros-z context with full configuration
+ * Create a new hiroz context with full configuration
  *
  * # Safety
  * `config` must be a valid pointer to a `CContextConfig` struct, or null.

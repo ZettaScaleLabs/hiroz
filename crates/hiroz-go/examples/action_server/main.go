@@ -1,4 +1,4 @@
-// crates/ros-z-go/examples/action_server/main.go
+// crates/hiroz-go/examples/action_server/main.go
 //
 // This example demonstrates how to create a ROS 2 action server using hiroz Go bindings.
 // It creates a Fibonacci action server that computes Fibonacci sequences.

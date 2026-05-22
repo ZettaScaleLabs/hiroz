@@ -17,7 +17,7 @@ import (
 	"github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz"
 )
 
-// TestGoPublisherToROS2Subscriber tests ros-z-go publisher -> ROS2 subscriber
+// TestGoPublisherToROS2Subscriber tests hiroz-go publisher -> ROS2 subscriber
 func TestGoPublisherToROS2Subscriber(t *testing.T) {
 	if !checkROS2Available() {
 		t.Skip("ROS2 not available, skipping interop test")
@@ -60,7 +60,7 @@ func TestGoPublisherToROS2Subscriber(t *testing.T) {
 
 	time.Sleep(2 * time.Second) // Wait for subscriber + discovery
 
-	// Create ros-z-go publisher
+	// Create hiroz-go publisher
 	roszCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
@@ -116,7 +116,7 @@ checkOutput:
 	}
 }
 
-// TestROS2PublisherToGoSubscriber tests ROS2 publisher -> ros-z-go subscriber
+// TestROS2PublisherToGoSubscriber tests ROS2 publisher -> hiroz-go subscriber
 func TestROS2PublisherToGoSubscriber(t *testing.T) {
 	if !checkROS2Available() {
 		t.Skip("ROS2 not available, skipping interop test")
@@ -128,7 +128,7 @@ func TestROS2PublisherToGoSubscriber(t *testing.T) {
 
 	time.Sleep(time.Second)
 
-	// Create ros-z-go subscriber
+	// Create hiroz-go subscriber
 	roszCtx, err := hiroz.NewContext().
 		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
 		Build()
@@ -170,7 +170,7 @@ func TestROS2PublisherToGoSubscriber(t *testing.T) {
 
 	// Start ROS2 publisher.
 	// Use -w 0 so ros2 topic pub does not wait for rmw_zenoh_cpp-visible
-	// subscribers — the Go subscriber uses ros-z liveliness, not rmw liveliness.
+	// subscribers — the Go subscriber uses hiroz liveliness, not rmw liveliness.
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -208,7 +208,7 @@ func TestROS2PublisherToGoSubscriber(t *testing.T) {
 	}
 }
 
-// TestGoPublisherToGoSubscriber tests ros-z-go publisher -> ros-z-go subscriber
+// TestGoPublisherToGoSubscriber tests hiroz-go publisher -> hiroz-go subscriber
 func TestGoPublisherToGoSubscriber(t *testing.T) {
 	// Start Zenoh router
 	router := startZenohRouter(t)

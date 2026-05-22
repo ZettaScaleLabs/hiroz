@@ -83,7 +83,7 @@ func (b *ServiceClientBuilder) Build(svc Service) (*ServiceClient, error) {
 	defer C.free(unsafe.Pointer(serviceC))
 
 	// Use the service-level TypeName/TypeHash (DDS format) so the key expression
-	// matches rmw_zenoh_cpp and the Rust ros-z native API.
+	// matches rmw_zenoh_cpp and the Rust hiroz native API.
 	svcTypeC := C.CString(svc.TypeName())
 	defer C.free(unsafe.Pointer(svcTypeC))
 
@@ -277,7 +277,7 @@ func (b *ServiceServerBuilder) Build(svc Service, callback func([]byte) ([]byte,
 	defer C.free(unsafe.Pointer(serviceC))
 
 	// Use the service-level TypeName/TypeHash (DDS format) so the key expression
-	// matches rmw_zenoh_cpp and the Rust ros-z native API.
+	// matches rmw_zenoh_cpp and the Rust hiroz native API.
 	svcTypeC := C.CString(svc.TypeName())
 	defer C.free(unsafe.Pointer(svcTypeC))
 

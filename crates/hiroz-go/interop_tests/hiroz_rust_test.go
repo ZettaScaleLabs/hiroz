@@ -3,10 +3,10 @@
 
 package interop_tests
 
-// Go ↔ Rust ros-z interop tests.
+// Go ↔ Rust hiroz interop tests.
 //
-// These tests spawn compiled Rust ros-z example binaries and verify that the
-// Go FFI layer interoperates correctly with the native Rust implementation —
+// These tests spawn compiled Rust hiroz example binaries and verify that the
+// Go FFI layer interoperates correctly with the native Rust hiroz implementation —
 // without going through the ROS 2 rmw layer.
 //
 // # Why this matters
@@ -65,7 +65,7 @@ func rustExampleBinary(name string) (string, bool) {
 	return bin, true
 }
 
-// rustEnv returns the environment for a Rust ros-z process, injecting
+// rustEnv returns the environment for a Rust hiroz process, injecting
 // ROSZ_CONFIG_OVERRIDE so it connects to the per-test Zenoh router.
 func rustEnv(router *ZenohRouter) []string {
 	override := fmt.Sprintf(

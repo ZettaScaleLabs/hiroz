@@ -1,4 +1,4 @@
-// crates/ros-z-go/examples/action_client_errors/main.go
+// crates/hiroz-go/examples/action_client_errors/main.go
 //
 // This example demonstrates structured error handling for action clients.
 // Shows how to handle goal rejections, result failures, and cancel operations.

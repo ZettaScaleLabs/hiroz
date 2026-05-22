@@ -1,4 +1,4 @@
-// crates/ros-z-go/examples/service_client/main.go
+// crates/hiroz-go/examples/service_client/main.go
 //
 // This example demonstrates how to call a ROS 2 service using hiroz Go bindings.
 // It calls an AddTwoInts service and prints the result.

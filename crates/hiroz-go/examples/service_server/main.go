@@ -1,4 +1,4 @@
-// crates/ros-z-go/examples/service_server/main.go
+// crates/hiroz-go/examples/service_server/main.go
 //
 // This example demonstrates how to create a ROS 2 service server using hiroz Go bindings.
 // It creates an AddTwoInts service server that responds with the sum of two integers.

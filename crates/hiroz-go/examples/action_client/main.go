@@ -1,4 +1,4 @@
-// crates/ros-z-go/examples/action_client/main.go
+// crates/hiroz-go/examples/action_client/main.go
 //
 // This example demonstrates how to send goals to a ROS 2 action server using hiroz Go bindings.
 // It sends a Fibonacci goal and retrieves the result.

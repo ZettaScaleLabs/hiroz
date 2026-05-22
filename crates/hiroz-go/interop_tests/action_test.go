@@ -237,7 +237,7 @@ func TestROS2ActionServerToGoClient(t *testing.T) {
 }
 
 // TestGoActionServerToGoClient tests Go action server with Go client.
-// This tests ros-z to ros-z action communication without ROS2 involvement.
+// This tests hiroz to hiroz action communication without ROS2 involvement.
 //
 // Test flow:
 // - Start Zenoh router

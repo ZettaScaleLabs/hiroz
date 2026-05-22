@@ -195,7 +195,7 @@ pub unsafe extern "C" fn hiroz_service_client_create(
                 inner: Box::new(raw_client),
             })),
             Err(e) => {
-                tracing::warn!("ros-z: Failed to create service client: {}", e);
+                tracing::warn!("hiroz: Failed to create service client: {}", e);
                 std::ptr::null_mut()
             }
         }
@@ -234,7 +234,7 @@ pub unsafe extern "C" fn hiroz_service_client_call(
                 ErrorCode::Success as i32
             }
             Err(e) => {
-                tracing::warn!("ros-z: Service call failed: {}", e);
+                tracing::warn!("hiroz: Service call failed: {}", e);
                 -1
             }
         }
@@ -319,7 +319,7 @@ pub unsafe extern "C" fn hiroz_service_server_create(
             match node_ref.create_raw_service_server(service_str, type_name_str, type_hash_str) {
                 Ok(s) => s,
                 Err(e) => {
-                    tracing::warn!("ros-z: Failed to create service server: {}", e);
+                    tracing::warn!("hiroz: Failed to create service server: {}", e);
                     return std::ptr::null_mut();
                 }
             };

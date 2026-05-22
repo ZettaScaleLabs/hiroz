@@ -1,4 +1,4 @@
-// crates/ros-z-go/examples/service_client_errors/main.go
+// crates/hiroz-go/examples/service_client_errors/main.go
 //
 // This example demonstrates structured error handling with HirozError.
 // Shows how to handle timeouts, service call failures, and retry logic.
@@ -108,7 +108,7 @@ func main() {
 			}
 		} else {
 			// Not a HirozError - handle as generic error
-			log.Printf("Non-Rosz error: %v", callErr)
+			log.Printf("Non-Hiroz error: %v", callErr)
 		}
 
 		// If we've exhausted retries, give up
