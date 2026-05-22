@@ -2003,7 +2003,7 @@
 <li>Stops the process via <code>t.Cleanup</code> — no manual teardown needed</li>
 <li><code>router.Config()</code> returns the <code>ZENOH_CONFIG_OVERRIDE</code>-format string for Go contexts</li>
 <li><code>getROS2Env(router)</code> returns env vars for ROS 2 processes: <code>RMW_IMPLEMENTATION=rmw_zenoh_cpp</code> and the matching <code>ZENOH_CONFIG_OVERRIDE</code></li>
-<li><code>rustEnv(router)</code> returns env vars for Rust hiroz processes: <code>ROSZ_CONFIG_OVERRIDE</code> pointing at the test router</li>
+<li><code>rustEnv(router)</code> returns env vars for Rust hiroz processes: <code>ZENOH_CONFIG_OVERRIDE</code> pointing at the test router</li>
 </ul>
 <p><strong>Availability checks</strong> run before tests that need external tools:</p>
 <ul>
@@ -2121,7 +2121,7 @@
 <p>Tests skip gracefully when the Rust example binary is missing — build it first:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>build-rust-examples
 </span></code></pre></div>
-<p><strong>How Rust processes are configured:</strong> <code>ZContextBuilder</code> in the Rust examples reads <code>ROSZ_CONFIG_OVERRIDE</code> (same <code>key=value;key=value</code> format as <code>ZENOH_CONFIG_OVERRIDE</code> for rmw) and applies those keys on top of the default ROS session config.  The test injects this variable to point the Rust process at the per-test router.</p>
+<p><strong>How Rust processes are configured:</strong> <code>ZContextBuilder</code> in the Rust examples reads <code>ZENOH_CONFIG_OVERRIDE</code> (same <code>key=value;key=value</code> format as <code>ZENOH_CONFIG_OVERRIDE</code> for rmw) and applies those keys on top of the default ROS session config.  The test injects this variable to point the Rust process at the per-test router.</p>
 <h2 id="adding-a-new-integration-test">Adding a New Integration Test<a class="headerlink" href="#adding-a-new-integration-test" title="Permanent link">&para;</a></h2>
 <p>Create or add to a <code>_test.go</code> file in <code>crates/hiroz-go/interop_tests/</code>. Add the build tag at the top:</p>
 <div class="language-go highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1">//go:build integration</span>
