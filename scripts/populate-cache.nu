@@ -35,23 +35,21 @@ def check-prereqs [] {
         }
     }
 
-    # Lightweight auth check — `cachix push --help` exits 0 even unauthenticated,
-    # but a dry nix-store ping with a known-good path will tell us if the daemon works.
-    # Just warn if the token looks absent; cachix itself will error clearly on push.
-    let token_check = (^cachix whoami 2>&1 | complete)
-    if $token_check.exit_code != 0 {
-        print $"(ansi yellow)⚠  cachix whoami failed — make sure you have run: cachix authtoken <token>(ansi reset)"
-        print $"   ($token_check.stdout | str trim)"
+    # Check that a cachix token is configured (config file exists and is non-empty).
+    # cachix itself will produce a clear error on push if the token is invalid.
+    let config_path = ($env.HOME | path join ".config/cachix/cachix.dhall")
+    if not ($config_path | path exists) {
+        print $"(ansi yellow)⚠  cachix not configured — run: cachix authtoken <token>(ansi reset)"
     }
 }
 
-def elapsed-str [start: datetime] -> string {
+def elapsed-str [start: datetime]: nothing -> string {
     let s = (((date now) - $start) / 1sec | math round)
     if $s < 60 { $"($s)s" } else { $"($s / 60 | math round)m ($s mod 60)s" }
 }
 
 # Build one devShell and push its closure. Returns a result record.
-def push-devshell [shell: string, system: string, dry_run: bool] -> record {
+def push-devshell [shell: string, system: string, dry_run: bool]: nothing -> record<shell: string, status: string, elapsed: string, pushed: int> {
     let attr = $".#devShells.($system).($shell)"
     log-step $"Building ($attr)"
     let t0 = (date now)
@@ -136,7 +134,7 @@ def main [
     let total_paths = ($results | get pushed | math sum)
     let failed = ($results | where status in ["failed" "error"])
 
-    print $"\n(ansi bold)═══ Summary ═══(ansi reset)"
+    print $"\n(ansi green)═══ Summary ═══(ansi reset)"
     print $"  Total time:  (elapsed-str $t_total)"
     print $"  Paths pushed: ($total_paths)"
     print ""
