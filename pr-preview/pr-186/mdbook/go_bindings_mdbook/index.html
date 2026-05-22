@@ -2459,18 +2459,18 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#how-does-ros-z-go-compare-to-other-ros-go-libraries" class="md-nav__link">
+  <a href="#how-does-hiroz-go-compare-to-other-ros-go-libraries" class="md-nav__link">
     <span class="md-ellipsis">
-      How does ros-z-go compare to other ROS Go libraries?
+      How does hiroz-go compare to other ROS Go libraries?
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#can-i-use-ros-z-go-in-production" class="md-nav__link">
+  <a href="#can-i-use-hiroz-go-in-production" class="md-nav__link">
     <span class="md-ellipsis">
-      Can I use ros-z-go in production?
+      Can I use hiroz-go in production?
     </span>
   </a>
   
@@ -2524,19 +2524,19 @@
 
 
 <h1 id="go-bindings">Go Bindings<a class="headerlink" href="#go-bindings" title="Permanent link">&para;</a></h1>
-<p><strong>ros-z provides Go bindings via <code>ros-z-go</code>, enabling Go applications to communicate with Rust and ROS 2 nodes using the same Zenoh transport.</strong> The bindings use CGO to call the Rust FFI layer and provide idiomatic Go APIs for pub/sub, services, and actions.</p>
+<p><strong>hiroz provides Go bindings via <code>hiroz-go</code>, enabling Go applications to communicate with Rust and ROS 2 nodes using the same Zenoh transport.</strong> The bindings use CGO to call the Rust FFI layer and provide idiomatic Go APIs for pub/sub, services, and actions.</p>
 <p>```admonish note
 Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/deserialized using CDR format for full ROS 2 compatibility.
 <div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>```admonish success title=&quot;Production Ready&quot;
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>Phase 1 and Phase 2 improvements (v0.2+) provide memory safety via `cgo.Handle` and `runtime.Pinner`, structured error handling with `RoszError`, and flexible message delivery via the `Handler[T]` interface.
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>Phase 1 and Phase 2 improvements (v0.2+) provide memory safety via `cgo.Handle` and `runtime.Pinner`, structured error handling with `HirozError`, and flexible message delivery via the `Handler[T]` interface.
 </span></code></pre></div></p>
 <h2 id="30-second-quickstart">30-Second Quickstart<a class="headerlink" href="#30-second-quickstart" title="Permanent link">&para;</a></h2>
 <p><strong>Want to jump right in?</strong></p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># One-command setup (no ROS 2 required!)</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>quickstart
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>quickstart
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Run a live demo (publisher + subscriber)</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>demo
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>demo
 </span></code></pre></div>
 <p>You'll see a publisher sending messages and a subscriber receiving them. <strong>No ROS 2 installation required!</strong></p>
 <p>The quickstart command:</p>
@@ -2546,9 +2546,9 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 <li>Runs verification tests</li>
 </ol>
 <p>After quickstart, you'll have:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>target/release/libros_z.a          # Rust FFI library
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>crates/ros-z-go/rosz/ros_z_ffi.h   # C header (auto-generated)
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>crates/ros-z-go/generated/         # Go message types
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>target/release/libhiroz.a          # Rust FFI library
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>crates/hiroz-go/hiroz/hiroz_ffi.h   # C header (auto-generated)
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>crates/hiroz-go/generated/         # Go message types
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  ├── std_msgs/
 </span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  ├── geometry_msgs/
 </span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  └── example_interfaces/
@@ -2558,7 +2558,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 <h3 id="visual-flow">Visual Flow<a class="headerlink" href="#visual-flow" title="Permanent link">&para;</a></h3>
 <pre class="mermaid"><code>graph TD
     A[Go Code] --&gt;|CGO| B[C FFI Layer]
-    B --&gt;|cbindgen| C[Rust ros-z]
+    B --&gt;|cbindgen| C[Rust hiroz]
     C --&gt;|Zenoh| D[Network]
     D --&gt;|Zenoh| E[ROS 2 / Rust / Python Nodes]
 
@@ -2567,7 +2567,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
     H --&gt;|Callback| I[CDR Bytes]
     I --&gt;|DeserializeCDR| J[Go Message Struct]</code></pre>
 <h3 id="memory-safety">Memory Safety<a class="headerlink" href="#memory-safety" title="Permanent link">&para;</a></h3>
-<p><strong>ros-z-go uses modern Go features for safe CGO interop:</strong></p>
+<p><strong>hiroz-go uses modern Go features for safe CGO interop:</strong></p>
 <ul>
 <li><strong><code>cgo.Handle</code> (Go 1.17+)</strong>: Type-safe callback storage with GC integration</li>
 <li>Replaces manual callback registries</li>
@@ -2595,7 +2595,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>just<span class="w"> </span>build-rust
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Build Go bindings</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nb">cd</span><span class="w"> </span>crates/ros-z-go<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>go<span class="w"> </span>build<span class="w"> </span>./...
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nb">cd</span><span class="w"> </span>crates/hiroz-go<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>go<span class="w"> </span>build<span class="w"> </span>./...
 </span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
 </span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1"># Run tests</span>
 </span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>just<span class="w"> </span>test-go
@@ -2606,7 +2606,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Generate message types (requires ROS 2 installation for IDL files)</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>just<span class="w"> </span>codegen
 </span></code></pre></div>
-<p>This produces Go message structs in <code>crates/ros-z-go/generated/</code> with CDR serialization.</p>
+<p>This produces Go message structs in <code>crates/hiroz-go/generated/</code> with CDR serialization.</p>
 <h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
 <h3 id="publisher">Publisher<a class="headerlink" href="#publisher" title="Permanent link">&para;</a></h3>
 <div class="language-go highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">package</span><span class="w"> </span><span class="nx">main</span>
@@ -2616,12 +2616,12 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="s">&quot;log&quot;</span>
 </span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="s">&quot;time&quot;</span>
 </span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="s">&quot;github.com/ZettaScaleLabs/ros-z-go/rosz&quot;</span>
-</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="s">&quot;github.com/ZettaScaleLabs/ros-z-go/generated/std_msgs&quot;</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="s">&quot;github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz&quot;</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="s">&quot;github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/generated/std_msgs&quot;</span>
 </span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="p">)</span>
 </span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>
 </span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">    </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">NewContext</span><span class="p">().</span><span class="nx">WithDomainID</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="nx">Build</span><span class="p">()</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">    </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">NewContext</span><span class="p">().</span><span class="nx">WithDomainID</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="nx">Build</span><span class="p">()</span>
 </span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">Close</span><span class="p">()</span>
 </span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>
 </span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">    </span><span class="nx">node</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">CreateNode</span><span class="p">(</span><span class="s">&quot;go_talker&quot;</span><span class="p">).</span><span class="nx">Build</span><span class="p">()</span>
@@ -2641,7 +2641,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span></code></pre></div>
 <h3 id="subscriber-callback">Subscriber (Callback)<a class="headerlink" href="#subscriber-callback" title="Permanent link">&para;</a></h3>
 <div class="language-go highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">NewContext</span><span class="p">().</span><span class="nx">WithDomainID</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="nx">Build</span><span class="p">()</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">NewContext</span><span class="p">().</span><span class="nx">WithDomainID</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="nx">Build</span><span class="p">()</span>
 </span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">Close</span><span class="p">()</span>
 </span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
 </span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nx">node</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">CreateNode</span><span class="p">(</span><span class="s">&quot;go_listener&quot;</span><span class="p">).</span><span class="nx">Build</span><span class="p">()</span>
@@ -2659,14 +2659,14 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span></code></pre></div>
 <h3 id="subscriber-channel">Subscriber (Channel)<a class="headerlink" href="#subscriber-channel" title="Permanent link">&para;</a></h3>
 <div class="language-go highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">NewContext</span><span class="p">().</span><span class="nx">WithDomainID</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="nx">Build</span><span class="p">()</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">NewContext</span><span class="p">().</span><span class="nx">WithDomainID</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="nx">Build</span><span class="p">()</span>
 </span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">Close</span><span class="p">()</span>
 </span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
 </span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="nx">node</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">CreateNode</span><span class="p">(</span><span class="s">&quot;go_listener&quot;</span><span class="p">).</span><span class="nx">Build</span><span class="p">()</span>
 </span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">node</span><span class="p">.</span><span class="nx">Close</span><span class="p">()</span>
 </span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>
 </span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="c1">// Create a channel handler</span>
-</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">NewFifoChannel</span><span class="p">[[]</span><span class="kt">byte</span><span class="p">](</span><span class="mi">10</span><span class="p">)</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">NewFifoChannel</span><span class="p">[[]</span><span class="kt">byte</span><span class="p">](</span><span class="mi">10</span><span class="p">)</span>
 </span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">    </span><span class="nx">callback</span><span class="p">,</span><span class="w"> </span><span class="nx">drop</span><span class="p">,</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">handler</span><span class="p">.</span><span class="nx">ToCbDropHandler</span><span class="p">()</span>
 </span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">drop</span><span class="p">()</span>
 </span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>
@@ -2684,7 +2684,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 <h3 id="typed-subscribers-automatic-deserialization">Typed Subscribers (Automatic Deserialization)<a class="headerlink" href="#typed-subscribers-automatic-deserialization" title="Permanent link">&para;</a></h3>
 <p><strong>New in v0.2+</strong>: Eliminate manual deserialization with typed subscriber functions:</p>
 <h4 id="option-1-typed-callback">Option 1: Typed Callback<a class="headerlink" href="#option-1-typed-callback" title="Permanent link">&para;</a></h4>
-<div class="language-go highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nx">sub</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">BuildWithTypedCallback</span><span class="p">(</span>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nx">sub</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">BuildWithTypedCallback</span><span class="p">(</span>
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span><span class="nx">node</span><span class="p">.</span><span class="nx">CreateSubscriber</span><span class="p">(</span><span class="s">&quot;chatter&quot;</span><span class="p">),</span>
 </span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="kd">func</span><span class="p">(</span><span class="nx">msg</span><span class="w"> </span><span class="o">*</span><span class="nx">std_msgs</span><span class="p">.</span><span class="nx">String</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">        </span><span class="nx">log</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;Received: %s&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">msg</span><span class="p">.</span><span class="nx">Data</span><span class="p">)</span><span class="w">  </span><span class="c1">// Already deserialized!</span>
@@ -2693,7 +2693,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span></code></pre></div>
 <p><strong>Note:</strong> Uses standalone generic function (Go doesn't support type parameters on methods).</p>
 <h4 id="option-2-typed-channel">Option 2: Typed Channel<a class="headerlink" href="#option-2-typed-channel" title="Permanent link">&para;</a></h4>
-<div class="language-go highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nx">sub</span><span class="p">,</span><span class="w"> </span><span class="nx">ch</span><span class="p">,</span><span class="w"> </span><span class="nx">cleanup</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">SubscriberWithChannel</span><span class="p">[</span><span class="o">*</span><span class="nx">std_msgs</span><span class="p">.</span><span class="nx">String</span><span class="p">](</span>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nx">sub</span><span class="p">,</span><span class="w"> </span><span class="nx">ch</span><span class="p">,</span><span class="w"> </span><span class="nx">cleanup</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">SubscriberWithChannel</span><span class="p">[</span><span class="o">*</span><span class="nx">std_msgs</span><span class="p">.</span><span class="nx">String</span><span class="p">](</span>
 </span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span><span class="nx">node</span><span class="p">.</span><span class="nx">CreateSubscriber</span><span class="p">(</span><span class="s">&quot;chatter&quot;</span><span class="p">),</span><span class="w"> </span><span class="mi">10</span><span class="p">)</span>
 </span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="k">defer</span><span class="w"> </span><span class="nx">cleanup</span><span class="p">()</span><span class="w">  </span><span class="c1">// Close the channel</span>
 </span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="k">defer</span><span class="w"> </span><span class="nx">sub</span><span class="p">.</span><span class="nx">Close</span><span class="p">()</span>
@@ -2704,8 +2704,8 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span></code></pre></div>
 <p><strong>Note:</strong> Returns a cleanup function to close the channel when done.</p>
 <h4 id="option-3-typed-handler-integration">Option 3: Typed Handler Integration<a class="headerlink" href="#option-3-typed-handler-integration" title="Permanent link">&para;</a></h4>
-<div class="language-go highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">NewFifoChannel</span><span class="p">[</span><span class="o">*</span><span class="nx">std_msgs</span><span class="p">.</span><span class="nx">String</span><span class="p">](</span><span class="mi">10</span><span class="p">)</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="nx">sub</span><span class="p">,</span><span class="w"> </span><span class="nx">ch</span><span class="p">,</span><span class="w"> </span><span class="nx">cleanup</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">SubscriberWithHandler</span><span class="p">(</span>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">NewFifoChannel</span><span class="p">[</span><span class="o">*</span><span class="nx">std_msgs</span><span class="p">.</span><span class="nx">String</span><span class="p">](</span><span class="mi">10</span><span class="p">)</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="nx">sub</span><span class="p">,</span><span class="w"> </span><span class="nx">ch</span><span class="p">,</span><span class="w"> </span><span class="nx">cleanup</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">SubscriberWithHandler</span><span class="p">(</span>
 </span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="nx">node</span><span class="p">.</span><span class="nx">CreateSubscriber</span><span class="p">(</span><span class="s">&quot;chatter&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">handler</span><span class="p">)</span>
 </span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="k">defer</span><span class="w"> </span><span class="nx">cleanup</span><span class="p">()</span><span class="w">  </span><span class="c1">// Close the handler</span>
 </span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="k">defer</span><span class="w"> </span><span class="nx">sub</span><span class="p">.</span><span class="nx">Close</span><span class="p">()</span>
@@ -2717,29 +2717,29 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 <p>All three methods automatically deserialize messages and handle errors internally (malformed messages are dropped).</p>
 <h2 id="error-handling">Error Handling<a class="headerlink" href="#error-handling" title="Permanent link">&para;</a></h2>
 <h3 id="structured-errors">Structured Errors<a class="headerlink" href="#structured-errors" title="Permanent link">&para;</a></h3>
-<p><strong>ros-z-go provides <code>RoszError</code> for programmatic error handling:</strong></p>
-<div class="language-go highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">import</span><span class="w"> </span><span class="s">&quot;github.com/ZettaScaleLabs/ros-z-go/rosz&quot;</span>
+<p><strong>hiroz-go provides <code>HirozError</code> for programmatic error handling:</strong></p>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">import</span><span class="w"> </span><span class="s">&quot;github.com/ZettaScaleLabs/hiroz/crates/hiroz-go/hiroz&quot;</span>
 </span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
 </span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="c1">// Service call with error handling</span>
 </span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="nx">resp</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">Call</span><span class="p">(</span><span class="nx">req</span><span class="p">)</span>
 </span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">roszErr</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">err</span><span class="p">.(</span><span class="nx">rosz</span><span class="p">.</span><span class="nx">RoszError</span><span class="p">);</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">        </span><span class="k">switch</span><span class="w"> </span><span class="nx">roszErr</span><span class="p">.</span><span class="nx">Code</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">ErrorCodeServiceTimeout</span><span class="p">:</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">hirozErr</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">err</span><span class="p">.(</span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">HirozError</span><span class="p">);</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">        </span><span class="k">switch</span><span class="w"> </span><span class="nx">hirozErr</span><span class="p">.</span><span class="nx">Code</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">ErrorCodeServiceTimeout</span><span class="p">:</span>
 </span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">            </span><span class="c1">// Retry logic</span>
 </span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">            </span><span class="nx">log</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">&quot;Service timed out, retrying...&quot;</span><span class="p">)</span>
-</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">ErrorCodeServiceCallFailed</span><span class="p">:</span>
+</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">ErrorCodeServiceCallFailed</span><span class="p">:</span>
 </span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="w">            </span><span class="c1">// Handle service failure</span>
-</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="w">            </span><span class="nx">log</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;Service failed: %s&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">roszErr</span><span class="p">.</span><span class="nx">Message</span><span class="p">())</span>
+</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="w">            </span><span class="nx">log</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;Service failed: %s&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">hirozErr</span><span class="p">.</span><span class="nx">Message</span><span class="p">())</span>
 </span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="w">        </span><span class="k">default</span><span class="p">:</span>
 </span><span id="__span-11-15"><a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="w">            </span><span class="c1">// General error handling</span>
-</span><span id="__span-11-16"><a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a><span class="w">            </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatalf</span><span class="p">(</span><span class="s">&quot;Service error: %v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">roszErr</span><span class="p">)</span>
+</span><span id="__span-11-16"><a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a><span class="w">            </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatalf</span><span class="p">(</span><span class="s">&quot;Service error: %v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">hirozErr</span><span class="p">)</span>
 </span><span id="__span-11-17"><a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a><span class="w">        </span><span class="p">}</span>
 </span><span id="__span-11-18"><a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a><span class="w">    </span><span class="p">}</span>
 </span><span id="__span-11-19"><a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a><span class="p">}</span>
 </span></code></pre></div>
 <h3 id="error-codes">Error Codes<a class="headerlink" href="#error-codes" title="Permanent link">&para;</a></h3>
-<p>Key error codes defined in <code>rosz/error.go</code>:</p>
+<p>Key error codes defined in <code>hiroz/error.go</code>:</p>
 <ul>
 <li><code>ErrorCodeSuccess</code> (0) - Operation completed successfully</li>
 <li><code>ErrorCodeServiceTimeout</code> (-10) - Service call timed out</li>
@@ -2749,11 +2749,11 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 <li><code>ErrorCodeSerializationFailed</code> (-5) - CDR serialization failed</li>
 </ul>
 <h3 id="convenience-methods">Convenience Methods<a class="headerlink" href="#convenience-methods" title="Permanent link">&para;</a></h3>
-<div class="language-go highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="p">.(</span><span class="nx">rosz</span><span class="p">.</span><span class="nx">RoszError</span><span class="p">).</span><span class="nx">IsTimeout</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="p">.(</span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">HirozError</span><span class="p">).</span><span class="nx">IsTimeout</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">    </span><span class="c1">// Handle timeout specifically</span>
 </span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="p">}</span>
 </span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="p">.(</span><span class="nx">rosz</span><span class="p">.</span><span class="nx">RoszError</span><span class="p">).</span><span class="nx">IsRejected</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="p">.(</span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">HirozError</span><span class="p">).</span><span class="nx">IsRejected</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">    </span><span class="c1">// Handle action goal rejection</span>
 </span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="p">}</span>
 </span></code></pre></div>
@@ -2765,7 +2765,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">        </span><span class="k">break</span><span class="w"> </span><span class="c1">// Success</span>
 </span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">    </span><span class="p">}</span>
 </span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">roszErr</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">err</span><span class="p">.(</span><span class="nx">rosz</span><span class="p">.</span><span class="nx">RoszError</span><span class="p">);</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">roszErr</span><span class="p">.</span><span class="nx">IsTimeout</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">hirozErr</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">err</span><span class="p">.(</span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">HirozError</span><span class="p">);</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">hirozErr</span><span class="p">.</span><span class="nx">IsTimeout</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">attempt</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="nx">maxRetries</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="w">            </span><span class="nx">backoff</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Duration</span><span class="p">(</span><span class="nx">attempt</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Second</span>
 </span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="w">            </span><span class="nx">log</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;Timeout, retrying in %v...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">backoff</span><span class="p">)</span>
@@ -2778,9 +2778,9 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span><span id="__span-13-18"><a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a><span class="p">}</span>
 </span></code></pre></div>
 <h2 id="handler-interface">Handler Interface<a class="headerlink" href="#handler-interface" title="Permanent link">&para;</a></h2>
-<p>ros-z-go supports three message delivery patterns via the <code>Handler[T]</code> interface:</p>
+<p>hiroz-go supports three message delivery patterns via the <code>Handler[T]</code> interface:</p>
 <h3 id="1-closure-direct-callback">1. Closure (Direct Callback)<a class="headerlink" href="#1-closure-direct-callback" title="Permanent link">&para;</a></h3>
-<div class="language-go highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">NewClosure</span><span class="p">(</span>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">NewClosure</span><span class="p">(</span>
 </span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">    </span><span class="kd">func</span><span class="p">(</span><span class="nx">data</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">processMessage</span><span class="p">(</span><span class="nx">data</span><span class="p">)</span><span class="w"> </span><span class="p">},</span>
 </span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">    </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">cleanup</span><span class="p">()</span><span class="w"> </span><span class="p">},</span>
 </span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="p">)</span>
@@ -2791,7 +2791,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 <li><strong>Use</strong>: Simple processing, &lt; 1ms per message</li>
 </ul>
 <h3 id="2-fifochannel-buffered-blocking">2. FifoChannel (Buffered, Blocking)<a class="headerlink" href="#2-fifochannel-buffered-blocking" title="Permanent link">&para;</a></h3>
-<div class="language-go highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">NewFifoChannel</span><span class="p">[[]</span><span class="kt">byte</span><span class="p">](</span><span class="mi">10</span><span class="p">)</span>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">NewFifoChannel</span><span class="p">[[]</span><span class="kt">byte</span><span class="p">](</span><span class="mi">10</span><span class="p">)</span>
 </span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="nx">callback</span><span class="p">,</span><span class="w"> </span><span class="nx">drop</span><span class="p">,</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">handler</span><span class="p">.</span><span class="nx">ToCbDropHandler</span><span class="p">()</span>
 </span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="k">defer</span><span class="w"> </span><span class="nx">drop</span><span class="p">()</span>
 </span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>
@@ -2806,7 +2806,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 <li><strong>Use</strong>: Reliable delivery, I/O-bound work</li>
 </ul>
 <h3 id="3-ringchannel-non-blocking-drops-oldest">3. RingChannel (Non-blocking, Drops Oldest)<a class="headerlink" href="#3-ringchannel-non-blocking-drops-oldest" title="Permanent link">&para;</a></h3>
-<div class="language-go highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">NewRingChannel</span><span class="p">[[]</span><span class="kt">byte</span><span class="p">](</span><span class="mi">5</span><span class="p">)</span>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">NewRingChannel</span><span class="p">[[]</span><span class="kt">byte</span><span class="p">](</span><span class="mi">5</span><span class="p">)</span>
 </span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="nx">callback</span><span class="p">,</span><span class="w"> </span><span class="nx">drop</span><span class="p">,</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">handler</span><span class="p">.</span><span class="nx">ToCbDropHandler</span><span class="p">()</span>
 </span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="k">defer</span><span class="w"> </span><span class="nx">drop</span><span class="p">()</span>
 </span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>
@@ -2898,7 +2898,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="nx">goal</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">example_interfaces</span><span class="p">.</span><span class="nx">FibonacciGoal</span><span class="p">{</span><span class="nx">Order</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">}</span>
 </span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="nx">goalHandle</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">SendGoal</span><span class="p">(</span><span class="nx">goal</span><span class="p">)</span>
 </span><span id="__span-19-7"><a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-19-8"><a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">roszErr</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">err</span><span class="p">.(</span><span class="nx">rosz</span><span class="p">.</span><span class="nx">RoszError</span><span class="p">);</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">roszErr</span><span class="p">.</span><span class="nx">IsRejected</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-19-8"><a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">hirozErr</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">err</span><span class="p">.(</span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">HirozError</span><span class="p">);</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">hirozErr</span><span class="p">.</span><span class="nx">IsRejected</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-19-9"><a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a><span class="w">        </span><span class="nx">log</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">&quot;Goal was rejected by server&quot;</span><span class="p">)</span>
 </span><span id="__span-19-10"><a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a><span class="w">        </span><span class="k">return</span>
 </span><span id="__span-19-11"><a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a><span class="w">    </span><span class="p">}</span>
@@ -2952,7 +2952,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># Pure Go tests (no FFI dependencies)</span>
 </span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>just<span class="w"> </span>test-go-pure<span class="w">  </span><span class="c1"># 30 tests - message serialization, interfaces</span>
 </span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>
-</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="c1"># FFI unit tests (requires libros_z.a)</span>
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="c1"># FFI unit tests (requires libhiroz.a)</span>
 </span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>just<span class="w"> </span>test-go-ffi<span class="w">   </span><span class="c1"># 26 tests - error handling, callbacks, handlers</span>
 </span><span id="__span-21-6"><a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a>
 </span><span id="__span-21-7"><a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a><span class="c1"># All Go tests</span>
@@ -2962,12 +2962,12 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span><span id="__span-21-11"><a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a>just<span class="w"> </span>test-integration<span class="w">  </span><span class="c1"># 11 tests - ROS 2 interop</span>
 </span></code></pre></div>
 <h3 id="running-specific-tests">Running Specific Tests<a class="headerlink" href="#running-specific-tests" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nb">cd</span><span class="w"> </span>crates/ros-z-go/rosz
-</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>go<span class="w"> </span><span class="nb">test</span><span class="w"> </span>-v<span class="w"> </span>-run<span class="w"> </span>TestRoszError
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nb">cd</span><span class="w"> </span>crates/hiroz-go/hiroz
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>go<span class="w"> </span><span class="nb">test</span><span class="w"> </span>-v<span class="w"> </span>-run<span class="w"> </span>TestHirozError
 </span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>go<span class="w"> </span><span class="nb">test</span><span class="w"> </span>-v<span class="w"> </span>-run<span class="w"> </span>TestHandler
 </span></code></pre></div>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
-<p>The <code>crates/ros-z-go/examples/</code> directory contains comprehensive examples:</p>
+<p>The <code>crates/hiroz-go/examples/</code> directory contains comprehensive examples:</p>
 <h3 id="basic-examples">Basic Examples<a class="headerlink" href="#basic-examples" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>publisher</strong> - Publish messages at 10 Hz</li>
@@ -2996,7 +2996,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 <li><strong>Observability</strong>: Real-time metrics, health checks, error tracking</li>
 </ul>
 <p>Run the demo:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>demo-production
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>demo-production
 </span></code></pre></div>
 <p>See <code>examples/production_service/README.md</code> for detailed pattern explanations and deployment checklist.</p>
 <h3 id="running-examples">Running Examples<a class="headerlink" href="#running-examples" title="Permanent link">&para;</a></h3>
@@ -3004,13 +3004,13 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>just<span class="w"> </span>build-rust
 </span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>
 </span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="c1"># Run an example</span>
-</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="nb">cd</span><span class="w"> </span>crates/ros-z-go/examples/publisher
+</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="nb">cd</span><span class="w"> </span>crates/hiroz-go/examples/publisher
 </span><span id="__span-24-6"><a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="nv">CGO_LDFLAGS</span><span class="o">=</span><span class="s2">&quot;-L../../../target/release&quot;</span><span class="w"> </span>go<span class="w"> </span>run<span class="w"> </span>main.go
 </span></code></pre></div>
 <h2 id="advanced-topics">Advanced Topics<a class="headerlink" href="#advanced-topics" title="Permanent link">&para;</a></h2>
 <h3 id="concurrent-message-processing">Concurrent Message Processing<a class="headerlink" href="#concurrent-message-processing" title="Permanent link">&para;</a></h3>
 <p>Using channels enables elegant concurrent patterns:</p>
-<div class="language-go highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">NewFifoChannel</span><span class="p">[[]</span><span class="kt">byte</span><span class="p">](</span><span class="mi">100</span><span class="p">)</span>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">NewFifoChannel</span><span class="p">[[]</span><span class="kt">byte</span><span class="p">](</span><span class="mi">100</span><span class="p">)</span>
 </span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="nx">callback</span><span class="p">,</span><span class="w"> </span><span class="nx">drop</span><span class="p">,</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">handler</span><span class="p">.</span><span class="nx">ToCbDropHandler</span><span class="p">()</span>
 </span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="k">defer</span><span class="w"> </span><span class="nx">drop</span><span class="p">()</span>
 </span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a>
@@ -3042,7 +3042,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span><span id="__span-26-5"><a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="w">    </span><span class="nx">DeserializeCDR</span><span class="p">([]</span><span class="kt">byte</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
 </span><span id="__span-26-6"><a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a><span class="p">}</span>
 </span></code></pre></div>
-<p>See <code>crates/ros-z-go/testdata/</code> for examples of hand-written message types.</p>
+<p>See <code>crates/hiroz-go/testdata/</code> for examples of hand-written message types.</p>
 <h2 id="performance-considerations">Performance Considerations<a class="headerlink" href="#performance-considerations" title="Permanent link">&para;</a></h2>
 <h3 id="callback-vs-channel">Callback vs Channel<a class="headerlink" href="#callback-vs-channel" title="Permanent link">&para;</a></h3>
 <p><strong>Direct callbacks (<code>Closure</code>):</strong></p>
@@ -3077,8 +3077,8 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span><span id="__span-27-5"><a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a>
 </span><span id="__span-27-6"><a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a><span class="c1">// After (with structured errors)</span>
 </span><span id="__span-27-7"><a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">Call</span><span class="p">(</span><span class="nx">req</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-27-8"><a id="__codelineno-27-8" name="__codelineno-27-8" href="#__codelineno-27-8"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">roszErr</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">err</span><span class="p">.(</span><span class="nx">rosz</span><span class="p">.</span><span class="nx">RoszError</span><span class="p">);</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-27-9"><a id="__codelineno-27-9" name="__codelineno-27-9" href="#__codelineno-27-9"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">roszErr</span><span class="p">.</span><span class="nx">IsTimeout</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-27-8"><a id="__codelineno-27-8" name="__codelineno-27-8" href="#__codelineno-27-8"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">hirozErr</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">err</span><span class="p">.(</span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">HirozError</span><span class="p">);</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-27-9"><a id="__codelineno-27-9" name="__codelineno-27-9" href="#__codelineno-27-9"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">hirozErr</span><span class="p">.</span><span class="nx">IsTimeout</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-27-10"><a id="__codelineno-27-10" name="__codelineno-27-10" href="#__codelineno-27-10"></a><span class="w">            </span><span class="c1">// Handle timeout specifically</span>
 </span><span id="__span-27-11"><a id="__codelineno-27-11" name="__codelineno-27-11" href="#__codelineno-27-11"></a><span class="w">        </span><span class="p">}</span>
 </span><span id="__span-27-12"><a id="__codelineno-27-12" name="__codelineno-27-12" href="#__codelineno-27-12"></a><span class="w">    </span><span class="p">}</span>
@@ -3091,7 +3091,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span><span id="__span-28-4"><a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="p">})</span>
 </span><span id="__span-28-5"><a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a>
 </span><span id="__span-28-6"><a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="c1">// After (with channels)</span>
-</span><span id="__span-28-7"><a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rosz</span><span class="p">.</span><span class="nx">NewFifoChannel</span><span class="p">[[]</span><span class="kt">byte</span><span class="p">](</span><span class="mi">10</span><span class="p">)</span>
+</span><span id="__span-28-7"><a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="nx">handler</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">NewFifoChannel</span><span class="p">[[]</span><span class="kt">byte</span><span class="p">](</span><span class="mi">10</span><span class="p">)</span>
 </span><span id="__span-28-8"><a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a><span class="nx">callback</span><span class="p">,</span><span class="w"> </span><span class="nx">drop</span><span class="p">,</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">handler</span><span class="p">.</span><span class="nx">ToCbDropHandler</span><span class="p">()</span>
 </span><span id="__span-28-9"><a id="__codelineno-28-9" name="__codelineno-28-9" href="#__codelineno-28-9"></a><span class="k">defer</span><span class="w"> </span><span class="nx">drop</span><span class="p">()</span>
 </span><span id="__span-28-10"><a id="__codelineno-28-10" name="__codelineno-28-10" href="#__codelineno-28-10"></a><span class="nx">sub</span><span class="p">.</span><span class="nx">BuildWithCallback</span><span class="p">(</span><span class="nx">msg</span><span class="p">,</span><span class="w"> </span><span class="nx">callback</span><span class="p">)</span>
@@ -3111,24 +3111,24 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </thead>
 <tbody>
 <tr>
-<td><code>undefined reference to ros_z_*</code></td>
+<td><code>undefined reference to hiroz_*</code></td>
 <td>Rust FFI library not built</td>
 <td>Run <code>just build-rust</code> or <code>cargo build --release --features ffi</code></td>
 </tr>
 <tr>
 <td><code>cannot find package generated</code></td>
 <td>Messages not generated</td>
-<td>Run <code>just -f crates/ros-z-go/justfile codegen-bundled</code></td>
+<td>Run <code>just -f crates/hiroz-go/justfile codegen-bundled</code></td>
 </tr>
 <tr>
-<td><code>ld: library not found for -lros_z</code></td>
+<td><code>ld: library not found for -lhiroz</code></td>
 <td>Wrong CGO_LDFLAGS path</td>
 <td>Use <code>just run-example &lt;name&gt;</code> instead of direct <code>go run</code></td>
 </tr>
 <tr>
 <td>Type hash mismatch with ROS 2</td>
 <td>Message definition version mismatch</td>
-<td>Check ROS distro compatibility, enable <code>RUST_LOG=ros_z=debug</code></td>
+<td>Check ROS distro compatibility, enable <code>RUST_LOG=hiroz=debug</code></td>
 </tr>
 <tr>
 <td>Import cycle error</td>
@@ -3144,17 +3144,17 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </table>
 <h3 id="verifying-your-setup">Verifying Your Setup<a class="headerlink" href="#verifying-your-setup" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="c1"># Check all prerequisites</span>
-</span><span id="__span-29-2"><a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>verify
+</span><span id="__span-29-2"><a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>verify
 </span></code></pre></div>
 <p>This checks:</p>
 <ul>
-<li>✓ libros_z.a exists</li>
-<li>✓ ros_z_ffi.h exists</li>
+<li>✓ libhiroz.a exists</li>
+<li>✓ hiroz_ffi.h exists</li>
 <li>✓ Generated messages exist</li>
 </ul>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="cgo-linker-errors">CGO Linker Errors<a class="headerlink" href="#cgo-linker-errors" title="Permanent link">&para;</a></h3>
-<p><strong>Symptom</strong>: <code>undefined reference to ros_z_*</code> or <code>ld: library not found</code></p>
+<p><strong>Symptom</strong>: <code>undefined reference to hiroz_*</code> or <code>ld: library not found</code></p>
 <p><strong>Solution</strong>:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="c1"># Ensure Rust library is built with FFI features</span>
 </span><span id="__span-30-2"><a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a>just<span class="w"> </span>build-rust
@@ -3163,18 +3163,18 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </span><span id="__span-30-5"><a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>--features<span class="w"> </span>ffi
 </span><span id="__span-30-6"><a id="__codelineno-30-6" name="__codelineno-30-6" href="#__codelineno-30-6"></a>
 </span><span id="__span-30-7"><a id="__codelineno-30-7" name="__codelineno-30-7" href="#__codelineno-30-7"></a><span class="c1"># For examples, use the helper (handles CGO_LDFLAGS automatically)</span>
-</span><span id="__span-30-8"><a id="__codelineno-30-8" name="__codelineno-30-8" href="#__codelineno-30-8"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>run-example<span class="w"> </span>publisher
+</span><span id="__span-30-8"><a id="__codelineno-30-8" name="__codelineno-30-8" href="#__codelineno-30-8"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>run-example<span class="w"> </span>publisher
 </span></code></pre></div>
 <h3 id="type-hash-mismatches">Type Hash Mismatches<a class="headerlink" href="#type-hash-mismatches" title="Permanent link">&para;</a></h3>
 <p><strong>Symptom</strong>: Messages aren't received from ROS 2 nodes</p>
 <p><strong>Solution</strong>: Check type hashes match:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="c1"># Enable debug logging to see type hashes</span>
-</span><span id="__span-31-2"><a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a><span class="nv">RUST_LOG</span><span class="o">=</span><span class="nv">ros_z</span><span class="o">=</span>debug<span class="w"> </span>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>publisher
+</span><span id="__span-31-2"><a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a><span class="nv">RUST_LOG</span><span class="o">=</span><span class="nv">hiroz</span><span class="o">=</span>debug<span class="w"> </span>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>publisher
 </span></code></pre></div>
 <p>Look for <code>RIHS01_</code> hash in logs and compare with ROS 2:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>ros2<span class="w"> </span>interface<span class="w"> </span>show<span class="w"> </span>std_msgs/msg/String
 </span></code></pre></div>
-<p>The hash after <code>RIHS01_</code> must match exactly between ros-z and ROS 2.</p>
+<p>The hash after <code>RIHS01_</code> must match exactly between hiroz and ROS 2.</p>
 <h3 id="performance-issues">Performance Issues<a class="headerlink" href="#performance-issues" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Use <code>Closure</code> for lowest latency (&lt; 100µs)</li>
@@ -3184,7 +3184,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </ul>
 <h2 id="frequently-asked-questions">Frequently Asked Questions<a class="headerlink" href="#frequently-asked-questions" title="Permanent link">&para;</a></h2>
 <h3 id="do-i-need-ros-2-installed">Do I need ROS 2 installed?<a class="headerlink" href="#do-i-need-ros-2-installed" title="Permanent link">&para;</a></h3>
-<p><strong>No!</strong> ros-z-go uses bundled message definitions for common types (std_msgs, geometry_msgs, example_interfaces).</p>
+<p><strong>No!</strong> hiroz-go uses bundled message definitions for common types (std_msgs, geometry_msgs, example_interfaces).</p>
 <p>You only need ROS 2 if you want to:</p>
 <ul>
 <li>Generate messages from your own <code>.msg</code> files</li>
@@ -3192,7 +3192,7 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 <li>Test interoperability with actual ROS 2 nodes</li>
 </ul>
 <h3 id="do-i-need-a-zenoh-router">Do I need a Zenoh router?<a class="headerlink" href="#do-i-need-a-zenoh-router" title="Permanent link">&para;</a></h3>
-<p><strong>No for local testing.</strong> Messages work between ros-z nodes on the same machine without a router.</p>
+<p><strong>No for local testing.</strong> Messages work between hiroz nodes on the same machine without a router.</p>
 <p>Use a router for:</p>
 <ul>
 <li>Communication across multiple machines</li>
@@ -3200,19 +3200,19 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 <li>Production deployments with discovery and routing</li>
 </ul>
 <h3 id="why-do-examples-use-cgo_ldflags">Why do examples use CGO_LDFLAGS?<a class="headerlink" href="#why-do-examples-use-cgo_ldflags" title="Permanent link">&para;</a></h3>
-<p>Go needs to know where <code>libros_z.a</code> lives for CGO linking. The helper commands handle this automatically:</p>
+<p>Go needs to know where <code>libhiroz.a</code> lives for CGO linking. The helper commands handle this automatically:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="c1"># Instead of:</span>
 </span><span id="__span-33-2"><a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a><span class="nv">CGO_LDFLAGS</span><span class="o">=</span><span class="s2">&quot;-L../../target/release&quot;</span><span class="w"> </span>go<span class="w"> </span>run<span class="w"> </span>.
 </span><span id="__span-33-3"><a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a>
 </span><span id="__span-33-4"><a id="__codelineno-33-4" name="__codelineno-33-4" href="#__codelineno-33-4"></a><span class="c1"># Use:</span>
-</span><span id="__span-33-5"><a id="__codelineno-33-5" name="__codelineno-33-5" href="#__codelineno-33-5"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>run-example<span class="w"> </span>publisher
+</span><span id="__span-33-5"><a id="__codelineno-33-5" name="__codelineno-33-5" href="#__codelineno-33-5"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>run-example<span class="w"> </span>publisher
 </span></code></pre></div>
-<h3 id="how-does-ros-z-go-compare-to-other-ros-go-libraries">How does ros-z-go compare to other ROS Go libraries?<a class="headerlink" href="#how-does-ros-z-go-compare-to-other-ros-go-libraries" title="Permanent link">&para;</a></h3>
+<h3 id="how-does-hiroz-go-compare-to-other-ros-go-libraries">How does hiroz-go compare to other ROS Go libraries?<a class="headerlink" href="#how-does-hiroz-go-compare-to-other-ros-go-libraries" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
 <th>Feature</th>
-<th>ros-z-go</th>
+<th>hiroz-go</th>
 <th>rclgo</th>
 <th>rclpy (Python)</th>
 </tr>
@@ -3262,36 +3262,36 @@ Go bindings use the same Zenoh transport as Rust nodes. Messages are serialized/
 </tr>
 </tbody>
 </table>
-<h3 id="can-i-use-ros-z-go-in-production">Can I use ros-z-go in production?<a class="headerlink" href="#can-i-use-ros-z-go-in-production" title="Permanent link">&para;</a></h3>
+<h3 id="can-i-use-hiroz-go-in-production">Can I use hiroz-go in production?<a class="headerlink" href="#can-i-use-hiroz-go-in-production" title="Permanent link">&para;</a></h3>
 <p><strong>Yes.</strong> Phase 2 improvements provide:</p>
 <ul>
 <li>Memory-safe CGO interop (<code>cgo.Handle</code>, <code>runtime.Pinner</code>)</li>
-<li>Structured error handling (<code>RoszError</code>)</li>
+<li>Structured error handling (<code>HirozError</code>)</li>
 <li>Flexible message delivery patterns (Closure, FIFO, Ring)</li>
 <li>Full test coverage (56 Go tests + integration tests)</li>
 </ul>
 <h2 id="helper-commands-reference">Helper Commands Reference<a class="headerlink" href="#helper-commands-reference" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="c1"># Setup</span>
-</span><span id="__span-34-2"><a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>quickstart<span class="w">   </span><span class="c1"># One-command setup</span>
-</span><span id="__span-34-3"><a id="__codelineno-34-3" name="__codelineno-34-3" href="#__codelineno-34-3"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>verify<span class="w">       </span><span class="c1"># Check installation</span>
+</span><span id="__span-34-2"><a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>quickstart<span class="w">   </span><span class="c1"># One-command setup</span>
+</span><span id="__span-34-3"><a id="__codelineno-34-3" name="__codelineno-34-3" href="#__codelineno-34-3"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>verify<span class="w">       </span><span class="c1"># Check installation</span>
 </span><span id="__span-34-4"><a id="__codelineno-34-4" name="__codelineno-34-4" href="#__codelineno-34-4"></a>
 </span><span id="__span-34-5"><a id="__codelineno-34-5" name="__codelineno-34-5" href="#__codelineno-34-5"></a><span class="c1"># Code Generation</span>
-</span><span id="__span-34-6"><a id="__codelineno-34-6" name="__codelineno-34-6" href="#__codelineno-34-6"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>codegen-bundled<span class="w">  </span><span class="c1"># Generate common messages</span>
+</span><span id="__span-34-6"><a id="__codelineno-34-6" name="__codelineno-34-6" href="#__codelineno-34-6"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>codegen-bundled<span class="w">  </span><span class="c1"># Generate common messages</span>
 </span><span id="__span-34-7"><a id="__codelineno-34-7" name="__codelineno-34-7" href="#__codelineno-34-7"></a>
 </span><span id="__span-34-8"><a id="__codelineno-34-8" name="__codelineno-34-8" href="#__codelineno-34-8"></a><span class="c1"># Running Examples</span>
-</span><span id="__span-34-9"><a id="__codelineno-34-9" name="__codelineno-34-9" href="#__codelineno-34-9"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>run-example<span class="w"> </span>&lt;name&gt;<span class="w">  </span><span class="c1"># Run any example</span>
-</span><span id="__span-34-10"><a id="__codelineno-34-10" name="__codelineno-34-10" href="#__codelineno-34-10"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>demo<span class="w">         </span><span class="c1"># Live pub/sub demo</span>
+</span><span id="__span-34-9"><a id="__codelineno-34-9" name="__codelineno-34-9" href="#__codelineno-34-9"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>run-example<span class="w"> </span>&lt;name&gt;<span class="w">  </span><span class="c1"># Run any example</span>
+</span><span id="__span-34-10"><a id="__codelineno-34-10" name="__codelineno-34-10" href="#__codelineno-34-10"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>demo<span class="w">         </span><span class="c1"># Live pub/sub demo</span>
 </span><span id="__span-34-11"><a id="__codelineno-34-11" name="__codelineno-34-11" href="#__codelineno-34-11"></a>
 </span><span id="__span-34-12"><a id="__codelineno-34-12" name="__codelineno-34-12" href="#__codelineno-34-12"></a><span class="c1"># Building</span>
 </span><span id="__span-34-13"><a id="__codelineno-34-13" name="__codelineno-34-13" href="#__codelineno-34-13"></a>just<span class="w"> </span>build-rust<span class="w">                               </span><span class="c1"># Build Rust FFI library</span>
-</span><span id="__span-34-14"><a id="__codelineno-34-14" name="__codelineno-34-14" href="#__codelineno-34-14"></a><span class="nb">cd</span><span class="w"> </span>crates/ros-z-go<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>go<span class="w"> </span>build<span class="w"> </span>./...<span class="w">         </span><span class="c1"># Build Go packages</span>
+</span><span id="__span-34-14"><a id="__codelineno-34-14" name="__codelineno-34-14" href="#__codelineno-34-14"></a><span class="nb">cd</span><span class="w"> </span>crates/hiroz-go<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>go<span class="w"> </span>build<span class="w"> </span>./...<span class="w">         </span><span class="c1"># Build Go packages</span>
 </span></code></pre></div>
 <h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Source</strong>: <a href="https://github.com/ZettaScaleLabs/ros-z/tree/main/crates/ros-z-go/rosz"><code>ros-z-go/rosz/</code></a></li>
-<li><strong>Examples</strong>: <a href="https://github.com/ZettaScaleLabs/ros-z/tree/main/crates/ros-z-go/examples"><code>ros-z-go/examples/</code></a></li>
-<li><strong>Tests</strong>: <a href="https://github.com/ZettaScaleLabs/ros-z/tree/main/crates/ros-z-go/rosz"><code>ros-z-go/rosz/*_test.go</code></a></li>
-<li><strong>FFI Layer</strong>: <a href="https://github.com/ZettaScaleLabs/ros-z/tree/main/crates/ros-z/src/ffi"><code>ros-z/src/ffi/</code></a></li>
+<li><strong>Source</strong>: <a href="https://github.com/ZettaScaleLabs/ros-z/tree/main/crates/hiroz-go/hiroz"><code>hiroz-go/hiroz/</code></a></li>
+<li><strong>Examples</strong>: <a href="https://github.com/ZettaScaleLabs/ros-z/tree/main/crates/hiroz-go/examples"><code>hiroz-go/examples/</code></a></li>
+<li><strong>Tests</strong>: <a href="https://github.com/ZettaScaleLabs/ros-z/tree/main/crates/hiroz-go/hiroz"><code>hiroz-go/hiroz/*_test.go</code></a></li>
+<li><strong>FFI Layer</strong>: <a href="https://github.com/ZettaScaleLabs/ros-z/tree/main/crates/hiroz/src/ffi"><code>hiroz/src/ffi/</code></a></li>
 </ul>
 
 

@@ -1892,9 +1892,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#go-rust-ros-z-tests-ros_z_rust_testgo" class="md-nav__link">
+  <a href="#go-rust-hiroz-tests-hiroz_rust_testgo" class="md-nav__link">
     <span class="md-ellipsis">
-      Go ↔ Rust ros-z Tests (ros_z_rust_test.go)
+      Go ↔ Rust hiroz Tests (hiroz_rust_test.go)
     </span>
   </a>
   
@@ -1960,42 +1960,42 @@
 <tr>
 <td><strong>ffi</strong></td>
 <td>(none)</td>
-<td><code>rosz</code> package: context, pub/sub, service, action APIs</td>
-<td><code>libros_z.a</code></td>
+<td><code>hiroz</code> package: context, pub/sub, service, action APIs</td>
+<td><code>libhiroz.a</code></td>
 </tr>
 <tr>
 <td><strong>integration</strong></td>
 <td><code>integration</code></td>
 <td>Full end-to-end with live Zenoh sessions</td>
-<td><code>zenohd</code>, <code>libros_z.a</code></td>
+<td><code>zenohd</code>, <code>libhiroz.a</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="running-tests">Running Tests<a class="headerlink" href="#running-tests" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Pure tests — no external dependencies</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>test-go-pure
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>test-go-pure
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># FFI unit tests — requires libros_z.a</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>build-rust
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>test-go-ffi
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># FFI unit tests — requires libhiroz.a</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>build-rust
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>test-go-ffi
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>
 </span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="c1"># Integration tests — requires zenohd running on PATH</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>build-rust
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>test-integration
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>build-rust
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>test-integration
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
 </span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="c1"># Go↔Rust interop tests — also requires compiled Rust example binaries</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>build-rust-examples
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>test-integration
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>build-rust-examples
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>test-integration
 </span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>
 </span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="c1"># Run with race detector</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="nb">cd</span><span class="w"> </span>crates/ros-z-go
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="nb">cd</span><span class="w"> </span>crates/hiroz-go
 </span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="nv">CGO_LDFLAGS</span><span class="o">=</span><span class="s2">&quot;-L../../target/release&quot;</span><span class="w"> </span>go<span class="w"> </span><span class="nb">test</span><span class="w"> </span>-race<span class="w"> </span>-tags<span class="w"> </span>integration<span class="w"> </span>./interop_tests/...
 </span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
 </span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="c1"># Everything</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>test-all
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>test-all
 </span></code></pre></div>
 <h2 id="integration-test-structure">Integration Test Structure<a class="headerlink" href="#integration-test-structure" title="Permanent link">&para;</a></h2>
-<p>Integration tests live in <code>crates/ros-z-go/interop_tests/</code> and use the Go <code>integration</code> build tag so they are excluded from normal <code>go test ./...</code> runs.</p>
+<p>Integration tests live in <code>crates/hiroz-go/interop_tests/</code> and use the Go <code>integration</code> build tag so they are excluded from normal <code>go test ./...</code> runs.</p>
 <h3 id="common-infrastructure-common_testgo">Common Infrastructure (<code>common_test.go</code>)<a class="headerlink" href="#common-infrastructure-common_testgo" title="Permanent link">&para;</a></h3>
 <p><strong><code>ZenohRouter</code></strong> manages a per-test isolated Zenoh router:</p>
 <ul>
@@ -2003,7 +2003,7 @@
 <li>Stops the process via <code>t.Cleanup</code> — no manual teardown needed</li>
 <li><code>router.Config()</code> returns the <code>ZENOH_CONFIG_OVERRIDE</code>-format string for Go contexts</li>
 <li><code>getROS2Env(router)</code> returns env vars for ROS 2 processes: <code>RMW_IMPLEMENTATION=rmw_zenoh_cpp</code> and the matching <code>ZENOH_CONFIG_OVERRIDE</code></li>
-<li><code>rustEnv(router)</code> returns env vars for Rust ros-z processes: <code>ROSZ_CONFIG_OVERRIDE</code> pointing at the test router</li>
+<li><code>rustEnv(router)</code> returns env vars for Rust hiroz processes: <code>ROSZ_CONFIG_OVERRIDE</code> pointing at the test router</li>
 </ul>
 <p><strong>Availability checks</strong> run before tests that need external tools:</p>
 <ul>
@@ -2084,8 +2084,8 @@
 </tbody>
 </table>
 <p>Tests that require ROS 2 skip automatically when <code>ros2</code> is not on PATH.</p>
-<h3 id="go-rust-ros-z-tests-ros_z_rust_testgo">Go ↔ Rust ros-z Tests (<code>ros_z_rust_test.go</code>)<a class="headerlink" href="#go-rust-ros-z-tests-ros_z_rust_testgo" title="Permanent link">&para;</a></h3>
-<p>These tests spawn compiled Rust ros-z example binaries and verify that the Go binding interoperates correctly with the native Rust implementation — without going through the ROS 2 rmw layer.</p>
+<h3 id="go-rust-hiroz-tests-hiroz_rust_testgo">Go ↔ Rust hiroz Tests (<code>hiroz_rust_test.go</code>)<a class="headerlink" href="#go-rust-hiroz-tests-hiroz_rust_testgo" title="Permanent link">&para;</a></h3>
+<p>These tests spawn compiled Rust hiroz example binaries and verify that the Go binding interoperates correctly with the native Rust implementation — without going through the ROS 2 rmw layer.</p>
 <p>This matters because Go↔Go tests use the same FFI library on both sides; a bug that affects both paths symmetrically could go undetected.  Go↔Rust tests exercise the full serialization and protocol stack between two independent implementations.</p>
 <table>
 <thead>
@@ -2119,11 +2119,11 @@
 </tbody>
 </table>
 <p>Tests skip gracefully when the Rust example binary is missing — build it first:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/ros-z-go/justfile<span class="w"> </span>build-rust-examples
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>build-rust-examples
 </span></code></pre></div>
 <p><strong>How Rust processes are configured:</strong> <code>ZContextBuilder</code> in the Rust examples reads <code>ROSZ_CONFIG_OVERRIDE</code> (same <code>key=value;key=value</code> format as <code>ZENOH_CONFIG_OVERRIDE</code> for rmw) and applies those keys on top of the default ROS session config.  The test injects this variable to point the Rust process at the per-test router.</p>
 <h2 id="adding-a-new-integration-test">Adding a New Integration Test<a class="headerlink" href="#adding-a-new-integration-test" title="Permanent link">&para;</a></h2>
-<p>Create or add to a <code>_test.go</code> file in <code>crates/ros-z-go/interop_tests/</code>. Add the build tag at the top:</p>
+<p>Create or add to a <code>_test.go</code> file in <code>crates/hiroz-go/interop_tests/</code>. Add the build tag at the top:</p>
 <div class="language-go highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1">//go:build integration</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="c1">// +build integration</span>
 </span></code></pre></div>

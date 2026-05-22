@@ -2005,8 +2005,8 @@
 <h2 id="integration-steps">Integration Steps<a class="headerlink" href="#integration-steps" title="Permanent link">&para;</a></h2>
 <h3 id="option-1-full-replacement-recommended">Option 1: Full Replacement (Recommended)<a class="headerlink" href="#option-1-full-replacement-recommended" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># In main repository (not worktree)</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">cd</span><span class="w"> </span>/path/to/ros-z<span class="w">  </span><span class="c1"># Main repo</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>cp<span class="w"> </span>/path/to/worktree/ros-z-go/_tmp/go_bindings_mdbook.md<span class="w"> </span>book/src/chapters/go_bindings.md
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">cd</span><span class="w"> </span>/path/to/hiroz<span class="w">  </span><span class="c1"># Main repo</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>cp<span class="w"> </span>/path/to/worktree/hiroz-go/_tmp/go_bindings_mdbook.md<span class="w"> </span>book/src/chapters/go_bindings.md
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># Build and preview</span>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>mdbook<span class="w"> </span>serve<span class="w"> </span>book
@@ -2017,7 +2017,7 @@
 </span></code></pre></div>
 <h3 id="option-2-merge-from-worktree-branch">Option 2: Merge from Worktree Branch<a class="headerlink" href="#option-2-merge-from-worktree-branch" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># In main repository</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>git<span class="w"> </span>fetch<span class="w"> </span>origin<span class="w"> </span>dev/ros-z-go
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>git<span class="w"> </span>fetch<span class="w"> </span>origin<span class="w"> </span>dev/hiroz-go
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Cherry-pick the documentation commit (if applicable)</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># OR manually copy the file and commit</span>
@@ -2034,7 +2034,7 @@
 <li>
 <p><strong>Error Handling</strong> (new major section)</p>
 </li>
-<li>RoszError type</li>
+<li>HirozError type</li>
 <li>Error codes reference</li>
 <li>Convenience methods (IsTimeout, IsRejected)</li>
 <li>
@@ -2124,12 +2124,12 @@
 <li>Import paths should be accurate</li>
 </ol>
 <h2 id="related-commits">Related Commits<a class="headerlink" href="#related-commits" title="Permanent link">&para;</a></h2>
-<p>This documentation reflects the following commits from dev/ros-z-go:</p>
+<p>This documentation reflects the following commits from dev/hiroz-go:</p>
 <ul>
 <li><code>ee959c9</code> - refactor(go): use cgo.Handle and runtime.Pinner for callbacks</li>
 <li><code>1032a34</code> - feat(go): add structured error type with FFI error codes</li>
 <li><code>1e4b4b5</code> - feat(go): add Handler interface with channel delivery options</li>
-<li><code>c0b1bf2</code> - docs(go): add comprehensive README for ros-z-go package</li>
+<li><code>c0b1bf2</code> - docs(go): add comprehensive README for hiroz-go package</li>
 <li><code>0e3eea6</code> - docs(go): add enhanced examples showcasing new features</li>
 </ul>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
