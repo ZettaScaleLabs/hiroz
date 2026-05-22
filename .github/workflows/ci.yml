@@ -36,16 +36,14 @@ jobs:
     name: Check Formatting
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
-
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
 
       - name: Check formatting
         run: nix build .#checks.x86_64-linux.pre-commit-check -L
@@ -54,7 +52,6 @@ jobs:
     name: ROS-independent Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     permissions:
-      id-token: write
       contents: read
     strategy:
       fail-fast: false
@@ -78,10 +75,9 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Install Determinate Nix (Linux)
+      - name: Install Nix (Linux)
         if: runner.os == 'Linux'
-        uses: DeterminateSystems/determinate-nix-action@v3
-
+        uses: cachix/install-nix-action@v31
 
       - name: Install Nushell (Linux via Nix)
         if: runner.os == 'Linux'
@@ -147,7 +143,6 @@ jobs:
     name: SHM Tests (ubuntu-latest)
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
 
     steps:
@@ -165,9 +160,8 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Install Determinate Nix (Linux)
-        uses: DeterminateSystems/determinate-nix-action@v3
-
+      - name: Install Nix (Linux)
+        uses: cachix/install-nix-action@v31
 
       - name: Install Nushell (Linux via Nix)
         run: |
@@ -196,7 +190,6 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: false
     permissions:
-      id-token: write
       contents: read
 
     steps:
@@ -214,9 +207,8 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
-
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
 
       - name: Install Nushell
         run: nix profile install nixpkgs#nushell
@@ -257,7 +249,6 @@ jobs:
     name: ROS-independent Checks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     permissions:
-      id-token: write
       contents: read
     strategy:
       fail-fast: false
@@ -281,10 +272,9 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Install Determinate Nix (Linux)
+      - name: Install Nix (Linux)
         if: runner.os == 'Linux'
-        uses: DeterminateSystems/determinate-nix-action@v3
-
+        uses: cachix/install-nix-action@v31
 
       - name: Install Nushell (Linux via Nix)
         if: runner.os == 'Linux'
@@ -409,7 +399,6 @@ jobs:
     name: Python Tests (hiroz-py) (${{ matrix.distro }})
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
     strategy:
       fail-fast: false
@@ -424,13 +413,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
         with:
-          extra-conf: |
-            extra-substituters = https://hiroz.cachix.org https://ros.cachix.org
+          extra_nix_config: |
+            extra-substituters = https://ros.cachix.org
             extra-trusted-public-keys = ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo=
-            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
         uses: cachix/cachix-action@v15
@@ -526,7 +514,6 @@ jobs:
     name: ROS Tests (clippy-rmw, interop) (${{ matrix.distro }})
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
     strategy:
       fail-fast: false
@@ -541,13 +528,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
         with:
-          extra-conf: |
-            extra-substituters = https://hiroz.cachix.org https://ros.cachix.org
+          extra_nix_config: |
+            extra-substituters = https://ros.cachix.org
             extra-trusted-public-keys = ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo=
-            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
         uses: cachix/cachix-action@v15
@@ -582,7 +568,6 @@ jobs:
     name: Bridge Interop (humble ↔ jazzy)
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
     # Only run on push or non-draft PRs to save CI time
     if: |
@@ -593,13 +578,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
         with:
-          extra-conf: |
-            extra-substituters = https://hiroz.cachix.org https://ros.cachix.org
+          extra_nix_config: |
+            extra-substituters = https://ros.cachix.org
             extra-trusted-public-keys = ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo=
-            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
         uses: cachix/cachix-action@v15
