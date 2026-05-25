@@ -519,7 +519,9 @@ jobs:
             ${{ runner.os }}-${{ matrix.distro }}-venv-
 
       - name: Setup venv
-        if: steps.venv-cache.outputs.cache-hit != 'true'
+        if: >-
+          steps.venv-cache.outputs.cache-hit != 'true' ||
+          !hashFiles('crates/hiroz-py/.venv/bin/python')
         run: |
           source /tmp/nix-dev-env.sh
           nu scripts/test-python.nu --distro ${{ matrix.distro }} setup-venv
@@ -527,6 +529,7 @@ jobs:
       - name: Build native extension
         if: >-
           steps.venv-cache.outputs.cache-hit != 'true' ||
+          !hashFiles('crates/hiroz-py/.venv/bin/python') ||
           !hashFiles('crates/hiroz-py/.venv/lib/**/hiroz_py/_native*.so')
         run: |
           source /tmp/nix-dev-env.sh
