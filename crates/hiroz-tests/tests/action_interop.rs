@@ -264,6 +264,9 @@ async fn test_action_feedback_ordering() {
             .expect("server")
             .with_handler(|executing: ExecutingGoal<Fibonacci>| async move {
                 let ord = executing.goal.order;
+                executing
+                    .wait_for_feedback_subscriber(1, Duration::from_secs(5))
+                    .await;
                 let mut seq = vec![0, 1];
                 for i in 2..=ord as usize {
                     let next = seq[i - 1] + seq[i - 2];
@@ -281,7 +284,6 @@ async fn test_action_feedback_ordering() {
                             partial_sequence: seq.clone(),
                         })
                         .unwrap();
-                    // Small delay to allow feedback delivery
                     tokio::time::sleep(Duration::from_millis(30)).await;
                 }
                 executing

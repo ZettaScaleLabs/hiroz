@@ -1018,6 +1018,22 @@ impl<A: ZAction> GoalHandle<A, Executing> {
         &self.info
     }
 
+    /// Wait until at least `count` feedback subscribers are active, or `timeout` elapses.
+    ///
+    /// Call this before the first `publish_feedback` to ensure the client's feedback
+    /// subscriber is registered before publishing starts.  Returns `true` if the
+    /// required number of subscribers became active within the timeout.
+    pub async fn wait_for_feedback_subscriber(
+        &self,
+        count: usize,
+        timeout: std::time::Duration,
+    ) -> bool {
+        self.server
+            .feedback_pub()
+            .wait_for_subscription(count, timeout)
+            .await
+    }
+
     /// Publish feedback for this goal.
     ///
     /// Feedback can be published multiple times during goal execution to inform
