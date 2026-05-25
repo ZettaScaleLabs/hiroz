@@ -112,9 +112,9 @@
     <rect x="400" y="304" width="300" height="110" rx="14" fill="url(#g-hiroz-apps)" filter="url(#shadow)" stroke="white" stroke-opacity="0.1" stroke-width="2"/>
     <rect x="400" y="304" width="300" height="110" rx="14" fill="url(#g-inset)"/>
     <text x="550" y="330" font-family="Arial,sans-serif" font-size="20" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="central">Hiroz Apps</text>
-    <text x="550" y="352" font-family="Arial,sans-serif" font-size="12" fill="white" opacity="0.9" text-anchor="middle">• Pure Rust</text>
-    <text x="550" y="367" font-family="Arial,sans-serif" font-size="12" fill="white" opacity="0.9" text-anchor="middle">• Optional ROS 2 deps</text>
-    <text x="550" y="382" font-family="Arial,sans-serif" font-size="12" fill="white" opacity="0.9" text-anchor="middle">• ROS 2 Compatible</text>
+    <text x="550" y="352" font-family="Arial,sans-serif" font-size="12" fill="white" opacity="0.9" text-anchor="middle">Pure Rust</text>
+    <text x="550" y="367" font-family="Arial,sans-serif" font-size="12" fill="white" opacity="0.9" text-anchor="middle">Optional ROS 2 deps</text>
+    <text x="550" y="382" font-family="Arial,sans-serif" font-size="12" fill="white" opacity="0.9" text-anchor="middle">ROS 2 Compatible</text>
     <!-- Hiroz — slot 2 -->
     <rect x="400" y="432" width="300" height="110" rx="14" fill="url(#g-hiroz)"       filter="url(#shadow)" stroke="white" stroke-opacity="0.1" stroke-width="2"/>
     <rect x="400" y="432" width="300" height="110" rx="14" fill="url(#g-inset)"/>
