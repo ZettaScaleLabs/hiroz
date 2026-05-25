@@ -460,7 +460,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: [humble, jazzy, kilted]
+        distro: [humble, jazzy, kilted, lyrical]
     # Skip for draft PRs to save CI time during development
     if: |
       github.event_name == 'push' ||
@@ -563,7 +563,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: [humble, jazzy, kilted]
+        distro: [humble, jazzy, kilted, lyrical]
     # Skip for draft PRs to save CI time during development
     if: |
       github.event_name == 'push' ||

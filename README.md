@@ -26,7 +26,7 @@ Built by the [Zenoh](https://zenoh.io) team at [ZettaScale](https://www.zettasca
 
 ## Status
 
-**Hiroz** is experimental software. It is tested with ROS 2 Jazzy, Humble, and Kilted. We make no guarantees with respect to other official distributions.
+**Hiroz** is experimental software. It is tested with ROS 2 Jazzy, Humble, Kilted, and Lyrical. We make no guarantees with respect to other official distributions.
 
 ## Documentation
 
