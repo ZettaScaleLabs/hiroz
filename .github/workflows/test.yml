@@ -96,6 +96,17 @@ jobs:
             echo "Fixed rmw_zenoh_cpp config by removing invalid transport_optimization section"
           fi
 
+      - name: Fix broken rmw_zenoh_cpp config for Lyrical
+        if: matrix.distro == 'lyrical'
+        run: |
+          # WORKAROUND: ros-lyrical-rmw-zenoh-cpp may ship with transport_optimization field
+          # that is invalid for the bundled Zenoh version (same issue as kilted 0.6.6)
+          CONFIG_FILE="/opt/ros/lyrical/share/rmw_zenoh_cpp/config/DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5"
+          if grep -q "transport_optimization" "$CONFIG_FILE" 2>/dev/null; then
+            sed -i '/transport_optimization:/,/},$/d' "$CONFIG_FILE"
+            echo "Fixed rmw_zenoh_cpp config by removing invalid transport_optimization section"
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
