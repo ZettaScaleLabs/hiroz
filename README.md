@@ -1,6 +1,6 @@
 <div align="center">
 
-# HIROZ
+# Hiroz
 
 <strong>High-performance Interoperable Robotics on Zenoh</strong>
 
@@ -12,7 +12,7 @@ Built by the [Zenoh](https://zenoh.io) team at [ZettaScale](https://www.zettasca
 
 ## Overview
 
-**HIROZ** is a Zenoh-native ROS 2 stack that:
+**Hiroz** is a Zenoh-native ROS 2 stack that:
 
 - Provides a **pure-Rust ROS 2 implementation** built directly on Zenoh
 - **Preserves portability** for RCL-C/CPP/Py-based applications
@@ -21,12 +21,12 @@ Built by the [Zenoh](https://zenoh.io) team at [ZettaScale](https://www.zettasca
 
 > **ROS 2 without ROS.** Full compatibility. Zero ROS package dependencies.
 
-![HIROZ Architecture](docs/assets/architecture.svg)
+![Hiroz Architecture](docs/assets/architecture.svg)
 
 
 ## Status
 
-**HIROZ** is experimental software. It is tested with ROS 2 Jazzy, Humble, and Kilted. We make no guarantees with respect to other official distributions.
+**Hiroz** is experimental software. It is tested with ROS 2 Jazzy, Humble, and Kilted. We make no guarantees with respect to other official distributions.
 
 ## Documentation
 
