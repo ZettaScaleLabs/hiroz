@@ -116,12 +116,12 @@ jobs:
           FEATURES="${{ matrix.hiroz_feature }}"
           if [ "$FEATURES" = "humble" ]; then
             cargo nextest run -p hiroz-tests --profile interop \
-              --no-default-features --features ros-interop,humble --release
+              --no-default-features --features ros-interop,humble
           else
             cargo nextest run -p hiroz-tests --profile interop \
-              --features "ros-interop,$FEATURES" --release
+              --features "ros-interop,$FEATURES"
             cargo nextest run -p hiroz-console --profile interop \
-              --features ros-interop --release \
+              --features ros-interop \
               -E 'test(dynamic_subscriber)'
           fi
 
