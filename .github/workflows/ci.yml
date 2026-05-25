@@ -504,36 +504,20 @@ jobs:
         with:
           shared-key: ${{ matrix.distro }}-python
 
-      - name: Cache Python venv
-        id: venv-cache
+      - name: Cache generated Python types
         uses: actions/cache@v4
         with:
-          path: |
-            crates/hiroz-py/.venv
-            crates/hiroz-msgs/python/hiroz_msgs_py/types
+          path: crates/hiroz-msgs/python/hiroz_msgs_py/types
           key: >-
-            ${{ runner.os }}-${{ matrix.distro }}-venv-${{
-            hashFiles('Cargo.lock', 'crates/hiroz-py/src/**',
-            'crates/hiroz-py/Cargo.toml', 'crates/hiroz-msgs/python/**') }}
+            ${{ runner.os }}-${{ matrix.distro }}-python-types-${{
+            hashFiles('Cargo.lock', 'crates/hiroz-msgs/python/**') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.distro }}-venv-
+            ${{ runner.os }}-${{ matrix.distro }}-python-types-
 
       - name: Setup venv
-        if: >-
-          steps.venv-cache.outputs.cache-hit != 'true' ||
-          !hashFiles('crates/hiroz-py/.venv/bin/python')
         run: |
           source /tmp/nix-dev-env.sh
           nu scripts/test-python.nu --distro ${{ matrix.distro }} setup-venv
-
-      - name: Build native extension
-        if: >-
-          steps.venv-cache.outputs.cache-hit != 'true' ||
-          !hashFiles('crates/hiroz-py/.venv/bin/python') ||
-          !hashFiles('crates/hiroz-py/.venv/lib/**/hiroz_py/_native*.so')
-        run: |
-          source /tmp/nix-dev-env.sh
-          cd crates/hiroz-py && source .venv/bin/activate && maturin develop
 
       - name: Ruff linting
         run: |

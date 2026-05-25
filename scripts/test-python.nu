@@ -26,11 +26,9 @@ def setup-nix-env [] {
 def setup-venv [] {
     log-step "Set up Python virtual environment"
 
-    # Create venv if missing or if bin/python is a broken symlink (stale cache)
-    let python_bin = "crates/hiroz-py/.venv/bin/python"
-    let venv_ok = ("crates/hiroz-py/.venv" | path exists) and ($python_bin | path exists)
-    if not $venv_ok {
-        run-cmd "cd crates/hiroz-py; rm -rf .venv && python -m venv .venv" --shell bash --distro (get-distro)
+    # Create venv if it doesn't exist
+    if not ("crates/hiroz-py/.venv" | path exists) {
+        run-cmd "cd crates/hiroz-py; python -m venv .venv" --shell bash --distro (get-distro)
         print "  Created new virtual environment"
     } else {
         print "  Virtual environment exists"
