@@ -470,7 +470,13 @@
     );
 
   nixConfig = {
-    extra-substituters = [ "https://ros.cachix.org" ];
-    extra-trusted-public-keys = [ "ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo=" ];
+    extra-substituters = [
+      "https://ros.cachix.org"
+      "https://hiroz.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo="
+      "hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY="
+    ];
   };
 }
