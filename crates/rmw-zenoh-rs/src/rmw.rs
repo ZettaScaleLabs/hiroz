@@ -459,6 +459,7 @@ pub extern "C" fn rmw_publish(
 
 // Subscriptions
 #[unsafe(no_mangle)]
+#[allow(clippy::needless_update)]
 pub extern "C" fn rmw_create_subscription(
     node: *const rmw_node_t,
     type_support: *const rosidl_message_type_support_t,
@@ -750,6 +751,7 @@ pub extern "C" fn rmw_create_subscription(
 }
 
 #[unsafe(no_mangle)]
+#[allow(clippy::needless_update)]
 pub extern "C" fn rmw_destroy_subscription(
     node: *mut rmw_node_t,
     subscription: *mut rmw_subscription_t,

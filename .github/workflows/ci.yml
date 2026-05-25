@@ -363,7 +363,7 @@ jobs:
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}-pureRust-checks
+          shared-key: ${{ runner.os }}-pureRust-checks-v2
 
       - name: Set environment variables (macOS)
         if: runner.os == 'macOS'
@@ -602,7 +602,7 @@ jobs:
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ matrix.distro }}-ros
+          shared-key: ${{ matrix.distro }}-ros-v2
 
       - name: Run ROS tests
         run: |
