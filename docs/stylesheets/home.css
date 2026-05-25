@@ -304,19 +304,11 @@
   padding: 0 1.2rem;
 }
 
-.mdx-architecture__frame iframe {
+.mdx-architecture__frame img {
   width: 100%;
-  height: 600px;
-  border: none;
+  height: auto;
   border-radius: 0.5rem;
   display: block;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-}
-
-@media (min-width: 1200px) {
-  .mdx-architecture__frame iframe {
-    height: 820px;
-  }
 }
 
 /* ============================================================
@@ -406,10 +398,6 @@
 
   .mdx-features__grid {
     grid-template-columns: 1fr;
-  }
-
-  .mdx-architecture__frame iframe {
-    height: 480px;
   }
 
   .mdx-cta h2 {

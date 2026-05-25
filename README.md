@@ -23,6 +23,9 @@ Built by the [Zenoh](https://zenoh.io) team at [ZettaScale](https://www.zettasca
 
 > **ROS 2 without ROS.** Full compatibility. Zero ROS package dependencies.
 
+![HIROZ Architecture](docs/assets/architecture.svg)
+
+
 ## Status
 
 **HIROZ** is experimental software. It is tested with ROS 2 Jazzy, Humble, and Kilted. We make no guarantees with respect to other official distributions.

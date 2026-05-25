@@ -11,7 +11,7 @@
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             min-height: 100vh;
             margin: 0;
-            overflow: hidden;
+            overflow: auto;
         }
 
         .container {
@@ -68,6 +68,58 @@
         .stack:nth-child(1) { --rotate: -25deg; --z: -50px; }
         .stack:nth-child(2) { --rotate: 0deg; --z: 100px; }
         .stack:nth-child(3) { --rotate: 25deg; --z: -50px; }
+
+        /* Mobile: collapse 3D layout into a vertical list */
+        @media (max-width: 860px) {
+            body {
+                padding: 20px 16px;
+            }
+
+            .container {
+                perspective: none;
+            }
+
+            .stacks-wrapper {
+                flex-direction: column;
+                align-items: center;
+                gap: 32px;
+                padding: 16px 0;
+                transform-style: flat;
+            }
+
+            .stack {
+                width: 100%;
+                max-width: 380px;
+                animation: none;
+                transform: none !important;
+                transform-style: flat;
+            }
+
+            .box {
+                font-size: 18px;
+                height: auto;
+                min-height: 64px;
+                padding: 16px 18px;
+                transform: none !important;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            }
+
+            .box:hover {
+                transform: none !important;
+            }
+
+            .small-text {
+                font-size: 13px;
+            }
+
+            .list-text {
+                font-size: 12px;
+            }
+
+            .title-block {
+                font-size: 18px;
+            }
+        }
 
         .box {
             padding: 30px 25px;
