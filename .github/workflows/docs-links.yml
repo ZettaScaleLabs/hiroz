@@ -17,14 +17,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # yamllint disable rule:line-length
       - name: Install Nix
         uses: cachix/install-nix-action@v31
-        with:
-          extra_nix_config: |
-            extra-substituters = https://ros.cachix.org https://hiroz.cachix.org
-            extra-trusted-public-keys = ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo= hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
-      # yamllint enable rule:line-length
 
       - name: Build MkDocs
         run: nix develop '.#pureRust-ci' -c mkdocs build --strict
