@@ -4,8 +4,6 @@
 
 <strong>High-performance Interoperable Robotics on Zenoh</strong>
 
-*HIROZ is your Red Hare (赤兔) — swift, unburdened, unstoppable.*
-
 Built by the [Zenoh](https://zenoh.io) team at [ZettaScale](https://www.zettascale.tech)
 
 </div>
