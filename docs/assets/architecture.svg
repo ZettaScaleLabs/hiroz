@@ -111,14 +111,14 @@
     <!-- hiroz Apps — slot 3 -->
     <rect x="400" y="304" width="300" height="110" rx="14" fill="url(#g-hiroz-apps)" filter="url(#shadow)" stroke="white" stroke-opacity="0.1" stroke-width="2"/>
     <rect x="400" y="304" width="300" height="110" rx="14" fill="url(#g-inset)"/>
-    <text x="550" y="330" font-family="Arial,sans-serif" font-size="20" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="central">hiroz Apps</text>
-    <text x="425" y="352" font-family="Arial,sans-serif" font-size="12" fill="white" opacity="0.9">• Pure Rust</text>
-    <text x="425" y="367" font-family="Arial,sans-serif" font-size="12" fill="white" opacity="0.9">• Optional ROS 2 deps</text>
-    <text x="425" y="382" font-family="Arial,sans-serif" font-size="12" fill="white" opacity="0.9">• ROS 2 Compatible</text>
-    <!-- hiroz — slot 2 -->
+    <text x="550" y="330" font-family="Arial,sans-serif" font-size="20" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="central">Hiroz Apps</text>
+    <text x="550" y="352" font-family="Arial,sans-serif" font-size="12" fill="white" opacity="0.9" text-anchor="middle">• Pure Rust</text>
+    <text x="550" y="367" font-family="Arial,sans-serif" font-size="12" fill="white" opacity="0.9" text-anchor="middle">• Optional ROS 2 deps</text>
+    <text x="550" y="382" font-family="Arial,sans-serif" font-size="12" fill="white" opacity="0.9" text-anchor="middle">• ROS 2 Compatible</text>
+    <!-- Hiroz — slot 2 -->
     <rect x="400" y="432" width="300" height="110" rx="14" fill="url(#g-hiroz)"       filter="url(#shadow)" stroke="white" stroke-opacity="0.1" stroke-width="2"/>
     <rect x="400" y="432" width="300" height="110" rx="14" fill="url(#g-inset)"/>
-    <text x="550" y="487" font-family="Arial,sans-serif" font-size="22" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="central">hiroz</text>
+    <text x="550" y="487" font-family="Arial,sans-serif" font-size="22" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="central">Hiroz</text>
     <!-- Zenoh (Rust) — slot 1 -->
     <rect x="400" y="560" width="300" height="110" rx="14" fill="url(#g-zenoh-rust)"  filter="url(#shadow)" stroke="white" stroke-opacity="0.1" stroke-width="2"/>
     <rect x="400" y="560" width="300" height="110" rx="14" fill="url(#g-inset)"/>
@@ -146,7 +146,7 @@
     <!-- hiroz (rmw feature enabled) — slot 2 -->
     <rect x="760" y="432" width="300" height="110" rx="14" fill="url(#g-hiroz)"       filter="url(#shadow)" stroke="white" stroke-opacity="0.1" stroke-width="2"/>
     <rect x="760" y="432" width="300" height="110" rx="14" fill="url(#g-inset)"/>
-    <text x="910" y="476" font-family="Arial,sans-serif" font-size="22" font-weight="bold" fill="white"    text-anchor="middle" dominant-baseline="central">hiroz</text>
+    <text x="910" y="476" font-family="Arial,sans-serif" font-size="22" font-weight="bold" fill="white"    text-anchor="middle" dominant-baseline="central">Hiroz</text>
     <text x="910" y="502" font-family="Arial,sans-serif" font-size="14"               fill="white"    text-anchor="middle" dominant-baseline="central" opacity="0.9">rmw feature enabled</text>
     <!-- Zenoh (Rust) — slot 1 -->
     <rect x="760" y="560" width="300" height="110" rx="14" fill="url(#g-zenoh-rust)"  filter="url(#shadow)" stroke="white" stroke-opacity="0.1" stroke-width="2"/>
