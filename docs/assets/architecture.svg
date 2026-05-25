@@ -100,7 +100,7 @@
     <rect x="40" y="560" width="300" height="110" rx="14" fill="url(#g-inset)"/>
     <text x="190" y="615" font-family="Arial,sans-serif" font-size="22" font-weight="bold" fill="white"    text-anchor="middle" dominant-baseline="central">Zenoh (Rust)</text>
     <!-- Label -->
-    <text x="190" y="698" font-family="Arial,sans-serif" font-size="16" font-weight="bold" fill="#4DD0E1" text-anchor="middle" letter-spacing="2" filter="url(#tglow)">C++ BINDINGS</text>
+    <text x="190" y="698" font-family="Arial,sans-serif" font-size="16" font-weight="bold" fill="#4DD0E1" text-anchor="middle" letter-spacing="2" filter="url(#tglow)">C++ Bindings</text>
   </g>
 
   <!-- ─── Stack 2: Direct hiroz  (x=400, cx=550) ─── -->
@@ -124,7 +124,7 @@
     <rect x="400" y="560" width="300" height="110" rx="14" fill="url(#g-inset)"/>
     <text x="550" y="615" font-family="Arial,sans-serif" font-size="22" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="central">Zenoh (Rust)</text>
     <!-- Label -->
-    <text x="550" y="698" font-family="Arial,sans-serif" font-size="16" font-weight="bold" fill="#4DD0E1" text-anchor="middle" letter-spacing="2" filter="url(#tglow)">DIRECT Hiroz</text>
+    <text x="550" y="698" font-family="Arial,sans-serif" font-size="16" font-weight="bold" fill="#4DD0E1" text-anchor="middle" letter-spacing="2" filter="url(#tglow)">Direct Hiroz</text>
   </g>
 
   <!-- ─── Stack 3: Rust Native  (x=760, cx=910) ─── -->
@@ -153,6 +153,6 @@
     <rect x="760" y="560" width="300" height="110" rx="14" fill="url(#g-inset)"/>
     <text x="910" y="615" font-family="Arial,sans-serif" font-size="22" font-weight="bold" fill="white"    text-anchor="middle" dominant-baseline="central">Zenoh (Rust)</text>
     <!-- Label -->
-    <text x="910" y="698" font-family="Arial,sans-serif" font-size="16" font-weight="bold" fill="#4DD0E1" text-anchor="middle" letter-spacing="2" filter="url(#tglow)">RUST NATIVE</text>
+    <text x="910" y="698" font-family="Arial,sans-serif" font-size="16" font-weight="bold" fill="#4DD0E1" text-anchor="middle" letter-spacing="2" filter="url(#tglow)">Rust Native</text>
   </g>
 </svg>
