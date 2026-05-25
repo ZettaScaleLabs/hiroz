@@ -15,7 +15,6 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
-  id-token: write
 
 jobs:
   deploy-preview:
@@ -28,16 +27,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Determinate Nix
+      # yamllint disable rule:line-length
+      - name: Install Nix
         if: github.event.action != 'closed'
-        uses: DeterminateSystems/determinate-nix-action@v3
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://ros.cachix.org https://hiroz.cachix.org
+            extra-trusted-public-keys = ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo= hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
+      # yamllint enable rule:line-length
 
       - name: Build MkDocs documentation
         if: github.event.action != 'closed'
         run: |
           nix develop '.#pureRust-ci' -c mkdocs build --strict
-        env:
-          NIX_ACCEPT_FLAKE_CONFIG: 1
 
       - name: Deploy MkDocs preview
         uses: rossjrw/pr-preview-action@v1

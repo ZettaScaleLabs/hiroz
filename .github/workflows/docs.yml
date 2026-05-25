@@ -19,28 +19,29 @@ jobs:
     name: Build documentation
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
+      # yamllint disable rule:line-length
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://ros.cachix.org https://hiroz.cachix.org
+            extra-trusted-public-keys = ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo= hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
+      # yamllint enable rule:line-length
 
       - name: Build MkDocs
         run: |
           sed -i 's|^site_url:.*|site_url: http://localhost/|' mkdocs.yml
           nix develop '.#pureRust-ci' -c mkdocs build --strict
-        env:
-          NIX_ACCEPT_FLAKE_CONFIG: 1
 
       - name: Check example documentation coverage
         run: |
           nix develop '.#pureRust-ci' -c nu scripts/check-example-coverage.nu
-        env:
-          NIX_ACCEPT_FLAKE_CONFIG: 1
 
       - name: Check internal links
         uses: lycheeverse/lychee-action@v2
@@ -59,21 +60,24 @@ jobs:
     needs: build_doc
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
+      # yamllint disable rule:line-length
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://ros.cachix.org https://hiroz.cachix.org
+            extra-trusted-public-keys = ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo= hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
+      # yamllint enable rule:line-length
 
       - name: Build MkDocs
         run: |
           nix develop '.#pureRust-ci' -c mkdocs build --strict
-        env:
-          NIX_ACCEPT_FLAKE_CONFIG: 1
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
