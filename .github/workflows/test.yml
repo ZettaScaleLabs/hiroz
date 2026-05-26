@@ -96,23 +96,6 @@ jobs:
             echo "Fixed rmw_zenoh_cpp config by removing invalid transport_optimization section"
           fi
 
-      - name: Fix broken rmw_zenoh_cpp config for Lyrical
-        if: matrix.distro == 'lyrical'
-        run: |
-          # WORKAROUND: ros-lyrical-rmw-zenoh-cpp 0.10.x ships a config with fields (e.g.
-          # transport_optimization, mode: "lazy") that may be unrecognised by the bundled
-          # Zenoh C library version, causing session parse failure.  Instead of patching the
-          # default config in-place (fragile, depends on exact whitespace/structure), provide a
-          # minimal known-good config and point ZENOH_SESSION_CONFIG_URI at it.
-          # The test infrastructure supplies ZENOH_CONFIG_OVERRIDE to set connect endpoints, so
-          # the minimal config only needs to set mode: "peer".
-          cat > /tmp/lyrical_zenoh.json5 << 'EOF'
-          {
-            mode: "peer",
-          }
-          EOF
-          echo "ZENOH_SESSION_CONFIG_URI=/tmp/lyrical_zenoh.json5" >> "$GITHUB_ENV"
-
       - uses: actions/checkout@v4
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
