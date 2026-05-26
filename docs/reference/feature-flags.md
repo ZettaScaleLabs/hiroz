@@ -76,6 +76,35 @@ cargo build --no-default-features --features humble
 
 **Important:** Humble requires `--no-default-features` to avoid conflicts with the jazzy default.
 
+### `kilted`
+
+Targets ROS 2 Kilted Kaiju with modern type hash support.
+
+```bash
+cargo build --features kilted
+```
+
+**Features:**
+
+- ✅ Type hash support (RIHS01)
+- ✅ Shared memory optimization
+- ✅ Modern ROS 2 protocol
+
+### `lyrical`
+
+Targets ROS 2 Lyrical Luth (LTS, May 2026–May 2031) with modern type hash support.
+
+```bash
+cargo build --features lyrical
+```
+
+**Features:**
+
+- ✅ Type hash support (RIHS01)
+- ✅ Shared memory optimization
+- ✅ Modern ROS 2 protocol
+- ✅ LTS support until 2031
+
 ### `rolling`
 
 Target Rolling distribution:
@@ -309,6 +338,8 @@ cargo build -p hiroz --features protobuf
 | hiroz | (none) | No | None |
 | hiroz | jazzy (default) | No | None |
 | hiroz | humble | No | None |
+| hiroz | kilted | No | None |
+| hiroz | lyrical | No | None |
 | hiroz | rolling | No | None |
 | hiroz | protobuf | No | prost, prost-types |
 | hiroz | rcl-z | Yes | RCL libraries |
@@ -318,6 +349,8 @@ cargo build -p hiroz --features protobuf
 | hiroz-msgs | protobuf | No | prost, prost-types |
 | hiroz-msgs | jazzy (default) | No | None |
 | hiroz-msgs | humble | No | None |
+| hiroz-msgs | kilted | No | None |
+| hiroz-msgs | lyrical | No | None |
 | hiroz-codegen | protobuf | No | prost-build |
 
 ## Checking Active Features

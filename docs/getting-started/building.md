@@ -103,7 +103,7 @@ cargo build
 # For Humble - use --no-default-features
 cargo build --no-default-features --features humble
 
-# For Rolling/Kilted - just add the feature
+# For Rolling/Kilted/Lyrical - just add the feature
 cargo build --features rolling
 ```
 
@@ -154,7 +154,7 @@ The build system automatically locates ROS message definitions:
 **Search order:**
 
 1. System ROS installation (`AMENT_PREFIX_PATH`, `CMAKE_PREFIX_PATH`)
-2. Common ROS paths (`/opt/ros/{rolling,jazzy,kilted,humble}`)
+2. Common ROS paths (`/opt/ros/{rolling,jazzy,kilted,lyrical,humble}`)
 3. Bundled assets (built-in message definitions in hiroz-codegen)
 
 This fallback mechanism enables builds without ROS 2 installed.

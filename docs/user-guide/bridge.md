@@ -1,11 +1,11 @@
 # Cross-Distro Bridge
 
 `hiroz-bridge` is a standalone binary that transparently connects a **legacy** ROS 2 network
-(Humble and earlier) and a **modern** ROS 2 network (Jazzy, Kilted, Rolling) over a shared
+(Humble and earlier) and a **modern** ROS 2 network (Jazzy, Kilted, Lyrical, Rolling) over a shared
 Eclipse Zenoh backbone.
 
 Without the bridge, nodes from these two generations cannot talk to each other.
-With it, a Jazzy or Kilted subscriber receives messages from a Humble publisher — and
+With it, a Jazzy, Kilted, or Lyrical subscriber receives messages from a Humble publisher — and
 vice versa — with no changes to either node.
 
 ## Why Are They Incompatible?
@@ -16,7 +16,7 @@ embedded in Zenoh key expressions during entity discovery:
 | Distribution | Generation | Type hash format |
 |---|---|---|
 | **Humble** | Legacy | `TypeHashNotSupported` (constant placeholder) |
-| **Jazzy, Kilted, Rolling** | Modern | `RIHS01_<64 hex chars>` (real hash of the message definition) |
+| **Jazzy, Kilted, Lyrical, Rolling** | Modern | `RIHS01_<64 hex chars>` (real hash of the message definition) |
 
 Because the key expressions don't match, subscribers on one side never see publishers on the
 other side. **CDR payloads are identical** — only the KE differs.
@@ -34,9 +34,9 @@ The bridge fixes this by:
 ```mermaid
 graph TD
 accTitle: Cross-distro bridge connecting Humble and Jazzy Zenoh networks
-accDescr: hiroz-bridge opens two Zenoh sessions, one to the legacy Humble router and one to the modern Jazzy or Kilted router, transparently forwarding messages between them.
+accDescr: hiroz-bridge opens two Zenoh sessions, one to the legacy Humble router and one to the modern Jazzy, Kilted, or Lyrical router, transparently forwarding messages between them.
     H_node["Humble node<br>(TypeHashNotSupported)"]
-    J_node["Jazzy / Kilted node<br>(RIHS01_abcd…)"]
+    J_node["Jazzy / Kilted / Lyrical node<br>(RIHS01_abcd…)"]
 
     H_router(["Legacy router<br>127.0.0.1:7447"])
     J_router(["Modern router<br>127.0.0.1:7448"])
@@ -58,7 +58,7 @@ never interfere with each other.
 
 Download the latest release for your platform from the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases). The bridge ships as separate binaries per ROS 2 distro generation:
 
-| Platform | Jazzy / Kilted / Rolling | Humble |
+| Platform | Jazzy / Kilted / Lyrical / Rolling | Humble |
 |---|---|---|
 | Linux x86_64 | `bin-bridge-jazzy-x86_64-linux` | `bin-bridge-humble-x86_64-linux` |
 | Linux aarch64 | `bin-bridge-jazzy-aarch64-linux` | `bin-bridge-humble-aarch64-linux` |
@@ -96,7 +96,7 @@ ros2 run rmw_zenoh_cpp rmw_zenohd
 ```
 
 ```bash
-# Terminal B — modern (Jazzy/Kilted) router on a different port
+# Terminal B — modern (Jazzy/Kilted/Lyrical) router on a different port
 zenohd --listen tcp/127.0.0.1:7448 --rest-http-port disabled
 ```
 
@@ -119,7 +119,7 @@ ros2 run demo_nodes_cpp talker
 ```
 
 ```bash
-# Terminal D — Jazzy/Kilted listener (hiroz)
+# Terminal D — Jazzy/Kilted/Lyrical listener (hiroz)
 cargo run --example demo_nodes_listener -- --endpoint tcp/127.0.0.1:7448
 ```
 
@@ -139,7 +139,7 @@ ros2 topic list --spin-time 5 --no-daemon
 ```
 
 ```bash
-# On the Jazzy/Kilted side — should show the Humble publisher's topic
+# On the Jazzy/Kilted/Lyrical side — should show the Humble publisher's topic
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 export ZENOH_CONFIG_OVERRIDE="connect/endpoints=[\"tcp/127.0.0.1:7448\"];scouting/multicast/enabled=false"
 ros2 topic list --spin-time 5 --no-daemon
@@ -162,7 +162,7 @@ USAGE:
 OPTIONS:
     --humble-endpoint <LOCATOR>    Zenoh locator for the legacy (Humble) network
                                    [default: tcp/127.0.0.1:7447]
-    --jazzy-endpoint <LOCATOR>     Zenoh locator for the modern (Jazzy/Kilted) network
+    --jazzy-endpoint <LOCATOR>     Zenoh locator for the modern (Jazzy/Kilted/Lyrical) network
                                    [default: tcp/127.0.0.1:7448]
     --domain-id <ID>               ROS domain ID  [default: 0]
     -h, --help                     Print help
@@ -242,7 +242,7 @@ The message type is not in the bridge's hash registry. See [Custom Messages](#cu
 
 ### The bridge forwards messages but deserialization fails on the receiving side
 
-Verify the message definition is identical on both sides. Humble and Jazzy/Kilted ship the
+Verify the message definition is identical on both sides. Humble and Jazzy/Kilted/Lyrical ship the
 same built-in message definitions, but third-party packages may differ. Check that both
 [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) versions agree on the CDR layout.
 

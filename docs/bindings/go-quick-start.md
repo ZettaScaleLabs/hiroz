@@ -15,7 +15,7 @@ No Rust toolchain required when using the pre-built library.
 
 Download the static library and C header for your platform from the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases):
 
-| Platform | Jazzy / Kilted / Rolling | Humble |
+| Platform | Jazzy / Kilted / Lyrical / Rolling | Humble |
 |---|---|---|
 | Linux x86_64 | `libhiroz-jazzy-x86_64-unknown-linux-gnu.a` | `libhiroz-humble-x86_64-unknown-linux-gnu.a` |
 | Linux aarch64 | `libhiroz-jazzy-aarch64-unknown-linux-gnu.a` | `libhiroz-humble-aarch64-unknown-linux-gnu.a` |

@@ -194,7 +194,7 @@ accDescr: Feature flags trigger discovery that checks for a system ROS installat
 ```
 
 1. **System ROS:** `$AMENT_PREFIX_PATH`, `$CMAKE_PREFIX_PATH`
-2. **Standard paths:** `/opt/ros/{rolling,jazzy,kilted,humble}`
+2. **Standard paths:** `/opt/ros/{rolling,jazzy,kilted,lyrical,humble}`
 3. **Bundled assets:** Built-in message definitions in hiroz-codegen
 
 This fallback enables development without ROS 2 installation.

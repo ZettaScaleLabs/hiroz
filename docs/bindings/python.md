@@ -15,7 +15,7 @@ Python 3.11+. No Rust toolchain required.
 
 Pick a release version from the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases) and substitute `<version>` below (e.g. `v0.2.0`).
 
-**Jazzy / Kilted / Rolling:**
+**Jazzy / Kilted / Lyrical / Rolling:**
 
 ```bash
 pip install https://github.com/ZettaScaleLabs/hiroz/releases/download/<version>/hiroz_msgs_py-<version>-py3-none-any.whl
