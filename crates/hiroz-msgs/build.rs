@@ -324,6 +324,7 @@ fn discover_system_packages(packages: &[&str]) -> Result<Vec<PathBuf>> {
             "/opt/ros/rolling",
             "/opt/ros/jazzy",
             "/opt/ros/kilted",
+            "/opt/ros/lyrical",
             "/opt/ros/humble",
         ];
 
