@@ -1,5 +1,4 @@
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -75,14 +74,6 @@ impl Drop for ProcessGuard {
     }
 }
 
-/// Port counter for generating unique Zenoh router ports per test
-static NEXT_PORT: once_cell::sync::Lazy<AtomicU16> = once_cell::sync::Lazy::new(|| {
-    let pid = std::process::id();
-    let base_port = 30000 + ((pid % 10000) as u16);
-    println!("Test process {} using base port {}", pid, base_port);
-    AtomicU16::new(base_port)
-});
-
 /// Per-test Zenoh router configuration
 pub struct TestRouter {
     pub port: u16,
@@ -91,34 +82,49 @@ pub struct TestRouter {
 }
 
 impl TestRouter {
-    /// Start a new Zenoh router session on a unique port for this test
+    /// Start a new Zenoh router session on a free OS-assigned port.
+    ///
+    /// Uses bind(:0) to avoid PID-derived port collisions when multiple test
+    /// binaries run in parallel (e.g. hiroz-tests and hiroz-console).
     pub fn new() -> Self {
-        let port = NEXT_PORT.fetch_add(1, Ordering::SeqCst);
-        let endpoint = format!("tcp/127.0.0.1:{}", port);
+        for attempt in 0..5u32 {
+            let port = {
+                let listener =
+                    std::net::TcpListener::bind("127.0.0.1:0").expect("Failed to bind port 0");
+                listener.local_addr().unwrap().port()
+            };
+            let endpoint = format!("tcp/127.0.0.1:{}", port);
+            println!(
+                "Starting Zenoh router on port {} (attempt {})...",
+                port,
+                attempt + 1
+            );
 
-        println!("Starting Zenoh router on port {}...", port);
+            let mut config = zenoh::Config::default();
+            config.set_mode(Some(WhatAmI::Router)).unwrap();
+            config
+                .insert_json5("listen/endpoints", &format!("[\"{}\"]", endpoint))
+                .unwrap();
+            config
+                .insert_json5("scouting/multicast/enabled", "false")
+                .unwrap();
 
-        let mut config = zenoh::Config::default();
-        config.set_mode(Some(WhatAmI::Router)).unwrap();
-        config
-            .insert_json5("listen/endpoints", &format!("[\"{}\"]", endpoint))
-            .unwrap();
-        config
-            .insert_json5("scouting/multicast/enabled", "false")
-            .unwrap();
-
-        let session = zenoh::open(config)
-            .wait()
-            .expect("Failed to open Zenoh router session");
-
-        thread::sleep(Duration::from_millis(500));
-        println!("Zenoh router ready on {}", endpoint);
-
-        Self {
-            port,
-            endpoint: endpoint.clone(),
-            _session: session,
+            match zenoh::open(config).wait() {
+                Ok(session) => {
+                    thread::sleep(Duration::from_millis(500));
+                    println!("Zenoh router ready on {}", endpoint);
+                    return Self {
+                        port,
+                        endpoint,
+                        _session: session,
+                    };
+                }
+                Err(e) => {
+                    println!("Port {} unavailable ({}), retrying...", port, e);
+                }
+            }
         }
+        panic!("Failed to start Zenoh router after 5 attempts");
     }
 
     pub fn endpoint(&self) -> &str {

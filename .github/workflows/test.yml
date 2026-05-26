@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: [humble, jazzy, kilted]
+        distro: [humble, jazzy, kilted, lyrical]
         include:
           - distro: humble
             image: ros:humble-ros-base
@@ -51,6 +51,9 @@ jobs:
           - distro: kilted
             image: ros:kilted-ros-base
             hiroz_feature: kilted
+          - distro: lyrical
+            image: ros:lyrical-ros-base
+            hiroz_feature: lyrical
     container:
       image: ${{ matrix.image }}
     steps:

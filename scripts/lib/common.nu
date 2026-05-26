@@ -2,7 +2,7 @@
 
 # Shared utilities for hiroz test scripts
 
-export const DISTROS = ["humble", "jazzy", "kilted"]
+export const DISTROS = ["humble", "jazzy", "kilted", "lyrical"]
 
 # Check if running in CI environment
 export def is-ci [] {

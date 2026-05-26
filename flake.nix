@@ -28,6 +28,7 @@
           "jazzy" # (May 2024 - May 2029, LTS) <-- Default
           "humble" # (May 2022 - May 2027, LTS)
           "kilted" # (May 2025 - Nov 2026)
+          "lyrical" # (May 2026 - May 2031, LTS)
           "rolling" # continuous release, no EOL
         ];
 

@@ -3,12 +3,12 @@ use std::time::Duration;
 use hiroz::{Builder, Result, action::server::ExecutingGoal, context::ZContext};
 // Distro-specific action interfaces:
 // - Humble/Jazzy: action_tutorials_cpp uses action_tutorials_interfaces
-// - Kilted: action_tutorials_cpp uses example_interfaces
-#[cfg(not(feature = "kilted"))]
+// - Kilted/Lyrical: action_tutorials_cpp uses example_interfaces
+#[cfg(not(any(feature = "kilted", feature = "lyrical")))]
 use hiroz_msgs::action_tutorials_interfaces::{
     FibonacciFeedback, FibonacciResult, action::Fibonacci,
 };
-#[cfg(feature = "kilted")]
+#[cfg(any(feature = "kilted", feature = "lyrical"))]
 use hiroz_msgs::example_interfaces::{FibonacciFeedback, FibonacciResult, action::Fibonacci};
 
 // ANCHOR: full_example
@@ -54,11 +54,11 @@ pub async fn run_fibonacci_action_server(ctx: ZContext, timeout: Option<Duration
 
                 // Publish feedback
                 // Distro-specific feedback field names
-                #[cfg(feature = "kilted")]
+                #[cfg(any(feature = "kilted", feature = "lyrical"))]
                 let feedback = FibonacciFeedback {
                     sequence: sequence.clone(),
                 };
-                #[cfg(not(feature = "kilted"))]
+                #[cfg(not(any(feature = "kilted", feature = "lyrical")))]
                 let feedback = FibonacciFeedback {
                     partial_sequence: sequence.clone(),
                 };

@@ -8,12 +8,12 @@ use common::*;
 use hiroz::{Builder, action::server::ExecutingGoal};
 // Distro-specific action interfaces:
 // - Humble/Jazzy: action_tutorials_cpp uses action_tutorials_interfaces
-// - Kilted: action_tutorials_cpp uses example_interfaces
-#[cfg(not(feature = "kilted"))]
+// - Kilted/Lyrical: action_tutorials_cpp uses example_interfaces
+#[cfg(not(any(feature = "kilted", feature = "lyrical")))]
 use hiroz_msgs::action_tutorials_interfaces::{
     FibonacciFeedback, FibonacciGoal, FibonacciResult, action::Fibonacci,
 };
-#[cfg(feature = "kilted")]
+#[cfg(any(feature = "kilted", feature = "lyrical"))]
 use hiroz_msgs::example_interfaces::{
     FibonacciFeedback, FibonacciGoal, FibonacciResult, action::Fibonacci,
 };
@@ -55,13 +55,13 @@ async fn test_action_goal_accept_and_succeed() {
                 for i in 2..=ord as usize {
                     let next = seq[i - 1] + seq[i - 2];
                     seq.push(next);
-                    #[cfg(feature = "kilted")]
+                    #[cfg(any(feature = "kilted", feature = "lyrical"))]
                     executing
                         .publish_feedback(FibonacciFeedback {
                             sequence: seq.clone(),
                         })
                         .unwrap();
-                    #[cfg(not(feature = "kilted"))]
+                    #[cfg(not(any(feature = "kilted", feature = "lyrical")))]
                     executing
                         .publish_feedback(FibonacciFeedback {
                             partial_sequence: seq.clone(),
@@ -272,13 +272,13 @@ async fn test_action_feedback_ordering() {
                     let next = seq[i - 1] + seq[i - 2];
                     seq.push(next);
                     // Publish feedback with the growing partial sequence
-                    #[cfg(feature = "kilted")]
+                    #[cfg(any(feature = "kilted", feature = "lyrical"))]
                     executing
                         .publish_feedback(FibonacciFeedback {
                             sequence: seq.clone(),
                         })
                         .unwrap();
-                    #[cfg(not(feature = "kilted"))]
+                    #[cfg(not(any(feature = "kilted", feature = "lyrical")))]
                     executing
                         .publish_feedback(FibonacciFeedback {
                             partial_sequence: seq.clone(),
@@ -319,9 +319,9 @@ async fn test_action_feedback_ordering() {
     if let Some(mut fb_rx) = goal_handle.feedback() {
         tokio::spawn(async move {
             while let Some(fb) = fb_rx.recv().await {
-                #[cfg(feature = "kilted")]
+                #[cfg(any(feature = "kilted", feature = "lyrical"))]
                 let seq = fb.sequence.clone();
-                #[cfg(not(feature = "kilted"))]
+                #[cfg(not(any(feature = "kilted", feature = "lyrical")))]
                 let seq = fb.partial_sequence.clone();
                 rf.lock().unwrap().push(seq);
             }
