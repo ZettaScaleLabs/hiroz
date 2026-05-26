@@ -17,6 +17,7 @@ members = [
   "crates/hiroz-schema",
   "crates/hiroz-msgs",
   "crates/hiroz-tests",
+  "crates/hiroz-tf",
   "crates/hiroz-console",
   "crates/hiroz-bridge",
   "crates/hiroz/examples/protobuf_demo",

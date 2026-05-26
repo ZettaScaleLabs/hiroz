@@ -5,6 +5,8 @@ use std::{marker::PhantomData, sync::Arc};
 use tracing::{debug, trace, warn};
 use zenoh::liveliness::LivelinessToken;
 use zenoh::{Result, Session, Wait, sample::Sample};
+#[allow(deprecated)]
+use zenoh_ext::{PublicationCache, SessionExt};
 
 use crate::Builder;
 use crate::attachment::{Attachment, GidArray};
@@ -113,6 +115,10 @@ pub struct ZPub<T: ZMessage, S: ZSerializer> {
     gid: GidArray,
     inner: AdvancedPublisher<'static>,
     _lv_token: LivelinessToken,
+    /// Caches samples for TransientLocal durability so late-joining subscribers
+    /// can retrieve previously published data via an initial get() query.
+    #[allow(deprecated)]
+    _pub_cache: Option<PublicationCache>,
     with_attachment: bool,
     clock: crate::time::ZClock,
     events_mgr: Arc<Mutex<EventsManager>>,
@@ -320,6 +326,7 @@ where
         debug!("[PUB] Key expression: {}", key_expr);
 
         // Map QoS to Zenoh publisher settings
+        let cache_key_expr = key_expr.clone();
         let mut pub_builder = self.session.declare_publisher(key_expr);
 
         // Map reliability: Reliable uses Block, BestEffort uses Drop
@@ -344,6 +351,35 @@ where
         let inner = pub_builder.wait()?;
         debug!("[PUB] Publisher ready: topic={}", self.entity.topic);
 
+        // For TransientLocal publishers, declare a PublicationCache that answers
+        // get() queries from late-joining QueryingSubscribers.
+        let is_transient_local =
+            matches!(self.entity.qos.durability, QosDurability::TransientLocal);
+        #[allow(deprecated)]
+        let pub_cache: Option<PublicationCache> = if is_transient_local {
+            let history = match self.entity.qos.history {
+                QosHistory::KeepLast(n) => n,
+                QosHistory::KeepAll => 1000usize,
+            };
+            match self
+                .session
+                .declare_publication_cache(&cache_key_expr)
+                .history(history)
+                .wait()
+            {
+                Ok(cache) => {
+                    debug!("[PUB] PublicationCache declared (history={})", history);
+                    Some(cache)
+                }
+                Err(e) => {
+                    warn!("[PUB] Failed to declare PublicationCache: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let lv_ke = self
             .keyexpr_format
             .liveliness_key_expr(&self.entity, &self.session.zid())?;
@@ -367,6 +403,7 @@ where
             sn: AtomicUsize::new(0),
             inner,
             _lv_token: lv_token,
+            _pub_cache: pub_cache,
             gid,
             clock: self.clock,
             events_mgr: Arc::new(Mutex::new(EventsManager::new(gid))),

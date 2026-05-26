@@ -116,6 +116,7 @@ fn main() -> Result<()> {
         external_crate: None,
         local_packages: std::collections::HashSet::new(),
         json_out: Some(json_path.clone()),
+        protobuf_excluded_packages: std::collections::HashSet::new(),
     };
 
     let generator = hiroz_codegen::MessageGenerator::new(config);

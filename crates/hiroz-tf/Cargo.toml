@@ -1,0 +1,23 @@
+[package]
+name = "hiroz-tf"
+version.workspace = true
+edition.workspace = true
+description = "TF2 transform listener and buffer for hiroz"
+
+[dependencies]
+hiroz = { path = "../hiroz", default-features = false, features = [
+  "rmw-zenoh",
+] }
+hiroz-msgs = { path = "../hiroz-msgs", default-features = false, features = [
+  "tf2_msgs",
+] }
+parking_lot = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time"] }
+zenoh = { workspace = true }
+
+[features]
+default = ["jazzy"]
+jazzy = ["hiroz/jazzy", "hiroz-msgs/jazzy"]
+humble = ["hiroz/humble", "hiroz-msgs/humble"]
+rolling = ["hiroz/rolling", "hiroz-msgs/rolling"]
+kilted = ["hiroz/kilted", "hiroz-msgs/kilted"]

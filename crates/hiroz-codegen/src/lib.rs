@@ -44,6 +44,10 @@ pub struct GeneratorConfig {
 
     /// Output JSON definitions for external generators (Go, Python, etc.)
     pub json_out: Option<PathBuf>,
+
+    /// Packages to skip during protobuf generation (CDR generation is unaffected).
+    /// Useful when a package's message types are intentionally not exposed via protobuf.
+    pub protobuf_excluded_packages: std::collections::HashSet<String>,
 }
 
 /// Message generator that orchestrates parsing, resolution, and code generation
@@ -507,6 +511,18 @@ impl MessageGenerator {
     fn generate_protobuf_types(&self, messages: &[ResolvedMessage]) -> Result<()> {
         use crate::protobuf_generator::ProtobufMessageGenerator;
 
+        let filtered: Vec<ResolvedMessage> = messages
+            .iter()
+            .filter(|m| {
+                !self
+                    .config
+                    .protobuf_excluded_packages
+                    .contains(&m.parsed.package)
+            })
+            .cloned()
+            .collect();
+        let messages = filtered.as_slice();
+
         let proto_dir = self.config.output_dir.join("proto");
         let generator = ProtobufMessageGenerator::new(&proto_dir);
 
@@ -704,6 +720,7 @@ pub fn generate_user_messages(output_dir: &Path, is_humble: bool) -> Result<()> 
         external_crate: Some("hiroz_msgs".to_string()),
         local_packages,
         json_out: None,
+        protobuf_excluded_packages: std::collections::HashSet::new(),
     };
 
     let generator = MessageGenerator::new(config);

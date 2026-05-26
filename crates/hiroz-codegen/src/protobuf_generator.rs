@@ -322,15 +322,53 @@ impl ::hiroz::msg::ZMessage for {proto_type} {{
         Ok(impls)
     }
 
-    /// Convert ROS message name to prost naming convention
+    /// Convert a ROS PascalCase message name to prost's UpperCamelCase convention.
+    ///
+    /// Prost (via heck) splits words at:
+    /// - lowercase → uppercase transitions  ("fooBar" → ["foo","Bar"])
+    /// - uppercase-run boundary before a lowercase letter
+    ///   ("TFMessage" → ["TF","Message"], "ColorRGBA" → ["Color","RGBA"])
+    ///
+    /// Each word is then title-cased (first char upper, rest lower).
     fn convert_to_prost_naming(&self, name: &str) -> String {
-        // Handle specific known cases where prost naming differs
-        match name {
-            "MultiDOFJointState" => "MultiDofJointState".to_string(),
-            "ColorRGBA" => "ColorRgba".to_string(),
-            "UUID" => "Uuid".to_string(),
-            // Add more mappings as needed
-            _ => name.to_string(),
+        let chars: Vec<char> = name.chars().collect();
+        let mut words: Vec<String> = Vec::new();
+        let mut current = String::new();
+
+        for (i, &c) in chars.iter().enumerate() {
+            let is_word_start = if c.is_uppercase() {
+                let prev = if i > 0 { Some(chars[i - 1]) } else { None };
+                let next = chars.get(i + 1).copied();
+                match (prev, next) {
+                    (None, _) => false,                         // first char: never a boundary
+                    (Some(p), _) if p.is_lowercase() => true,   // lower→upper
+                    (Some(p), _) if p.is_ascii_digit() => true, // digit→upper
+                    (Some(p), Some(n)) if p.is_uppercase() && n.is_lowercase() => true, // run→lower
+                    _ => false,
+                }
+            } else {
+                false
+            };
+
+            if is_word_start && !current.is_empty() {
+                words.push(current.clone());
+                current = String::new();
+            }
+            current.push(c);
         }
+        if !current.is_empty() {
+            words.push(current);
+        }
+
+        words
+            .iter()
+            .map(|w| {
+                let mut cs = w.chars();
+                match cs.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().to_string() + &cs.as_str().to_lowercase(),
+                }
+            })
+            .collect()
     }
 }

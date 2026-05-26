@@ -51,6 +51,7 @@ std_msgs = []
 geometry_msgs = ["std_msgs"]
 sensor_msgs = ["std_msgs", "geometry_msgs"]
 nav_msgs = ["std_msgs", "geometry_msgs"]
+tf2_msgs = ["geometry_msgs"]
 example_interfaces = []
 action_tutorials_interfaces = []
 test_msgs = []
@@ -63,6 +64,7 @@ all_msgs = [
   "geometry_msgs",
   "sensor_msgs",
   "nav_msgs",
+  "tf2_msgs",
   "example_interfaces",
   "action_tutorials_interfaces",
   "rcl_interfaces",

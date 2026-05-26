@@ -28,6 +28,11 @@
         "std_msgs"
       ]
     },
+    "tf2_msgs": {
+      "dependencies": [
+        "geometry_msgs"
+      ]
+    },
     "sensor_msgs": {
       "dependencies": [
         "builtin_interfaces",
