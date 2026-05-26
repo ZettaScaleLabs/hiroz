@@ -2574,7 +2574,7 @@
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># For Humble - use --no-default-features</span>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>cargo<span class="w"> </span>build<span class="w"> </span>--no-default-features<span class="w"> </span>--features<span class="w"> </span>humble
 </span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="c1"># For Rolling/Kilted - just add the feature</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="c1"># For Rolling/Kilted/Lyrical - just add the feature</span>
 </span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>cargo<span class="w"> </span>build<span class="w"> </span>--features<span class="w"> </span>rolling
 </span></code></pre></div>
 <p>The distribution choice affects type hash support and interoperability with ROS 2 nodes. See the <a href="../distro-compatibility/">Distribution Compatibility chapter</a> for full details.</p>
@@ -2648,7 +2648,7 @@
 <p><strong>Search order:</strong></p>
 <ol>
 <li>System ROS installation (<code>AMENT_PREFIX_PATH</code>, <code>CMAKE_PREFIX_PATH</code>)</li>
-<li>Common ROS paths (<code>/opt/ros/{rolling,jazzy,kilted,humble}</code>)</li>
+<li>Common ROS paths (<code>/opt/ros/{rolling,jazzy,kilted,lyrical,humble}</code>)</li>
 <li>Bundled assets (built-in message definitions in hiroz-codegen)</li>
 </ol>
 <p>This fallback mechanism enables builds without ROS 2 installed.</p>

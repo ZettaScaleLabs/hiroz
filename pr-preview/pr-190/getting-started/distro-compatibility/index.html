@@ -2413,7 +2413,7 @@
 <blockquote>
 <p><strong>Important</strong>: Different hiroz components have different ROS 2 version requirements:</p>
 <ul>
-<li><strong>hiroz core library</strong>: Supports Humble, Jazzy, Kilted, Rolling</li>
+<li><strong>hiroz core library</strong>: Supports Humble, Jazzy, Kilted, Lyrical, Rolling</li>
 <li><strong>rmw-zenoh-rs</strong>: Requires Jazzy or later (see <a href="../../experimental/rmw-zenoh-rs/#ros-2-version-requirements">rmw-zenoh-rs chapter</a>)</li>
 </ul>
 </blockquote>
@@ -2429,6 +2429,13 @@
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><strong>Lyrical Luth</strong></td>
+<td>✅ Supported</td>
+<td>✅ Supported</td>
+<td>✅ Yes</td>
+<td>No</td>
+</tr>
 <tr>
 <td><strong>Kilted Kaiju</strong></td>
 <td>✅ Supported</td>
@@ -2470,7 +2477,7 @@
 <h2 id="distribution-differences">Distribution Differences<a class="headerlink" href="#distribution-differences" title="Permanent link">&para;</a></h2>
 <h3 id="type-hash-support">Type Hash Support<a class="headerlink" href="#type-hash-support" title="Permanent link">&para;</a></h3>
 <p>The most significant difference between distributions is <strong>type hash support</strong>:</p>
-<p><strong>Jazzy/Kilted/Rolling</strong> (Modern):</p>
+<p><strong>Jazzy/Kilted/Lyrical/Rolling</strong> (Modern):</p>
 <ul>
 <li>Supports real type hashes computed from message definitions</li>
 <li>Format: <code>RIHS01_&lt;64-hex-chars&gt;</code> (ROS IDL Hash Standard version 1)</li>
@@ -2515,12 +2522,15 @@
 </span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>cargo<span class="w"> </span>nextest<span class="w"> </span>run<span class="w"> </span>--no-default-features<span class="w"> </span>--features<span class="w"> </span>humble
 </span></code></pre></div>
 <h3 id="using-other-distributions">Using Other Distributions<a class="headerlink" href="#using-other-distributions" title="Permanent link">&para;</a></h3>
-<p>For Rolling or Kilted, specify the distro feature:</p>
+<p>For Rolling, Kilted, or Lyrical, specify the distro feature:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Build for Rolling</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>cargo<span class="w"> </span>build<span class="w"> </span>--features<span class="w"> </span>rolling
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Build for Kilted</span>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>cargo<span class="w"> </span>build<span class="w"> </span>--features<span class="w"> </span>kilted
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="c1"># Build for Lyrical</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>cargo<span class="w"> </span>build<span class="w"> </span>--features<span class="w"> </span>lyrical
 </span></code></pre></div>
 
 

@@ -2692,10 +2692,10 @@
 
 <h1 id="cross-distro-bridge">Cross-Distro Bridge<a class="headerlink" href="#cross-distro-bridge" title="Permanent link">&para;</a></h1>
 <p><code>hiroz-bridge</code> is a standalone binary that transparently connects a <strong>legacy</strong> ROS 2 network
-(Humble and earlier) and a <strong>modern</strong> ROS 2 network (Jazzy, Kilted, Rolling) over a shared
+(Humble and earlier) and a <strong>modern</strong> ROS 2 network (Jazzy, Kilted, Lyrical, Rolling) over a shared
 Eclipse Zenoh backbone.</p>
 <p>Without the bridge, nodes from these two generations cannot talk to each other.
-With it, a Jazzy or Kilted subscriber receives messages from a Humble publisher — and
+With it, a Jazzy, Kilted, or Lyrical subscriber receives messages from a Humble publisher — and
 vice versa — with no changes to either node.</p>
 <h2 id="why-are-they-incompatible">Why Are They Incompatible?<a class="headerlink" href="#why-are-they-incompatible" title="Permanent link">&para;</a></h2>
 <p>The only wire-level difference between legacy and modern distributions is the <strong>type hash</strong>
@@ -2715,7 +2715,7 @@ embedded in Zenoh key expressions during entity discovery:</p>
 <td><code>TypeHashNotSupported</code> (constant placeholder)</td>
 </tr>
 <tr>
-<td><strong>Jazzy, Kilted, Rolling</strong></td>
+<td><strong>Jazzy, Kilted, Lyrical, Rolling</strong></td>
 <td>Modern</td>
 <td><code>RIHS01_&lt;64 hex chars&gt;</code> (real hash of the message definition)</td>
 </tr>
@@ -2734,9 +2734,9 @@ other side. <strong>CDR payloads are identical</strong> — only the KE differs.
 <h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>graph TD
 accTitle: Cross-distro bridge connecting Humble and Jazzy Zenoh networks
-accDescr: hiroz-bridge opens two Zenoh sessions, one to the legacy Humble router and one to the modern Jazzy or Kilted router, transparently forwarding messages between them.
+accDescr: hiroz-bridge opens two Zenoh sessions, one to the legacy Humble router and one to the modern Jazzy, Kilted, or Lyrical router, transparently forwarding messages between them.
     H_node["Humble node&lt;br&gt;(TypeHashNotSupported)"]
-    J_node["Jazzy / Kilted node&lt;br&gt;(RIHS01_abcd…)"]
+    J_node["Jazzy / Kilted / Lyrical node&lt;br&gt;(RIHS01_abcd…)"]
 
     H_router(["Legacy router&lt;br&gt;127.0.0.1:7447"])
     J_router(["Modern router&lt;br&gt;127.0.0.1:7448"])
@@ -2756,7 +2756,7 @@ never interfere with each other.</p>
 <thead>
 <tr>
 <th>Platform</th>
-<th>Jazzy / Kilted / Rolling</th>
+<th>Jazzy / Kilted / Lyrical / Rolling</th>
 <th>Humble</th>
 </tr>
 </thead>
@@ -2798,7 +2798,7 @@ never interfere with each other.</p>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>ros2<span class="w"> </span>run<span class="w"> </span>rmw_zenoh_cpp<span class="w"> </span>rmw_zenohd
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># (or) zenohd --rest-http-port disabled</span>
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Terminal B — modern (Jazzy/Kilted) router on a different port</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Terminal B — modern (Jazzy/Kilted/Lyrical) router on a different port</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>zenohd<span class="w"> </span>--listen<span class="w"> </span>tcp/127.0.0.1:7448<span class="w"> </span>--rest-http-port<span class="w"> </span>disabled
 </span></code></pre></div>
 <h3 id="2-start-the-bridge">2 — Start the bridge<a class="headerlink" href="#2-start-the-bridge" title="Permanent link">&para;</a></h3>
@@ -2813,7 +2813,7 @@ never interfere with each other.</p>
 </span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ZENOH_CONFIG_OVERRIDE</span><span class="o">=</span><span class="s2">&quot;connect/endpoints=[\&quot;tcp/127.0.0.1:7447\&quot;];scouting/multicast/enabled=false&quot;</span>
 </span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>ros2<span class="w"> </span>run<span class="w"> </span>demo_nodes_cpp<span class="w"> </span>talker
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Terminal D — Jazzy/Kilted listener (hiroz)</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Terminal D — Jazzy/Kilted/Lyrical listener (hiroz)</span>
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>demo_nodes_listener<span class="w"> </span>--<span class="w"> </span>--endpoint<span class="w"> </span>tcp/127.0.0.1:7448
 </span></code></pre></div>
 <p>You should see the modern listener printing messages published by the Humble talker.</p>
@@ -2826,7 +2826,7 @@ to avoid interference from any running ros2cli daemon:</p>
 </span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ZENOH_CONFIG_OVERRIDE</span><span class="o">=</span><span class="s2">&quot;connect/endpoints=[\&quot;tcp/127.0.0.1:7447\&quot;];scouting/multicast/enabled=false&quot;</span>
 </span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>ros2<span class="w"> </span>topic<span class="w"> </span>list<span class="w"> </span>--spin-time<span class="w"> </span><span class="m">5</span><span class="w"> </span>--no-daemon
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># On the Jazzy/Kilted side — should show the Humble publisher&#39;s topic</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># On the Jazzy/Kilted/Lyrical side — should show the Humble publisher&#39;s topic</span>
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">RMW_IMPLEMENTATION</span><span class="o">=</span>rmw_zenoh_cpp
 </span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ZENOH_CONFIG_OVERRIDE</span><span class="o">=</span><span class="s2">&quot;connect/endpoints=[\&quot;tcp/127.0.0.1:7448\&quot;];scouting/multicast/enabled=false&quot;</span>
 </span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>ros2<span class="w"> </span>topic<span class="w"> </span>list<span class="w"> </span>--spin-time<span class="w"> </span><span class="m">5</span><span class="w"> </span>--no-daemon
@@ -2846,7 +2846,7 @@ both flags when diagnosing bridge connectivity.</p>
 </span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>OPTIONS:
 </span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>    --humble-endpoint &lt;LOCATOR&gt;    Zenoh locator for the legacy (Humble) network
 </span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>                                   [default: tcp/127.0.0.1:7447]
-</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    --jazzy-endpoint &lt;LOCATOR&gt;     Zenoh locator for the modern (Jazzy/Kilted) network
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    --jazzy-endpoint &lt;LOCATOR&gt;     Zenoh locator for the modern (Jazzy/Kilted/Lyrical) network
 </span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>                                   [default: tcp/127.0.0.1:7448]
 </span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>    --domain-id &lt;ID&gt;               ROS domain ID  [default: 0]
 </span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>    -h, --help                     Print help
@@ -2926,7 +2926,7 @@ may take a few seconds to reflect them. Wait ~5 s after both nodes are running.<
 <h3 id="unknown-type-cannot-bridge"><code>Unknown type — cannot bridge</code><a class="headerlink" href="#unknown-type-cannot-bridge" title="Permanent link">&para;</a></h3>
 <p>The message type is not in the bridge's hash registry. See <a href="#custom-messages">Custom Messages</a>.</p>
 <h3 id="the-bridge-forwards-messages-but-deserialization-fails-on-the-receiving-side">The bridge forwards messages but deserialization fails on the receiving side<a class="headerlink" href="#the-bridge-forwards-messages-but-deserialization-fails-on-the-receiving-side" title="Permanent link">&para;</a></h3>
-<p>Verify the message definition is identical on both sides. Humble and Jazzy/Kilted ship the
+<p>Verify the message definition is identical on both sides. Humble and Jazzy/Kilted/Lyrical ship the
 same built-in message definitions, but third-party packages may differ. Check that both
 <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a> versions agree on the CDR layout.</p>
 <h3 id="service-calls-time-out">Service calls time out<a class="headerlink" href="#service-calls-time-out" title="Permanent link">&para;</a></h3>
