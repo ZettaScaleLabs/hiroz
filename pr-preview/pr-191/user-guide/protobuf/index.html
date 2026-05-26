@@ -1,0 +1,3232 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="High-performance Interoperable Robotics on Zenoh">
+      
+      
+      
+        <link rel="canonical" href="https://zettascalelabs.github.io/hiroz/user-guide/protobuf/">
+      
+      
+        <link rel="prev" href="../custom-messages/">
+      
+      
+        <link rel="next" href="../../tools/console/">
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.20">
+    
+    
+      
+        <title>Protobuf Serialization - HIROZ</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.e53b48f4.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/home.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/actions.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#protobuf-serialization" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="HIROZ" class="md-header__button md-logo" aria-label="HIROZ" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 163" overflow="hidden"><path d="M67.5,0 C70.5,10.015361 71.5,23.0353303 70.5,39.0599078 C87.5,23.5360983 102.5,15.7741935 115.5,15.7741935 C108,23.2857143 108.272452,33.9711351 112.5,33.0506912 C124,30.546851 136.5,32.5499232 150,39.0599078 L150,153.269585 C150,165.695992 139.926407,175.769585 127.5,175.769585 L61.1792721,175.769585 C54.9660687,175.769585 49.9292721,170.732789 49.9292721,164.519585 C49.9292721,162.825588 50.3118282,161.153461 51.0483941,159.627979 C55.1904226,151.049532 63.9242912,142.158178 77.25,132.953917 C99,117.930876 107.25,107.414747 107.25,87.8847926 C107.25,76.6175115 101.235622,69.7933468 93,69.1059908 C84,68.3548387 77.25,72.8617512 77.25,79.6221198 C77.25,83.1274962 78.25,86.1321045 80.25,88.6359447 L45,114.175115 C42.5,117.680492 41.25,121.686636 41.25,126.193548 C31.75,126.193548 26.5,120.935484 25.5,110.419355 L30.5,74.1136713 C24.1666667,69.2729135 19.25,63.5140809 15.75,56.8371736 C21.5833333,59.8417819 27.3527952,61.6613272 33.0583855,62.2958096 L36,43.5668203 C38.5,30.546851 41.75,22.0337942 45.75,18.0276498 C45.25,27.0414747 46.25,38.0583717 48.75,51.078341 C59.25,35.5545315 65.5,18.5284178 67.5,0 Z M55.5,59.3410138 C54.8493151,62.5994361 52.5050666,67.1299821 48.4672671,72.9331549 C49.3254255,73.6214254 49.875,74.6796138 49.875,75.8663594 C49.875,77.9406086 48.1960678,79.6221198 46.125,79.6221198 C45.3413993,79.6221198 44.6139341,79.3814062 44.0134198,78.9679649 C42.9192012,80.380157 41.7480613,81.8501288 40.5,83.3778802 C48.0409322,84.7516633 53.0409322,83.2493592 55.5,78.8709677 C58.5613983,73.4201217 58.5,65.3502304 55.5,59.3410138 Z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            HIROZ
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Protobuf Serialization
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ZettaScaleLabs/hiroz" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ZettaScaleLabs/hiroz
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Introduction
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/quick-start/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../core-concepts/pubsub/" class="md-tabs__link">
+          
+  
+  
+  Core Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../networking/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tools/console/" class="md-tabs__link">
+          
+  
+  
+  Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../bindings/python-quick-start/" class="md-tabs__link">
+          
+  
+  
+  Language Bindings
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../experimental/shm/" class="md-tabs__link">
+          
+  
+  
+  Advanced Topics
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/feature-comparison/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="HIROZ" class="md-nav__button md-logo" aria-label="HIROZ" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 163" overflow="hidden"><path d="M67.5,0 C70.5,10.015361 71.5,23.0353303 70.5,39.0599078 C87.5,23.5360983 102.5,15.7741935 115.5,15.7741935 C108,23.2857143 108.272452,33.9711351 112.5,33.0506912 C124,30.546851 136.5,32.5499232 150,39.0599078 L150,153.269585 C150,165.695992 139.926407,175.769585 127.5,175.769585 L61.1792721,175.769585 C54.9660687,175.769585 49.9292721,170.732789 49.9292721,164.519585 C49.9292721,162.825588 50.3118282,161.153461 51.0483941,159.627979 C55.1904226,151.049532 63.9242912,142.158178 77.25,132.953917 C99,117.930876 107.25,107.414747 107.25,87.8847926 C107.25,76.6175115 101.235622,69.7933468 93,69.1059908 C84,68.3548387 77.25,72.8617512 77.25,79.6221198 C77.25,83.1274962 78.25,86.1321045 80.25,88.6359447 L45,114.175115 C42.5,117.680492 41.25,121.686636 41.25,126.193548 C31.75,126.193548 26.5,120.935484 25.5,110.419355 L30.5,74.1136713 C24.1666667,69.2729135 19.25,63.5140809 15.75,56.8371736 C21.5833333,59.8417819 27.3527952,61.6613272 33.0583855,62.2958096 L36,43.5668203 C38.5,30.546851 41.75,22.0337942 45.75,18.0276498 C45.25,27.0414747 46.25,38.0583717 48.75,51.078341 C59.25,35.5545315 65.5,18.5284178 67.5,0 Z M55.5,59.3410138 C54.8493151,62.5994361 52.5050666,67.1299821 48.4672671,72.9331549 C49.3254255,73.6214254 49.875,74.6796138 49.875,75.8663594 C49.875,77.9406086 48.1960678,79.6221198 46.125,79.6221198 C45.3413993,79.6221198 44.6139341,79.3814062 44.0134198,78.9679649 C42.9192012,80.380157 41.7480613,81.8501288 40.5,83.3778802 C48.0409322,84.7516633 53.0409322,83.2493592 55.5,78.8709677 C58.5613983,73.4201217 58.5,65.3502304 55.5,59.3410138 Z"/></svg>
+
+    </a>
+    HIROZ
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ZettaScaleLabs/hiroz" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ZettaScaleLabs/hiroz
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Introduction
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Getting Started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Getting Started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quick Start
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Running Examples
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/building/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Building
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/distro-compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Distro Compatibility
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Core Concepts
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Core Concepts
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/pubsub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Pub/Sub
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Services
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Actions
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            Actions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Actions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/actions-advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Advanced Patterns
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Parameters
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/lifecycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Lifecycle Nodes
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Guides
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Guides
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../networking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Networking
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            Configuration
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Options
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config-advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Advanced
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ROS 2 Interoperability
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bridge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cross-Distro Bridge
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Messages & Serialization
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_5">
+            <span class="md-nav__icon md-icon"></span>
+            Messages & Serialization
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/message-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Message Cache
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../message-generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Message Generation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../custom-messages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Custom Messages
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Protobuf Serialization
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Protobuf Serialization
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#when-to-use-protobuf" class="md-nav__link">
+    <span class="md-ellipsis">
+      When to Use Protobuf
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enabling-protobuf-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      Enabling Protobuf Support
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Enabling Protobuf Support">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#feature-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      Feature Flags
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Build Configuration
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#approach-1-ros-messages-with-protobuf" class="md-nav__link">
+    <span class="md-ellipsis">
+      Approach 1: ROS Messages with Protobuf
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#approach-2-custom-protobuf-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      Approach 2: Custom Protobuf Messages
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Approach 2: Custom Protobuf Messages">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-define-your-message" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 1: Define Your Message
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-generate-rust-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 2: Generate Rust Code
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-include-generated-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 3: Include Generated Code
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-implement-required-traits" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 4: Implement Required Traits
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-5-use-in-hiroz" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 5: Use in hiroz
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complete-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      Complete Example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#subscribers-with-protobuf" class="md-nav__link">
+    <span class="md-ellipsis">
+      Subscribers with Protobuf
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#services-with-protobuf" class="md-nav__link">
+    <span class="md-ellipsis">
+      Services with Protobuf
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Services with Protobuf">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#server" class="md-nav__link">
+    <span class="md-ellipsis">
+      Server
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client" class="md-nav__link">
+    <span class="md-ellipsis">
+      Client
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#available-ros-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      Available ROS Messages
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#type-information" class="md-nav__link">
+    <span class="md-ellipsis">
+      Type Information
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Type Information">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ros-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      ROS Messages
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-protobuf-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom Protobuf Messages
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#protobuf-vs-cdr-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      Protobuf vs CDR Comparison
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common Patterns
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mixed-serialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      Mixed Serialization
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#migration-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      Migration Strategy
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Build Integration
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Build Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#project-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      Project Structure
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cargotoml" class="md-nav__link">
+    <span class="md-ellipsis">
+      Cargo.toml
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#buildrs" class="md-nav__link">
+    <span class="md-ellipsis">
+      build.rs
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Troubleshooting
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resources
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Tools
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Tools
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    hiroz-console
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Language Bindings
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            Language Bindings
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_1" id="__nav_6_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Python
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1">
+            <span class="md-nav__icon md-icon"></span>
+            Python
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/python-quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quick Start
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/python/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Bindings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/python-codegen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Codegen Internals
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Go
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            Go
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/go-quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quick Start
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/go/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Bindings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Advanced Topics
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Advanced Topics
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental/shm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Shared Memory (SHM)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/feature-comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Feature Comparison
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/ros2-to-hiroz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ROS 2 → hiroz API Mapping
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental/rmw-zenoh-rs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    rmw_zenoh_rs
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental/keyexpr-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Key Expression Formats
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/feature-flags/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Feature Flags
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/nix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Nix Development
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#when-to-use-protobuf" class="md-nav__link">
+    <span class="md-ellipsis">
+      When to Use Protobuf
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enabling-protobuf-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      Enabling Protobuf Support
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Enabling Protobuf Support">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#feature-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      Feature Flags
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Build Configuration
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#approach-1-ros-messages-with-protobuf" class="md-nav__link">
+    <span class="md-ellipsis">
+      Approach 1: ROS Messages with Protobuf
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#approach-2-custom-protobuf-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      Approach 2: Custom Protobuf Messages
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Approach 2: Custom Protobuf Messages">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-define-your-message" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 1: Define Your Message
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-generate-rust-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 2: Generate Rust Code
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-include-generated-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 3: Include Generated Code
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-implement-required-traits" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 4: Implement Required Traits
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-5-use-in-hiroz" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 5: Use in hiroz
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complete-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      Complete Example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#subscribers-with-protobuf" class="md-nav__link">
+    <span class="md-ellipsis">
+      Subscribers with Protobuf
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#services-with-protobuf" class="md-nav__link">
+    <span class="md-ellipsis">
+      Services with Protobuf
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Services with Protobuf">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#server" class="md-nav__link">
+    <span class="md-ellipsis">
+      Server
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client" class="md-nav__link">
+    <span class="md-ellipsis">
+      Client
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#available-ros-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      Available ROS Messages
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#type-information" class="md-nav__link">
+    <span class="md-ellipsis">
+      Type Information
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Type Information">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ros-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      ROS Messages
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-protobuf-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom Protobuf Messages
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#protobuf-vs-cdr-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      Protobuf vs CDR Comparison
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common Patterns
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mixed-serialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      Mixed Serialization
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#migration-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      Migration Strategy
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Build Integration
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Build Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#project-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      Project Structure
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cargotoml" class="md-nav__link">
+    <span class="md-ellipsis">
+      Cargo.toml
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#buildrs" class="md-nav__link">
+    <span class="md-ellipsis">
+      build.rs
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Troubleshooting
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resources
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/ZettaScaleLabs/hiroz/edit/main/docs/user-guide/protobuf.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<!-- markdownlint-disable MD046 -->
+<h1 id="protobuf-serialization">Protobuf Serialization<a class="headerlink" href="#protobuf-serialization" title="Permanent link">&para;</a></h1>
+<p><strong>Use Protocol Buffers as an alternative serialization format for hiroz messages.</strong> While CDR is the default ROS 2-compatible format, protobuf offers schema evolution, cross-language compatibility, and familiar tooling for teams already using the protobuf ecosystem.</p>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<p>Protobuf support in hiroz enables two powerful use cases:
+1. <strong>ROS messages with protobuf encoding</strong> - Use standard ROS message types serialized via protobuf
+2. <strong>Pure protobuf messages</strong> - Send custom <code>.proto</code> messages directly through hiroz</p>
+</div>
+<h2 id="when-to-use-protobuf">When to Use Protobuf<a class="headerlink" href="#when-to-use-protobuf" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Use Case</th>
+<th>Recommendation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ROS 2 interoperability</strong></td>
+<td>Use CDR (default)</td>
+</tr>
+<tr>
+<td><strong>Schema evolution</strong></td>
+<td>Use Protobuf</td>
+</tr>
+<tr>
+<td><strong>Cross-language data exchange</strong></td>
+<td>Use Protobuf</td>
+</tr>
+<tr>
+<td><strong>Existing protobuf infrastructure</strong></td>
+<td>Use Protobuf</td>
+</tr>
+<tr>
+<td><strong>Performance critical</strong></td>
+<td>Benchmark both (typically similar)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Protobuf-serialized messages are <strong>not</strong> compatible with standard ROS 2 nodes using CDR. Use protobuf when you control both ends of the communication or need its specific features.</p>
+</div>
+<h2 id="enabling-protobuf-support">Enabling Protobuf Support<a class="headerlink" href="#enabling-protobuf-support" title="Permanent link">&para;</a></h2>
+<h3 id="feature-flags">Feature Flags<a class="headerlink" href="#feature-flags" title="Permanent link">&para;</a></h3>
+<p>Enable protobuf in your <code>Cargo.toml</code>:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">[dependencies]</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">hiroz</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;0.1&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;protobuf&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">hiroz-msgs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;0.1&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;geometry_msgs&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;protobuf&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">prost</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.13&quot;</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="k">[build-dependencies]</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">prost-build</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.13&quot;</span>
+</span></code></pre></div>
+<h3 id="build-configuration">Build Configuration<a class="headerlink" href="#build-configuration" title="Permanent link">&para;</a></h3>
+<p>For custom <code>.proto</code> files, add a <code>build.rs</code>:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">fn</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="nb">Box</span><span class="o">&lt;</span><span class="k">dyn</span><span class="w"> </span><span class="n">std</span><span class="p">::</span><span class="n">error</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">config</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">prost_build</span><span class="p">::</span><span class="n">Config</span><span class="p">::</span><span class="n">new</span><span class="p">();</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="c1">// Enable serde support for hiroz compatibility</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="n">config</span><span class="p">.</span><span class="n">type_attribute</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;#[derive(serde::Serialize, serde::Deserialize)]&quot;</span><span class="p">);</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="n">config</span><span class="p">.</span><span class="n">compile_protos</span><span class="p">(</span><span class="o">&amp;</span><span class="p">[</span><span class="s">&quot;proto/sensor_data.proto&quot;</span><span class="p">],</span><span class="w"> </span><span class="o">&amp;</span><span class="p">[</span><span class="s">&quot;proto/&quot;</span><span class="p">])</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;cargo:rerun-if-changed=proto/sensor_data.proto&quot;</span><span class="p">);</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nb">Ok</span><span class="p">(())</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">}</span>
+</span></code></pre></div>
+<h2 id="approach-1-ros-messages-with-protobuf">Approach 1: ROS Messages with Protobuf<a class="headerlink" href="#approach-1-ros-messages-with-protobuf" title="Permanent link">&para;</a></h2>
+<p>Use auto-generated ROS message types with protobuf serialization:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz</span><span class="p">::</span><span class="n">msg</span><span class="p">::</span><span class="n">ProtobufSerdes</span><span class="p">;</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz_msgs</span><span class="p">::</span><span class="n">proto</span><span class="p">::</span><span class="n">geometry_msgs</span><span class="p">::</span><span class="n">Vector3</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="n">Vector3Proto</span><span class="p">;</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="kd">let</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">hiroz</span><span class="p">::</span><span class="n">context</span><span class="p">::</span><span class="n">ZContextBuilder</span><span class="p">::</span><span class="n">default</span><span class="p">().</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="kd">let</span><span class="w"> </span><span class="n">node</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="n">create_node</span><span class="p">(</span><span class="s">&quot;protobuf_node&quot;</span><span class="p">).</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1">// Create publisher with protobuf serialization</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="kd">let</span><span class="w"> </span><span class="k">pub</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="p">.</span><span class="n">create_pub</span><span class="p">::</span><span class="o">&lt;</span><span class="n">Vector3Proto</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;/vector_proto&quot;</span><span class="p">)</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="p">.</span><span class="n">with_serdes</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ProtobufSerdes</span><span class="o">&lt;</span><span class="n">Vector3Proto</span><span class="o">&gt;&gt;</span><span class="p">()</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="c1">// Publish messages</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="kd">let</span><span class="w"> </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Vector3Proto</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="n">x</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="n">y</span><span class="p">:</span><span class="w"> </span><span class="mf">2.0</span><span class="p">,</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">    </span><span class="n">z</span><span class="p">:</span><span class="w"> </span><span class="mf">3.0</span><span class="p">,</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="p">};</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="k">pub</span><span class="p">.</span><span class="n">publish</span><span class="p">(</span><span class="o">&amp;</span><span class="n">msg</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span></code></pre></div>
+<p><strong>Key points:</strong></p>
+<ul>
+<li>Import from <code>hiroz_msgs::proto::*</code> namespace (not <code>hiroz_msgs::ros::*</code>)</li>
+<li>Use <code>.with_serdes::&lt;ProtobufSerdes&lt;T&gt;&gt;()</code> to select protobuf encoding</li>
+<li>Message types automatically implement <code>MessageTypeInfo</code> trait</li>
+<li>Full type safety and compile-time checking</li>
+</ul>
+<h2 id="approach-2-custom-protobuf-messages">Approach 2: Custom Protobuf Messages<a class="headerlink" href="#approach-2-custom-protobuf-messages" title="Permanent link">&para;</a></h2>
+<p>Send arbitrary protobuf messages defined in <code>.proto</code> files:</p>
+<h3 id="step-1-define-your-message">Step 1: Define Your Message<a class="headerlink" href="#step-1-define-your-message" title="Permanent link">&para;</a></h3>
+<p>Create <code>proto/sensor_data.proto</code>:</p>
+<div class="language-protobuf highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">syntax</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;proto3&quot;</span><span class="p">;</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="kn">package</span><span class="w"> </span><span class="nn">examples</span><span class="p">;</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="kd">message</span><span class="w"> </span><span class="nc">SensorData</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="na">sensor_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="na">temperature</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="na">humidity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="kt">int64</span><span class="w"> </span><span class="na">timestamp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="step-2-generate-rust-code">Step 2: Generate Rust Code<a class="headerlink" href="#step-2-generate-rust-code" title="Permanent link">&para;</a></h3>
+<p>Configure <code>build.rs</code> as shown above. The build script generates Rust structs at compile time.</p>
+<h3 id="step-3-include-generated-code">Step 3: Include Generated Code<a class="headerlink" href="#step-3-include-generated-code" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">mod</span><span class="w"> </span><span class="nn">sensor_data</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="fm">include!</span><span class="p">(</span><span class="fm">concat!</span><span class="p">(</span><span class="fm">env!</span><span class="p">(</span><span class="s">&quot;OUT_DIR&quot;</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;/examples.rs&quot;</span><span class="p">));</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="p">}</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="k">use</span><span class="w"> </span><span class="n">sensor_data</span><span class="p">::</span><span class="n">SensorData</span><span class="p">;</span>
+</span></code></pre></div>
+<h3 id="step-4-implement-required-traits">Step 4: Implement Required Traits<a class="headerlink" href="#step-4-implement-required-traits" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz</span><span class="p">::{</span><span class="n">MessageTypeInfo</span><span class="p">,</span><span class="w"> </span><span class="n">WithTypeInfo</span><span class="p">,</span><span class="w"> </span><span class="n">entity</span><span class="p">::</span><span class="n">TypeHash</span><span class="p">};</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="k">impl</span><span class="w"> </span><span class="n">MessageTypeInfo</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">SensorData</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="k">fn</span><span class="w"> </span><span class="nf">type_name</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">&#39;</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">        </span><span class="s">&quot;examples::msg::dds_::SensorData_&quot;</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="k">fn</span><span class="w"> </span><span class="nf">type_hash</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">TypeHash</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">        </span><span class="n">TypeHash</span><span class="p">::</span><span class="n">zero</span><span class="p">()</span><span class="w">  </span><span class="c1">// For custom protobuf messages</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="p">}</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="k">impl</span><span class="w"> </span><span class="n">WithTypeInfo</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">SensorData</span><span class="w"> </span><span class="p">{}</span>
+</span></code></pre></div>
+<h3 id="step-5-use-in-hiroz">Step 5: Use in hiroz<a class="headerlink" href="#step-5-use-in-hiroz" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kd">let</span><span class="w"> </span><span class="k">pub</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span><span class="p">.</span><span class="n">create_pub</span><span class="p">::</span><span class="o">&lt;</span><span class="n">SensorData</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;/sensor_data&quot;</span><span class="p">)</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="p">.</span><span class="n">with_serdes</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ProtobufSerdes</span><span class="o">&lt;</span><span class="n">SensorData</span><span class="o">&gt;&gt;</span><span class="p">()</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="kd">let</span><span class="w"> </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SensorData</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="n">sensor_id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;sensor_01&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">(),</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">    </span><span class="n">temperature</span><span class="p">:</span><span class="w"> </span><span class="mf">23.5</span><span class="p">,</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">    </span><span class="n">humidity</span><span class="p">:</span><span class="w"> </span><span class="mf">45.0</span><span class="p">,</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">    </span><span class="n">timestamp</span><span class="p">:</span><span class="w"> </span><span class="mi">1234567890</span><span class="p">,</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="p">};</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="k">pub</span><span class="p">.</span><span class="n">publish</span><span class="p">(</span><span class="o">&amp;</span><span class="n">msg</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span></code></pre></div>
+<h2 id="complete-example">Complete Example<a class="headerlink" href="#complete-example" title="Permanent link">&para;</a></h2>
+<p>The <code>protobuf_demo</code> example demonstrates both approaches:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">use</span><span class="w"> </span><span class="n">clap</span><span class="p">::</span><span class="n">Parser</span><span class="p">;</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="k">use</span><span class="w"> </span><span class="n">protobuf_demo</span><span class="p">::{</span><span class="n">run_pubsub_demo</span><span class="p">,</span><span class="w"> </span><span class="n">run_service_client</span><span class="p">,</span><span class="w"> </span><span class="n">run_service_server</span><span class="p">};</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz</span><span class="p">::{</span><span class="n">Builder</span><span class="p">,</span><span class="w"> </span><span class="nb">Result</span><span class="p">,</span><span class="w"> </span><span class="n">context</span><span class="p">::</span><span class="n">ZContextBuilder</span><span class="p">};</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="cp">#[derive(Debug, Parser)]</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="cp">#[command(</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="cp">    name = </span><span class="s">&quot;protobuf_demo&quot;</span><span class="cp">,</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="cp">    about = </span><span class="s">&quot;Protobuf demonstration for hiroz - pub/sub and services&quot;</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="cp">)]</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="k">struct</span><span class="w"> </span><span class="nc">Args</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">    </span><span class="sd">/// Mode to run: pubsub, service-server, service-client, or combined</span>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">    </span><span class="cp">#[arg(short, long, default_value = </span><span class="s">&quot;pubsub&quot;</span><span class="cp">)]</span>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">    </span><span class="n">mode</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span>
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>
+</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">    </span><span class="sd">/// Service name (for service modes)</span>
+</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">    </span><span class="cp">#[arg(long, default_value = </span><span class="s">&quot;/calculator&quot;</span><span class="cp">)]</span>
+</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="w">    </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span>
+</span><span id="__span-7-18"><a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a>
+</span><span id="__span-7-19"><a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="w">    </span><span class="sd">/// Maximum number of messages/requests (0 for unlimited)</span>
+</span><span id="__span-7-20"><a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a><span class="w">    </span><span class="cp">#[arg(short = &#39;n&#39;, long, default_value = </span><span class="s">&quot;3&quot;</span><span class="cp">)]</span>
+</span><span id="__span-7-21"><a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a><span class="w">    </span><span class="n">count</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="p">,</span>
+</span><span id="__span-7-22"><a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a>
+</span><span id="__span-7-23"><a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a><span class="w">    </span><span class="sd">/// Eclipse Zenoh session mode (peer, client, router)</span>
+</span><span id="__span-7-24"><a id="__codelineno-7-24" name="__codelineno-7-24" href="#__codelineno-7-24"></a><span class="w">    </span><span class="cp">#[arg(long, default_value = </span><span class="s">&quot;peer&quot;</span><span class="cp">)]</span>
+</span><span id="__span-7-25"><a id="__codelineno-7-25" name="__codelineno-7-25" href="#__codelineno-7-25"></a><span class="w">    </span><span class="n">zenoh_mode</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span>
+</span><span id="__span-7-26"><a id="__codelineno-7-26" name="__codelineno-7-26" href="#__codelineno-7-26"></a>
+</span><span id="__span-7-27"><a id="__codelineno-7-27" name="__codelineno-7-27" href="#__codelineno-7-27"></a><span class="w">    </span><span class="sd">/// Zenoh router endpoint to connect to</span>
+</span><span id="__span-7-28"><a id="__codelineno-7-28" name="__codelineno-7-28" href="#__codelineno-7-28"></a><span class="w">    </span><span class="cp">#[arg(short, long)]</span>
+</span><span id="__span-7-29"><a id="__codelineno-7-29" name="__codelineno-7-29" href="#__codelineno-7-29"></a><span class="w">    </span><span class="n">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span>
+</span><span id="__span-7-30"><a id="__codelineno-7-30" name="__codelineno-7-30" href="#__codelineno-7-30"></a><span class="p">}</span>
+</span><span id="__span-7-31"><a id="__codelineno-7-31" name="__codelineno-7-31" href="#__codelineno-7-31"></a>
+</span><span id="__span-7-32"><a id="__codelineno-7-32" name="__codelineno-7-32" href="#__codelineno-7-32"></a><span class="k">fn</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">()</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-33"><a id="__codelineno-7-33" name="__codelineno-7-33" href="#__codelineno-7-33"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Args</span><span class="p">::</span><span class="n">parse</span><span class="p">();</span>
+</span><span id="__span-7-34"><a id="__codelineno-7-34" name="__codelineno-7-34" href="#__codelineno-7-34"></a>
+</span><span id="__span-7-35"><a id="__codelineno-7-35" name="__codelineno-7-35" href="#__codelineno-7-35"></a><span class="w">    </span><span class="c1">// Initialize logging</span>
+</span><span id="__span-7-36"><a id="__codelineno-7-36" name="__codelineno-7-36" href="#__codelineno-7-36"></a><span class="w">    </span><span class="n">zenoh</span><span class="p">::</span><span class="n">init_log_from_env_or</span><span class="p">(</span><span class="s">&quot;info&quot;</span><span class="p">);</span>
+</span><span id="__span-7-37"><a id="__codelineno-7-37" name="__codelineno-7-37" href="#__codelineno-7-37"></a>
+</span><span id="__span-7-38"><a id="__codelineno-7-38" name="__codelineno-7-38" href="#__codelineno-7-38"></a><span class="w">    </span><span class="c1">// Create the hiroz context</span>
+</span><span id="__span-7-39"><a id="__codelineno-7-39" name="__codelineno-7-39" href="#__codelineno-7-39"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="k">ref</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="n">endpoint</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-40"><a id="__codelineno-7-40" name="__codelineno-7-40" href="#__codelineno-7-40"></a><span class="w">        </span><span class="n">ZContextBuilder</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
+</span><span id="__span-7-41"><a id="__codelineno-7-41" name="__codelineno-7-41" href="#__codelineno-7-41"></a><span class="w">            </span><span class="p">.</span><span class="n">with_mode</span><span class="p">(</span><span class="o">&amp;</span><span class="n">args</span><span class="p">.</span><span class="n">zenoh_mode</span><span class="p">)</span>
+</span><span id="__span-7-42"><a id="__codelineno-7-42" name="__codelineno-7-42" href="#__codelineno-7-42"></a><span class="w">            </span><span class="p">.</span><span class="n">with_connect_endpoints</span><span class="p">([</span><span class="n">e</span><span class="p">.</span><span class="n">clone</span><span class="p">()])</span>
+</span><span id="__span-7-43"><a id="__codelineno-7-43" name="__codelineno-7-43" href="#__codelineno-7-43"></a><span class="w">            </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span>
+</span><span id="__span-7-44"><a id="__codelineno-7-44" name="__codelineno-7-44" href="#__codelineno-7-44"></a><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-45"><a id="__codelineno-7-45" name="__codelineno-7-45" href="#__codelineno-7-45"></a><span class="w">        </span><span class="n">ZContextBuilder</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
+</span><span id="__span-7-46"><a id="__codelineno-7-46" name="__codelineno-7-46" href="#__codelineno-7-46"></a><span class="w">            </span><span class="p">.</span><span class="n">with_mode</span><span class="p">(</span><span class="o">&amp;</span><span class="n">args</span><span class="p">.</span><span class="n">zenoh_mode</span><span class="p">)</span>
+</span><span id="__span-7-47"><a id="__codelineno-7-47" name="__codelineno-7-47" href="#__codelineno-7-47"></a><span class="w">            </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span>
+</span><span id="__span-7-48"><a id="__codelineno-7-48" name="__codelineno-7-48" href="#__codelineno-7-48"></a><span class="w">    </span><span class="p">};</span>
+</span><span id="__span-7-49"><a id="__codelineno-7-49" name="__codelineno-7-49" href="#__codelineno-7-49"></a>
+</span><span id="__span-7-50"><a id="__codelineno-7-50" name="__codelineno-7-50" href="#__codelineno-7-50"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">max_count</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="n">count</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-51"><a id="__codelineno-7-51" name="__codelineno-7-51" href="#__codelineno-7-51"></a><span class="w">        </span><span class="nb">None</span>
+</span><span id="__span-7-52"><a id="__codelineno-7-52" name="__codelineno-7-52" href="#__codelineno-7-52"></a><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-53"><a id="__codelineno-7-53" name="__codelineno-7-53" href="#__codelineno-7-53"></a><span class="w">        </span><span class="nb">Some</span><span class="p">(</span><span class="n">args</span><span class="p">.</span><span class="n">count</span><span class="p">)</span>
+</span><span id="__span-7-54"><a id="__codelineno-7-54" name="__codelineno-7-54" href="#__codelineno-7-54"></a><span class="w">    </span><span class="p">};</span>
+</span><span id="__span-7-55"><a id="__codelineno-7-55" name="__codelineno-7-55" href="#__codelineno-7-55"></a>
+</span><span id="__span-7-56"><a id="__codelineno-7-56" name="__codelineno-7-56" href="#__codelineno-7-56"></a><span class="w">    </span><span class="k">match</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="n">mode</span><span class="p">.</span><span class="n">as_str</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-57"><a id="__codelineno-7-57" name="__codelineno-7-57" href="#__codelineno-7-57"></a><span class="w">        </span><span class="s">&quot;pubsub&quot;</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-58"><a id="__codelineno-7-58" name="__codelineno-7-58" href="#__codelineno-7-58"></a><span class="w">            </span><span class="n">run_pubsub_demo</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span><span class="w"> </span><span class="n">max_count</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-7-59"><a id="__codelineno-7-59" name="__codelineno-7-59" href="#__codelineno-7-59"></a><span class="w">        </span><span class="p">}</span>
+</span><span id="__span-7-60"><a id="__codelineno-7-60" name="__codelineno-7-60" href="#__codelineno-7-60"></a><span class="w">        </span><span class="s">&quot;service-server&quot;</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-61"><a id="__codelineno-7-61" name="__codelineno-7-61" href="#__codelineno-7-61"></a><span class="w">            </span><span class="n">run_service_server</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">args</span><span class="p">.</span><span class="n">service</span><span class="p">,</span><span class="w"> </span><span class="n">max_count</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-7-62"><a id="__codelineno-7-62" name="__codelineno-7-62" href="#__codelineno-7-62"></a><span class="w">        </span><span class="p">}</span>
+</span><span id="__span-7-63"><a id="__codelineno-7-63" name="__codelineno-7-63" href="#__codelineno-7-63"></a><span class="w">        </span><span class="s">&quot;service-client&quot;</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-64"><a id="__codelineno-7-64" name="__codelineno-7-64" href="#__codelineno-7-64"></a><span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="n">operations</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="fm">vec!</span><span class="p">[</span>
+</span><span id="__span-7-65"><a id="__codelineno-7-65" name="__codelineno-7-65" href="#__codelineno-7-65"></a><span class="w">                </span><span class="p">(</span><span class="s">&quot;add&quot;</span><span class="p">,</span><span class="w"> </span><span class="mf">10.0</span><span class="p">,</span><span class="w"> </span><span class="mf">5.0</span><span class="p">),</span>
+</span><span id="__span-7-66"><a id="__codelineno-7-66" name="__codelineno-7-66" href="#__codelineno-7-66"></a><span class="w">                </span><span class="p">(</span><span class="s">&quot;subtract&quot;</span><span class="p">,</span><span class="w"> </span><span class="mf">10.0</span><span class="p">,</span><span class="w"> </span><span class="mf">5.0</span><span class="p">),</span>
+</span><span id="__span-7-67"><a id="__codelineno-7-67" name="__codelineno-7-67" href="#__codelineno-7-67"></a><span class="w">                </span><span class="p">(</span><span class="s">&quot;multiply&quot;</span><span class="p">,</span><span class="w"> </span><span class="mf">10.0</span><span class="p">,</span><span class="w"> </span><span class="mf">5.0</span><span class="p">),</span>
+</span><span id="__span-7-68"><a id="__codelineno-7-68" name="__codelineno-7-68" href="#__codelineno-7-68"></a><span class="w">                </span><span class="p">(</span><span class="s">&quot;divide&quot;</span><span class="p">,</span><span class="w"> </span><span class="mf">10.0</span><span class="p">,</span><span class="w"> </span><span class="mf">5.0</span><span class="p">),</span>
+</span><span id="__span-7-69"><a id="__codelineno-7-69" name="__codelineno-7-69" href="#__codelineno-7-69"></a><span class="w">                </span><span class="p">(</span><span class="s">&quot;divide&quot;</span><span class="p">,</span><span class="w"> </span><span class="mf">10.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">),</span><span class="w"> </span><span class="c1">// This will fail</span>
+</span><span id="__span-7-70"><a id="__codelineno-7-70" name="__codelineno-7-70" href="#__codelineno-7-70"></a><span class="w">            </span><span class="p">];</span>
+</span><span id="__span-7-71"><a id="__codelineno-7-71" name="__codelineno-7-71" href="#__codelineno-7-71"></a><span class="w">            </span><span class="n">run_service_client</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">args</span><span class="p">.</span><span class="n">service</span><span class="p">,</span><span class="w"> </span><span class="n">operations</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-7-72"><a id="__codelineno-7-72" name="__codelineno-7-72" href="#__codelineno-7-72"></a><span class="w">        </span><span class="p">}</span>
+</span><span id="__span-7-73"><a id="__codelineno-7-73" name="__codelineno-7-73" href="#__codelineno-7-73"></a><span class="w">        </span><span class="s">&quot;combined&quot;</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-74"><a id="__codelineno-7-74" name="__codelineno-7-74" href="#__codelineno-7-74"></a><span class="w">            </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">=== Running Combined Demo ===</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">);</span>
+</span><span id="__span-7-75"><a id="__codelineno-7-75" name="__codelineno-7-75" href="#__codelineno-7-75"></a>
+</span><span id="__span-7-76"><a id="__codelineno-7-76" name="__codelineno-7-76" href="#__codelineno-7-76"></a><span class="w">            </span><span class="c1">// Create separate contexts for server and client</span>
+</span><span id="__span-7-77"><a id="__codelineno-7-77" name="__codelineno-7-77" href="#__codelineno-7-77"></a><span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="n">server_ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="n">endpoint</span><span class="p">.</span><span class="n">clone</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-78"><a id="__codelineno-7-78" name="__codelineno-7-78" href="#__codelineno-7-78"></a><span class="w">                </span><span class="n">ZContextBuilder</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
+</span><span id="__span-7-79"><a id="__codelineno-7-79" name="__codelineno-7-79" href="#__codelineno-7-79"></a><span class="w">                    </span><span class="p">.</span><span class="n">with_mode</span><span class="p">(</span><span class="o">&amp;</span><span class="n">args</span><span class="p">.</span><span class="n">zenoh_mode</span><span class="p">)</span>
+</span><span id="__span-7-80"><a id="__codelineno-7-80" name="__codelineno-7-80" href="#__codelineno-7-80"></a><span class="w">                    </span><span class="p">.</span><span class="n">with_connect_endpoints</span><span class="p">([</span><span class="n">e</span><span class="p">])</span>
+</span><span id="__span-7-81"><a id="__codelineno-7-81" name="__codelineno-7-81" href="#__codelineno-7-81"></a><span class="w">                    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span>
+</span><span id="__span-7-82"><a id="__codelineno-7-82" name="__codelineno-7-82" href="#__codelineno-7-82"></a><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-83"><a id="__codelineno-7-83" name="__codelineno-7-83" href="#__codelineno-7-83"></a><span class="w">                </span><span class="n">ZContextBuilder</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
+</span><span id="__span-7-84"><a id="__codelineno-7-84" name="__codelineno-7-84" href="#__codelineno-7-84"></a><span class="w">                    </span><span class="p">.</span><span class="n">with_mode</span><span class="p">(</span><span class="o">&amp;</span><span class="n">args</span><span class="p">.</span><span class="n">zenoh_mode</span><span class="p">)</span>
+</span><span id="__span-7-85"><a id="__codelineno-7-85" name="__codelineno-7-85" href="#__codelineno-7-85"></a><span class="w">                    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span>
+</span><span id="__span-7-86"><a id="__codelineno-7-86" name="__codelineno-7-86" href="#__codelineno-7-86"></a><span class="w">            </span><span class="p">};</span>
+</span><span id="__span-7-87"><a id="__codelineno-7-87" name="__codelineno-7-87" href="#__codelineno-7-87"></a>
+</span><span id="__span-7-88"><a id="__codelineno-7-88" name="__codelineno-7-88" href="#__codelineno-7-88"></a><span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="n">service_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="n">service</span><span class="p">.</span><span class="n">clone</span><span class="p">();</span>
+</span><span id="__span-7-89"><a id="__codelineno-7-89" name="__codelineno-7-89" href="#__codelineno-7-89"></a>
+</span><span id="__span-7-90"><a id="__codelineno-7-90" name="__codelineno-7-90" href="#__codelineno-7-90"></a><span class="w">            </span><span class="c1">// Run server in background thread</span>
+</span><span id="__span-7-91"><a id="__codelineno-7-91" name="__codelineno-7-91" href="#__codelineno-7-91"></a><span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="n">_server_handle</span><span class="w"> </span><span class="o">=</span>
+</span><span id="__span-7-92"><a id="__codelineno-7-92" name="__codelineno-7-92" href="#__codelineno-7-92"></a><span class="w">                </span><span class="n">std</span><span class="p">::</span><span class="n">thread</span><span class="p">::</span><span class="n">spawn</span><span class="p">(</span><span class="k">move</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">run_service_server</span><span class="p">(</span><span class="n">server_ctx</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">service_name</span><span class="p">,</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="mi">5</span><span class="p">)));</span>
+</span><span id="__span-7-93"><a id="__codelineno-7-93" name="__codelineno-7-93" href="#__codelineno-7-93"></a>
+</span><span id="__span-7-94"><a id="__codelineno-7-94" name="__codelineno-7-94" href="#__codelineno-7-94"></a><span class="w">            </span><span class="c1">// Give server time to start</span>
+</span><span id="__span-7-95"><a id="__codelineno-7-95" name="__codelineno-7-95" href="#__codelineno-7-95"></a><span class="w">            </span><span class="n">std</span><span class="p">::</span><span class="n">thread</span><span class="p">::</span><span class="n">sleep</span><span class="p">(</span><span class="n">std</span><span class="p">::</span><span class="n">time</span><span class="p">::</span><span class="n">Duration</span><span class="p">::</span><span class="n">from_millis</span><span class="p">(</span><span class="mi">500</span><span class="p">));</span>
+</span><span id="__span-7-96"><a id="__codelineno-7-96" name="__codelineno-7-96" href="#__codelineno-7-96"></a>
+</span><span id="__span-7-97"><a id="__codelineno-7-97" name="__codelineno-7-97" href="#__codelineno-7-97"></a><span class="w">            </span><span class="c1">// Run client</span>
+</span><span id="__span-7-98"><a id="__codelineno-7-98" name="__codelineno-7-98" href="#__codelineno-7-98"></a><span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="n">operations</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="fm">vec!</span><span class="p">[</span>
+</span><span id="__span-7-99"><a id="__codelineno-7-99" name="__codelineno-7-99" href="#__codelineno-7-99"></a><span class="w">                </span><span class="p">(</span><span class="s">&quot;add&quot;</span><span class="p">,</span><span class="w"> </span><span class="mf">10.0</span><span class="p">,</span><span class="w"> </span><span class="mf">5.0</span><span class="p">),</span>
+</span><span id="__span-7-100"><a id="__codelineno-7-100" name="__codelineno-7-100" href="#__codelineno-7-100"></a><span class="w">                </span><span class="p">(</span><span class="s">&quot;subtract&quot;</span><span class="p">,</span><span class="w"> </span><span class="mf">10.0</span><span class="p">,</span><span class="w"> </span><span class="mf">5.0</span><span class="p">),</span>
+</span><span id="__span-7-101"><a id="__codelineno-7-101" name="__codelineno-7-101" href="#__codelineno-7-101"></a><span class="w">                </span><span class="p">(</span><span class="s">&quot;multiply&quot;</span><span class="p">,</span><span class="w"> </span><span class="mf">10.0</span><span class="p">,</span><span class="w"> </span><span class="mf">5.0</span><span class="p">),</span>
+</span><span id="__span-7-102"><a id="__codelineno-7-102" name="__codelineno-7-102" href="#__codelineno-7-102"></a><span class="w">                </span><span class="p">(</span><span class="s">&quot;divide&quot;</span><span class="p">,</span><span class="w"> </span><span class="mf">10.0</span><span class="p">,</span><span class="w"> </span><span class="mf">5.0</span><span class="p">),</span>
+</span><span id="__span-7-103"><a id="__codelineno-7-103" name="__codelineno-7-103" href="#__codelineno-7-103"></a><span class="w">                </span><span class="p">(</span><span class="s">&quot;divide&quot;</span><span class="p">,</span><span class="w"> </span><span class="mf">10.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">),</span>
+</span><span id="__span-7-104"><a id="__codelineno-7-104" name="__codelineno-7-104" href="#__codelineno-7-104"></a><span class="w">            </span><span class="p">];</span>
+</span><span id="__span-7-105"><a id="__codelineno-7-105" name="__codelineno-7-105" href="#__codelineno-7-105"></a><span class="w">            </span><span class="n">run_service_client</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">args</span><span class="p">.</span><span class="n">service</span><span class="p">,</span><span class="w"> </span><span class="n">operations</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-7-106"><a id="__codelineno-7-106" name="__codelineno-7-106" href="#__codelineno-7-106"></a><span class="w">        </span><span class="p">}</span>
+</span><span id="__span-7-107"><a id="__codelineno-7-107" name="__codelineno-7-107" href="#__codelineno-7-107"></a><span class="w">        </span><span class="n">_</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-108"><a id="__codelineno-7-108" name="__codelineno-7-108" href="#__codelineno-7-108"></a><span class="w">            </span><span class="fm">eprintln!</span><span class="p">(</span><span class="s">&quot;Unknown mode: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="n">mode</span><span class="p">);</span>
+</span><span id="__span-7-109"><a id="__codelineno-7-109" name="__codelineno-7-109" href="#__codelineno-7-109"></a><span class="w">            </span><span class="fm">eprintln!</span><span class="p">(</span><span class="s">&quot;Valid modes: pubsub, service-server, service-client, combined&quot;</span><span class="p">);</span>
+</span><span id="__span-7-110"><a id="__codelineno-7-110" name="__codelineno-7-110" href="#__codelineno-7-110"></a><span class="w">            </span><span class="n">std</span><span class="p">::</span><span class="n">process</span><span class="p">::</span><span class="n">exit</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+</span><span id="__span-7-111"><a id="__codelineno-7-111" name="__codelineno-7-111" href="#__codelineno-7-111"></a><span class="w">        </span><span class="p">}</span>
+</span><span id="__span-7-112"><a id="__codelineno-7-112" name="__codelineno-7-112" href="#__codelineno-7-112"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-7-113"><a id="__codelineno-7-113" name="__codelineno-7-113" href="#__codelineno-7-113"></a>
+</span><span id="__span-7-114"><a id="__codelineno-7-114" name="__codelineno-7-114" href="#__codelineno-7-114"></a><span class="w">    </span><span class="nb">Ok</span><span class="p">(())</span>
+</span><span id="__span-7-115"><a id="__codelineno-7-115" name="__codelineno-7-115" href="#__codelineno-7-115"></a><span class="p">}</span>
+</span></code></pre></div>
+<h2 id="subscribers-with-protobuf">Subscribers with Protobuf<a class="headerlink" href="#subscribers-with-protobuf" title="Permanent link">&para;</a></h2>
+<p>Receive protobuf-encoded messages:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz</span><span class="p">::</span><span class="n">msg</span><span class="p">::</span><span class="n">ProtobufSerdes</span><span class="p">;</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="kd">let</span><span class="w"> </span><span class="n">sub</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="p">.</span><span class="n">create_sub</span><span class="p">::</span><span class="o">&lt;</span><span class="n">Vector3Proto</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;/vector_proto&quot;</span><span class="p">)</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">    </span><span class="p">.</span><span class="n">with_serdes</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ProtobufSerdes</span><span class="o">&lt;</span><span class="n">Vector3Proto</span><span class="o">&gt;&gt;</span><span class="p">()</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="k">loop</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sub</span><span class="p">.</span><span class="n">recv</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Received: x={}, y={}, z={}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">msg</span><span class="p">.</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">msg</span><span class="p">.</span><span class="n">y</span><span class="p">,</span><span class="w"> </span><span class="n">msg</span><span class="p">.</span><span class="n">z</span><span class="p">);</span>
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="p">}</span>
+</span></code></pre></div>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>Publishers and subscribers must use the <strong>same serialization format</strong>. A protobuf publisher requires a protobuf subscriber.</p>
+</div>
+<h2 id="services-with-protobuf">Services with Protobuf<a class="headerlink" href="#services-with-protobuf" title="Permanent link">&para;</a></h2>
+<p>Both request and response use protobuf encoding:</p>
+<h3 id="server">Server<a class="headerlink" href="#server" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span><span class="p">.</span><span class="n">create_service</span><span class="p">::</span><span class="o">&lt;</span><span class="n">MyService</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;/my_service&quot;</span><span class="p">)</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="p">.</span><span class="n">with_serdes</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ProtobufSerdes</span><span class="o">&lt;</span><span class="n">MyServiceRequest</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">ProtobufSerdes</span><span class="o">&lt;</span><span class="n">MyServiceResponse</span><span class="o">&gt;&gt;</span><span class="p">()</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="k">loop</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">req</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="n">take_request</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">process_request</span><span class="p">(</span><span class="n">req</span><span class="p">.</span><span class="n">message</span><span class="p">());</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">    </span><span class="n">req</span><span class="p">.</span><span class="n">reply_blocking</span><span class="p">(</span><span class="o">&amp;</span><span class="n">response</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="client">Client<a class="headerlink" href="#client" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kd">let</span><span class="w"> </span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span><span class="p">.</span><span class="n">create_client</span><span class="p">::</span><span class="o">&lt;</span><span class="n">MyService</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;/my_service&quot;</span><span class="p">)</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="p">.</span><span class="n">with_serdes</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ProtobufSerdes</span><span class="o">&lt;</span><span class="n">MyServiceRequest</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">ProtobufSerdes</span><span class="o">&lt;</span><span class="n">MyServiceResponse</span><span class="o">&gt;&gt;</span><span class="p">()</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="kd">let</span><span class="w"> </span><span class="n">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">call_with_timeout</span><span class="p">(</span><span class="o">&amp;</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">Duration</span><span class="p">::</span><span class="n">from_secs</span><span class="p">(</span><span class="mi">5</span><span class="p">)).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+</span></code></pre></div>
+<h2 id="available-ros-messages">Available ROS Messages<a class="headerlink" href="#available-ros-messages" title="Permanent link">&para;</a></h2>
+<p>When hiroz-msgs is built with <code>protobuf</code> feature, it generates protobuf versions of ROS messages:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1">// Import from proto namespace</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz_msgs</span><span class="p">::</span><span class="n">proto</span><span class="p">::</span><span class="n">std_msgs</span><span class="p">::</span><span class="nb">String</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="n">StringProto</span><span class="p">;</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz_msgs</span><span class="p">::</span><span class="n">proto</span><span class="p">::</span><span class="n">geometry_msgs</span><span class="p">::{</span><span class="n">Point</span><span class="p">,</span><span class="w"> </span><span class="n">Pose</span><span class="p">,</span><span class="w"> </span><span class="n">Twist</span><span class="p">};</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz_msgs</span><span class="p">::</span><span class="n">proto</span><span class="p">::</span><span class="n">sensor_msgs</span><span class="p">::{</span><span class="n">LaserScan</span><span class="p">,</span><span class="w"> </span><span class="n">Image</span><span class="p">};</span>
+</span></code></pre></div>
+<p><strong>Namespace mapping:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>Namespace</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>CDR</strong></td>
+<td><code>hiroz_msgs::ros::*</code></td>
+<td>ROS 2 interop</td>
+</tr>
+<tr>
+<td><strong>Protobuf</strong></td>
+<td><code>hiroz_msgs::proto::*</code></td>
+<td>Protobuf encoding</td>
+</tr>
+</tbody>
+</table>
+<h2 id="type-information">Type Information<a class="headerlink" href="#type-information" title="Permanent link">&para;</a></h2>
+<h3 id="ros-messages">ROS Messages<a class="headerlink" href="#ros-messages" title="Permanent link">&para;</a></h3>
+<p>Auto-generated messages from hiroz-msgs include <code>MessageTypeInfo</code>:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1">// No manual implementation needed</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz_msgs</span><span class="p">::</span><span class="n">proto</span><span class="p">::</span><span class="n">geometry_msgs</span><span class="p">::</span><span class="n">Vector3</span><span class="p">;</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="c1">// Vector3 already implements MessageTypeInfo</span>
+</span></code></pre></div>
+<h3 id="custom-protobuf-messages">Custom Protobuf Messages<a class="headerlink" href="#custom-protobuf-messages" title="Permanent link">&para;</a></h3>
+<p>Manual implementation required:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">impl</span><span class="w"> </span><span class="n">MessageTypeInfo</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">MyProtoMessage</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">    </span><span class="k">fn</span><span class="w"> </span><span class="nf">type_name</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">&#39;</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">        </span><span class="c1">// Follow ROS naming convention</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">        </span><span class="s">&quot;my_package::msg::dds_::MyProtoMessage_&quot;</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>
+</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="k">fn</span><span class="w"> </span><span class="nf">type_hash</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">TypeHash</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="w">    </span><span class="c1">// Use zero for custom protobuf messages</span>
+</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="w">    </span><span class="n">TypeHash</span><span class="p">::</span><span class="n">zero</span><span class="p">()</span>
+</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="p">}</span>
+</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a><span class="p">}</span>
+</span><span id="__span-13-14"><a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>
+</span><span id="__span-13-15"><a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a><span class="k">impl</span><span class="w"> </span><span class="n">WithTypeInfo</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">MyProtoMessage</span><span class="w"> </span><span class="p">{}</span>
+</span></code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code>TypeHash::zero()</code> indicates the message doesn't have ROS 2 type compatibility. This is fine for hiroz-to-hiroz communication.</p>
+</div>
+<h2 id="protobuf-vs-cdr-comparison">Protobuf vs CDR Comparison<a class="headerlink" href="#protobuf-vs-cdr-comparison" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>CDR</th>
+<th>Protobuf</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ROS 2 Compatibility</strong></td>
+<td>✅ Full</td>
+<td>❌ None</td>
+</tr>
+<tr>
+<td><strong>Schema Evolution</strong></td>
+<td>❌ Limited</td>
+<td>✅ Excellent</td>
+</tr>
+<tr>
+<td><strong>Cross-language</strong></td>
+<td>ROS 2 only</td>
+<td>✅ Universal</td>
+</tr>
+<tr>
+<td><strong>Tooling</strong></td>
+<td>ROS ecosystem</td>
+<td>✅ Protobuf ecosystem</td>
+</tr>
+<tr>
+<td><strong>Message Size</strong></td>
+<td>Efficient</td>
+<td>Efficient</td>
+</tr>
+<tr>
+<td><strong>Setup Complexity</strong></td>
+<td>Simple</td>
+<td>Moderate</td>
+</tr>
+<tr>
+<td><strong>hiroz Support</strong></td>
+<td>Default</td>
+<td>Requires feature flag</td>
+</tr>
+</tbody>
+</table>
+<h2 id="common-patterns">Common Patterns<a class="headerlink" href="#common-patterns" title="Permanent link">&para;</a></h2>
+<h3 id="mixed-serialization">Mixed Serialization<a class="headerlink" href="#mixed-serialization" title="Permanent link">&para;</a></h3>
+<p>Different topics can use different formats:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1">// CDR for ROS 2 compatibility</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="kd">let</span><span class="w"> </span><span class="n">ros_pub</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">    </span><span class="p">.</span><span class="n">create_pub</span><span class="p">::</span><span class="o">&lt;</span><span class="n">RosString</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;/ros_topic&quot;</span><span class="p">)</span>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span><span class="w">  </span><span class="c1">// CDR is default</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="c1">// Protobuf for schema evolution</span>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="kd">let</span><span class="w"> </span><span class="n">proto_pub</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="w">    </span><span class="p">.</span><span class="n">create_pub</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ProtoString</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;/proto_topic&quot;</span><span class="p">)</span>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="w">    </span><span class="p">.</span><span class="n">with_serdes</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ProtobufSerdes</span><span class="o">&lt;</span><span class="n">ProtoString</span><span class="o">&gt;&gt;</span><span class="p">()</span>
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span></code></pre></div>
+<h3 id="migration-strategy">Migration Strategy<a class="headerlink" href="#migration-strategy" title="Permanent link">&para;</a></h3>
+<p>Gradual migration from CDR to protobuf:</p>
+<ol>
+<li>Add protobuf feature to dependencies</li>
+<li>Create protobuf topics with new names</li>
+<li>Run both CDR and protobuf publishers temporarily</li>
+<li>Migrate subscribers to protobuf</li>
+<li>Deprecate CDR topics</li>
+</ol>
+<h2 id="build-integration">Build Integration<a class="headerlink" href="#build-integration" title="Permanent link">&para;</a></h2>
+<h3 id="project-structure">Project Structure<a class="headerlink" href="#project-structure" title="Permanent link">&para;</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>my_ros_project/
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>├── proto/
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>│   ├── sensor_data.proto
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>│   └── robot_status.proto
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>├── src/
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>│   └── main.rs
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>├── build.rs
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>└── Cargo.toml
+</span></code></pre></div>
+<h3 id="cargotoml">Cargo.toml<a class="headerlink" href="#cargotoml" title="Permanent link">&para;</a></h3>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">[package]</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_ros_project&quot;</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.1.0&quot;</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="n">edition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;2021&quot;</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="k">[dependencies]</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="n">hiroz</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;0.1&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;protobuf&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="n">hiroz-msgs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;0.1&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;geometry_msgs&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;protobuf&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="n">prost</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.13&quot;</span>
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="n">serde</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;1.0&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;derive&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a>
+</span><span id="__span-16-12"><a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="k">[build-dependencies]</span>
+</span><span id="__span-16-13"><a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a><span class="n">prost-build</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.13&quot;</span>
+</span></code></pre></div>
+<h3 id="buildrs">build.rs<a class="headerlink" href="#buildrs" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">use</span><span class="w"> </span><span class="n">std</span><span class="p">::</span><span class="n">io</span><span class="p">::</span><span class="nb">Result</span><span class="p">;</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="k">fn</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">()</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">config</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">prost_build</span><span class="p">::</span><span class="n">Config</span><span class="p">::</span><span class="n">new</span><span class="p">();</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="w">    </span><span class="c1">// Enable serde for hiroz compatibility</span>
+</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">    </span><span class="n">config</span><span class="p">.</span><span class="n">type_attribute</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;#[derive(serde::Serialize, serde::Deserialize)]&quot;</span><span class="p">);</span>
+</span><span id="__span-17-8"><a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>
+</span><span id="__span-17-9"><a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="w">    </span><span class="c1">// Compile all proto files</span>
+</span><span id="__span-17-10"><a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="w">    </span><span class="n">config</span><span class="p">.</span><span class="n">compile_protos</span><span class="p">(</span>
+</span><span id="__span-17-11"><a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="w">        </span><span class="o">&amp;</span><span class="p">[</span>
+</span><span id="__span-17-12"><a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a><span class="w">            </span><span class="s">&quot;proto/sensor_data.proto&quot;</span><span class="p">,</span>
+</span><span id="__span-17-13"><a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a><span class="w">            </span><span class="s">&quot;proto/robot_status.proto&quot;</span><span class="p">,</span>
+</span><span id="__span-17-14"><a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a><span class="w">        </span><span class="p">],</span>
+</span><span id="__span-17-15"><a id="__codelineno-17-15" name="__codelineno-17-15" href="#__codelineno-17-15"></a><span class="w">        </span><span class="o">&amp;</span><span class="p">[</span><span class="s">&quot;proto/&quot;</span><span class="p">]</span>
+</span><span id="__span-17-16"><a id="__codelineno-17-16" name="__codelineno-17-16" href="#__codelineno-17-16"></a><span class="w">    </span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-17-17"><a id="__codelineno-17-17" name="__codelineno-17-17" href="#__codelineno-17-17"></a>
+</span><span id="__span-17-18"><a id="__codelineno-17-18" name="__codelineno-17-18" href="#__codelineno-17-18"></a><span class="w">    </span><span class="c1">// Rebuild if proto files change</span>
+</span><span id="__span-17-19"><a id="__codelineno-17-19" name="__codelineno-17-19" href="#__codelineno-17-19"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;cargo:rerun-if-changed=proto/&quot;</span><span class="p">);</span>
+</span><span id="__span-17-20"><a id="__codelineno-17-20" name="__codelineno-17-20" href="#__codelineno-17-20"></a>
+</span><span id="__span-17-21"><a id="__codelineno-17-21" name="__codelineno-17-21" href="#__codelineno-17-21"></a><span class="w">    </span><span class="nb">Ok</span><span class="p">(())</span>
+</span><span id="__span-17-22"><a id="__codelineno-17-22" name="__codelineno-17-22" href="#__codelineno-17-22"></a><span class="p">}</span>
+</span></code></pre></div>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<details class="question">
+<summary>Error: protobuf feature not enabled</summary>
+<p>This error occurs when you try to use protobuf serialization without enabling the feature flag.
+<strong>Solution:</strong> Enable the protobuf feature in your <code>Cargo.toml</code>:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">[dependencies]</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="n">hiroz</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;0.1&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;protobuf&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="n">hiroz-msgs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;0.1&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;geometry_msgs&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;protobuf&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span></code></pre></div>
+</details>
+<details class="question">
+<summary>Error: MessageTypeInfo not implemented</summary>
+<p>Custom protobuf messages need to implement required hiroz traits.
+<strong>Solution:</strong> Implement the required traits for your custom message:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz</span><span class="p">::{</span><span class="n">MessageTypeInfo</span><span class="p">,</span><span class="w"> </span><span class="n">WithTypeInfo</span><span class="p">,</span><span class="w"> </span><span class="n">entity</span><span class="p">::</span><span class="n">TypeHash</span><span class="p">};</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="k">impl</span><span class="w"> </span><span class="n">MessageTypeInfo</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">MyMessage</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">    </span><span class="k">fn</span><span class="w"> </span><span class="nf">type_name</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">&#39;</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">        </span><span class="s">&quot;package::msg::dds_::MyMessage_&quot;</span>
+</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-19-7"><a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a>
+</span><span id="__span-19-8"><a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="w">    </span><span class="k">fn</span><span class="w"> </span><span class="nf">type_hash</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">TypeHash</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-19-9"><a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a><span class="w">        </span><span class="n">TypeHash</span><span class="p">::</span><span class="n">zero</span><span class="p">()</span>
+</span><span id="__span-19-10"><a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-19-11"><a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a><span class="p">}</span>
+</span><span id="__span-19-12"><a id="__codelineno-19-12" name="__codelineno-19-12" href="#__codelineno-19-12"></a>
+</span><span id="__span-19-13"><a id="__codelineno-19-13" name="__codelineno-19-13" href="#__codelineno-19-13"></a><span class="k">impl</span><span class="w"> </span><span class="n">WithTypeInfo</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">MyMessage</span><span class="w"> </span><span class="p">{}</span>
+</span></code></pre></div>
+</details>
+<details class="question">
+<summary>Build fails with prost errors</summary>
+<p>Version mismatches between prost dependencies can cause build failures.
+<strong>Solution:</strong> Ensure prost versions match in your <code>Cargo.toml</code>:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">[dependencies]</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="n">prost</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.13&quot;</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="k">[build-dependencies]</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="n">prost-build</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.13&quot;</span>
+</span></code></pre></div>
+<p>If issues persist, try:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>cargo<span class="w"> </span>clean
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>cargo<span class="w"> </span>build
+</span></code></pre></div>
+</details>
+<details class="question">
+<summary>Messages not receiving</summary>
+<p>Publisher and subscriber must use the same serialization format.
+<strong>Solution:</strong> Verify both sides use protobuf serialization:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="c1">// Publisher</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="kd">let</span><span class="w"> </span><span class="n">pub_handle</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">    </span><span class="p">.</span><span class="n">create_pub</span><span class="p">::</span><span class="o">&lt;</span><span class="n">MyMessage</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;/topic&quot;</span><span class="p">)</span>
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="w">    </span><span class="p">.</span><span class="n">with_serdes</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ProtobufSerdes</span><span class="o">&lt;</span><span class="n">MyMessage</span><span class="o">&gt;&gt;</span><span class="p">()</span>
+</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>
+</span><span id="__span-22-7"><a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a><span class="c1">// Subscriber</span>
+</span><span id="__span-22-8"><a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a><span class="kd">let</span><span class="w"> </span><span class="n">sub</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-22-9"><a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a><span class="w">    </span><span class="p">.</span><span class="n">create_sub</span><span class="p">::</span><span class="o">&lt;</span><span class="n">MyMessage</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;/topic&quot;</span><span class="p">)</span>
+</span><span id="__span-22-10"><a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a><span class="w">    </span><span class="p">.</span><span class="n">with_serdes</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ProtobufSerdes</span><span class="o">&lt;</span><span class="n">MyMessage</span><span class="o">&gt;&gt;</span><span class="p">()</span>
+</span><span id="__span-22-11"><a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span></code></pre></div>
+<p><strong>Note:</strong> A protobuf publisher cannot communicate with a CDR subscriber and vice versa.</p>
+</details>
+<details class="question">
+<summary>Proto file not found during build</summary>
+<p>The build script cannot locate your <code>.proto</code> files.
+<strong>Solution:</strong> Verify the path in your <code>build.rs</code>:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="n">config</span><span class="p">.</span><span class="n">compile_protos</span><span class="p">(</span>
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="w">    </span><span class="o">&amp;</span><span class="p">[</span><span class="s">&quot;proto/sensor_data.proto&quot;</span><span class="p">],</span><span class="w">  </span><span class="c1">// Check this path</span>
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="w">    </span><span class="o">&amp;</span><span class="p">[</span><span class="s">&quot;proto/&quot;</span><span class="p">]</span><span class="w">                     </span><span class="c1">// Check include directory</span>
+</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span></code></pre></div>
+<p>Ensure the proto directory exists:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>ls<span class="w"> </span>proto/sensor_data.proto
+</span></code></pre></div>
+</details>
+<details class="question">
+<summary>Generated code not found</summary>
+<p>The build script generated code but you can't import it.
+<strong>Solution:</strong> Ensure you're including from the correct location:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">mod</span><span class="w"> </span><span class="nn">sensor_data</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="w">    </span><span class="fm">include!</span><span class="p">(</span><span class="fm">concat!</span><span class="p">(</span><span class="fm">env!</span><span class="p">(</span><span class="s">&quot;OUT_DIR&quot;</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;/examples.rs&quot;</span><span class="p">));</span>
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>The filename after <code>OUT_DIR</code> should match your package name in the <code>.proto</code> file:</p>
+<div class="language-protobuf highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="kn">package</span><span class="w"> </span><span class="nn">examples</span><span class="p">;</span><span class="w">  </span><span class="c1">// Generates examples.rs</span>
+</span></code></pre></div>
+</details>
+<h2 id="resources">Resources<a class="headerlink" href="#resources" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><a href="../message-generation/">Message Generation</a></strong> - Understanding message architecture</li>
+<li><strong><a href="../custom-messages/">Custom Messages</a></strong> - Manual message implementation</li>
+<li><strong><a href="https://protobuf.dev/">Protobuf Documentation</a></strong> - Official protobuf guide</li>
+<li><strong><a href="https://docs.rs/prost/">prost Crate</a></strong> - Rust protobuf library</li>
+</ul>
+<p><strong>Use protobuf when you need schema evolution or cross-language compatibility beyond the ROS 2 ecosystem. Stick with CDR for standard ROS 2 interoperability.</strong></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../custom-messages/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Custom Messages">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Custom Messages
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../../tools/console/" class="md-footer__link md-footer__link--next" aria-label="Next: hiroz-console">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                hiroz-console
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "content.action.edit", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      
+        <script src="../../javascripts/mermaid.js"></script>
+      
+        <script src="../../javascripts/action-anim.js"></script>
+      
+        <script src="../../javascripts/flashcards.js"></script>
+      
+    
+  </body>
+</html>

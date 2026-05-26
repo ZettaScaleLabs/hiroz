@@ -1,0 +1,3011 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="High-performance Interoperable Robotics on Zenoh">
+      
+      
+      
+        <link rel="canonical" href="https://zettascalelabs.github.io/hiroz/core-concepts/services/">
+      
+      
+        <link rel="prev" href="../pubsub/">
+      
+      
+        <link rel="next" href="../actions/">
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.20">
+    
+    
+      
+        <title>Services - HIROZ</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.e53b48f4.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/home.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/actions.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#services" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="HIROZ" class="md-header__button md-logo" aria-label="HIROZ" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 163" overflow="hidden"><path d="M67.5,0 C70.5,10.015361 71.5,23.0353303 70.5,39.0599078 C87.5,23.5360983 102.5,15.7741935 115.5,15.7741935 C108,23.2857143 108.272452,33.9711351 112.5,33.0506912 C124,30.546851 136.5,32.5499232 150,39.0599078 L150,153.269585 C150,165.695992 139.926407,175.769585 127.5,175.769585 L61.1792721,175.769585 C54.9660687,175.769585 49.9292721,170.732789 49.9292721,164.519585 C49.9292721,162.825588 50.3118282,161.153461 51.0483941,159.627979 C55.1904226,151.049532 63.9242912,142.158178 77.25,132.953917 C99,117.930876 107.25,107.414747 107.25,87.8847926 C107.25,76.6175115 101.235622,69.7933468 93,69.1059908 C84,68.3548387 77.25,72.8617512 77.25,79.6221198 C77.25,83.1274962 78.25,86.1321045 80.25,88.6359447 L45,114.175115 C42.5,117.680492 41.25,121.686636 41.25,126.193548 C31.75,126.193548 26.5,120.935484 25.5,110.419355 L30.5,74.1136713 C24.1666667,69.2729135 19.25,63.5140809 15.75,56.8371736 C21.5833333,59.8417819 27.3527952,61.6613272 33.0583855,62.2958096 L36,43.5668203 C38.5,30.546851 41.75,22.0337942 45.75,18.0276498 C45.25,27.0414747 46.25,38.0583717 48.75,51.078341 C59.25,35.5545315 65.5,18.5284178 67.5,0 Z M55.5,59.3410138 C54.8493151,62.5994361 52.5050666,67.1299821 48.4672671,72.9331549 C49.3254255,73.6214254 49.875,74.6796138 49.875,75.8663594 C49.875,77.9406086 48.1960678,79.6221198 46.125,79.6221198 C45.3413993,79.6221198 44.6139341,79.3814062 44.0134198,78.9679649 C42.9192012,80.380157 41.7480613,81.8501288 40.5,83.3778802 C48.0409322,84.7516633 53.0409322,83.2493592 55.5,78.8709677 C58.5613983,73.4201217 58.5,65.3502304 55.5,59.3410138 Z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            HIROZ
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Services
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ZettaScaleLabs/hiroz" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ZettaScaleLabs/hiroz
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Introduction
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/quick-start/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../pubsub/" class="md-tabs__link">
+          
+  
+  
+  Core Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user-guide/networking/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tools/console/" class="md-tabs__link">
+          
+  
+  
+  Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../bindings/python-quick-start/" class="md-tabs__link">
+          
+  
+  
+  Language Bindings
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../experimental/shm/" class="md-tabs__link">
+          
+  
+  
+  Advanced Topics
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/feature-comparison/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="HIROZ" class="md-nav__button md-logo" aria-label="HIROZ" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 163" overflow="hidden"><path d="M67.5,0 C70.5,10.015361 71.5,23.0353303 70.5,39.0599078 C87.5,23.5360983 102.5,15.7741935 115.5,15.7741935 C108,23.2857143 108.272452,33.9711351 112.5,33.0506912 C124,30.546851 136.5,32.5499232 150,39.0599078 L150,153.269585 C150,165.695992 139.926407,175.769585 127.5,175.769585 L61.1792721,175.769585 C54.9660687,175.769585 49.9292721,170.732789 49.9292721,164.519585 C49.9292721,162.825588 50.3118282,161.153461 51.0483941,159.627979 C55.1904226,151.049532 63.9242912,142.158178 77.25,132.953917 C99,117.930876 107.25,107.414747 107.25,87.8847926 C107.25,76.6175115 101.235622,69.7933468 93,69.1059908 C84,68.3548387 77.25,72.8617512 77.25,79.6221198 C77.25,83.1274962 78.25,86.1321045 80.25,88.6359447 L45,114.175115 C42.5,117.680492 41.25,121.686636 41.25,126.193548 C31.75,126.193548 26.5,120.935484 25.5,110.419355 L30.5,74.1136713 C24.1666667,69.2729135 19.25,63.5140809 15.75,56.8371736 C21.5833333,59.8417819 27.3527952,61.6613272 33.0583855,62.2958096 L36,43.5668203 C38.5,30.546851 41.75,22.0337942 45.75,18.0276498 C45.25,27.0414747 46.25,38.0583717 48.75,51.078341 C59.25,35.5545315 65.5,18.5284178 67.5,0 Z M55.5,59.3410138 C54.8493151,62.5994361 52.5050666,67.1299821 48.4672671,72.9331549 C49.3254255,73.6214254 49.875,74.6796138 49.875,75.8663594 C49.875,77.9406086 48.1960678,79.6221198 46.125,79.6221198 C45.3413993,79.6221198 44.6139341,79.3814062 44.0134198,78.9679649 C42.9192012,80.380157 41.7480613,81.8501288 40.5,83.3778802 C48.0409322,84.7516633 53.0409322,83.2493592 55.5,78.8709677 C58.5613983,73.4201217 58.5,65.3502304 55.5,59.3410138 Z"/></svg>
+
+    </a>
+    HIROZ
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ZettaScaleLabs/hiroz" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ZettaScaleLabs/hiroz
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Introduction
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Getting Started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Getting Started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quick Start
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Running Examples
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/building/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Building
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/distro-compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Distro Compatibility
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Core Concepts
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Core Concepts
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pubsub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Pub/Sub
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Services
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Services
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-a-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      What is a Service?
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is a Service?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#service-vs-topic-vs-action" class="md-nav__link">
+    <span class="md-ellipsis">
+      Service vs Topic vs Action
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-srv-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      The .srv format
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-happens-with-no-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      What happens with no server?
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qos-note" class="md-nav__link">
+    <span class="md-ellipsis">
+      QoS note
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-concepts-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Key Concepts at a Glance
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#visual-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Visual Flow
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      Key Features
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#service-server-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      Service Server Example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#service-client-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      Service Client Example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complete-service-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Complete Service Workflow
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#service-server-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Service Server Patterns
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Service Server Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pattern-1-blocking-request-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pattern 1: Blocking Request Handling
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-2-async-request-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pattern 2: Async Request Handling
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-pull-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      Why Pull Model?
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#service-client-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Service Client Patterns
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Service Client Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pattern-1-call-with-timeout" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pattern 1: Call with Timeout
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-2-call-without-explicit-timeout" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pattern 2: Call without Explicit Timeout
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ros-2-interoperability" class="md-nav__link">
+    <span class="md-ellipsis">
+      ROS 2 Interoperability
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      Error Handling
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Error Handling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-the-server-is-not-running" class="md-nav__link">
+    <span class="md-ellipsis">
+      When the server is not running
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client-methods-compared" class="md-nav__link">
+    <span class="md-ellipsis">
+      Client methods compared
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resources
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Actions
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            Actions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Actions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../actions-advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Advanced Patterns
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Parameters
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lifecycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Lifecycle Nodes
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Guides
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Guides
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/networking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Networking
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            Configuration
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/config-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Options
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/config-advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Advanced
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/interop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ROS 2 Interoperability
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/bridge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cross-Distro Bridge
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Messages & Serialization
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_5">
+            <span class="md-nav__icon md-icon"></span>
+            Messages & Serialization
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../message-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Message Cache
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/message-generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Message Generation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/custom-messages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Custom Messages
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/protobuf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Protobuf Serialization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Tools
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Tools
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    hiroz-console
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Language Bindings
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            Language Bindings
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_1" id="__nav_6_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Python
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1">
+            <span class="md-nav__icon md-icon"></span>
+            Python
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/python-quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quick Start
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/python/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Bindings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/python-codegen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Codegen Internals
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Go
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            Go
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/go-quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quick Start
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/go/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Bindings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Advanced Topics
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Advanced Topics
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental/shm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Shared Memory (SHM)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/feature-comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Feature Comparison
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/ros2-to-hiroz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ROS 2 → hiroz API Mapping
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental/rmw-zenoh-rs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    rmw_zenoh_rs
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental/keyexpr-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Key Expression Formats
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/feature-flags/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Feature Flags
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/nix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Nix Development
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-a-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      What is a Service?
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is a Service?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#service-vs-topic-vs-action" class="md-nav__link">
+    <span class="md-ellipsis">
+      Service vs Topic vs Action
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-srv-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      The .srv format
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-happens-with-no-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      What happens with no server?
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qos-note" class="md-nav__link">
+    <span class="md-ellipsis">
+      QoS note
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-concepts-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Key Concepts at a Glance
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#visual-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Visual Flow
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      Key Features
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#service-server-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      Service Server Example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#service-client-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      Service Client Example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complete-service-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Complete Service Workflow
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#service-server-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Service Server Patterns
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Service Server Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pattern-1-blocking-request-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pattern 1: Blocking Request Handling
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-2-async-request-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pattern 2: Async Request Handling
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-pull-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      Why Pull Model?
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#service-client-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Service Client Patterns
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Service Client Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pattern-1-call-with-timeout" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pattern 1: Call with Timeout
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-2-call-without-explicit-timeout" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pattern 2: Call without Explicit Timeout
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ros-2-interoperability" class="md-nav__link">
+    <span class="md-ellipsis">
+      ROS 2 Interoperability
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      Error Handling
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Error Handling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-the-server-is-not-running" class="md-nav__link">
+    <span class="md-ellipsis">
+      When the server is not running
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client-methods-compared" class="md-nav__link">
+    <span class="md-ellipsis">
+      Client methods compared
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resources
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/ZettaScaleLabs/hiroz/edit/main/docs/core-concepts/services.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="services">Services<a class="headerlink" href="#services" title="Permanent link">&para;</a></h1>
+<div class="admonition note">
+<p class="admonition-title">Go users</p>
+<p>The code examples in this chapter are <strong>Rust</strong>. The Go service API is callback-based — handlers are registered instead of using <code>take_request()</code>. For Go service patterns and the typed service API, see the <a href="../../bindings/go/">Go Bindings</a> chapter.</p>
+</div>
+<p><strong>hiroz implements ROS 2's service pattern with type-safe request-response communication over Eclipse Zenoh.</strong> This enables synchronous, point-to-point interactions between nodes using a pull-based model for full control over request processing.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Services provide request-response communication for operations that need immediate feedback. Unlike topics, services are bidirectional and ensure a response for each request. hiroz uses a pull model that gives you explicit control over when to process requests.</p>
+</div>
+<h2 id="what-is-a-service">What is a Service?<a class="headerlink" href="#what-is-a-service" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+accTitle: Service request and response between client and server
+accDescr: The client sends a typed request with two integers to the server, which computes the sum and returns a typed response.
+    participant C as Client
+    participant S as Server
+
+    C-&gt;&gt;S: Request(a=3, b=5)
+    Note right of S: compute sum
+    S--&gt;&gt;C: Response(sum=8)</code></pre>
+<p><strong>A named remote function call. Client sends a typed request; server returns a typed response.</strong></p>
+<ul>
+<li>One server per service name (multiple = undefined behavior)</li>
+<li>Any number of clients can call the same service</li>
+<li>Client blocks (or awaits) until the response arrives</li>
+<li>Use for short operations — milliseconds, not minutes</li>
+</ul>
+<h3 id="service-vs-topic-vs-action">Service vs Topic vs Action<a class="headerlink" href="#service-vs-topic-vs-action" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>graph TD
+accTitle: Decision tree for choosing Topic, Service, or Action
+accDescr: A decision tree that routes continuous data streams to Topics, fast single results to Services, and long tasks needing progress and cancellation to Actions.
+    Q{What do you need?}
+    Q --&gt;|Continuous data stream| T[Topic]
+    Q --&gt;|One result, fast| S[Service]
+    Q --&gt;|Long task + progress + cancel| A[Action]
+    style S fill:#3f51b5,color:#fff,stroke:#3f51b5</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Topic</th>
+<th>Service</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Direction</strong></td>
+<td>One-way push</td>
+<td>Request → Response</td>
+<td>Request → Feedback → Result</td>
+</tr>
+<tr>
+<td><strong>Duration</strong></td>
+<td>Continuous</td>
+<td>Milliseconds</td>
+<td>Seconds to minutes</td>
+</tr>
+<tr>
+<td><strong>Cancellation</strong></td>
+<td>N/A</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Feedback</strong></td>
+<td>N/A</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h3 id="the-srv-format">The .srv format<a class="headerlink" href="#the-srv-format" title="Permanent link">&para;</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a># Request (above the ---)
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>uint32 a
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>uint32 b
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>---
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a># Response (below the ---)
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>uint32 sum
+</span></code></pre></div>
+<p>Two sections, separated by <code>---</code>. Each is a message definition. hiroz generates a Rust trait:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">trait</span><span class="w"> </span><span class="n">AddTwoInts</span><span class="p">:</span><span class="w"> </span><span class="nc">ZService</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="k">type</span><span class="w"> </span><span class="nc">Request</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">AddTwoIntsRequest</span><span class="p">;</span><span class="w">   </span><span class="c1">// { a: u32, b: u32 }</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="k">type</span><span class="w"> </span><span class="nc">Response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AddTwoIntsResponse</span><span class="p">;</span><span class="w">  </span><span class="c1">// { sum: u32 }</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="what-happens-with-no-server">What happens with no server?<a class="headerlink" href="#what-happens-with-no-server" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+accTitle: Service call timeout when no server is registered
+accDescr: The client sends a request to the Zenoh router, which waits indefinitely for a server and eventually times out after the configured queries_default_timeout.
+    participant C as Client
+    participant Z as Zenoh Router
+
+    C-&gt;&gt;Z: Request (no server registered)
+    Note over Z: waits for server...
+    Z--&gt;&gt;C: Timeout after queries_default_timeout (default: 10 min)</code></pre>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>Set a shorter timeout in the Zenoh config for faster failure detection in production.</p>
+</div>
+<h3 id="qos-note">QoS note<a class="headerlink" href="#qos-note" title="Permanent link">&para;</a></h3>
+<p>Services use <strong>reliable + volatile</strong> durability. Volatile means: if a server restarts, old in-flight requests are discarded — no stale requests reach the new server.</p>
+<h3 id="key-concepts-at-a-glance">Key Concepts at a Glance<a class="headerlink" href="#key-concepts-at-a-glance" title="Permanent link">&para;</a></h3>
+<div class="flashcard-grid">
+  <div class="flashcard">
+    <div class="flashcard-inner">
+      <div class="flashcard-front">
+        <div class="flashcard-tag">Pattern</div>
+        <div class="flashcard-term">What is a Service?</div>
+        <div class="flashcard-hint">Click to flip</div>
+      </div>
+      <div class="flashcard-back">
+        A named request-response channel. A client sends a typed request; the server processes it and returns a typed response. Like a remote function call.
+      </div>
+    </div>
+  </div>
+  <div class="flashcard">
+    <div class="flashcard-inner">
+      <div class="flashcard-front">
+        <div class="flashcard-tag">Constraint</div>
+        <div class="flashcard-term">How many servers can a service have?</div>
+        <div class="flashcard-hint">Click to flip</div>
+      </div>
+      <div class="flashcard-back">
+        One. Multiple servers on the same service name is undefined behavior. Multiple clients are fine — any number can call the same service.
+      </div>
+    </div>
+  </div>
+  <div class="flashcard">
+    <div class="flashcard-inner">
+      <div class="flashcard-front">
+        <div class="flashcard-tag">vs Action</div>
+        <div class="flashcard-term">Service vs Action — when to pick which?</div>
+        <div class="flashcard-hint">Click to flip</div>
+      </div>
+      <div class="flashcard-back">
+        <div>• <strong>Service</strong>: result in milliseconds, no progress needed.</div>
+        <div>• <strong>Action</strong>: takes seconds/minutes, need feedback or cancellation.</div>
+      </div>
+    </div>
+  </div>
+  <div class="flashcard">
+    <div class="flashcard-inner">
+      <div class="flashcard-front">
+        <div class="flashcard-tag">Timeout</div>
+        <div class="flashcard-term">What happens if no server is running?</div>
+        <div class="flashcard-hint">Click to flip</div>
+      </div>
+      <div class="flashcard-back">
+        The call blocks until the server comes online or a timeout fires. hiroz uses Zenoh's query timeout (default: 10 minutes — configure with <strong>queries_default_timeout</strong>).
+      </div>
+    </div>
+  </div>
+  <div class="flashcard">
+    <div class="flashcard-inner">
+      <div class="flashcard-front">
+        <div class="flashcard-tag">Pull Model</div>
+        <div class="flashcard-term">What is the pull model in hiroz?</div>
+        <div class="flashcard-hint">Click to flip</div>
+      </div>
+      <div class="flashcard-back">
+        Call <strong>take_request()</strong> when you are ready — you control timing. Requests queue up until you retrieve them. Contrast with a callback model where the framework calls you.
+      </div>
+    </div>
+  </div>
+  <div class="flashcard">
+    <div class="flashcard-inner">
+      <div class="flashcard-front">
+        <div class="flashcard-tag">QoS</div>
+        <div class="flashcard-term">Why do services use volatile durability?</div>
+        <div class="flashcard-hint">Click to flip</div>
+      </div>
+      <div class="flashcard-back">
+        If a server restarts, old requests should not be replayed — stale requests could cause incorrect state. Volatile discards requests that no running server received.
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2 id="visual-flow">Visual Flow<a class="headerlink" href="#visual-flow" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>graph TD
+accTitle: Service visual flow from context creation to response handling
+accDescr: ZContextBuilder creates a ZContext that spawns both a client node and server node; the client sends a request routed through the service call to the server's handler, which returns a response the client takes.
+    A[ZContextBuilder] --&gt;|configure| B[ZContext]
+    B --&gt;|create| C[Client Node]
+    B --&gt;|create| D[Server Node]
+    C --&gt;|create_client| E[Service Client]
+    D --&gt;|create_service| F[Service Server]
+    E --&gt;|call| G[Service Call]
+    G --&gt;|route| F
+    F --&gt;|take_request| H[ServiceRequest]
+    H --&gt;|reply_blocking| G
+    G --&gt;|deliver| E</code></pre>
+<h2 id="key-features">Key Features<a class="headerlink" href="#key-features" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Description</th>
+<th>Benefit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Type Safety</strong></td>
+<td>Strongly-typed service definitions with Rust structs</td>
+<td>Compile-time error detection</td>
+</tr>
+<tr>
+<td><strong>Pull Model</strong></td>
+<td>Explicit control over request processing timing</td>
+<td>Predictable concurrency and backpressure</td>
+</tr>
+<tr>
+<td><strong>Async/Blocking</strong></td>
+<td>Dual API for both paradigms</td>
+<td>Flexible integration patterns</td>
+</tr>
+<tr>
+<td><strong>Unified Request Object</strong></td>
+<td><code>ServiceRequest</code> carries message and reply method together</td>
+<td>No dangling reply tokens</td>
+</tr>
+</tbody>
+</table>
+<h2 id="service-server-example">Service Server Example<a class="headerlink" href="#service-server-example" title="Permanent link">&para;</a></h2>
+<p>A server that adds two integers. Full source: <a href="https://github.com/ZettaScaleLabs/hiroz/blob/main/crates/hiroz/examples/demo_nodes/add_two_ints_server.rs"><code>crates/hiroz/examples/demo_nodes/add_two_ints_server.rs</code></a></p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="sd">/// AddTwoInts server node that provides a service to add two integers</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="sd">///</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="sd">/// # Arguments</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="sd">/// * `ctx` - The hiroz context</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="sd">/// * `max_requests` - Optional maximum number of requests to handle. If None, handles requests indefinitely.</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">run_add_two_ints_server</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span><span class="w"> </span><span class="nc">ZContext</span><span class="p">,</span><span class="w"> </span><span class="n">max_requests</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="kt">usize</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">()</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="c1">// Create a node named &quot;add_two_ints_server&quot;</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">node</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="n">create_node</span><span class="p">(</span><span class="s">&quot;add_two_ints_server&quot;</span><span class="p">).</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="c1">// Create a service that will handle requests</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="p">.</span><span class="n">create_service</span><span class="p">::</span><span class="o">&lt;</span><span class="n">AddTwoInts</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;add_two_ints&quot;</span><span class="p">).</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;AddTwoInts service server started, waiting for requests...&quot;</span><span class="p">);</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">request_count</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">    </span><span class="k">loop</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">        </span><span class="c1">// Wait for a request</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="n">req</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="n">take_request</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">        </span><span class="fm">println!</span><span class="p">(</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">            </span><span class="s">&quot;Incoming request</span><span class="se">\n</span><span class="s">a: {} b: {}&quot;</span><span class="p">,</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">            </span><span class="n">req</span><span class="p">.</span><span class="n">message</span><span class="p">().</span><span class="n">a</span><span class="p">,</span>
+</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">            </span><span class="n">req</span><span class="p">.</span><span class="n">message</span><span class="p">().</span><span class="n">b</span>
+</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="w">        </span><span class="p">);</span>
+</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>
+</span><span id="__span-2-26"><a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a><span class="w">        </span><span class="c1">// Compute the sum</span>
+</span><span id="__span-2-27"><a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="n">sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">message</span><span class="p">().</span><span class="n">a</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">message</span><span class="p">().</span><span class="n">b</span><span class="p">;</span>
+</span><span id="__span-2-28"><a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>
+</span><span id="__span-2-29"><a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a><span class="w">        </span><span class="c1">// Create the response</span>
+</span><span id="__span-2-30"><a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a><span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AddTwoIntsResponse</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">sum</span><span class="w"> </span><span class="p">};</span>
+</span><span id="__span-2-31"><a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>
+</span><span id="__span-2-32"><a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a><span class="w">        </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Sending response: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="n">sum</span><span class="p">);</span>
+</span><span id="__span-2-33"><a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a>
+</span><span id="__span-2-34"><a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a><span class="w">        </span><span class="c1">// Send the response</span>
+</span><span id="__span-2-35"><a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a><span class="w">        </span><span class="n">req</span><span class="p">.</span><span class="n">reply_blocking</span><span class="p">(</span><span class="o">&amp;</span><span class="n">resp</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-2-36"><a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a>
+</span><span id="__span-2-37"><a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a><span class="w">        </span><span class="n">request_count</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+</span><span id="__span-2-38"><a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a>
+</span><span id="__span-2-39"><a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a><span class="w">        </span><span class="c1">// Check if we&#39;ve reached the max requests</span>
+</span><span id="__span-2-40"><a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">max</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">max_requests</span>
+</span><span id="__span-2-41"><a id="__codelineno-2-41" name="__codelineno-2-41" href="#__codelineno-2-41"></a><span class="w">            </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">request_count</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">max</span>
+</span><span id="__span-2-42"><a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a><span class="w">        </span><span class="p">{</span>
+</span><span id="__span-2-43"><a id="__codelineno-2-43" name="__codelineno-2-43" href="#__codelineno-2-43"></a><span class="w">            </span><span class="k">break</span><span class="p">;</span>
+</span><span id="__span-2-44"><a id="__codelineno-2-44" name="__codelineno-2-44" href="#__codelineno-2-44"></a><span class="w">        </span><span class="p">}</span>
+</span><span id="__span-2-45"><a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-2-46"><a id="__codelineno-2-46" name="__codelineno-2-46" href="#__codelineno-2-46"></a>
+</span><span id="__span-2-47"><a id="__codelineno-2-47" name="__codelineno-2-47" href="#__codelineno-2-47"></a><span class="w">    </span><span class="nb">Ok</span><span class="p">(())</span>
+</span><span id="__span-2-48"><a id="__codelineno-2-48" name="__codelineno-2-48" href="#__codelineno-2-48"></a><span class="p">}</span>
+</span></code></pre></div>
+<p><strong>Key points:</strong></p>
+<ul>
+<li><code>take_request()</code> blocks until a request arrives — the pull model means you control timing</li>
+<li><code>req.message()</code> accesses the request fields (<code>req.message().a</code>, <code>req.message().b</code>)</li>
+<li><code>req.reply_blocking(&amp;resp)</code> sends the response; the request object owns the reply channel</li>
+<li><code>service</code> must be <code>mut</code> because <code>take_request</code> takes <code>&amp;mut self</code></li>
+<li><code>max_requests: Option&lt;usize&gt;</code> lets tests stop the server after N requests; pass <code>None</code> for a perpetual server</li>
+</ul>
+<div class="admonition tip">
+<p class="admonition-title">Run it now</p>
+<p>Jump to <a href="#complete-service-workflow">Complete Service Workflow</a> below to see server and client exchange requests with one command per terminal.</p>
+</div>
+<h2 id="service-client-example">Service Client Example<a class="headerlink" href="#service-client-example" title="Permanent link">&para;</a></h2>
+<p>A client that sends an addition request and prints the result. Full source: <a href="https://github.com/ZettaScaleLabs/hiroz/blob/main/crates/hiroz/examples/demo_nodes/add_two_ints_client.rs"><code>crates/hiroz/examples/demo_nodes/add_two_ints_client.rs</code></a></p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="sd">/// AddTwoInts client node that calls the service to add two integers</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="sd">///</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="sd">/// # Arguments</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="sd">/// * `ctx` - The hiroz context</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="sd">/// * `a` - First number to add</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="sd">/// * `b` - Second number to add</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="sd">/// * `async_mode` - Whether to use async response waiting</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">run_add_two_ints_client</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span><span class="w"> </span><span class="nc">ZContext</span><span class="p">,</span><span class="w"> </span><span class="n">a</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">,</span><span class="w"> </span><span class="n">async_mode</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="kt">i64</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="c1">// Create a node named &quot;add_two_ints_client&quot;</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">node</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="n">create_node</span><span class="p">(</span><span class="s">&quot;add_two_ints_client&quot;</span><span class="p">).</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">    </span><span class="c1">// Create a client for the service</span>
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="p">.</span><span class="n">create_client</span><span class="p">::</span><span class="o">&lt;</span><span class="n">AddTwoInts</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;add_two_ints&quot;</span><span class="p">).</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>
+</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span>
+</span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">        </span><span class="s">&quot;AddTwoInts service client started (mode: {})&quot;</span><span class="p">,</span>
+</span><span id="__span-3-17"><a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="n">async_mode</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s">&quot;async&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s">&quot;sync&quot;</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="w">    </span><span class="p">);</span>
+</span><span id="__span-3-19"><a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a>
+</span><span id="__span-3-20"><a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="w">    </span><span class="c1">// Create the request</span>
+</span><span id="__span-3-21"><a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">req</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AddTwoIntsRequest</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="p">};</span>
+</span><span id="__span-3-22"><a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Sending request: {} + {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">b</span><span class="p">);</span>
+</span><span id="__span-3-23"><a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a>
+</span><span id="__span-3-24"><a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a><span class="w">    </span><span class="c1">// Wait for the response</span>
+</span><span id="__span-3-25"><a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">async_mode</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-26"><a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a><span class="w">        </span><span class="n">tokio</span><span class="p">::</span><span class="n">runtime</span><span class="p">::</span><span class="n">Runtime</span><span class="p">::</span><span class="n">new</span><span class="p">()</span>
+</span><span id="__span-3-27"><a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a><span class="w">            </span><span class="p">.</span><span class="n">unwrap</span><span class="p">()</span>
+</span><span id="__span-3-28"><a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a><span class="w">            </span><span class="p">.</span><span class="n">block_on</span><span class="p">(</span><span class="k">async</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">call</span><span class="p">(</span><span class="o">&amp;</span><span class="n">req</span><span class="p">).</span><span class="k">await</span><span class="w"> </span><span class="p">})</span><span class="o">?</span>
+</span><span id="__span-3-29"><a id="__codelineno-3-29" name="__codelineno-3-29" href="#__codelineno-3-29"></a><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-30"><a id="__codelineno-3-30" name="__codelineno-3-30" href="#__codelineno-3-30"></a><span class="w">        </span><span class="n">tokio</span><span class="p">::</span><span class="n">runtime</span><span class="p">::</span><span class="n">Runtime</span><span class="p">::</span><span class="n">new</span><span class="p">()</span>
+</span><span id="__span-3-31"><a id="__codelineno-3-31" name="__codelineno-3-31" href="#__codelineno-3-31"></a><span class="w">            </span><span class="p">.</span><span class="n">unwrap</span><span class="p">()</span>
+</span><span id="__span-3-32"><a id="__codelineno-3-32" name="__codelineno-3-32" href="#__codelineno-3-32"></a><span class="w">            </span><span class="p">.</span><span class="n">block_on</span><span class="p">(</span><span class="k">async</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">call_with_timeout</span><span class="p">(</span><span class="o">&amp;</span><span class="n">req</span><span class="p">,</span><span class="w"> </span><span class="n">Duration</span><span class="p">::</span><span class="n">from_secs</span><span class="p">(</span><span class="mi">5</span><span class="p">)).</span><span class="k">await</span><span class="w"> </span><span class="p">})</span><span class="o">?</span>
+</span><span id="__span-3-33"><a id="__codelineno-3-33" name="__codelineno-3-33" href="#__codelineno-3-33"></a><span class="w">    </span><span class="p">};</span>
+</span><span id="__span-3-34"><a id="__codelineno-3-34" name="__codelineno-3-34" href="#__codelineno-3-34"></a>
+</span><span id="__span-3-35"><a id="__codelineno-3-35" name="__codelineno-3-35" href="#__codelineno-3-35"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Received response: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="n">sum</span><span class="p">);</span>
+</span><span id="__span-3-36"><a id="__codelineno-3-36" name="__codelineno-3-36" href="#__codelineno-3-36"></a>
+</span><span id="__span-3-37"><a id="__codelineno-3-37" name="__codelineno-3-37" href="#__codelineno-3-37"></a><span class="w">    </span><span class="nb">Ok</span><span class="p">(</span><span class="n">resp</span><span class="p">.</span><span class="n">sum</span><span class="p">)</span>
+</span><span id="__span-3-38"><a id="__codelineno-3-38" name="__codelineno-3-38" href="#__codelineno-3-38"></a><span class="p">}</span>
+</span></code></pre></div>
+<p><strong>Key points:</strong></p>
+<ul>
+<li><code>call(&amp;req).await</code> is the single-step async API — it sends the request and waits for the response</li>
+<li><code>call_with_timeout(&amp;req, duration).await</code> enforces an explicit deadline; returns <code>Err</code> on timeout</li>
+<li>If no server is running, the call blocks until Zenoh's query timeout fires (default: 10 minutes)</li>
+</ul>
+<h2 id="complete-service-workflow">Complete Service Workflow<a class="headerlink" href="#complete-service-workflow" title="Permanent link">&para;</a></h2>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>These commands run the ready-made examples from the hiroz repository. Clone it first with <code>git clone https://github.com/ZettaScaleLabs/hiroz.git &amp;&amp; cd hiroz</code>. If you're building your own project, run your binaries with <code>cargo run</code> instead.</p>
+</div>
+<p><strong>Terminal 1 — Start Zenoh Router:</strong></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>zenoh_router
+</span></code></pre></div>
+<p><strong>Terminal 2 — Start Server:</strong></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>demo_nodes_add_two_ints_server
+</span></code></pre></div>
+<p><strong>Terminal 3 — Send Client Requests:</strong></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Request 1</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>demo_nodes_add_two_ints_client<span class="w"> </span>--<span class="w"> </span>--a<span class="w"> </span><span class="m">10</span><span class="w"> </span>--b<span class="w"> </span><span class="m">20</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Request 2</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>demo_nodes_add_two_ints_client<span class="w"> </span>--<span class="w"> </span>--a<span class="w"> </span><span class="m">100</span><span class="w"> </span>--b<span class="w"> </span><span class="m">200</span>
+</span></code></pre></div>
+<script src="https://asciinema.org/a/yChRkMOyYKoKBPqM.js" id="asciicast-yChRkMOyYKoKBPqM" async="true"></script>
+
+<div class="admonition success">
+<p class="admonition-title">Success</p>
+<p>The server processes each client request immediately, demonstrating synchronous request-response communication over Zenoh.</p>
+</div>
+<h2 id="service-server-patterns">Service Server Patterns<a class="headerlink" href="#service-server-patterns" title="Permanent link">&para;</a></h2>
+<p>Service servers in hiroz follow a <strong>pull model</strong> pattern, similar to subscribers. You explicitly receive requests when ready to process them, giving you full control over request handling timing and concurrency.</p>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<p>This pull-based approach is consistent with subscriber's <code>recv()</code> pattern, allowing you to control when work happens without callbacks interrupting your flow.</p>
+</div>
+<h3 id="pattern-1-blocking-request-handling">Pattern 1: Blocking Request Handling<a class="headerlink" href="#pattern-1-blocking-request-handling" title="Permanent link">&para;</a></h3>
+<p>Best for: Simple synchronous service implementations</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz</span><span class="p">::</span><span class="n">Builder</span><span class="p">;</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="p">.</span><span class="n">create_service</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ServiceType</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;service_name&quot;</span><span class="p">)</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="k">loop</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">req</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="n">take_request</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">process_request</span><span class="p">(</span><span class="n">req</span><span class="p">.</span><span class="n">message</span><span class="p">());</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">    </span><span class="n">req</span><span class="p">.</span><span class="n">reply_blocking</span><span class="p">(</span><span class="o">&amp;</span><span class="n">response</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="p">}</span>
+</span></code></pre></div>
+<p><code>take_request()</code> blocks until a request arrives. The server variable must be <code>mut</code> because <code>take_request</code> takes <code>&amp;mut self</code>. The returned <code>ServiceRequest</code> owns the reply channel — call <code>req.reply_blocking(&amp;response)</code> to send the response. Access message fields via <code>req.message()</code>.</p>
+<h3 id="pattern-2-async-request-handling">Pattern 2: Async Request Handling<a class="headerlink" href="#pattern-2-async-request-handling" title="Permanent link">&para;</a></h3>
+<p>Best for: Services that need to await other operations</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz</span><span class="p">::</span><span class="n">Builder</span><span class="p">;</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="p">.</span><span class="n">create_service</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ServiceType</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;service_name&quot;</span><span class="p">)</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="k">loop</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">req</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="n">async_take_request</span><span class="p">().</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">async_process_request</span><span class="p">(</span><span class="n">req</span><span class="p">.</span><span class="n">message</span><span class="p">()).</span><span class="k">await</span><span class="p">;</span>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">    </span><span class="n">req</span><span class="p">.</span><span class="n">reply</span><span class="p">(</span><span class="o">&amp;</span><span class="n">response</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="why-pull-model">Why Pull Model?<a class="headerlink" href="#why-pull-model" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Pull Model (take_request)</th>
+<th>Push Model (callback)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Control</strong></td>
+<td>Explicit control over when to accept requests</td>
+<td>Interrupts current work</td>
+</tr>
+<tr>
+<td><strong>Concurrency</strong></td>
+<td>Easy to reason about</td>
+<td>Requires careful synchronization</td>
+</tr>
+<tr>
+<td><strong>Backpressure</strong></td>
+<td>Natural - slow processing slows acceptance</td>
+<td>Can overwhelm if processing is slow</td>
+</tr>
+<tr>
+<td><strong>Consistency</strong></td>
+<td>Same pattern as subscriber <code>recv()</code></td>
+<td>Different pattern</td>
+</tr>
+</tbody>
+</table>
+<h2 id="service-client-patterns">Service Client Patterns<a class="headerlink" href="#service-client-patterns" title="Permanent link">&para;</a></h2>
+<p>Service clients use a single <code>call</code> method — send and receive in one await.</p>
+<h3 id="pattern-1-call-with-timeout">Pattern 1: Call with Timeout<a class="headerlink" href="#pattern-1-call-with-timeout" title="Permanent link">&para;</a></h3>
+<p>Best for: Simple request-response where you want to fail fast on a slow or absent server</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz</span><span class="p">::</span><span class="n">Builder</span><span class="p">;</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="k">use</span><span class="w"> </span><span class="n">std</span><span class="p">::</span><span class="n">time</span><span class="p">::</span><span class="n">Duration</span><span class="p">;</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="kd">let</span><span class="w"> </span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span><span class="p">.</span><span class="n">create_client</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ServiceType</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;service_name&quot;</span><span class="p">)</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="kd">let</span><span class="w"> </span><span class="n">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">create_request</span><span class="p">();</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="kd">let</span><span class="w"> </span><span class="n">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">call_with_timeout</span><span class="p">(</span><span class="o">&amp;</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">Duration</span><span class="p">::</span><span class="n">from_secs</span><span class="p">(</span><span class="mi">5</span><span class="p">)).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+</span></code></pre></div>
+<h3 id="pattern-2-call-without-explicit-timeout">Pattern 2: Call without Explicit Timeout<a class="headerlink" href="#pattern-2-call-without-explicit-timeout" title="Permanent link">&para;</a></h3>
+<p>Best for: Integration with async codebases where you manage timeouts externally (e.g., <code>tokio::time::timeout</code>)</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz</span><span class="p">::</span><span class="n">Builder</span><span class="p">;</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="kd">let</span><span class="w"> </span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span><span class="p">.</span><span class="n">create_client</span><span class="p">::</span><span class="o">&lt;</span><span class="n">ServiceType</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;service_name&quot;</span><span class="p">)</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="kd">let</span><span class="w"> </span><span class="n">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">create_request</span><span class="p">();</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="kd">let</span><span class="w"> </span><span class="n">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">call</span><span class="p">(</span><span class="o">&amp;</span><span class="n">request</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+</span></code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p><code>use hiroz::Builder;</code> must be in scope to call <code>.build()</code>. Both patterns require an async runtime such as <code>tokio</code>. For logging, call <code>zenoh::init_log_from_env_or("error")</code> before building the context.</p>
+</div>
+<h2 id="ros-2-interoperability">ROS 2 Interoperability<a class="headerlink" href="#ros-2-interoperability" title="Permanent link">&para;</a></h2>
+<p>hiroz services interoperate with ROS 2 C++ and Python nodes when both sides share the same Zenoh transport:</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li>ROS 2 nodes must use <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a> (<code>export RMW_IMPLEMENTATION=rmw_zenoh_cpp</code>)</li>
+<li>Both sides must use matching service types with identical RIHS01 type hashes</li>
+<li>All nodes must connect to the same Zenoh router</li>
+</ul>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># List available services</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>ros2<span class="w"> </span>service<span class="w"> </span>list
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># Call hiroz service from ROS 2 CLI</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>ros2<span class="w"> </span>service<span class="w"> </span>call<span class="w"> </span>/add_two_ints<span class="w"> </span>example_interfaces/srv/AddTwoInts<span class="w"> </span><span class="s2">&quot;{a: 42, b: 58}&quot;</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="c1"># Show service type</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>ros2<span class="w"> </span>service<span class="w"> </span><span class="nb">type</span><span class="w"> </span>/add_two_ints
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="c1"># Get service info</span>
+</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>ros2<span class="w"> </span>service<span class="w"> </span>info<span class="w"> </span>/add_two_ints
+</span></code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Service interop requires <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a> on the ROS 2 side. The <code>zenoh-bridge-ros2dds</code> approach
+works for pub/sub but does not fully support services.</p>
+</div>
+<h2 id="error-handling">Error Handling<a class="headerlink" href="#error-handling" title="Permanent link">&para;</a></h2>
+<h3 id="when-the-server-is-not-running">When the server is not running<a class="headerlink" href="#when-the-server-is-not-running" title="Permanent link">&para;</a></h3>
+<p><code>call()</code> blocks until a response arrives or Zenoh's query timeout fires (default: 10 minutes). For explicit deadline control, use <code>call_with_timeout</code>:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">match</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">call_with_timeout</span><span class="p">(</span><span class="o">&amp;</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">Duration</span><span class="p">::</span><span class="n">from_secs</span><span class="p">(</span><span class="mi">5</span><span class="p">)).</span><span class="k">await</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">    </span><span class="nb">Ok</span><span class="p">(</span><span class="n">response</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Got response: {:?}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">),</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="nb">Err</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="fm">eprintln!</span><span class="p">(</span><span class="s">&quot;Service not available or timed out: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="p">),</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="client-methods-compared">Client methods compared<a class="headerlink" href="#client-methods-compared" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>call(&amp;req).await</code></td>
+<td>Waits for response; Zenoh query timeout applies (default: 10 min)</td>
+</tr>
+<tr>
+<td><code>call_with_timeout(&amp;req, duration).await</code></td>
+<td>Waits up to <code>duration</code>; <code>Err</code> on timeout</td>
+</tr>
+</tbody>
+</table>
+<h2 id="resources">Resources<a class="headerlink" href="#resources" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><a href="../../user-guide/custom-messages/">Custom Messages</a></strong> - Defining and using custom service types</li>
+<li><strong><a href="../../user-guide/message-generation/">Message Generation</a></strong> - Generating service definitions</li>
+<li><strong><a href="../actions/">Actions</a></strong> - For long-running operations with feedback</li>
+</ul>
+<p><strong>Start with the examples above to understand the basic service workflow, then explore custom service types for domain-specific operations.</strong></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../pubsub/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Pub/Sub">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Pub/Sub
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../actions/" class="md-footer__link md-footer__link--next" aria-label="Next: Actions">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Actions
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "content.action.edit", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      
+        <script src="../../javascripts/mermaid.js"></script>
+      
+        <script src="../../javascripts/action-anim.js"></script>
+      
+        <script src="../../javascripts/flashcards.js"></script>
+      
+    
+  </body>
+</html>
