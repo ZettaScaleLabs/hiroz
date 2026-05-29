@@ -10,7 +10,6 @@ Usage:
 
 import argparse
 import sys
-import time
 
 import hiroz_py
 from hiroz_py import example_interfaces
@@ -20,7 +19,8 @@ from hiroz_py import example_interfaces
 def run_server(ctx, service: str, max_requests: int):
     """Run the AddTwoInts service server."""
     node = ctx.create_node("add_two_ints_server").build()
-    server = node.create_server(service, example_interfaces.AddTwoIntsRequest)
+    # rclpy-style service grouping type (AddTwoInts.Request / .Response).
+    server = node.create_server(service, example_interfaces.AddTwoInts)
 
     print("SERVER:READY", flush=True)
 
@@ -44,18 +44,21 @@ def run_server(ctx, service: str, max_requests: int):
 def run_client(ctx, service: str, a: int, b: int, timeout: float):
     """Run the AddTwoInts service client."""
     node = ctx.create_node("add_two_ints_client").build()
-    client = node.create_client(service, example_interfaces.AddTwoIntsRequest)
+    client = node.create_client(service, example_interfaces.AddTwoInts)
 
-    # Wait for service discovery
-    time.sleep(1.0)
+    # Wait for the server to appear instead of sleeping (P1).
+    if not client.wait_for_service(timeout=5.0):
+        print("CLIENT:ERROR:service unavailable", flush=True)
+        sys.exit(1)
 
     print(f"CLIENT:REQUEST:{a}+{b}", flush=True)
 
-    req = example_interfaces.AddTwoIntsRequest(a=a, b=b)
+    req = example_interfaces.AddTwoInts.Request(a=a, b=b)
     try:
         resp = client.call(req, timeout=timeout)
         print(f"CLIENT:RESPONSE:{resp.sum}", flush=True)
-    except RuntimeError as e:
+    except hiroz_py.HirozError as e:
+        # TimeoutError is a subclass of HirozError; catch the base to cover both.
         print(f"CLIENT:ERROR:{e}", flush=True)
         sys.exit(1)
 
