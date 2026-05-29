@@ -84,13 +84,49 @@ impl NodeEntity {
     }
 }
 
-/// ROS 2 endpoint kind (publisher, subscription, service, client).
+/// Action sub-topic suffixes registered by an action server.
+/// These are appended to the action name (e.g. `/fibonacci/_action/send_goal`).
+pub const ACTION_SERVER_SERVICE_SUFFIXES: &[&str] = &[
+    "/_action/send_goal",
+    "/_action/get_result",
+    "/_action/cancel_goal",
+];
+
+/// Action sub-topic suffixes for publisher endpoints registered by an action server.
+pub const ACTION_SERVER_TOPIC_SUFFIXES: &[&str] = &["/_action/feedback", "/_action/status"];
+
+/// All action sub-topic suffixes (services + topics) belonging to an action server.
+pub const ACTION_SERVER_ALL_SUFFIXES: &[&str] = &[
+    "/_action/send_goal",
+    "/_action/get_result",
+    "/_action/cancel_goal",
+    "/_action/feedback",
+    "/_action/status",
+];
+
+/// Returns the action name by stripping a known action sub-topic suffix, or `None`.
+pub fn action_name_from_topic(topic: &str) -> Option<&str> {
+    for suffix in ACTION_SERVER_ALL_SUFFIXES {
+        if let Some(base) = topic.strip_suffix(suffix) {
+            return Some(base);
+        }
+    }
+    None
+}
+
+/// ROS 2 endpoint kind (publisher, subscription, service, client, action server, action client).
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
 pub enum EndpointKind {
     Publisher,
     Subscription,
     Service,
     Client,
+    /// Synthetic kind: action server endpoint (not a wire-format code).
+    /// Set by the graph when a service/publisher belongs to an action server.
+    ActionServer,
+    /// Synthetic kind: action client endpoint (not a wire-format code).
+    /// Set by the graph when a service/subscriber belongs to an action client.
+    ActionClient,
 }
 
 impl Display for EndpointKind {
@@ -100,6 +136,8 @@ impl Display for EndpointKind {
             EndpointKind::Subscription => write!(f, "MS"),
             EndpointKind::Service => write!(f, "SS"),
             EndpointKind::Client => write!(f, "SC"),
+            EndpointKind::ActionServer => write!(f, "AS"),
+            EndpointKind::ActionClient => write!(f, "AC"),
         }
     }
 }
@@ -113,6 +151,9 @@ impl core::str::FromStr for EndpointKind {
             "MS" => Ok(EndpointKind::Subscription),
             "SS" => Ok(EndpointKind::Service),
             "SC" => Ok(EndpointKind::Client),
+            // ActionServer/ActionClient are synthetic graph-level kinds, not wire-format codes.
+            // They must never be parsed from a liveliness token; reject them here so a peer
+            // emitting "AS"/"AC" does not silently produce a phantom entity in the graph.
             _ => Err("Invalid endpoint kind"),
         }
     }
