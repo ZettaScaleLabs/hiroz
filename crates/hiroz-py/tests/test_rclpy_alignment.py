@@ -147,6 +147,48 @@ def test_p1_p6_callback_service_end_to_end(ctx):
     assert resp.sum == 42
 
 
+def test_p6_last_error_surfaced_on_callback_exception(ctx):
+    node = ctx.create_node("p6_err_node").build()
+
+    def bad_handle(req):
+        raise ValueError("intentional callback failure")
+
+    server = node.create_server(
+        "/p6_err_add", example_interfaces.AddTwoInts, callback=bad_handle
+    )
+    client = node.create_client("/p6_err_add", example_interfaces.AddTwoInts)
+    assert client.wait_for_service(timeout=5.0)
+
+    # The call will fail from the client side (no response sent).
+    try:
+        client.call(example_interfaces.AddTwoInts.Request(a=1, b=2), timeout=1.0)
+    except Exception:
+        pass
+
+    # Give the background thread a moment to record the error.
+    deadline = time.time() + 2.0
+    err = None
+    while err is None and time.time() < deadline:
+        err = server.last_error
+        if err is None:
+            time.sleep(0.05)
+
+    assert err is not None, "last_error should surface the callback exception"
+    assert "intentional callback failure" in err
+
+
+def test_p6_last_error_none_when_no_error(ctx):
+    node = ctx.create_node("p6_ok_node").build()
+
+    def handle(req):
+        return example_interfaces.AddTwoInts.Response(sum=req.a + req.b)
+
+    server = node.create_server(
+        "/p6_ok_add", example_interfaces.AddTwoInts, callback=handle
+    )
+    assert server.last_error is None
+
+
 def test_p1_wait_for_service_timeout_returns_false(ctx):
     node = ctx.create_node("p1_wait_to").build()
     client = node.create_client("/p1_never", example_interfaces.AddTwoInts)

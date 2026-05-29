@@ -3,8 +3,8 @@ use hiroz::graph::Graph;
 use hiroz::service::RequestId;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Python wrapper for service client
@@ -90,6 +90,7 @@ struct CallbackServerState {
     stop: Arc<AtomicBool>,
     handle: Option<std::thread::JoinHandle<()>>,
     _server: Arc<dyn RawServer>,
+    last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl Drop for CallbackServerState {
@@ -106,12 +107,15 @@ impl Drop for CallbackServerState {
 /// Pull mode (default): `inner` is `Some`; the caller drives `take_request` /
 /// `send_response`. Callback mode (P6): `inner` is `None` and a background
 /// thread (held in `_callback`) services requests via the user callback.
+/// Errors from the callback thread are stored in `last_error` and surfaced via
+/// the `last_error` Python property.
 #[pyclass(name = "ZServer")]
 pub struct PyZServer {
-    inner: Option<std::sync::Mutex<Box<dyn RawServer>>>,
+    inner: Option<Mutex<Box<dyn RawServer>>>,
     request_type_name: String,
     response_type_name: String,
     _callback: Option<CallbackServerState>,
+    last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl PyZServer {
@@ -119,10 +123,11 @@ impl PyZServer {
         let request_type_name = format!("{}_Request", service_type);
         let response_type_name = format!("{}_Response", service_type);
         Self {
-            inner: Some(std::sync::Mutex::new(inner)),
+            inner: Some(Mutex::new(inner)),
             request_type_name,
             response_type_name,
             _callback: None,
+            last_error: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -137,12 +142,14 @@ impl PyZServer {
         let response_type_name = format!("{}_Response", service_type);
 
         let stop = Arc::new(AtomicBool::new(false));
+        let last_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let handle = spawn_callback_loop(
             Arc::clone(&server),
             request_type_name.clone(),
             response_type_name.clone(),
             callback,
             Arc::clone(&stop),
+            Arc::clone(&last_error),
         );
 
         Self {
@@ -153,11 +160,13 @@ impl PyZServer {
                 stop,
                 handle: Some(handle),
                 _server: server,
+                last_error: Arc::clone(&last_error),
             }),
+            last_error,
         }
     }
 
-    fn require_pull(&self) -> PyResult<&std::sync::Mutex<Box<dyn RawServer>>> {
+    fn require_pull(&self) -> PyResult<&Mutex<Box<dyn RawServer>>> {
         self.inner.as_ref().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err(
                 "This server runs in callback mode; take_request/send_response are unavailable. \
@@ -174,7 +183,19 @@ fn spawn_callback_loop(
     response_type_name: String,
     callback: PyObject,
     stop: Arc<AtomicBool>,
+    last_error: Arc<Mutex<Option<String>>>,
 ) -> std::thread::JoinHandle<()> {
+    // Helper: record an error both in the shared slot and stderr.
+    macro_rules! record_error {
+        ($last_error:expr, $msg:literal, $e:expr) => {{
+            let msg = format!(concat!("hiroz_py: ", $msg, ": {}"), $e);
+            eprintln!("{}", msg);
+            if let Ok(mut guard) = $last_error.lock() {
+                *guard = Some(msg);
+            }
+        }};
+    }
+
     std::thread::spawn(move || {
         while !stop.load(Ordering::Relaxed) {
             // Poll for a request without holding the GIL.
@@ -188,14 +209,14 @@ fn spawn_callback_loop(
                         ) {
                             Ok(o) => o,
                             Err(e) => {
-                                eprintln!("hiroz_py: request deserialize error: {}", e);
+                                record_error!(last_error, "request deserialize error", e);
                                 return;
                             }
                         };
                         let resp_obj = match callback.call1(py, (req_obj,)) {
                             Ok(o) => o,
                             Err(e) => {
-                                eprintln!("hiroz_py: service callback error: {}", e);
+                                record_error!(last_error, "service callback error", e);
                                 return;
                             }
                         };
@@ -206,18 +227,18 @@ fn spawn_callback_loop(
                         ) {
                             Ok(b) => b,
                             Err(e) => {
-                                eprintln!("hiroz_py: response serialize error: {}", e);
+                                record_error!(last_error, "response serialize error", e);
                                 return;
                             }
                         };
                         if let Err(e) = server.send_response_serialized(&resp_bytes, &request_id) {
-                            eprintln!("hiroz_py: send_response error: {}", e);
+                            record_error!(last_error, "send_response error", e);
                         }
                     });
                 }
                 Ok(None) => std::thread::sleep(Duration::from_millis(2)),
                 Err(e) => {
-                    eprintln!("hiroz_py: service poll error: {}", e);
+                    record_error!(last_error, "service poll error", e);
                     std::thread::sleep(Duration::from_millis(50));
                 }
             }
@@ -288,5 +309,13 @@ impl PyZServer {
             "request={}, response={}",
             self.request_type_name, self.response_type_name
         )
+    }
+
+    /// The last error raised by the callback thread, or None if no error has
+    /// occurred. Resets to None when read. Only meaningful in callback mode;
+    /// always None in pull mode.
+    #[getter]
+    fn last_error(&self) -> Option<String> {
+        self.last_error.lock().ok().and_then(|mut g| g.take())
     }
 }
