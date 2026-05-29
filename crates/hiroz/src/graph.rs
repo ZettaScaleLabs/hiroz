@@ -424,7 +424,7 @@ pub struct Graph {
     /// Lock ordering: waiters acquire this mutex first, then (transiently) `data`.
     /// The liveliness callback holds `data` first, then releases it, then acquires this
     /// mutex — so both locks are never held simultaneously.
-    pub change_signal: Arc<(StdMutex<u64>, Condvar)>,
+    pub change_signal: Arc<(StdMutex<()>, Condvar)>,
     _subscriber: Subscriber<()>,
 }
 
@@ -516,7 +516,7 @@ impl Graph {
         let graph_data = Arc::new(Mutex::new(GraphData::new_with_parser(parser_arc.clone())));
         let event_manager = Arc::new(GraphEventManager::new());
         let change_notify = Arc::new(Notify::new());
-        let change_signal = Arc::new((StdMutex::new(0u64), Condvar::new()));
+        let change_signal = Arc::new((StdMutex::new(()), Condvar::new()));
         let c_graph_data = graph_data.clone();
         let c_event_manager = event_manager.clone();
         let c_change_notify = change_notify.clone();
@@ -599,10 +599,7 @@ impl Graph {
                 // the callback holds data then acquires change_signal.0 — so we must drop
                 // data first to ensure the two locks are never held simultaneously.
                 drop(graph_data_guard);
-                {
-                    let mut epoch = c_change_signal.0.lock().unwrap();
-                    *epoch += 1;
-                }
+                let _ = c_change_signal.0.lock().unwrap();
                 c_change_signal.1.notify_all();
             })
             .wait()?;
