@@ -3,7 +3,7 @@ use serde::Serialize;
 use slab::Slab;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Weak},
+    sync::{Arc, Condvar, Mutex as StdMutex, Weak},
     time::{Duration, SystemTime},
 };
 use tokio::sync::Notify;
@@ -419,6 +419,12 @@ pub struct Graph {
     /// a `notified()` future before sampling the graph, then `await` it so no
     /// arrival is missed between the sample and the wait.
     pub change_notify: Arc<Notify>,
+    /// Condvar signal for sync (non-async) waiters such as `wait_for_service` in FFI.
+    ///
+    /// Lock ordering: waiters acquire this mutex first, then (transiently) `data`.
+    /// The liveliness callback holds `data` first, then releases it, then acquires this
+    /// mutex — so both locks are never held simultaneously.
+    pub change_signal: Arc<(StdMutex<()>, Condvar)>,
     _subscriber: Subscriber<()>,
 }
 
@@ -510,9 +516,11 @@ impl Graph {
         let graph_data = Arc::new(Mutex::new(GraphData::new_with_parser(parser_arc.clone())));
         let event_manager = Arc::new(GraphEventManager::new());
         let change_notify = Arc::new(Notify::new());
+        let change_signal = Arc::new((StdMutex::new(()), Condvar::new()));
         let c_graph_data = graph_data.clone();
         let c_event_manager = event_manager.clone();
         let c_change_notify = change_notify.clone();
+        let c_change_signal = change_signal.clone();
         let c_zid = zid;
         let c_liveliness_pattern = liveliness_pattern.clone();
         let callback_parser = parser_arc.clone();
@@ -585,6 +593,13 @@ impl Graph {
                         c_change_notify.notify_waiters();
                     }
                 }
+
+                // Release graph.data before signaling sync waiters.
+                // Lock ordering: sync waiters acquire change_signal.0 then (briefly) data;
+                // the callback holds data then acquires change_signal.0 — so we must drop
+                // data first to ensure the two locks are never held simultaneously.
+                drop(graph_data_guard);
+                c_change_signal.1.notify_all();
             })
             .wait()?;
 
@@ -639,6 +654,7 @@ impl Graph {
             data: graph_data,
             event_manager,
             change_notify,
+            change_signal,
             zid,
         })
     }
