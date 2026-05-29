@@ -88,15 +88,17 @@ impl RawServiceClient {
     }
 
     /// Block until at least one matching service server is visible in the graph,
-    /// or `timeout` elapses. Polls the graph at a short interval — does not
-    /// require a tokio runtime.
+    /// or `timeout` elapses. Wakes immediately when a graph change is signaled.
     pub fn wait_for_service(&self, timeout: Duration) -> bool {
         use crate::entity::EndpointKind;
         use std::time::Instant;
 
-        let poll = Duration::from_millis(50);
         let deadline = Instant::now() + timeout;
+        let (mu, cvar) = &*self.graph.change_signal;
         loop {
+            // Hold the condvar mutex while checking the condition and entering wait so
+            // that no signal fired between the check and the wait can be missed.
+            let guard = mu.lock().unwrap();
             if self
                 .graph
                 .count_by_service(EndpointKind::Service, &self.qualified_service)
@@ -108,7 +110,8 @@ impl RawServiceClient {
             if remaining.is_zero() {
                 return false;
             }
-            std::thread::sleep(remaining.min(poll));
+            // Atomically releases `guard` and blocks; re-acquires on wake.
+            let _ = cvar.wait_timeout(guard, remaining).unwrap();
         }
     }
 }
