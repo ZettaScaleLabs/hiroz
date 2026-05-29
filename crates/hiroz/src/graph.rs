@@ -599,7 +599,6 @@ impl Graph {
                 // the callback holds data then acquires change_signal.0 — so we must drop
                 // data first to ensure the two locks are never held simultaneously.
                 drop(graph_data_guard);
-                let _ = c_change_signal.0.lock().unwrap();
                 c_change_signal.1.notify_all();
             })
             .wait()?;
