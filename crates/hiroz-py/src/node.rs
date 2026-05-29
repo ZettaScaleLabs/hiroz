@@ -113,6 +113,108 @@ fn extract_service_type_from_request_class(
     Ok((srv_type, type_info))
 }
 
+/// Extract service type info from either a service grouping class (P4, rclpy-style)
+/// or a bare Request class (back-compat).
+///
+/// A grouping class exposes `__srvtype__` (e.g. `"example_interfaces/srv/AddTwoInts"`)
+/// plus `Request` / `Response` member classes. We read the type hash from the
+/// `Request` member. Anything without `__srvtype__` falls through to the legacy
+/// string-munging path on the Request class itself.
+fn extract_service_type_info(srv_type: &Bound<'_, PyAny>) -> PyResult<(String, TypeInfo)> {
+    if let Ok(srvtype_attr) = srv_type.getattr("__srvtype__")
+        && let Ok(srv_type_str) = srvtype_attr.extract::<String>()
+    {
+        // Grouping class: pull the type hash from the Request member.
+        let request_cls = srv_type.getattr("Request").map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err(
+                "Service grouping class with __srvtype__ must define a Request member",
+            )
+        })?;
+        let type_hash = request_cls
+            .getattr("__hash__")
+            .ok()
+            .and_then(|v| v.extract::<String>().ok())
+            .and_then(|s| TypeHash::from_rihs_string(&s))
+            .unwrap_or_else(TypeHash::zero);
+        let rust_type_name = python_type_to_rust_type(&srv_type_str);
+        return Ok((srv_type_str, TypeInfo::new(&rust_type_name, type_hash)));
+    }
+    // Back-compat: bare Request class.
+    extract_service_type_from_request_class(srv_type)
+}
+
+/// If `topic` is not a string but `msg_type` is, the caller almost certainly used
+/// the rclpy positional order `(msg_type, topic)`. Raise a self-explaining error
+/// instead of a confusing downstream type failure (P2).
+fn reject_swapped_args(
+    topic: &Bound<'_, PyAny>,
+    msg_type: &Bound<'_, PyAny>,
+    func: &str,
+) -> PyResult<()> {
+    let topic_is_str = topic.is_instance_of::<pyo3::types::PyString>();
+    let msg_is_str = msg_type.is_instance_of::<pyo3::types::PyString>();
+    if !topic_is_str && msg_is_str {
+        return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+            "arguments look swapped — hiroz uses ({func}(topic, msg_type, ...)) but rclpy uses \
+             (msg_type, topic, ...). Pass by keyword: {func}(topic=..., msg_type=...)"
+        )));
+    }
+    Ok(())
+}
+
+/// Resolve a topic argument to a `String`, with a clear error if it isn't a str.
+fn extract_topic(topic: &Bound<'_, PyAny>) -> PyResult<String> {
+    topic.extract::<String>().map_err(|_| {
+        pyo3::exceptions::PyTypeError::new_err(
+            "topic must be a string (e.g. \"/chatter\"). Pass by keyword if unsure: topic=...",
+        )
+    })
+}
+
+/// Extract Goal/Result/Feedback classes from either an action grouping class
+/// (P7, rclpy-style — exposes `__actiontype__`, `Goal`, `Result`, `Feedback`)
+/// or fall back to three explicitly-passed classes.
+///
+/// Returns the three member classes as owned `PyObject`s.
+fn resolve_action_types(
+    action_type: &Bound<'_, PyAny>,
+    result_type: Option<&Bound<'_, PyAny>>,
+    feedback_type: Option<&Bound<'_, PyAny>>,
+) -> PyResult<(PyObject, PyObject, PyObject)> {
+    // Grouping class path: a single action type with member classes.
+    if action_type.hasattr("__actiontype__").unwrap_or(false) {
+        let goal = action_type.getattr("Goal").map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err(
+                "Action grouping class with __actiontype__ must define a Goal member",
+            )
+        })?;
+        let result = action_type.getattr("Result").map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err(
+                "Action grouping class with __actiontype__ must define a Result member",
+            )
+        })?;
+        let feedback = action_type.getattr("Feedback").map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err(
+                "Action grouping class with __actiontype__ must define a Feedback member",
+            )
+        })?;
+        return Ok((goal.unbind(), result.unbind(), feedback.unbind()));
+    }
+
+    // Back-compat: three separate classes.
+    let (Some(result), Some(feedback)) = (result_type, feedback_type) else {
+        return Err(pyo3::exceptions::PyTypeError::new_err(
+            "create_action_*: pass either a single action grouping class (with __actiontype__) \
+             or all three of goal_type, result_type, feedback_type",
+        ));
+    };
+    Ok((
+        action_type.clone().unbind(),
+        result.clone().unbind(),
+        feedback.clone().unbind(),
+    ))
+}
+
 #[pyclass(name = "ZNodeBuilder")]
 pub struct PyZNodeBuilder {
     pub(crate) ctx: Arc<ZContext>,
@@ -189,10 +291,12 @@ impl PyZNode {
     #[pyo3(signature = (topic, msg_type, qos=None))]
     fn create_publisher(
         &self,
-        topic: String,
+        topic: &Bound<'_, PyAny>,
         msg_type: &Bound<'_, PyAny>,
         qos: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PyZPublisher> {
+        reject_swapped_args(topic, msg_type, "create_publisher")?;
+        let topic = extract_topic(topic)?;
         let (msg_type_str, type_info) = extract_type_info_from_class(msg_type)?;
         let qos_profile = extract_qos(qos)?;
 
@@ -213,11 +317,13 @@ impl PyZNode {
     fn create_subscriber(
         &mut self,
         _py: Python,
-        topic: String,
+        topic: &Bound<'_, PyAny>,
         msg_type: &Bound<'_, PyAny>,
         qos: Option<&Bound<'_, PyAny>>,
         callback: Option<PyObject>,
     ) -> PyResult<PyZSubscriber> {
+        reject_swapped_args(topic, msg_type, "create_subscriber")?;
+        let topic = extract_topic(topic)?;
         let (msg_type_str, type_info) = extract_type_info_from_class(msg_type)?;
         let qos_profile = extract_qos(qos)?;
 
@@ -262,16 +368,25 @@ impl PyZNode {
         }
     }
 
-    /// Create a service client
+    /// Create a service client.
+    ///
+    /// `srv_type` may be a service grouping class (rclpy-style, e.g.
+    /// `example_interfaces.AddTwoInts`) or the bare Request class (back-compat).
     fn create_client(&self, service: String, srv_type: &Bound<'_, PyAny>) -> PyResult<PyZClient> {
-        let (srv_type_str, type_info) = extract_service_type_from_request_class(srv_type)?;
+        let (srv_type_str, type_info) = extract_service_type_info(srv_type)?;
 
         let client_builder = self
             .inner
             .create_client_impl::<RawBytesService>(&service, Some(type_info));
         let zclient = client_builder.build().map_err(|e| e.into_pyerr())?;
         let wrapper = GenericClientWrapper::new(zclient);
-        Ok(PyZClient::new(Box::new(wrapper), srv_type_str))
+        let qualified = self.qualify_service_name(&service);
+        Ok(PyZClient::new(
+            Box::new(wrapper),
+            srv_type_str,
+            Arc::clone(self.inner.graph()),
+            qualified,
+        ))
     }
 
     // -- Graph discovery methods --
@@ -310,22 +425,29 @@ impl PyZNode {
     /// `__msgtype__` and `__hash__` attributes (from `hiroz_msgs_py`).
     ///
     /// Returns a `ZActionClient` for sending goals and receiving results.
+    #[pyo3(signature = (action_name, goal_type, result_type=None, feedback_type=None))]
     fn create_action_client(
         &self,
         py: Python,
         action_name: String,
         goal_type: &Bound<'_, PyAny>,
-        result_type: &Bound<'_, PyAny>,
-        feedback_type: &Bound<'_, PyAny>,
+        result_type: Option<&Bound<'_, PyAny>>,
+        feedback_type: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PyZActionClient> {
-        // __msgtype__ is still required (validates the class); __hash__ is optional.
-        extract_type_info_from_class(goal_type)?;
-        extract_type_info_from_class(result_type)?;
-        extract_type_info_from_class(feedback_type)?;
+        let (goal_obj, result_obj, feedback_obj) =
+            resolve_action_types(goal_type, result_type, feedback_type)?;
+        let goal_b = goal_obj.bind(py);
+        let result_b = result_obj.bind(py);
+        let feedback_b = feedback_obj.bind(py);
 
-        let goal_ti = try_extract_type_info(goal_type);
-        let result_ti = try_extract_type_info(result_type);
-        let feedback_ti = try_extract_type_info(feedback_type);
+        // __msgtype__ is still required (validates the class); __hash__ is optional.
+        extract_type_info_from_class(goal_b)?;
+        extract_type_info_from_class(result_b)?;
+        extract_type_info_from_class(feedback_b)?;
+
+        let goal_ti = try_extract_type_info(goal_b);
+        let result_ti = try_extract_type_info(result_b);
+        let feedback_ti = try_extract_type_info(feedback_b);
 
         let node = Arc::clone(&self.inner);
         let rt = get_tokio_rt();
@@ -347,11 +469,20 @@ impl PyZNode {
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })?;
 
+        // The action server advertises a `<action>/_action/send_goal` service;
+        // wait_for_server polls the graph for it.
+        let send_goal_service = format!(
+            "{}/_action/send_goal",
+            self.qualify_service_name(&action_name)
+        );
+
         Ok(PyZActionClient::new(
             client,
-            goal_type.clone().unbind(),
-            result_type.clone().unbind(),
-            feedback_type.clone().unbind(),
+            goal_obj.clone_ref(py),
+            result_obj.clone_ref(py),
+            feedback_obj.clone_ref(py),
+            Arc::clone(self.inner.graph()),
+            send_goal_service,
         ))
     }
 
@@ -361,22 +492,29 @@ impl PyZNode {
     /// `__msgtype__` and `__hash__` attributes (from `hiroz_msgs_py`).
     ///
     /// Returns a `ZActionServer` for receiving and executing goals.
+    #[pyo3(signature = (action_name, goal_type, result_type=None, feedback_type=None))]
     fn create_action_server(
         &self,
         py: Python,
         action_name: String,
         goal_type: &Bound<'_, PyAny>,
-        result_type: &Bound<'_, PyAny>,
-        feedback_type: &Bound<'_, PyAny>,
+        result_type: Option<&Bound<'_, PyAny>>,
+        feedback_type: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PyZActionServer> {
-        // __msgtype__ is still required (validates the class); __hash__ is optional.
-        extract_type_info_from_class(goal_type)?;
-        extract_type_info_from_class(result_type)?;
-        extract_type_info_from_class(feedback_type)?;
+        let (goal_obj, result_obj, feedback_obj) =
+            resolve_action_types(goal_type, result_type, feedback_type)?;
+        let goal_b = goal_obj.bind(py);
+        let result_b = result_obj.bind(py);
+        let feedback_b = feedback_obj.bind(py);
 
-        let goal_ti = try_extract_type_info(goal_type);
-        let result_ti = try_extract_type_info(result_type);
-        let feedback_ti = try_extract_type_info(feedback_type);
+        // __msgtype__ is still required (validates the class); __hash__ is optional.
+        extract_type_info_from_class(goal_b)?;
+        extract_type_info_from_class(result_b)?;
+        extract_type_info_from_class(feedback_b)?;
+
+        let goal_ti = try_extract_type_info(goal_b);
+        let result_ti = try_extract_type_info(result_b);
+        let feedback_ti = try_extract_type_info(feedback_b);
 
         let node = Arc::clone(&self.inner);
         let rt = get_tokio_rt();
@@ -400,9 +538,9 @@ impl PyZNode {
 
         Ok(PyZActionServer::new(
             server,
-            goal_type.clone().unbind(),
-            result_type.clone().unbind(),
-            feedback_type.clone().unbind(),
+            goal_obj.clone_ref(py),
+            result_obj.clone_ref(py),
+            feedback_obj.clone_ref(py),
         ))
     }
 
@@ -422,15 +560,47 @@ impl PyZNode {
         Ok(())
     }
 
-    /// Create a service server
-    fn create_server(&self, service: String, srv_type: &Bound<'_, PyAny>) -> PyResult<PyZServer> {
-        let (srv_type_str, type_info) = extract_service_type_from_request_class(srv_type)?;
+    /// Create a service server.
+    ///
+    /// `srv_type` may be a service grouping class (rclpy-style) or the bare
+    /// Request class (back-compat).
+    ///
+    /// If `callback` is provided, the server runs in callback mode: a background
+    /// thread receives each request, invokes `callback(request)`, and sends the
+    /// returned value as the response. The caller never calls `take_request` /
+    /// `send_response`. If `callback` is None (default), the server is in pull
+    /// mode and the caller drives it via `take_request` / `send_response`.
+    #[pyo3(signature = (service, srv_type, callback=None))]
+    fn create_server(
+        &self,
+        service: String,
+        srv_type: &Bound<'_, PyAny>,
+        callback: Option<PyObject>,
+    ) -> PyResult<PyZServer> {
+        let (srv_type_str, type_info) = extract_service_type_info(srv_type)?;
 
         let server_builder = self
             .inner
             .create_service_impl::<RawBytesService>(&service, Some(type_info));
         let zserver = server_builder.build().map_err(|e| e.into_pyerr())?;
         let wrapper = GenericServerWrapper::new(zserver);
-        Ok(PyZServer::new(Box::new(wrapper), srv_type_str))
+
+        match callback {
+            Some(cb) => Ok(PyZServer::new_with_callback(
+                Arc::new(wrapper),
+                srv_type_str,
+                cb,
+            )),
+            None => Ok(PyZServer::new(Box::new(wrapper), srv_type_str)),
+        }
+    }
+}
+
+impl PyZNode {
+    /// Qualify a service name against the node's namespace/name so the result
+    /// matches the entries the discovery graph stores. Absolute names pass through.
+    fn qualify_service_name(&self, service: &str) -> String {
+        hiroz::topic_name::qualify_topic_name(service, self.inner.namespace(), self.inner.name())
+            .unwrap_or_else(|_| service.to_string())
     }
 }
