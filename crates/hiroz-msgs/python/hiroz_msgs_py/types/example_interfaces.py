@@ -221,3 +221,21 @@ class TriggerResponse(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'example_interfaces/msg/TriggerResponse'
     __hash__: ClassVar[str] = 'RIHS01_cfeeee47f8105dd7685e4c92d46d4074669cb1c477402be1dea37486542a69e0'
 
+class AddTwoInts:
+    """Service grouping type. Use AddTwoInts.Request and AddTwoInts.Response."""
+    __srvtype__: ClassVar[str] = 'example_interfaces/srv/AddTwoInts'
+    Request: ClassVar[type] = AddTwoIntsRequest
+    Response: ClassVar[type] = AddTwoIntsResponse
+
+class SetBool:
+    """Service grouping type. Use SetBool.Request and SetBool.Response."""
+    __srvtype__: ClassVar[str] = 'example_interfaces/srv/SetBool'
+    Request: ClassVar[type] = SetBoolRequest
+    Response: ClassVar[type] = SetBoolResponse
+
+class Trigger:
+    """Service grouping type. Use Trigger.Request and Trigger.Response."""
+    __srvtype__: ClassVar[str] = 'example_interfaces/srv/Trigger'
+    Request: ClassVar[type] = TriggerRequest
+    Response: ClassVar[type] = TriggerResponse
+

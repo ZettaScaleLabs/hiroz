@@ -139,20 +139,28 @@ pub struct PyZActionClient {
     goal_type: Py<PyAny>,
     result_type: Py<PyAny>,
     feedback_type: Py<PyAny>,
+    /// Shared graph + the action's `send_goal` service name, used by `wait_for_server`.
+    graph: Arc<hiroz::graph::Graph>,
+    send_goal_service: String,
 }
 
 impl PyZActionClient {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         inner: RawActionClient,
         goal_type: Py<PyAny>,
         result_type: Py<PyAny>,
         feedback_type: Py<PyAny>,
+        graph: Arc<hiroz::graph::Graph>,
+        send_goal_service: String,
     ) -> Self {
         Self {
             inner: Arc::new(inner),
             goal_type,
             result_type,
             feedback_type,
+            graph,
+            send_goal_service,
         }
     }
 }
@@ -180,7 +188,7 @@ impl PyZActionClient {
                 tokio::time::timeout(Duration::from_secs(11), client.send_goal(goal_msg))
                     .await
                     .map_err(|_| {
-                        pyo3::exceptions::PyRuntimeError::new_err(
+                        crate::error::TimeoutError::new_err(
                             "send_goal timed out: no action server responded",
                         )
                     })?
@@ -240,6 +248,21 @@ impl PyZActionClient {
             status_arc,
             result_type: self.result_type.clone_ref(py),
             feedback_type: self.feedback_type.clone_ref(py),
+        })
+    }
+
+    /// Wait until an action server for this action is available.
+    ///
+    /// Mirrors rclpy's `ActionClient.wait_for_server(timeout_sec)`. Polls the
+    /// discovery graph for the action's `send_goal` service. Returns True if a
+    /// server was found before `timeout`, False otherwise.
+    ///
+    /// Args:
+    ///     timeout: Maximum seconds to wait. None waits forever.
+    #[pyo3(signature = (timeout=None))]
+    fn wait_for_server(&self, py: Python, timeout: Option<f64>) -> bool {
+        py.allow_threads(|| {
+            crate::graph::wait_for_service_server(&self.graph, &self.send_goal_service, timeout)
         })
     }
 

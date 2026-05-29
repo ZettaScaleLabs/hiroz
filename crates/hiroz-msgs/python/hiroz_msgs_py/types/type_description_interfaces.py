@@ -66,3 +66,9 @@ class GetTypeDescriptionResponse(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'type_description_interfaces/msg/GetTypeDescriptionResponse'
     __hash__: ClassVar[str] = 'RIHS01_69b9c19c1021405984cc60dbbb1edceb147a6538b411d812ba6afabeed962cd5'
 
+class GetTypeDescription:
+    """Service grouping type. Use GetTypeDescription.Request and GetTypeDescription.Response."""
+    __srvtype__: ClassVar[str] = 'type_description_interfaces/srv/GetTypeDescription'
+    Request: ClassVar[type] = GetTypeDescriptionRequest
+    Response: ClassVar[type] = GetTypeDescriptionResponse
+

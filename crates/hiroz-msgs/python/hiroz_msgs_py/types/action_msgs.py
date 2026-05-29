@@ -35,3 +35,9 @@ class CancelGoalResponse(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'action_msgs/msg/CancelGoalResponse'
     __hash__: ClassVar[str] = 'RIHS01_c66d49f351ea4375bf3eef8569e74b7afc19305d9fa94c71b412262e411f2a8f'
 
+class CancelGoal:
+    """Service grouping type. Use CancelGoal.Request and CancelGoal.Response."""
+    __srvtype__: ClassVar[str] = 'action_msgs/srv/CancelGoal'
+    Request: ClassVar[type] = CancelGoalRequest
+    Response: ClassVar[type] = CancelGoalResponse
+

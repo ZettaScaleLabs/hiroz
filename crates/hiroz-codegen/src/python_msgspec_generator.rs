@@ -8,6 +8,7 @@ use anyhow::Result;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -28,6 +29,15 @@ pub fn generate_python_bindings(
     }
     for msgs in packages.values_mut() {
         msgs.sort_by(|a, b| a.parsed.name.cmp(&b.parsed.name));
+    }
+
+    // Group services by package so we can emit rclpy-style grouping classes (P4).
+    let mut service_groups: HashMap<String, Vec<&ResolvedService>> = HashMap::new();
+    for srv in services {
+        service_groups
+            .entry(srv.parsed.package.clone())
+            .or_default()
+            .push(srv);
     }
 
     // Group service Request/Response by package, and track service type hashes
@@ -75,11 +85,16 @@ pub fn generate_python_bindings(
             .get(package_name)
             .cloned()
             .unwrap_or_default();
+        let srv_groups = service_groups
+            .get(package_name)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
         let python_code = generate_python_package_with_services(
             package_name,
             package_msgs,
             srv_msgs,
             &svc_hashes,
+            srv_groups,
         )?;
         let output_path = python_output_dir.join(format!("{}.py", package_name));
         fs::write(output_path, python_code)?;
@@ -92,8 +107,17 @@ pub fn generate_python_bindings(
                 .get(package_name)
                 .cloned()
                 .unwrap_or_default();
-            let python_code =
-                generate_python_package_with_services(package_name, &[], srv_msgs, &svc_hashes)?;
+            let srv_groups = service_groups
+                .get(package_name)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
+            let python_code = generate_python_package_with_services(
+                package_name,
+                &[],
+                srv_msgs,
+                &svc_hashes,
+                srv_groups,
+            )?;
             let output_path = python_output_dir.join(format!("{}.py", package_name));
             fs::write(output_path, python_code)?;
         }
@@ -123,6 +147,7 @@ fn generate_python_package_with_services(
     messages: &[&ResolvedMessage],
     service_messages: &[&ResolvedMessage],
     service_hashes: &BTreeMap<String, String>,
+    service_groups: &[&ResolvedService],
 ) -> Result<String> {
     let mut code = format!(
         "\"\"\"Auto-generated ROS 2 message types for {}.\"\"\"\n\
@@ -142,7 +167,31 @@ fn generate_python_package_with_services(
         code.push_str(&generate_msgspec_struct(msg, svc_hash.map(|s| s.as_str()))?);
     }
 
+    // Emit rclpy-style service grouping classes (P4). These reference the
+    // Request/Response structs above, so they must come after them.
+    for srv in service_groups {
+        code.push_str(&generate_service_grouping_class(srv));
+    }
+
     Ok(code)
+}
+
+/// Generate a service grouping class: `AddTwoInts.Request` / `.Response` (P4).
+///
+/// Lets `create_client`/`create_server` accept a single rclpy-style type
+/// (`example_interfaces.AddTwoInts`) instead of the bare Request class.
+fn generate_service_grouping_class(srv: &ResolvedService) -> String {
+    let srv_name = &srv.parsed.name;
+    let package = &srv.parsed.package;
+    let request_struct = &srv.request.parsed.name;
+    let response_struct = &srv.response.parsed.name;
+    format!(
+        "class {srv_name}:\n    \
+         \"\"\"Service grouping type. Use {srv_name}.Request and {srv_name}.Response.\"\"\"\n    \
+         __srvtype__: ClassVar[str] = '{package}/srv/{srv_name}'\n    \
+         Request: ClassVar[type] = {request_struct}\n    \
+         Response: ClassVar[type] = {response_struct}\n\n"
+    )
 }
 
 fn rust_to_python_type(field_type: &FieldType, current_package: &str) -> Result<String> {

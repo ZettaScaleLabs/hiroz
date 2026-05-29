@@ -78,3 +78,27 @@ class GetStateResponse(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/GetStateResponse'
     __hash__: ClassVar[str] = 'RIHS01_800a0a5aae599782b02932de0caf563f6dc4e7e94b794eadde075ba2cbef9795'
 
+class ChangeState:
+    """Service grouping type. Use ChangeState.Request and ChangeState.Response."""
+    __srvtype__: ClassVar[str] = 'lifecycle_msgs/srv/ChangeState'
+    Request: ClassVar[type] = ChangeStateRequest
+    Response: ClassVar[type] = ChangeStateResponse
+
+class GetAvailableStates:
+    """Service grouping type. Use GetAvailableStates.Request and GetAvailableStates.Response."""
+    __srvtype__: ClassVar[str] = 'lifecycle_msgs/srv/GetAvailableStates'
+    Request: ClassVar[type] = GetAvailableStatesRequest
+    Response: ClassVar[type] = GetAvailableStatesResponse
+
+class GetAvailableTransitions:
+    """Service grouping type. Use GetAvailableTransitions.Request and GetAvailableTransitions.Response."""
+    __srvtype__: ClassVar[str] = 'lifecycle_msgs/srv/GetAvailableTransitions'
+    Request: ClassVar[type] = GetAvailableTransitionsRequest
+    Response: ClassVar[type] = GetAvailableTransitionsResponse
+
+class GetState:
+    """Service grouping type. Use GetState.Request and GetState.Response."""
+    __srvtype__: ClassVar[str] = 'lifecycle_msgs/srv/GetState'
+    Request: ClassVar[type] = GetStateRequest
+    Response: ClassVar[type] = GetStateResponse
+

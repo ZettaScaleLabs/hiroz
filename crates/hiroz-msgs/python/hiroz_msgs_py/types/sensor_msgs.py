@@ -289,3 +289,9 @@ class SetCameraInfoResponse(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'sensor_msgs/msg/SetCameraInfoResponse'
     __hash__: ClassVar[str] = 'RIHS01_a10cca5d33dc637c8d49db50ab288701a3592bb9cd854f2f16a0659613b68984'
 
+class SetCameraInfo:
+    """Service grouping type. Use SetCameraInfo.Request and SetCameraInfo.Response."""
+    __srvtype__: ClassVar[str] = 'sensor_msgs/srv/SetCameraInfo'
+    Request: ClassVar[type] = SetCameraInfoRequest
+    Response: ClassVar[type] = SetCameraInfoResponse
+
