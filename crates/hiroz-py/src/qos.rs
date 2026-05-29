@@ -360,12 +360,28 @@ pub fn extract_qos(qos: Option<&Bound<'_, PyAny>>) -> PyResult<QosProfile> {
             if let Ok(profile) = obj.extract::<PyRef<PyQosProfile>>() {
                 return Ok(profile.inner);
             }
+            // rclpy-style int depth shorthand: `qos=10` == KeepLast(10).
+            // Checked before dict so a bare int is accepted anywhere a QoS is.
+            // `bool` is a subclass of `int` in Python; exclude it explicitly so
+            // `qos=True` is a clear type error rather than a depth of 1.
+            if !obj.is_instance_of::<pyo3::types::PyBool>()
+                && let Ok(depth) = obj.extract::<usize>()
+            {
+                let non_zero = NonZeroUsize::new(depth).ok_or_else(|| {
+                    pyo3::exceptions::PyValueError::new_err(
+                        "qos depth shorthand must be greater than 0",
+                    )
+                })?;
+                let mut qos = QOS_DEFAULT;
+                qos.history = QosHistory::KeepLast(non_zero);
+                return Ok(qos);
+            }
             // Fall back to dict
             if let Ok(dict) = obj.downcast::<PyDict>() {
                 return qos_from_pydict(dict);
             }
             Err(pyo3::exceptions::PyTypeError::new_err(
-                "qos must be a QosProfile or dict",
+                "qos must be a QosProfile, an int (depth shorthand), or a dict",
             ))
         }
     }

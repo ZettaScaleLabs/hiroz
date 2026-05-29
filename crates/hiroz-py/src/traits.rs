@@ -10,6 +10,9 @@ use crate::raw_bytes::{RawBytesCdrSerdes, RawBytesMessage, RawBytesService};
 pub(crate) trait RawPublisher: Send + Sync {
     /// Publish pre-serialized data
     fn publish(&self, data: ZBytes) -> Result<()>;
+    /// Block until at least `count` subscriptions are matched, or `timeout` elapses.
+    /// Returns true if the count was reached. Delegates to the core liveliness-based wait.
+    fn wait_for_subscription(&self, count: usize, timeout: Duration) -> bool;
 }
 
 /// Type-erased subscriber trait for Python interop
@@ -42,6 +45,12 @@ impl RawPublisher for GenericPubWrapper {
         self.inner
             .publish_serialized(data)
             .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    fn wait_for_subscription(&self, count: usize, timeout: Duration) -> bool {
+        // The core method is async; block on it using the shared runtime.
+        // Callers release the GIL around this via `py.allow_threads`.
+        crate::action::get_tokio_rt().block_on(self.inner.wait_for_subscription(count, timeout))
     }
 }
 
@@ -103,6 +112,9 @@ pub(crate) trait RawClient: Send + Sync {
 /// Type-erased server trait for Python interop
 pub(crate) trait RawServer: Send + Sync {
     fn take_request_serialized(&self) -> Result<(RequestId, Vec<u8>)>;
+    /// Non-blocking variant: returns None if no request is queued.
+    /// Used by the optional callback-mode server loop.
+    fn try_take_request_serialized(&self) -> Result<Option<(RequestId, Vec<u8>)>>;
     fn send_response_serialized(&self, data: &[u8], request_id: &RequestId) -> Result<()>;
 }
 
@@ -172,6 +184,29 @@ impl RawServer for GenericServerWrapper {
             .insert(request_id.clone(), reply);
 
         Ok((request_id, request.0))
+    }
+
+    fn try_take_request_serialized(&self) -> Result<Option<(RequestId, Vec<u8>)>> {
+        let mut server = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock server: {}", e))?;
+
+        match server
+            .try_take_request()
+            .map_err(|e| anyhow::anyhow!("Failed to poll request: {}", e))?
+        {
+            Some(request) => {
+                let (request, reply) = request.into_parts();
+                let request_id = reply.id().clone();
+                self.pending
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("Failed to lock pending replies: {}", e))?
+                    .insert(request_id.clone(), reply);
+                Ok(Some((request_id, request.0)))
+            }
+            None => Ok(None),
+        }
     }
 
     fn send_response_serialized(&self, data: &[u8], request_id: &RequestId) -> Result<()> {
