@@ -151,8 +151,9 @@ impl core::str::FromStr for EndpointKind {
             "MS" => Ok(EndpointKind::Subscription),
             "SS" => Ok(EndpointKind::Service),
             "SC" => Ok(EndpointKind::Client),
-            "AS" => Ok(EndpointKind::ActionServer),
-            "AC" => Ok(EndpointKind::ActionClient),
+            // ActionServer/ActionClient are synthetic graph-level kinds, not wire-format codes.
+            // They must never be parsed from a liveliness token; reject them here so a peer
+            // emitting "AS"/"AC" does not silently produce a phantom entity in the graph.
             _ => Err("Invalid endpoint kind"),
         }
     }

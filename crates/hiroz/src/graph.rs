@@ -767,6 +767,32 @@ impl Graph {
                     service_slab.insert(weak.clone());
                 }
 
+                // Index by action name for action server sub-endpoints.
+                // Mirrors the same logic in parse() so that local (same-process) action
+                // servers are immediately visible to has_action_server without waiting for
+                // the liveliness echo to arrive from the Zenoh session.
+                let is_action_server_endpoint = match endpoint.kind {
+                    EndpointKind::Service => ACTION_SERVER_SERVICE_SUFFIXES
+                        .iter()
+                        .any(|s| endpoint.topic.ends_with(s)),
+                    EndpointKind::Publisher => ACTION_SERVER_TOPIC_SUFFIXES
+                        .iter()
+                        .any(|s| endpoint.topic.ends_with(s)),
+                    _ => false,
+                };
+                if is_action_server_endpoint
+                    && let Some(action_name) = action_name_from_topic(&endpoint.topic)
+                {
+                    let action_slab = data
+                        .by_action
+                        .entry(action_name.to_string())
+                        .or_insert_with(|| Slab::with_capacity(DEFAULT_SLAB_CAPACITY));
+                    if action_slab.len() >= action_slab.capacity() {
+                        action_slab.retain(|_, weak_ptr| weak_ptr.upgrade().is_some());
+                    }
+                    action_slab.insert(weak.clone());
+                }
+
                 // Index by node
                 if let Some(node) = endpoint.node.as_ref() {
                     let node_slab = data
