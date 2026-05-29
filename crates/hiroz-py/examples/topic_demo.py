@@ -24,6 +24,9 @@ def run_talker(ctx, topic: str, count: int, interval: float):
 
     print(f"Talker started. Publishing to {topic}...")
 
+    # Wait for at least one subscriber instead of racing (P1).
+    pub.wait_for_subscription(count=1, timeout=5.0)
+
     i = 0
     while count == 0 or i < count:
         message = f"Hello from Python {i}"
