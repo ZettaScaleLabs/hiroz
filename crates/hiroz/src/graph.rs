@@ -327,17 +327,17 @@ impl GraphData {
                             .any(|s| x.topic.ends_with(s)),
                         _ => false,
                     };
-                    if is_action_server_endpoint {
-                        if let Some(action_name) = action_name_from_topic(&x.topic) {
-                            let action_slab = self
-                                .by_action
-                                .entry(action_name.to_string())
-                                .or_insert_with(|| Slab::with_capacity(DEFAULT_SLAB_CAPACITY));
-                            if action_slab.len() >= action_slab.capacity() {
-                                action_slab.retain(|_, weak_ptr| weak_ptr.upgrade().is_some());
-                            }
-                            action_slab.insert(weak.clone());
+                    if is_action_server_endpoint
+                        && let Some(action_name) = action_name_from_topic(&x.topic)
+                    {
+                        let action_slab = self
+                            .by_action
+                            .entry(action_name.to_string())
+                            .or_insert_with(|| Slab::with_capacity(DEFAULT_SLAB_CAPACITY));
+                        if action_slab.len() >= action_slab.capacity() {
+                            action_slab.retain(|_, weak_ptr| weak_ptr.upgrade().is_some());
                         }
+                        action_slab.insert(weak.clone());
                     }
                     if let Some(node) = x.node.as_ref() {
                         let node_slab = self
