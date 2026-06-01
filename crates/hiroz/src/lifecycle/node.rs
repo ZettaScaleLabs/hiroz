@@ -29,7 +29,7 @@ use crate::{
 ///   `~/get_available_states`, `~/get_available_transitions`,
 ///   `~/get_transition_graph`)
 /// - `~/transition_event` publisher
-/// - Lifecycle publisher factory ([`create_publisher`]) whose publish calls are
+/// - Lifecycle publisher factory ([`Self::create_publisher`]) whose publish calls are
 ///   gated on the node's activation state
 ///
 /// # Setting lifecycle callbacks
