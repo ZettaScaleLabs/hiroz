@@ -72,27 +72,24 @@ pub fn parse_action(
         path,
     )?;
 
-    let result = if result_content.trim().is_empty() {
-        None
-    } else {
-        Some(parse_action_section(
-            &result_content,
-            &format!("{}Result", action_name),
-            package,
-            path,
-        )?)
-    };
+    // ROS 2 actions always have a result and feedback type, even when the section
+    // is empty rosidl still emits the wrapper messages (GetResult_Response,
+    // FeedbackMessage) with goal_id + an empty inner type
+    // Need to treat an empty but present
+    // section as a zero field message so codegen can still emit the struct
+    let result = Some(parse_action_section(
+        &result_content,
+        &format!("{}Result", action_name),
+        package,
+        path,
+    )?);
 
-    let feedback = if feedback_content.trim().is_empty() {
-        None
-    } else {
-        Some(parse_action_section(
-            &feedback_content,
-            &format!("{}Feedback", action_name),
-            package,
-            path,
-        )?)
-    };
+    let feedback = Some(parse_action_section(
+        &feedback_content,
+        &format!("{}Feedback", action_name),
+        package,
+        path,
+    )?);
 
     Ok(ParsedAction {
         name: action_name.to_string(),
@@ -269,15 +266,17 @@ int32 result
 
     #[test]
     fn test_parse_all_empty_sections() {
-        // "---\n---\n" — valid, all three sections empty
+        // "---\n---\n" — valid, all three sections empty. Empty Result/Feedback
+        // sections are treated as zero-field messages (ROS 2 semantics: rosidl
+        // always emits the wrapper types even when the inner message is empty).
         let content = "---\n---\n";
         let path = PathBuf::from("Empty.action");
         let result = parse_action(content, "Empty", "test_pkg", &path);
         assert!(result.is_ok());
         let action = result.unwrap();
         assert!(action.goal.fields.is_empty());
-        assert!(action.result.is_none());
-        assert!(action.feedback.is_none());
+        assert!(action.result.as_ref().unwrap().fields.is_empty());
+        assert!(action.feedback.as_ref().unwrap().fields.is_empty());
     }
 
     #[test]
