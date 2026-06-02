@@ -65,6 +65,66 @@
       "dependencies": [
         "builtin_interfaces"
       ]
+    },
+    "tf2_msgs": {
+      "dependencies": [
+        "builtin_interfaces",
+        "geometry_msgs"
+      ]
+    },
+    "visualization_msgs": {
+      "dependencies": [
+        "builtin_interfaces",
+        "geometry_msgs",
+        "sensor_msgs",
+        "std_msgs"
+      ]
+    },
+    "rosgraph_msgs": {
+      "dependencies": [
+        "builtin_interfaces"
+      ]
+    },
+    "trajectory_msgs": {
+      "dependencies": [
+        "builtin_interfaces",
+        "geometry_msgs",
+        "std_msgs"
+      ]
+    },
+    "diagnostic_msgs": {
+      "dependencies": [
+        "std_msgs"
+      ]
+    },
+    "shape_msgs": {
+      "dependencies": [
+        "geometry_msgs"
+      ]
+    },
+    "stereo_msgs": {
+      "dependencies": [
+        "sensor_msgs",
+        "std_msgs"
+      ]
+    },
+    "statistics_msgs": {
+      "dependencies": [
+        "builtin_interfaces"
+      ]
+    },
+    "composition_interfaces": {
+      "dependencies": [
+        "rcl_interfaces"
+      ]
+    },
+    "std_srvs": {
+      "dependencies": []
+    },
+    "rosbag2_interfaces": {
+      "dependencies": [
+        "builtin_interfaces"
+      ]
     }
   }
 }

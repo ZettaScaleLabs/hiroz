@@ -2,13 +2,6 @@
 import msgspec
 from typing import ClassVar
 
-class GoalInfo(msgspec.Struct, frozen=True, kw_only=True):
-    goal_id: "unique_identifier_msgs.UUID | None" = None
-    stamp: "builtin_interfaces.Time | None" = msgspec.field(default_factory=lambda: {'sec': 0, 'nanosec': 0})
-
-    __msgtype__: ClassVar[str] = 'action_msgs/msg/GoalInfo'
-    __hash__: ClassVar[str] = 'RIHS01_6398fe763154554353930716b225947f93b672f0fb2e49fdd01bb7a7e37933e9'
-
 class GoalStatus(msgspec.Struct, frozen=True, kw_only=True):
     goal_info: "action_msgs.GoalInfo | None" = None
     status: int = 0
@@ -21,6 +14,13 @@ class GoalStatusArray(msgspec.Struct, frozen=True, kw_only=True):
 
     __msgtype__: ClassVar[str] = 'action_msgs/msg/GoalStatusArray'
     __hash__: ClassVar[str] = 'RIHS01_6c1684b00f177d37438febe6e709fc4e2b0d4248dca4854946f9ed8b30cda83e'
+
+class GoalInfo(msgspec.Struct, frozen=True, kw_only=True):
+    goal_id: "unique_identifier_msgs.UUID | None" = None
+    stamp: "builtin_interfaces.Time | None" = msgspec.field(default_factory=lambda: {'sec': 0, 'nanosec': 0})
+
+    __msgtype__: ClassVar[str] = 'action_msgs/msg/GoalInfo'
+    __hash__: ClassVar[str] = 'RIHS01_6398fe763154554353930716b225947f93b672f0fb2e49fdd01bb7a7e37933e9'
 
 class CancelGoalRequest(msgspec.Struct, frozen=True, kw_only=True):
     goal_info: "action_msgs.GoalInfo | None" = None

@@ -14,6 +14,17 @@ fn main() -> Result<()> {
     println!("cargo::rustc-check-cfg=cfg(has_example_interfaces)");
     println!("cargo::rustc-check-cfg=cfg(has_test_msgs)");
     println!("cargo::rustc-check-cfg=cfg(has_rcl_interfaces)");
+    println!("cargo::rustc-check-cfg=cfg(has_tf2_msgs)");
+    println!("cargo::rustc-check-cfg=cfg(has_visualization_msgs)");
+    println!("cargo::rustc-check-cfg=cfg(has_rosgraph_msgs)");
+    println!("cargo::rustc-check-cfg=cfg(has_trajectory_msgs)");
+    println!("cargo::rustc-check-cfg=cfg(has_diagnostic_msgs)");
+    println!("cargo::rustc-check-cfg=cfg(has_shape_msgs)");
+    println!("cargo::rustc-check-cfg=cfg(has_stereo_msgs)");
+    println!("cargo::rustc-check-cfg=cfg(has_statistics_msgs)");
+    println!("cargo::rustc-check-cfg=cfg(has_composition_interfaces)");
+    println!("cargo::rustc-check-cfg=cfg(has_std_srvs)");
+    println!("cargo::rustc-check-cfg=cfg(has_rosbag2_interfaces)");
 
     // Detect ROS version and emit cfg
     let is_humble = detect_ros_version();
@@ -269,6 +280,50 @@ fn get_all_packages(is_humble: bool) -> Vec<&'static str> {
 
     if env::var("CARGO_FEATURE_RCL_INTERFACES").is_ok() {
         names.push("rcl_interfaces");
+    }
+
+    if env::var("CARGO_FEATURE_TF2_MSGS").is_ok() {
+        names.push("tf2_msgs");
+    }
+
+    if env::var("CARGO_FEATURE_VISUALIZATION_MSGS").is_ok() {
+        names.push("visualization_msgs");
+    }
+
+    if env::var("CARGO_FEATURE_ROSGRAPH_MSGS").is_ok() {
+        names.push("rosgraph_msgs");
+    }
+
+    if env::var("CARGO_FEATURE_TRAJECTORY_MSGS").is_ok() {
+        names.push("trajectory_msgs");
+    }
+
+    if env::var("CARGO_FEATURE_DIAGNOSTIC_MSGS").is_ok() {
+        names.push("diagnostic_msgs");
+    }
+
+    if env::var("CARGO_FEATURE_SHAPE_MSGS").is_ok() {
+        names.push("shape_msgs");
+    }
+
+    if env::var("CARGO_FEATURE_STEREO_MSGS").is_ok() {
+        names.push("stereo_msgs");
+    }
+
+    if env::var("CARGO_FEATURE_STATISTICS_MSGS").is_ok() {
+        names.push("statistics_msgs");
+    }
+
+    if env::var("CARGO_FEATURE_COMPOSITION_INTERFACES").is_ok() {
+        names.push("composition_interfaces");
+    }
+
+    if env::var("CARGO_FEATURE_STD_SRVS").is_ok() {
+        names.push("std_srvs");
+    }
+
+    if env::var("CARGO_FEATURE_ROSBAG2_INTERFACES").is_ok() {
+        names.push("rosbag2_interfaces");
     }
 
     names

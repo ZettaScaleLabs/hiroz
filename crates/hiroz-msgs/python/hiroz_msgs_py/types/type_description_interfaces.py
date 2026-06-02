@@ -2,15 +2,6 @@
 import msgspec
 from typing import ClassVar
 
-class FieldType(msgspec.Struct, frozen=True, kw_only=True):
-    type_id: int = 0
-    capacity: int = 0
-    string_capacity: int = 0
-    nested_type_name: str = ""
-
-    __msgtype__: ClassVar[str] = 'type_description_interfaces/msg/FieldType'
-    __hash__: ClassVar[str] = 'RIHS01_a70b6dd919645a03a3586f7f821defbc886ea3e531a1d95cc0f380a3973ccaa6'
-
 class TypeSource(msgspec.Struct, frozen=True, kw_only=True):
     type_name: str = ""
     encoding: str = ""
@@ -19,19 +10,14 @@ class TypeSource(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'type_description_interfaces/msg/TypeSource'
     __hash__: ClassVar[str] = 'RIHS01_faeaec7596c04ecf5b6e99ad225e4c7cbb997ad5435f793526fb3984d011aae5'
 
-class IndividualTypeDescription(msgspec.Struct, frozen=True, kw_only=True):
-    type_name: str = ""
-    fields: list["type_description_interfaces.Field"] = msgspec.field(default_factory=list)
+class FieldType(msgspec.Struct, frozen=True, kw_only=True):
+    type_id: int = 0
+    capacity: int = 0
+    string_capacity: int = 0
+    nested_type_name: str = ""
 
-    __msgtype__: ClassVar[str] = 'type_description_interfaces/msg/IndividualTypeDescription'
-    __hash__: ClassVar[str] = 'RIHS01_55c827d86c3c141bdd318fe6c22e11190e4d3b37c8f4f9751a084aa05ce96560'
-
-class KeyValue(msgspec.Struct, frozen=True, kw_only=True):
-    key: str = ""
-    value: str = ""
-
-    __msgtype__: ClassVar[str] = 'type_description_interfaces/msg/KeyValue'
-    __hash__: ClassVar[str] = 'RIHS01_274fe56bf14f33c7512e34c646a37579ee36779f745f049a9760763e817f0c42'
+    __msgtype__: ClassVar[str] = 'type_description_interfaces/msg/FieldType'
+    __hash__: ClassVar[str] = 'RIHS01_a70b6dd919645a03a3586f7f821defbc886ea3e531a1d95cc0f380a3973ccaa6'
 
 class TypeDescription(msgspec.Struct, frozen=True, kw_only=True):
     type_description: "type_description_interfaces.IndividualTypeDescription | None" = None
@@ -47,6 +33,20 @@ class Field(msgspec.Struct, frozen=True, kw_only=True):
 
     __msgtype__: ClassVar[str] = 'type_description_interfaces/msg/Field'
     __hash__: ClassVar[str] = 'RIHS01_c0b01379cd4226281285ccaf6be46653968f855f7c5e41614ff5d7a854efef7c'
+
+class IndividualTypeDescription(msgspec.Struct, frozen=True, kw_only=True):
+    type_name: str = ""
+    fields: list["type_description_interfaces.Field"] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'type_description_interfaces/msg/IndividualTypeDescription'
+    __hash__: ClassVar[str] = 'RIHS01_55c827d86c3c141bdd318fe6c22e11190e4d3b37c8f4f9751a084aa05ce96560'
+
+class KeyValue(msgspec.Struct, frozen=True, kw_only=True):
+    key: str = ""
+    value: str = ""
+
+    __msgtype__: ClassVar[str] = 'type_description_interfaces/msg/KeyValue'
+    __hash__: ClassVar[str] = 'RIHS01_274fe56bf14f33c7512e34c646a37579ee36779f745f049a9760763e817f0c42'
 
 class GetTypeDescriptionRequest(msgspec.Struct, frozen=True, kw_only=True):
     type_name: str = ""

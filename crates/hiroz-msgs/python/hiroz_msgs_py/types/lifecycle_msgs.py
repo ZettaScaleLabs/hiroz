@@ -33,6 +33,28 @@ class State(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/State'
     __hash__: ClassVar[str] = 'RIHS01_dd2d02b82f3ebc858e53c431b1e6e91f3ffc71436fc81d0715214ac6ee2107a0'
 
+class GetAvailableStatesRequest(msgspec.Struct, frozen=True, kw_only=True):
+
+    __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/GetAvailableStatesRequest'
+    __hash__: ClassVar[str] = 'RIHS01_00a07d79d2207d71e81a8cbc1880e5d924cc16d4688ea8e8e06e443dc8f8aa1d'
+
+class GetAvailableStatesResponse(msgspec.Struct, frozen=True, kw_only=True):
+    available_states: list["lifecycle_msgs.State"] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/GetAvailableStatesResponse'
+    __hash__: ClassVar[str] = 'RIHS01_00a07d79d2207d71e81a8cbc1880e5d924cc16d4688ea8e8e06e443dc8f8aa1d'
+
+class GetStateRequest(msgspec.Struct, frozen=True, kw_only=True):
+
+    __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/GetStateRequest'
+    __hash__: ClassVar[str] = 'RIHS01_800a0a5aae599782b02932de0caf563f6dc4e7e94b794eadde075ba2cbef9795'
+
+class GetStateResponse(msgspec.Struct, frozen=True, kw_only=True):
+    current_state: "lifecycle_msgs.State | None" = None
+
+    __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/GetStateResponse'
+    __hash__: ClassVar[str] = 'RIHS01_800a0a5aae599782b02932de0caf563f6dc4e7e94b794eadde075ba2cbef9795'
+
 class ChangeStateRequest(msgspec.Struct, frozen=True, kw_only=True):
     transition: "lifecycle_msgs.Transition | None" = None
 
@@ -45,17 +67,6 @@ class ChangeStateResponse(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/ChangeStateResponse'
     __hash__: ClassVar[str] = 'RIHS01_356fe34f0475a43acf54542013af4167b0e729f77ea22ffb045c6ad8e20668e5'
 
-class GetAvailableStatesRequest(msgspec.Struct, frozen=True, kw_only=True):
-
-    __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/GetAvailableStatesRequest'
-    __hash__: ClassVar[str] = 'RIHS01_00a07d79d2207d71e81a8cbc1880e5d924cc16d4688ea8e8e06e443dc8f8aa1d'
-
-class GetAvailableStatesResponse(msgspec.Struct, frozen=True, kw_only=True):
-    available_states: list["lifecycle_msgs.State"] = msgspec.field(default_factory=list)
-
-    __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/GetAvailableStatesResponse'
-    __hash__: ClassVar[str] = 'RIHS01_00a07d79d2207d71e81a8cbc1880e5d924cc16d4688ea8e8e06e443dc8f8aa1d'
-
 class GetAvailableTransitionsRequest(msgspec.Struct, frozen=True, kw_only=True):
 
     __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/GetAvailableTransitionsRequest'
@@ -66,15 +77,4 @@ class GetAvailableTransitionsResponse(msgspec.Struct, frozen=True, kw_only=True)
 
     __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/GetAvailableTransitionsResponse'
     __hash__: ClassVar[str] = 'RIHS01_59b7ecefce0982a8a844b9f2c4f14764c1c4543cc55e72924e2aa4adad83e9bc'
-
-class GetStateRequest(msgspec.Struct, frozen=True, kw_only=True):
-
-    __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/GetStateRequest'
-    __hash__: ClassVar[str] = 'RIHS01_800a0a5aae599782b02932de0caf563f6dc4e7e94b794eadde075ba2cbef9795'
-
-class GetStateResponse(msgspec.Struct, frozen=True, kw_only=True):
-    current_state: "lifecycle_msgs.State | None" = None
-
-    __msgtype__: ClassVar[str] = 'lifecycle_msgs/msg/GetStateResponse'
-    __hash__: ClassVar[str] = 'RIHS01_800a0a5aae599782b02932de0caf563f6dc4e7e94b794eadde075ba2cbef9795'
 

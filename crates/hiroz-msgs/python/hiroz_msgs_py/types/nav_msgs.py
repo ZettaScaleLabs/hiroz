@@ -19,13 +19,6 @@ class GridCells(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'nav_msgs/msg/GridCells'
     __hash__: ClassVar[str] = 'RIHS01_bb99c2f5d0a04750745a81ec6a8147aa373cce5bd17c8cd6507f2413354a6933'
 
-class Goals(msgspec.Struct, frozen=True, kw_only=True):
-    header: "std_msgs.Header | None" = None
-    goals: list["geometry_msgs.PoseStamped"] = msgspec.field(default_factory=list)
-
-    __msgtype__: ClassVar[str] = 'nav_msgs/msg/Goals'
-    __hash__: ClassVar[str] = 'RIHS01_02305a51633b5c04d8979b878a7577cafd422f8a07465c878b17a920af3759e9'
-
 class MapMetaData(msgspec.Struct, frozen=True, kw_only=True):
     map_load_time: "builtin_interfaces.Time | None" = msgspec.field(default_factory=lambda: {'sec': 0, 'nanosec': 0})
     resolution: float = 0.0
@@ -35,6 +28,13 @@ class MapMetaData(msgspec.Struct, frozen=True, kw_only=True):
 
     __msgtype__: ClassVar[str] = 'nav_msgs/msg/MapMetaData'
     __hash__: ClassVar[str] = 'RIHS01_2772d4b2000ef2b35dbaeb80fd3946c1369f817fb4f75677d916d27c17d763c8'
+
+class Goals(msgspec.Struct, frozen=True, kw_only=True):
+    header: "std_msgs.Header | None" = None
+    goals: list["geometry_msgs.PoseStamped"] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'nav_msgs/msg/Goals'
+    __hash__: ClassVar[str] = 'RIHS01_02305a51633b5c04d8979b878a7577cafd422f8a07465c878b17a920af3759e9'
 
 class Path(msgspec.Struct, frozen=True, kw_only=True):
     header: "std_msgs.Header | None" = None
@@ -52,6 +52,19 @@ class Odometry(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'nav_msgs/msg/Odometry'
     __hash__: ClassVar[str] = 'RIHS01_3cc97dc7fb7502f8714462c526d369e35b603cfc34d946e3f2eda2766dfec6e0'
 
+class LoadMapRequest(msgspec.Struct, frozen=True, kw_only=True):
+    map_url: str = ""
+
+    __msgtype__: ClassVar[str] = 'nav_msgs/msg/LoadMapRequest'
+    __hash__: ClassVar[str] = 'RIHS01_1a192ac56c40fed2767dac26f0b371785372276bd465c902676d2dca135aae5a'
+
+class LoadMapResponse(msgspec.Struct, frozen=True, kw_only=True):
+    map: "nav_msgs.OccupancyGrid | None" = None
+    result: int = 0
+
+    __msgtype__: ClassVar[str] = 'nav_msgs/msg/LoadMapResponse'
+    __hash__: ClassVar[str] = 'RIHS01_1a192ac56c40fed2767dac26f0b371785372276bd465c902676d2dca135aae5a'
+
 class GetMapRequest(msgspec.Struct, frozen=True, kw_only=True):
 
     __msgtype__: ClassVar[str] = 'nav_msgs/msg/GetMapRequest'
@@ -62,6 +75,19 @@ class GetMapResponse(msgspec.Struct, frozen=True, kw_only=True):
 
     __msgtype__: ClassVar[str] = 'nav_msgs/msg/GetMapResponse'
     __hash__: ClassVar[str] = 'RIHS01_c8ae77c9995b3554b5ba80e4d4d443f970ac65143102a1d893ec24fc07b31147'
+
+class SetMapRequest(msgspec.Struct, frozen=True, kw_only=True):
+    map: "nav_msgs.OccupancyGrid | None" = None
+    initial_pose: "geometry_msgs.PoseWithCovarianceStamped | None" = None
+
+    __msgtype__: ClassVar[str] = 'nav_msgs/msg/SetMapRequest'
+    __hash__: ClassVar[str] = 'RIHS01_5e11a5b2ca53d8ae85b666a019f16c9904ebc787828f1f566c4e048a1ddedfb4'
+
+class SetMapResponse(msgspec.Struct, frozen=True, kw_only=True):
+    success: bool = False
+
+    __msgtype__: ClassVar[str] = 'nav_msgs/msg/SetMapResponse'
+    __hash__: ClassVar[str] = 'RIHS01_5e11a5b2ca53d8ae85b666a019f16c9904ebc787828f1f566c4e048a1ddedfb4'
 
 class GetPlanRequest(msgspec.Struct, frozen=True, kw_only=True):
     start: "geometry_msgs.PoseStamped | None" = None
@@ -76,30 +102,4 @@ class GetPlanResponse(msgspec.Struct, frozen=True, kw_only=True):
 
     __msgtype__: ClassVar[str] = 'nav_msgs/msg/GetPlanResponse'
     __hash__: ClassVar[str] = 'RIHS01_234f7aff100f5edb8150366601687b027bcdc253db47decb88fff846193fe5e8'
-
-class LoadMapRequest(msgspec.Struct, frozen=True, kw_only=True):
-    map_url: str = ""
-
-    __msgtype__: ClassVar[str] = 'nav_msgs/msg/LoadMapRequest'
-    __hash__: ClassVar[str] = 'RIHS01_1a192ac56c40fed2767dac26f0b371785372276bd465c902676d2dca135aae5a'
-
-class LoadMapResponse(msgspec.Struct, frozen=True, kw_only=True):
-    map: "nav_msgs.OccupancyGrid | None" = None
-    result: int = 0
-
-    __msgtype__: ClassVar[str] = 'nav_msgs/msg/LoadMapResponse'
-    __hash__: ClassVar[str] = 'RIHS01_1a192ac56c40fed2767dac26f0b371785372276bd465c902676d2dca135aae5a'
-
-class SetMapRequest(msgspec.Struct, frozen=True, kw_only=True):
-    map: "nav_msgs.OccupancyGrid | None" = None
-    initial_pose: "geometry_msgs.PoseWithCovarianceStamped | None" = None
-
-    __msgtype__: ClassVar[str] = 'nav_msgs/msg/SetMapRequest'
-    __hash__: ClassVar[str] = 'RIHS01_5e11a5b2ca53d8ae85b666a019f16c9904ebc787828f1f566c4e048a1ddedfb4'
-
-class SetMapResponse(msgspec.Struct, frozen=True, kw_only=True):
-    success: bool = False
-
-    __msgtype__: ClassVar[str] = 'nav_msgs/msg/SetMapResponse'
-    __hash__: ClassVar[str] = 'RIHS01_5e11a5b2ca53d8ae85b666a019f16c9904ebc787828f1f566c4e048a1ddedfb4'
 
