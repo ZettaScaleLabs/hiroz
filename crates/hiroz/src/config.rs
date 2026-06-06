@@ -76,6 +76,16 @@ impl DistroDefaults {
         }
     }
 
+    /// ROS 2 Lyrical defaults
+    ///
+    /// - Lyrical uses rmw_zenoh v0.7.x
+    /// - Real type hashes (RIHS01 format)
+    pub const fn lyrical() -> Self {
+        Self {
+            supports_type_hash: true,
+        }
+    }
+
     /// ROS 2 Rolling defaults
     ///
     /// - Rolling uses rmw_zenoh v0.2.x
@@ -98,7 +108,7 @@ impl DistroDefaults {
 
     /// Get the default for the currently compiled distro based on feature flags
     /// When multiple distro features are enabled (e.g., with --all-features),
-    /// priority order is: humble > kilted > rolling > jazzy (default)
+    /// priority order is: humble > kilted > lyrical > rolling > jazzy (default)
     pub const fn current() -> Self {
         // Priority 1: Humble
         if cfg!(feature = "humble") {
@@ -110,12 +120,17 @@ impl DistroDefaults {
             return Self::kilted();
         }
 
-        // Priority 3: Rolling
+        // Priority 3: Lyrical
+        if cfg!(feature = "lyrical") {
+            return Self::lyrical();
+        }
+
+        // Priority 4: Rolling
         if cfg!(feature = "rolling") {
             return Self::rolling();
         }
 
-        // Priority 4 (default): Jazzy
+        // Priority 5 (default): Jazzy
         Self::jazzy()
     }
 }

@@ -78,6 +78,7 @@ humble = ["hiroz/humble"]
 jazzy = ["hiroz/jazzy"]
 rolling = ["hiroz/rolling"]
 kilted = ["hiroz/kilted"]
+lyrical = ["hiroz/lyrical"]
 python_registry = [
   "pyo3",
   "parking_lot",

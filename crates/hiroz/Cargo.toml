@@ -83,10 +83,11 @@ ffi = []
 # Default is jazzy (recommended for new projects)
 # For humble, use: --no-default-features --features humble,...
 # Note: Distro features are mutually exclusive - enabling multiple may cause conflicts
-humble = ["no-type-hash", "no-jazzy", "no-rolling", "no-kilted"]
-jazzy = ["type-hash", "no-humble", "no-rolling", "no-kilted"]
-rolling = ["type-hash", "no-humble", "no-jazzy", "no-kilted"]
-kilted = ["type-hash", "no-humble", "no-jazzy", "no-rolling"]
+humble = ["no-type-hash", "no-jazzy", "no-rolling", "no-kilted", "no-lyrical"]
+jazzy = ["type-hash", "no-humble", "no-rolling", "no-kilted", "no-lyrical"]
+rolling = ["type-hash", "no-humble", "no-jazzy", "no-kilted", "no-lyrical"]
+kilted = ["type-hash", "no-humble", "no-jazzy", "no-rolling", "no-lyrical"]
+lyrical = ["type-hash", "no-humble", "no-jazzy", "no-rolling", "no-kilted"]
 
 # Internal features for distro compatibility
 humble-compat = []
@@ -98,6 +99,7 @@ no-humble = []
 no-jazzy = []
 no-rolling = []
 no-kilted = []
+no-lyrical = []
 
 
 # NOTE: Examples that use hiroz-msgs must be built from workspace root

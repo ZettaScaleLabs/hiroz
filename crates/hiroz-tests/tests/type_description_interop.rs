@@ -32,6 +32,18 @@ use hiroz_msgs::type_description_interfaces::{
 };
 use hiroz_schema::{FieldDescription, FieldTypeDescription, TypeDescription, TypeDescriptionMsg};
 
+// Lyrical's demo_nodes_cpp talker uses example_interfaces/msg/String instead of std_msgs/msg/String
+#[cfg(not(feature = "lyrical"))]
+const TALKER_TYPE_NAME: &str = "std_msgs/msg/String";
+#[cfg(feature = "lyrical")]
+const TALKER_TYPE_NAME: &str = "example_interfaces/msg/String";
+#[cfg(not(feature = "lyrical"))]
+const TALKER_TYPE_HASH: &str =
+    "RIHS01_df668c740482bbd48fb39d76a70dfd4bd59db1288021743503259e948f6b1a18";
+#[cfg(feature = "lyrical")]
+const TALKER_TYPE_HASH: &str =
+    "RIHS01_5509d866a579951f2fc6c19577c32605ba16f308cae7b498341d79536d4eb06b";
+
 /// Convert from wire format TypeDescription to hiroz-schema TypeDescriptionMsg.
 ///
 /// This is needed because the wire format uses generated ROS message types,
@@ -133,13 +145,9 @@ fn test_get_type_description_from_ros2_talker() {
             // Give more time for ROS 2 node to fully initialize
             tokio::time::sleep(Duration::from_secs(3)).await;
 
-            // Request type description for std_msgs/msg/String
-            // Use the type hash that matches our computation
             let req = GetTypeDescriptionRequest {
-                type_name: "std_msgs/msg/String".to_string(),
-                type_hash:
-                    "RIHS01_df668c740482bbd48fb39d76a70dfd4bd59db1288021743503259e948f6b1a18"
-                        .to_string(),
+                type_name: TALKER_TYPE_NAME.to_string(),
+                type_hash: TALKER_TYPE_HASH.to_string(),
                 include_type_sources: true,
             };
 
@@ -175,7 +183,7 @@ fn test_get_type_description_from_ros2_talker() {
     );
     assert_eq!(
         result.type_description.type_description.type_name,
-        "std_msgs/msg/String"
+        TALKER_TYPE_NAME
     );
     assert_eq!(result.type_description.type_description.fields.len(), 1);
     assert_eq!(
@@ -242,12 +250,9 @@ fn test_get_type_description_without_sources() {
 
             tokio::time::sleep(Duration::from_secs(3)).await;
 
-            // Request with valid hash (ROS 2 Jazzy requires hash to be provided)
             let req = GetTypeDescriptionRequest {
-                type_name: "std_msgs/msg/String".to_string(),
-                type_hash:
-                    "RIHS01_df668c740482bbd48fb39d76a70dfd4bd59db1288021743503259e948f6b1a18"
-                        .to_string(),
+                type_name: TALKER_TYPE_NAME.to_string(),
+                type_hash: TALKER_TYPE_HASH.to_string(),
                 include_type_sources: false,
             };
 
@@ -269,7 +274,7 @@ fn test_get_type_description_without_sources() {
     );
     assert_eq!(
         result.type_description.type_description.type_name,
-        "std_msgs/msg/String"
+        TALKER_TYPE_NAME
     );
 
     // Without include_type_sources, should have empty sources
@@ -372,10 +377,8 @@ fn test_dynamic_subscriber_from_type_description() {
             tokio::time::sleep(Duration::from_secs(3)).await;
 
             let req = GetTypeDescriptionRequest {
-                type_name: "std_msgs/msg/String".to_string(),
-                type_hash:
-                    "RIHS01_df668c740482bbd48fb39d76a70dfd4bd59db1288021743503259e948f6b1a18"
-                        .to_string(),
+                type_name: TALKER_TYPE_NAME.to_string(),
+                type_hash: TALKER_TYPE_HASH.to_string(),
                 include_type_sources: false,
             };
 

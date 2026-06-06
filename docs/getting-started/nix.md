@@ -37,6 +37,8 @@ nix develop
 
 # Specific ROS distros
 nix develop .#ros-jazzy      # ROS 2 Jazzy
+nix develop .#ros-kilted     # ROS 2 Kilted
+nix develop .#ros-lyrical    # ROS 2 Lyrical (LTS)
 nix develop .#ros-rolling    # ROS 2 Rolling
 
 # Pure Rust (no ROS 2 — fastest to enter)
@@ -93,7 +95,7 @@ Your system environment remains intact — Nix installed nothing globally.
 |----------|-------------|---------|
 | **Core Rust development** | `.#pureRust` | Fast entry, no ROS 2 needed |
 | **Full ROS 2 development** | `.#ros-jazzy` | All ROS 2 tools available |
-| **Multi-distro testing** | `.#ros-jazzy` + `.#ros-rolling` | Test against different distros |
+| **Multi-distro testing** | `.#ros-jazzy` + `.#ros-lyrical` + `.#ros-rolling` | Test against different distros |
 | **CI/CD Pipelines** | `.#pureRust-ci` | Same environment as GitHub Actions |
 
 ## Troubleshooting

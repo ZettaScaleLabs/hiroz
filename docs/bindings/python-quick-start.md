@@ -14,7 +14,7 @@ Get a Python publisher and subscriber running in five minutes. No Rust or ROS 2 
 
 Go to the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases), find the latest release, and substitute `<version>` below. Pick the tab for your ROS 2 distro — if you are new to hiroz and have no ROS 2 install, choose **Jazzy**.
 
-=== "Jazzy / Kilted / Rolling"
+=== "Jazzy / Kilted / Lyrical / Rolling"
 
     ```bash
     pip install https://github.com/ZettaScaleLabs/hiroz/releases/download/<version>/hiroz_msgs_py-<version>-py3-none-any.whl

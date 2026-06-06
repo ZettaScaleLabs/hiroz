@@ -4,13 +4,14 @@ hiroz supports multiple ROS 2 distributions through compile-time feature flags. 
 
 > **Important**: Different hiroz components have different ROS 2 version requirements:
 >
-> - **hiroz core library**: Supports Humble, Jazzy, Kilted, Rolling
+> - **hiroz core library**: Supports Humble, Jazzy, Kilted, Lyrical, Rolling
 > - **rmw-zenoh-rs**: Requires Jazzy or later (see [rmw-zenoh-rs chapter](../experimental/rmw-zenoh-rs.md#ros-2-version-requirements))
 
 ## Supported Distributions
 
 | Distribution | Core Library | rmw-zenoh-rs | Type Hash Support | Default |
 |--------------|--------------|--------------|-------------------|---------|
+| **Lyrical Luth** | ✅ Supported | ✅ Supported | ✅ Yes | No |
 | **Kilted Kaiju** | ✅ Supported | ✅ Supported | ✅ Yes | No |
 | **Jazzy Jalisco** | ✅ Supported | ✅ Supported | ✅ Yes | **Yes** |
 | **Humble Hawksbill** | ✅ Supported | ❌ **Not Supported** | ❌ Placeholder | No |
@@ -25,7 +26,7 @@ hiroz supports multiple ROS 2 distributions through compile-time feature flags. 
 
 The most significant difference between distributions is **type hash support**:
 
-**Jazzy/Kilted/Rolling** (Modern):
+**Jazzy/Kilted/Lyrical/Rolling** (Modern):
 
 - Supports real type hashes computed from message definitions
 - Format: `RIHS01_<64-hex-chars>` (ROS IDL Hash Standard version 1)
@@ -87,7 +88,7 @@ cargo nextest run --no-default-features --features humble
 
 ### Using Other Distributions
 
-For Rolling or Kilted, specify the distro feature:
+For Rolling, Kilted, or Lyrical, specify the distro feature:
 
 ```bash
 # Build for Rolling
@@ -95,4 +96,7 @@ cargo build --features rolling
 
 # Build for Kilted
 cargo build --features kilted
+
+# Build for Lyrical
+cargo build --features lyrical
 ```

@@ -459,6 +459,7 @@ pub extern "C" fn rmw_publish(
 
 // Subscriptions
 #[unsafe(no_mangle)]
+#[allow(clippy::needless_update)]
 pub extern "C" fn rmw_create_subscription(
     node: *const rmw_node_t,
     type_support: *const rosidl_message_type_support_t,
@@ -738,6 +739,7 @@ pub extern "C" fn rmw_create_subscription(
         options: unsafe { *subscription_options },
         can_loan_messages: false,
         is_cft_enabled: false,
+        ..Default::default()
     });
 
     let subscription_ptr = Box::into_raw(subscription);
@@ -749,6 +751,7 @@ pub extern "C" fn rmw_create_subscription(
 }
 
 #[unsafe(no_mangle)]
+#[allow(clippy::needless_update)]
 pub extern "C" fn rmw_destroy_subscription(
     node: *mut rmw_node_t,
     subscription: *mut rmw_subscription_t,
@@ -795,6 +798,7 @@ pub extern "C" fn rmw_destroy_subscription(
         options: subscription_box.options,
         can_loan_messages: subscription_box.can_loan_messages,
         is_cft_enabled: subscription_box.is_cft_enabled,
+        ..Default::default()
     };
 
     RMW_RET_OK as _

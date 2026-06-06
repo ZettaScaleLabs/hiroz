@@ -55,6 +55,7 @@ def check-distro-features [] {
     run-cmd "cargo check -p hiroz --no-default-features --features jazzy"
     run-cmd "cargo check -p hiroz --no-default-features --features rolling"
     run-cmd "cargo check -p hiroz --no-default-features --features kilted"
+    run-cmd "cargo check -p hiroz --no-default-features --features lyrical"
 }
 
 def test-shm [] {

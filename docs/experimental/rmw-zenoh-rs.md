@@ -35,14 +35,14 @@ ROS 2 uses a middleware abstraction layer called RMW (ROS Middleware) that allow
 ### ROS 2 Version Requirements
 
 !!! warning "Humble Not Supported"
-    rmw-zenoh-rs requires **ROS 2 Jazzy (2023) or later**.
+    rmw-zenoh-rs requires **ROS 2 Jazzy (2024) or later**.
     ROS 2 Humble (2022 LTS) is **not supported**.
 
 **Supported ROS 2 Distributions:**
 
-- ✅ **Jazzy** (2023)
 - ✅ **Jazzy** (2024 LTS) - Recommended
 - ✅ **Kilted** (2025)
+- ✅ **Lyrical** (2026 LTS)
 - ✅ **Rolling**
 - ❌ **Humble** (2022 LTS) - See [Why No Humble Support?](#why-no-humble-support)
 
@@ -255,7 +255,7 @@ Both [`rmw_zenoh_rs`](https://github.com/ros2/rmw_zenoh) and [`rmw_zenoh_cpp`](h
 |---------|--------------|---------------|
 | **Implementation Language** | Rust (using hiroz) | C++ |
 | **Primary Use Case** | Integration with hiroz ecosystem | Standalone Zenoh RMW |
-| **ROS 2 Compatibility** | Jazzy, Jazzy, Kilted, Rolling | Humble, Jazzy, Jazzy, Kilted, Rolling |
+| **ROS 2 Compatibility** | Jazzy, Kilted, Lyrical, Rolling | Humble, Jazzy, Kilted, Lyrical, Rolling |
 | **Humble Support** | ❌ No | ✅ Yes |
 | **Status** | Experimental | Production-ready |
 | **Dependencies** | hiroz, Zenoh Rust | Zenoh C++ binding |

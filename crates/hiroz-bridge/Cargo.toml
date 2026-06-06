@@ -33,3 +33,5 @@ parking_lot = { workspace = true }
 default = ["jazzy"]
 jazzy = ["hiroz-msgs/jazzy"]
 humble = ["hiroz-msgs/humble", "hiroz/humble"]
+kilted = ["hiroz-msgs/kilted", "hiroz/kilted"]
+lyrical = ["hiroz-msgs/lyrical", "hiroz/lyrical"]

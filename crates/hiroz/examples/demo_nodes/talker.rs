@@ -5,6 +5,10 @@ use hiroz::{
     context::ZContext,
     qos::{QosHistory, QosProfile},
 };
+// Lyrical's demo_nodes_cpp talker uses example_interfaces/msg/String
+#[cfg(feature = "lyrical")]
+use hiroz_msgs::example_interfaces::String as RosString;
+#[cfg(not(feature = "lyrical"))]
 use hiroz_msgs::std_msgs::String as RosString;
 
 // --8<-- [start:full_example]

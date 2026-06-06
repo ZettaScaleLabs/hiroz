@@ -13,6 +13,7 @@ jazzy = ["hiroz/jazzy"]
 humble = ["hiroz/humble"]
 kilted = ["hiroz/kilted"]
 rolling = ["hiroz/rolling"]
+lyrical = ["hiroz/lyrical"]
 
 [dependencies]
 pyo3 = { workspace = true }
