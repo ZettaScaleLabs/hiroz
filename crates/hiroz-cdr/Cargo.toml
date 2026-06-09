@@ -3,6 +3,11 @@ name = "hiroz-cdr"
 version.workspace = true
 edition.workspace = true
 description = "CDR serialization for hiroz"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["ros2", "zenoh", "cdr", "serialization", "robotics"]
+categories = ["encoding", "network-programming"]
 
 [dependencies]
 serde = { workspace = true }

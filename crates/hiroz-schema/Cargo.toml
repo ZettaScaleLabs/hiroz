@@ -3,7 +3,11 @@ name = "hiroz-schema"
 version.workspace = true
 edition.workspace = true
 description = "ROS 2 type description schema types for hiroz"
+license.workspace = true
+repository.workspace = true
 homepage.workspace = true
+keywords = ["ros2", "zenoh", "schema", "type-description", "robotics"]
+categories = ["encoding", "network-programming"]
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }

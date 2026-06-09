@@ -3,6 +3,11 @@ name = "hiroz-derive"
 version.workspace = true
 edition.workspace = true
 description = "Derive macros for hiroz Python bindings"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["ros2", "zenoh", "derive", "macros", "robotics"]
+categories = ["development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true

@@ -2,6 +2,7 @@
 name = "hiroz-msgs"
 version.workspace = true
 edition.workspace = true
+publish = false
 
 [dependencies]
 hiroz = { path = "../hiroz", default-features = false, features = [

@@ -2,6 +2,16 @@
 name = "hiroz"
 version = "0.1.0"
 edition = "2024"
+description = "Native Rust ROS 2 implementation using Zenoh"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["ros2", "zenoh", "robotics", "middleware", "rclrs"]
+categories = ["network-programming", "science::robotics"]
+
+[package.metadata.docs.rs]
+features = ["jazzy", "rmw-zenoh", "dynamic-schema-loader"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 crate-type = ["lib", "staticlib"]
@@ -34,8 +44,8 @@ prost = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
 hiroz-cdr = { workspace = true }
 hiroz-codegen = { workspace = true, optional = true }
-hiroz-derive = { path = "../hiroz-derive" }
-hiroz-protocol = { path = "../hiroz-protocol", default-features = false, features = [
+hiroz-derive = { workspace = true }
+hiroz-protocol = { path = "../hiroz-protocol", version = "0.1.0", default-features = false, features = [
   "std",
 ] }
 hiroz-schema = { workspace = true }
