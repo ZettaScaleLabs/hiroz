@@ -114,7 +114,7 @@ pub fn action_name_from_topic(topic: &str) -> Option<&str> {
     None
 }
 
-/// ROS 2 endpoint kind (publisher, subscription, service, client, action server, action client).
+/// ROS 2 endpoint kind (publisher, subscription, service, client, action server).
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
 pub enum EndpointKind {
     Publisher,
@@ -122,11 +122,9 @@ pub enum EndpointKind {
     Service,
     Client,
     /// Synthetic kind: action server endpoint (not a wire-format code).
-    /// Set by the graph when a service/publisher belongs to an action server.
+    /// Used only as a query discriminant in `Graph::count` and `Graph::has_action_server`;
+    /// no `EndpointEntity` is ever stored with this kind.
     ActionServer,
-    /// Synthetic kind: action client endpoint (not a wire-format code).
-    /// Set by the graph when a service/subscriber belongs to an action client.
-    ActionClient,
 }
 
 impl Display for EndpointKind {
@@ -137,7 +135,6 @@ impl Display for EndpointKind {
             EndpointKind::Service => write!(f, "SS"),
             EndpointKind::Client => write!(f, "SC"),
             EndpointKind::ActionServer => write!(f, "AS"),
-            EndpointKind::ActionClient => write!(f, "AC"),
         }
     }
 }

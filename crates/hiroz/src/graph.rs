@@ -131,6 +131,20 @@ fn entity_matches_local_zid(entity: &Entity, key_expr: &KeyExpr, local_zid: Zeno
     owner_zid.is_some_and(|zid| zid == local_zid)
 }
 
+/// Returns true if `(kind, topic)` is an action server sub-endpoint that should be
+/// indexed under the action name in `by_action`.
+fn is_action_server_sub_endpoint(kind: EndpointKind, topic: &str) -> bool {
+    match kind {
+        EndpointKind::Service => ACTION_SERVER_SERVICE_SUFFIXES
+            .iter()
+            .any(|s| topic.ends_with(s)),
+        EndpointKind::Publisher => ACTION_SERVER_TOPIC_SUFFIXES
+            .iter()
+            .any(|s| topic.ends_with(s)),
+        _ => false,
+    }
+}
+
 pub struct GraphData {
     cached: HashSet<LivelinessKE>,
     parsed: HashMap<LivelinessKE, Arc<Entity>>,
@@ -315,19 +329,7 @@ impl GraphData {
                     }
 
                     // Index action server sub-endpoints by action name.
-                    // An action server registers service sub-topics (send_goal, get_result,
-                    // cancel_goal) and publisher sub-topics (feedback, status). We detect
-                    // these by stripping known suffixes and index them under the action name.
-                    let is_action_server_endpoint = match x.kind {
-                        EndpointKind::Service => ACTION_SERVER_SERVICE_SUFFIXES
-                            .iter()
-                            .any(|s| x.topic.ends_with(s)),
-                        EndpointKind::Publisher => ACTION_SERVER_TOPIC_SUFFIXES
-                            .iter()
-                            .any(|s| x.topic.ends_with(s)),
-                        _ => false,
-                    };
-                    if is_action_server_endpoint
+                    if is_action_server_sub_endpoint(x.kind, &x.topic)
                         && let Some(action_name) = action_name_from_topic(&x.topic)
                     {
                         let action_slab = self
@@ -784,19 +786,9 @@ impl Graph {
                 }
 
                 // Index by action name for action server sub-endpoints.
-                // Mirrors the same logic in parse() so that local (same-process) action
-                // servers are immediately visible to has_action_server without waiting for
-                // the liveliness echo to arrive from the Zenoh session.
-                let is_action_server_endpoint = match endpoint.kind {
-                    EndpointKind::Service => ACTION_SERVER_SERVICE_SUFFIXES
-                        .iter()
-                        .any(|s| endpoint.topic.ends_with(s)),
-                    EndpointKind::Publisher => ACTION_SERVER_TOPIC_SUFFIXES
-                        .iter()
-                        .any(|s| endpoint.topic.ends_with(s)),
-                    _ => false,
-                };
-                if is_action_server_endpoint
+                // Mirrors parse() so that local (same-process) action servers are immediately
+                // visible to has_action_server without waiting for the liveliness echo.
+                if is_action_server_sub_endpoint(endpoint.kind, &endpoint.topic)
                     && let Some(action_name) = action_name_from_topic(&endpoint.topic)
                 {
                     let action_slab = data
@@ -938,10 +930,9 @@ impl Graph {
                     }
                 });
             }
-            EndpointKind::ActionServer | EndpointKind::ActionClient => {
-                self.data.lock().visit_by_action(name, |_| {
-                    total += 1;
-                });
+            EndpointKind::ActionServer => {
+                // by_action holds sub-endpoints, not servers; delegate to the authoritative check.
+                total = self.has_action_server(name) as usize;
             }
         }
         total
