@@ -52,13 +52,6 @@ impl KeyExprFormatter for Ros2DdsFormatter {
             EndpointKind::Subscription => "MS",
             EndpointKind::Service => "SS",
             EndpointKind::Client => "SC",
-            // ActionServer is a synthetic graph-level kind and is not emitted as a
-            // liveliness token; it's derived from Service/Publisher sub-entries.
-            EndpointKind::ActionServer => {
-                return Err(zenoh::Error::from(
-                    "ActionServer is synthetic and cannot produce liveliness tokens",
-                ))
-            }
         };
 
         // Escape slashes in topic name

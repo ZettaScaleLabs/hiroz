@@ -223,34 +223,4 @@ mod tests {
         );
         Ok(())
     }
-
-    #[serial]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_count_action_server_semantics() -> Result<()> {
-        // count(ActionServer) must return 1 (server present) not 5 (raw sub-endpoint count),
-        // confirming the delegation to has_action_server rather than a slab size.
-        use hiroz::entity::EndpointKind;
-
-        let ctx = ZContextBuilder::default().build()?;
-        let node = ctx.create_node("count_semantics_node").build()?;
-
-        assert_eq!(
-            node.graph()
-                .count(EndpointKind::ActionServer, "/semantics_test_action"),
-            0,
-            "count must be 0 before server is created"
-        );
-
-        let _server = node
-            .create_action_server::<TestAction>("/semantics_test_action")
-            .build()?;
-
-        assert_eq!(
-            node.graph()
-                .count(EndpointKind::ActionServer, "/semantics_test_action"),
-            1,
-            "count(ActionServer) must return 1 when server is present, not the number of sub-endpoints (5)"
-        );
-        Ok(())
-    }
 }

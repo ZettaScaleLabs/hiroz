@@ -114,17 +114,13 @@ pub fn action_name_from_topic(topic: &str) -> Option<&str> {
     None
 }
 
-/// ROS 2 endpoint kind (publisher, subscription, service, client, action server).
+/// ROS 2 endpoint kind (publisher, subscription, service, client).
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
 pub enum EndpointKind {
     Publisher,
     Subscription,
     Service,
     Client,
-    /// Synthetic kind: action server endpoint (not a wire-format code).
-    /// Used only as a query discriminant in `Graph::count` and `Graph::has_action_server`;
-    /// no `EndpointEntity` is ever stored with this kind.
-    ActionServer,
 }
 
 impl Display for EndpointKind {
@@ -134,7 +130,6 @@ impl Display for EndpointKind {
             EndpointKind::Subscription => write!(f, "MS"),
             EndpointKind::Service => write!(f, "SS"),
             EndpointKind::Client => write!(f, "SC"),
-            EndpointKind::ActionServer => write!(f, "AS"),
         }
     }
 }
@@ -148,9 +143,6 @@ impl core::str::FromStr for EndpointKind {
             "MS" => Ok(EndpointKind::Subscription),
             "SS" => Ok(EndpointKind::Service),
             "SC" => Ok(EndpointKind::Client),
-            // ActionServer/ActionClient are synthetic graph-level kinds, not wire-format codes.
-            // They must never be parsed from a liveliness token; reject them here so a peer
-            // emitting "AS"/"AC" does not silently produce a phantom entity in the graph.
             _ => Err("Invalid endpoint kind"),
         }
     }

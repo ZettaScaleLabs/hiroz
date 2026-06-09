@@ -53,9 +53,6 @@ impl From<EndpointKind> for CanonicalKind {
         match k {
             EndpointKind::Publisher | EndpointKind::Subscription => CanonicalKind::PubSub,
             EndpointKind::Service | EndpointKind::Client => CanonicalKind::Service,
-            // ActionServer is a synthetic graph kind; the bridge sees its underlying
-            // service/pubsub sub-endpoints with their original kinds.
-            EndpointKind::ActionServer => CanonicalKind::Service,
         }
     }
 }

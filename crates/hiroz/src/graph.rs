@@ -930,10 +930,6 @@ impl Graph {
                     }
                 });
             }
-            EndpointKind::ActionServer => {
-                // by_action holds sub-endpoints, not servers; delegate to the authoritative check.
-                total = self.has_action_server(name) as usize;
-            }
         }
         total
     }
