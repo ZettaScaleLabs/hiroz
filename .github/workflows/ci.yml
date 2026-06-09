@@ -636,7 +636,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
