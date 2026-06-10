@@ -219,7 +219,9 @@ mod tests {
 
         assert!(
             node.graph().has_action_server("/direct_test_action"),
-            "has_action_server must be true once all 5 sub-endpoints are registered"
+            "has_action_server must be true immediately after build() — \
+             all 5 sub-endpoints (send_goal, get_result, cancel_goal, feedback, status) \
+             are indexed synchronously via add_local_entity"
         );
         Ok(())
     }
