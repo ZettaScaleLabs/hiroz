@@ -1,0 +1,21 @@
+# Build context for compose/docker/Dockerfile.hiroz (context = repo root).
+# Only the Rust workspace is needed; keep the context small.
+target
+**/target
+.git
+.github
+.vale
+.config
+assets
+docs
+nix
+scripts
+compose
+**/.venv
+crates/hiroz-go
+crates/hiroz-codegen-go
+flake.nix
+flake.lock
+mkdocs.yml
+cliff.toml
+codecov.yml

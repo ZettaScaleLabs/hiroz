@@ -1,0 +1,105 @@
+name: Compose Interop
+
+# Cross-container interop gates: hiroz in its own container (the "Raspberry
+# Pi analogue") talking zenoh through rmw_zenohd to a full ROS 2 Jazzy
+# container that exercises topics, services, parameters, actions, and graph
+# introspection. See compose/README.md.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'book/**'
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yml'
+      - '.github/workflows/mkdocs-preview.yml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/test.yml'
+      - '.github/workflows/rmw-zenoh-rs.yml'
+      - '.github/workflows/semantic-pr.yml'
+      - '.github/workflows/pr-draft-check.yml'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'book/**'
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yml'
+      - '.github/workflows/mkdocs-preview.yml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/test.yml'
+      - '.github/workflows/rmw-zenoh-rs.yml'
+      - '.github/workflows/semantic-pr.yml'
+      - '.github/workflows/pr-draft-check.yml'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "hiroz container platform (linux/arm64 runs the Pi analogue under QEMU)"
+        type: choice
+        options: [linux/amd64, linux/arm64]
+        default: linux/amd64
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  compose-interop:
+    name: compose interop (jazzy, ${{ inputs.platform || 'linux/amd64' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Skip for draft PRs to save CI time during development
+    if: |
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.draft == false
+    env:
+      HIROZ_PLATFORM: ${{ inputs.platform || 'linux/amd64' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        if: env.HIROZ_PLATFORM == 'linux/arm64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build hiroz testbed image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: compose/docker/Dockerfile.hiroz
+          platforms: ${{ env.HIROZ_PLATFORM }}
+          load: true
+          tags: hiroz-compose-testbed:local
+          cache-from: type=gha,scope=compose-hiroz-${{ env.HIROZ_PLATFORM }}
+          cache-to: type=gha,scope=compose-hiroz-${{ env.HIROZ_PLATFORM }},mode=max
+
+      - name: Build ros2 gates image
+        uses: docker/build-push-action@v6
+        with:
+          context: compose
+          file: compose/docker/Dockerfile.ros2
+          load: true
+          tags: hiroz-compose-ros2:local
+          cache-from: type=gha,scope=compose-ros2
+          cache-to: type=gha,scope=compose-ros2,mode=max
+
+      - name: Run interop gates
+        run: |
+          docker compose -f compose/docker-compose.yml up \
+            --no-build --exit-code-from gates gates
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose -f compose/docker-compose.yml logs --timestamps
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f compose/docker-compose.yml down -v --remove-orphans

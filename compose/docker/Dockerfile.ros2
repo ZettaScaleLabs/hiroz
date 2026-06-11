@@ -1,0 +1,25 @@
+# Full ROS 2 Jazzy install used for both the zenoh router (rmw_zenohd) and
+# the RED/GREEN gate runner in the docker-compose interop harness.
+#
+# Build context must be the compose/ directory (see compose/docker-compose.yml).
+# Package list mirrors .github/workflows/test.yml.
+FROM ros:jazzy-ros-base
+
+# Optional apt version pin for rmw_zenoh_cpp, e.g. "=0.2.5-1noble.20250101.000000".
+# Defaults to latest so the harness catches upstream rmw_zenoh regressions early.
+ARG RMW_ZENOH_VERSION=
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      "ros-jazzy-rmw-zenoh-cpp${RMW_ZENOH_VERSION}" \
+      ros-jazzy-demo-nodes-cpp \
+      ros-jazzy-example-interfaces \
+      ros-jazzy-action-tutorials-cpp \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY gates/ /gates/
+RUN chmod +x /gates/*.sh
+
+# ros:jazzy ships /ros_entrypoint.sh which sources /opt/ros/jazzy/setup.bash.
+ENTRYPOINT ["/ros_entrypoint.sh"]
+CMD ["bash"]

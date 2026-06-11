@@ -95,3 +95,20 @@ just -f crates/hiroz-go/justfile run-example subscriber
 ```
 
 For more detail see [Go Quick Start](../bindings/go-quick-start.md).
+
+---
+
+## Containerized interop testing
+
+The repository ships a docker-compose harness (`compose/` at the repo root)
+that runs hiroz in its own container — a stand-in for an edge device such as
+a Raspberry Pi — talking through `rmw_zenohd` to a separate container with a
+full ROS 2 Jazzy install. The ROS 2 container exercises topics, services,
+parameters, actions, and graph introspection as RED/GREEN gates, both
+locally and in CI (the **Compose Interop** workflow):
+
+```bash
+docker compose -f compose/docker-compose.yml up --exit-code-from gates gates
+```
+
+See `compose/README.md` for details.

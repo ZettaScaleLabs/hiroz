@@ -1,0 +1,80 @@
+# docker-compose interop harness: a hiroz container (the "Raspberry Pi
+# analogue") talks zenoh through a rmw_zenohd router to a full ROS 2 Jazzy
+# container that exercises topics, services, parameters, actions, and graph
+# introspection as RED/GREEN gates. See compose/README.md.
+name: hiroz-compose-interop
+
+services:
+  # rmw_zenoh's own router, so the router version always matches the rmw
+  # side (the documented deployment, docs/user-guide/interop.md).
+  router:
+    image: hiroz-compose-ros2:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ros2
+      args:
+        RMW_ZENOH_VERSION: ${RMW_ZENOH_VERSION:-}
+    pull_policy: never
+    command: ["ros2", "run", "rmw_zenoh_cpp", "rmw_zenohd"]
+    environment:
+      ROS_DOMAIN_ID: "0"
+      RUST_LOG: "zenoh=info"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/7447"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 5s
+    networks: [rosnet]
+
+  # The Pi analogue: hiroz testbed nodes built from this repo, connecting to
+  # the router as a zenoh client. Set HIROZ_PLATFORM=linux/arm64 to run it
+  # under QEMU emulation for architectural fidelity (see README).
+  hiroz:
+    image: hiroz-compose-testbed:local
+    build:
+      context: ..
+      dockerfile: compose/docker/Dockerfile.hiroz
+    pull_policy: never
+    platform: ${HIROZ_PLATFORM:-linux/amd64}
+    command: ["--endpoint", "tcp/router:7447"]
+    environment:
+      RUST_LOG: "hiroz=info,zenoh=warn"
+    depends_on:
+      router:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/testbed_ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    networks: [rosnet]
+
+  # The RED/GREEN gate runner: full ROS 2 Jazzy + rmw_zenoh_cpp exercising
+  # the hiroz container over the network. Its exit code is the verdict.
+  gates:
+    image: hiroz-compose-ros2:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ros2
+      args:
+        RMW_ZENOH_VERSION: ${RMW_ZENOH_VERSION:-}
+    pull_policy: never
+    command: ["/gates/run_gates.sh"]
+    environment:
+      ROS_DOMAIN_ID: "0"
+      RMW_IMPLEMENTATION: rmw_zenoh_cpp
+      # Same override format as hiroz-tests (common/mod.rs rmw_zenoh_env).
+      ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["tcp/router:7447"];scouting/multicast/enabled=false'
+      ZENOH_ROUTER_CHECK_ATTEMPTS: "30"
+    depends_on:
+      router:
+        condition: service_healthy
+      hiroz:
+        condition: service_healthy
+    networks: [rosnet]
+
+networks:
+  rosnet:
+    driver: bridge

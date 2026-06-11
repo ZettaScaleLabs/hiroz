@@ -158,6 +158,12 @@ path = "examples/demo_nodes/fibonacci_action_client.rs"
 name = "demo_nodes_fibonacci_action_server"
 path = "examples/demo_nodes/fibonacci_action_server.rs"
 
+# Long-running multi-node testbed for the docker-compose interop harness (compose/)
+[[example]]
+name = "compose_testbed"
+path = "examples/compose_testbed.rs"
+required-features = []
+
 [[example]]
 name = "z_srvcli"
 

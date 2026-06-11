@@ -1,0 +1,55 @@
+# syntax=docker/dockerfile:1
+# Builds the hiroz-side testbed for the docker-compose interop harness.
+#
+# The builder stages always run on the build host's native architecture
+# ($BUILDPLATFORM); when TARGETPLATFORM=linux/arm64 the binary is
+# cross-compiled with cargo-zigbuild so only the slim runtime stage runs
+# under QEMU emulation.
+#
+# Build context must be the repository root (see compose/docker-compose.yml).
+
+ARG RUST_VERSION=1.94
+
+FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-bookworm AS chef
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3-pip \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip3 install --break-system-packages cargo-zigbuild ziglang \
+ && cargo install cargo-chef --locked
+WORKDIR /app
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+ARG TARGETPLATFORM
+RUN case "${TARGETPLATFORM:-linux/amd64}" in \
+      "linux/arm64") echo aarch64-unknown-linux-gnu > /rust_target ;; \
+      "linux/amd64") echo x86_64-unknown-linux-gnu > /rust_target ;; \
+      *) echo "unsupported TARGETPLATFORM: ${TARGETPLATFORM}" >&2; exit 1 ;; \
+    esac \
+ && rustup target add "$(cat /rust_target)"
+# Cook the dependency tree as its own layer so source-only changes don't
+# rebuild zenoh and friends.
+COPY --from=planner /app/recipe.json recipe.json
+RUN if [ "$(cat /rust_target)" = "x86_64-unknown-linux-gnu" ]; then \
+      cargo chef cook --release --target "$(cat /rust_target)" \
+        --package hiroz --recipe-path recipe.json; \
+    else \
+      cargo chef cook --release --zigbuild --target "$(cat /rust_target)" \
+        --package hiroz --recipe-path recipe.json; \
+    fi
+COPY . .
+RUN if [ "$(cat /rust_target)" = "x86_64-unknown-linux-gnu" ]; then \
+      cargo build --release --target "$(cat /rust_target)" \
+        -p hiroz --example compose_testbed; \
+    else \
+      cargo zigbuild --release --target "$(cat /rust_target)" \
+        -p hiroz --example compose_testbed; \
+    fi \
+ && cp "target/$(cat /rust_target)/release/examples/compose_testbed" /compose_testbed
+
+FROM debian:bookworm-slim AS runtime
+COPY --from=builder /compose_testbed /usr/local/bin/compose_testbed
+ENTRYPOINT ["/usr/local/bin/compose_testbed"]
