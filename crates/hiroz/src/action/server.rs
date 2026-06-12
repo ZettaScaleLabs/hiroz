@@ -888,12 +888,7 @@ impl<A: ZAction> GoalHandle<A, Requested> {
     ///
     /// This sends an acceptance response to the client and updates the server state.
     pub fn accept(mut self) -> GoalHandle<A, Accepted> {
-        // Insert goal into manager BEFORE sending the accept reply.
-        //
-        // The client may immediately send a get_result query upon receiving the accept
-        // reply. If the goal is not yet in the manager when that query arrives, the
-        // driver returns NotFound and never sends a result response. Inserting first
-        // eliminates that TOCTOU window.
+        // Insert before replying — client may fire get_result before we'd register the goal.
         self.server.goal_manager().modify(|manager| {
             let expires_at = manager.goal_timeout.map(|timeout| Instant::now() + timeout);
             manager.goals.insert(
