@@ -2,6 +2,7 @@
 name = "hiroz-py"
 version.workspace = true
 edition.workspace = true
+publish = false
 
 [lib]
 name = "_native"

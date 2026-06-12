@@ -2,9 +2,16 @@
 name = "hiroz-codegen"
 version.workspace = true
 edition.workspace = true
+description = "Build-time code generator for ROS 2 message, service, and action types"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["ros2", "zenoh", "codegen", "build", "robotics"]
+categories = ["development-tools::build-utils"]
 
 # Include vendored assets in published crate
 include = [
+  "build.rs",
   "src/**/*",
   "assets/**/*.msg",
   "assets/**/*.srv",

@@ -3,6 +3,7 @@ name = "rmw-zenoh-rs"
 version = "0.1.0"
 edition = "2024"
 description = "ROS 2 RMW (ROS Middleware) implementation using Zenoh - Requires ROS 2 Iron or later"
+publish = false
 
 # IMPORTANT: This crate requires ROS 2 Iron (2023) or later
 #

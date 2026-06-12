@@ -509,3 +509,25 @@ jobs:
 
       - name: Import test
         run: .venv/bin/python -c "import hiroz_py; print('hiroz_py install-from-release ok')"
+
+  publish-crates:
+    name: Publish core crates to crates.io
+    needs: [smoke-test-release-install]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Authenticate with crates.io (trusted publishing)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - name: Publish core crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --workspace -j4

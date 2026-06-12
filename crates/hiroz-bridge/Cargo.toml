@@ -3,6 +3,7 @@ name = "hiroz-bridge"
 version.workspace = true
 edition.workspace = true
 description = "Bridge between ROS 2 Humble and Jazzy Zenoh networks via key expression translation"
+publish = false
 
 [[bin]]
 name = "hiroz-bridge"

@@ -5,6 +5,7 @@ edition = "2024"
 description = "ROS 2 Graph Inspector & Dataflow Monitor TUI"
 homepage = "https://github.com/ZettaScaleLabs/hiroz"
 default-run = "hiroz-console"
+publish = false
 
 [dependencies]
 hiroz = { path = "../hiroz", features = ["ros2dds"] }

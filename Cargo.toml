@@ -3,6 +3,8 @@ version = "0.1.0"
 edition = "2024"
 description = "Native Rust ROS 2 implementation using Zenoh"
 homepage = "https://github.com/ZettaScaleLabs/hiroz"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/ZettaScaleLabs/hiroz"
 
 [workspace]
 resolver = "2"
@@ -29,14 +31,15 @@ default-members = ["crates/hiroz", "crates/hiroz-codegen"]
 
 [workspace.dependencies]
 # Workspace members
-hiroz = { version = "*", path = "crates/hiroz" }
-hiroz-codegen = { version = "*", path = "crates/hiroz-codegen" }
-hiroz-protocol = { version = "*", path = "crates/hiroz-protocol" }
-rmw-zenoh-rs = { version = "*", path = "crates/rmw-zenoh-rs" }
-hiroz-schema = { version = "*", path = "crates/hiroz-schema" }
+hiroz = { version = "0.1.0", path = "crates/hiroz" }
+hiroz-codegen = { version = "0.1.0", path = "crates/hiroz-codegen" }
+hiroz-protocol = { version = "0.1.0", path = "crates/hiroz-protocol" }
+rmw-zenoh-rs = { version = "0.1.0", path = "crates/rmw-zenoh-rs" }
+hiroz-schema = { version = "0.1.0", path = "crates/hiroz-schema" }
 
 # Serialization
-hiroz-cdr = { path = "crates/hiroz-cdr" }
+hiroz-cdr = { version = "0.1.0", path = "crates/hiroz-cdr" }
+hiroz-derive = { version = "0.1.0", path = "crates/hiroz-derive" }
 serde = "1.0.219"
 serde_bytes = "0.11"
 serde_json = "1.0"

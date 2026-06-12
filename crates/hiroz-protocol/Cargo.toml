@@ -8,7 +8,7 @@ description = "ROS 2 over Zenoh protocol: entity types and key expression format
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/ZettaScaleLabs/hiroz"
 keywords = ["ros2", "zenoh", "robotics", "middleware", "protocol"]
-categories = ["network-programming", "robotics"]
+categories = ["network-programming", "science::robotics"]
 
 [features]
 default = ["std", "rmw-zenoh"]
