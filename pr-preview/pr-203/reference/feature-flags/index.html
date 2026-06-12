@@ -1,0 +1,3545 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="High-performance Interoperable Robotics on Zenoh">
+      
+      
+      
+        <link rel="canonical" href="https://zettascalelabs.github.io/hiroz/reference/feature-flags/">
+      
+      
+        <link rel="prev" href="../../experimental/keyexpr-formats/">
+      
+      
+        <link rel="next" href="../../getting-started/nix/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.0">
+    
+    
+      
+        <title>Feature Flags - HIROZ</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.618322db.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/home.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/actions.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#feature-flags" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="HIROZ" class="md-header__button md-logo" aria-label="HIROZ" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 163" overflow="hidden"><path d="M67.5,0 C70.5,10.015361 71.5,23.0353303 70.5,39.0599078 C87.5,23.5360983 102.5,15.7741935 115.5,15.7741935 C108,23.2857143 108.272452,33.9711351 112.5,33.0506912 C124,30.546851 136.5,32.5499232 150,39.0599078 L150,153.269585 C150,165.695992 139.926407,175.769585 127.5,175.769585 L61.1792721,175.769585 C54.9660687,175.769585 49.9292721,170.732789 49.9292721,164.519585 C49.9292721,162.825588 50.3118282,161.153461 51.0483941,159.627979 C55.1904226,151.049532 63.9242912,142.158178 77.25,132.953917 C99,117.930876 107.25,107.414747 107.25,87.8847926 C107.25,76.6175115 101.235622,69.7933468 93,69.1059908 C84,68.3548387 77.25,72.8617512 77.25,79.6221198 C77.25,83.1274962 78.25,86.1321045 80.25,88.6359447 L45,114.175115 C42.5,117.680492 41.25,121.686636 41.25,126.193548 C31.75,126.193548 26.5,120.935484 25.5,110.419355 L30.5,74.1136713 C24.1666667,69.2729135 19.25,63.5140809 15.75,56.8371736 C21.5833333,59.8417819 27.3527952,61.6613272 33.0583855,62.2958096 L36,43.5668203 C38.5,30.546851 41.75,22.0337942 45.75,18.0276498 C45.25,27.0414747 46.25,38.0583717 48.75,51.078341 C59.25,35.5545315 65.5,18.5284178 67.5,0 Z M55.5,59.3410138 C54.8493151,62.5994361 52.5050666,67.1299821 48.4672671,72.9331549 C49.3254255,73.6214254 49.875,74.6796138 49.875,75.8663594 C49.875,77.9406086 48.1960678,79.6221198 46.125,79.6221198 C45.3413993,79.6221198 44.6139341,79.3814062 44.0134198,78.9679649 C42.9192012,80.380157 41.7480613,81.8501288 40.5,83.3778802 C48.0409322,84.7516633 53.0409322,83.2493592 55.5,78.8709677 C58.5613983,73.4201217 58.5,65.3502304 55.5,59.3410138 Z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            HIROZ
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Feature Flags
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ZettaScaleLabs/hiroz" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ZettaScaleLabs/hiroz
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Introduction
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/quick-start/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../core-concepts/pubsub/" class="md-tabs__link">
+          
+  
+  
+  Core Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user-guide/networking/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tools/console/" class="md-tabs__link">
+          
+  
+  
+  Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../bindings/python-quick-start/" class="md-tabs__link">
+          
+  
+  
+  Language Bindings
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../experimental/shm/" class="md-tabs__link">
+          
+  
+  
+  Advanced Topics
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../feature-comparison/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="HIROZ" class="md-nav__button md-logo" aria-label="HIROZ" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 163" overflow="hidden"><path d="M67.5,0 C70.5,10.015361 71.5,23.0353303 70.5,39.0599078 C87.5,23.5360983 102.5,15.7741935 115.5,15.7741935 C108,23.2857143 108.272452,33.9711351 112.5,33.0506912 C124,30.546851 136.5,32.5499232 150,39.0599078 L150,153.269585 C150,165.695992 139.926407,175.769585 127.5,175.769585 L61.1792721,175.769585 C54.9660687,175.769585 49.9292721,170.732789 49.9292721,164.519585 C49.9292721,162.825588 50.3118282,161.153461 51.0483941,159.627979 C55.1904226,151.049532 63.9242912,142.158178 77.25,132.953917 C99,117.930876 107.25,107.414747 107.25,87.8847926 C107.25,76.6175115 101.235622,69.7933468 93,69.1059908 C84,68.3548387 77.25,72.8617512 77.25,79.6221198 C77.25,83.1274962 78.25,86.1321045 80.25,88.6359447 L45,114.175115 C42.5,117.680492 41.25,121.686636 41.25,126.193548 C31.75,126.193548 26.5,120.935484 25.5,110.419355 L30.5,74.1136713 C24.1666667,69.2729135 19.25,63.5140809 15.75,56.8371736 C21.5833333,59.8417819 27.3527952,61.6613272 33.0583855,62.2958096 L36,43.5668203 C38.5,30.546851 41.75,22.0337942 45.75,18.0276498 C45.25,27.0414747 46.25,38.0583717 48.75,51.078341 C59.25,35.5545315 65.5,18.5284178 67.5,0 Z M55.5,59.3410138 C54.8493151,62.5994361 52.5050666,67.1299821 48.4672671,72.9331549 C49.3254255,73.6214254 49.875,74.6796138 49.875,75.8663594 C49.875,77.9406086 48.1960678,79.6221198 46.125,79.6221198 C45.3413993,79.6221198 44.6139341,79.3814062 44.0134198,78.9679649 C42.9192012,80.380157 41.7480613,81.8501288 40.5,83.3778802 C48.0409322,84.7516633 53.0409322,83.2493592 55.5,78.8709677 C58.5613983,73.4201217 58.5,65.3502304 55.5,59.3410138 Z"/></svg>
+
+    </a>
+    HIROZ
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ZettaScaleLabs/hiroz" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ZettaScaleLabs/hiroz
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/building/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/distro-compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Distro Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Core Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/pubsub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pub/Sub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Actions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Actions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Actions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/actions-advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/lifecycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lifecycle Nodes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/networking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/config-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/config-advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/interop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ROS 2 Interoperability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/bridge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cross-Distro Bridge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Messages & Serialization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Messages & Serialization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/message-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Message Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/message-generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Message Generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/custom-messages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Messages
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/protobuf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protobuf Serialization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hiroz-console
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Language Bindings
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Language Bindings
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_1" id="__nav_6_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Python
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/python-quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/python/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bindings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/python-codegen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Codegen Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Go
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Go
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/go-quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/go/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bindings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Topics
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Topics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental/shm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared Memory (SHM)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../feature-comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feature Comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ros2-to-hiroz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ROS 2 → hiroz API Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental/rmw-zenoh-rs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    rmw_zenoh_rs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental/keyexpr-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Key Expression Formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feature Flags
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feature Flags
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#feature-categories" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Categories
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hiroz-core-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hiroz Core Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="hiroz Core Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#protobuf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        protobuf
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#distribution-compatibility-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distribution Compatibility Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Distribution Compatibility Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#jazzy-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        jazzy (default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#humble" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        humble
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kilted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        kilted
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lyrical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lyrical
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rolling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rolling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rcl-z" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rcl-z
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hiroz-msgs-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hiroz-msgs Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="hiroz-msgs Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#default-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#individual-package-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Individual Package Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#convenience-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Convenience Aliases
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#protobuf-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protobuf Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hiroz-codegen-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hiroz-codegen Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="hiroz-codegen Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#protobuf-code-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protobuf Code Generation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-dependency-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Dependency Graph
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-feature-combinations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Feature Combinations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Feature Combinations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#minimal-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minimal Development
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#standard-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standard Development
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#full-message-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Message Set
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rcl-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RCL Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#protobuf-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protobuf Development
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checking-active-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checking Active Features
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-selection-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Selection Strategy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples-by-feature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples by Feature
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples by Feature">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bundled-messages-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bundled Messages (Default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Messages
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resources
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/nix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nix Development
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#feature-categories" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Categories
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hiroz-core-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hiroz Core Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="hiroz Core Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#protobuf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        protobuf
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#distribution-compatibility-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distribution Compatibility Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Distribution Compatibility Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#jazzy-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        jazzy (default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#humble" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        humble
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kilted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        kilted
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lyrical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lyrical
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rolling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rolling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rcl-z" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rcl-z
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hiroz-msgs-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hiroz-msgs Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="hiroz-msgs Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#default-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#individual-package-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Individual Package Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#convenience-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Convenience Aliases
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#protobuf-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protobuf Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hiroz-codegen-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hiroz-codegen Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="hiroz-codegen Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#protobuf-code-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protobuf Code Generation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-dependency-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Dependency Graph
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-feature-combinations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Feature Combinations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Feature Combinations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#minimal-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minimal Development
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#standard-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standard Development
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#full-message-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Message Set
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rcl-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RCL Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#protobuf-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protobuf Development
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checking-active-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checking Active Features
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-selection-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Selection Strategy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples-by-feature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples by Feature
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples by Feature">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bundled-messages-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bundled Messages (Default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Messages
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resources
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/ZettaScaleLabs/hiroz/edit/main/docs/reference/feature-flags.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="feature-flags">Feature Flags<a class="headerlink" href="#feature-flags" title="Permanent link">&para;</a></h1>
+<p><strong>Fine-grained control over dependencies and functionality through Cargo feature flags.</strong> Build exactly what you need, from zero-dependency core to full ROS 2 integration, without carrying unused code.</p>
+<div class="admonition success">
+<p class="admonition-title">Success</p>
+<p>Feature flags enable pay-per-use dependencies. Start minimal and enable features incrementally as requirements grow.</p>
+</div>
+<h2 id="feature-categories">Feature Categories<a class="headerlink" href="#feature-categories" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Purpose</th>
+<th>Example Features</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Distribution</strong></td>
+<td>Target specific ROS 2 versions</td>
+<td><code>humble</code>, <code>jazzy</code>, <code>rolling</code></td>
+</tr>
+<tr>
+<td><strong>Message Packages</strong></td>
+<td>Enable ROS 2 message types</td>
+<td><code>std_msgs</code>, <code>geometry_msgs</code></td>
+</tr>
+<tr>
+<td><strong>Serialization</strong></td>
+<td>Additional encoding formats</td>
+<td><code>protobuf</code></td>
+</tr>
+<tr>
+<td><strong>Integration</strong></td>
+<td>External system bindings</td>
+<td><code>rcl-z</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="hiroz-core-features">hiroz Core Features<a class="headerlink" href="#hiroz-core-features" title="Permanent link">&para;</a></h2>
+<h3 id="protobuf"><code>protobuf</code><a class="headerlink" href="#protobuf" title="Permanent link">&para;</a></h3>
+<p>Enables Protocol Buffers serialization using <code>prost</code>.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz<span class="w"> </span>--features<span class="w"> </span>protobuf
+</span></code></pre></div>
+<p><strong>Use cases:</strong></p>
+<ul>
+<li>Schema evolution support</li>
+<li>Language-agnostic data exchange</li>
+<li>Efficient binary encoding</li>
+<li>Familiar protobuf ecosystem</li>
+</ul>
+<p><strong>Dependencies:</strong> <code>prost</code>, <code>prost-types</code></p>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<p>Protobuf is optional. CDR serialization (default) provides full ROS 2 compatibility without additional dependencies.</p>
+</div>
+<h2 id="distribution-compatibility-features">Distribution Compatibility Features<a class="headerlink" href="#distribution-compatibility-features" title="Permanent link">&para;</a></h2>
+<p><strong>hiroz defaults to ROS 2 Jazzy</strong>. Use distribution features to target other ROS 2 versions.</p>
+<h3 id="jazzy-default"><code>jazzy</code> (default)<a class="headerlink" href="#jazzy-default" title="Permanent link">&para;</a></h3>
+<p>Targets ROS 2 Jazzy Jalisco with modern type hash support.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Automatically enabled (default)</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>cargo<span class="w"> </span>build
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Explicitly enable</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>cargo<span class="w"> </span>build<span class="w"> </span>--features<span class="w"> </span>jazzy
+</span></code></pre></div>
+<p><strong>Features:</strong></p>
+<ul>
+<li>✅ Type hash support (RIHS01)</li>
+<li>✅ Shared memory optimization</li>
+<li>✅ Modern ROS 2 protocol</li>
+</ul>
+<h3 id="humble"><code>humble</code><a class="headerlink" href="#humble" title="Permanent link">&para;</a></h3>
+<p>Targets ROS 2 Humble Hawksbill (LTS) with legacy compatibility.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Disable defaults and enable humble</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>cargo<span class="w"> </span>build<span class="w"> </span>--no-default-features<span class="w"> </span>--features<span class="w"> </span>humble
+</span></code></pre></div>
+<p><strong>Features:</strong></p>
+<ul>
+<li>❌ No type hash (uses placeholder)</li>
+<li>❌ No shared memory support</li>
+<li>✅ LTS support until 2027</li>
+<li>✅ Compatible with rmw_zenoh_cpp v0.1.8</li>
+</ul>
+<p><strong>Important:</strong> Humble requires <code>--no-default-features</code> to avoid conflicts with the jazzy default.</p>
+<h3 id="kilted"><code>kilted</code><a class="headerlink" href="#kilted" title="Permanent link">&para;</a></h3>
+<p>Targets ROS 2 Kilted Kaiju with modern type hash support.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--features<span class="w"> </span>kilted
+</span></code></pre></div>
+<p><strong>Features:</strong></p>
+<ul>
+<li>✅ Type hash support (RIHS01)</li>
+<li>✅ Shared memory optimization</li>
+<li>✅ Modern ROS 2 protocol</li>
+</ul>
+<h3 id="lyrical"><code>lyrical</code><a class="headerlink" href="#lyrical" title="Permanent link">&para;</a></h3>
+<p>Targets ROS 2 Lyrical Luth (LTS, May 2026–May 2031) with modern type hash support.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--features<span class="w"> </span>lyrical
+</span></code></pre></div>
+<p><strong>Features:</strong></p>
+<ul>
+<li>✅ Type hash support (RIHS01)</li>
+<li>✅ Shared memory optimization</li>
+<li>✅ Modern ROS 2 protocol</li>
+<li>✅ LTS support until 2031</li>
+</ul>
+<h3 id="rolling"><code>rolling</code><a class="headerlink" href="#rolling" title="Permanent link">&para;</a></h3>
+<p>Target Rolling distribution:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--features<span class="w"> </span>rolling
+</span></code></pre></div>
+<p><strong>See also:</strong> <a href="../../getting-started/distro-compatibility/">ROS 2 Distribution Compatibility</a> for detailed documentation.</p>
+<h3 id="rcl-z"><code>rcl-z</code><a class="headerlink" href="#rcl-z" title="Permanent link">&para;</a></h3>
+<p>Enables RCL (ROS Client Library) integration for C/C++ interoperability.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz<span class="w"> </span>--features<span class="w"> </span>rcl-z
+</span></code></pre></div>
+<p><strong>Use cases:</strong></p>
+<ul>
+<li>Integrating with existing RCL-based code</li>
+<li>Leveraging C/C++ ROS 2 libraries</li>
+<li>Hybrid Rust/C++ applications</li>
+</ul>
+<p><strong>Requirements:</strong> ROS 2 installation with RCL libraries</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>This feature requires you to source ROS 2 before building. See <a href="../../getting-started/building/">Building Guide</a> for setup instructions.</p>
+</div>
+<h2 id="hiroz-msgs-features">hiroz-msgs Features<a class="headerlink" href="#hiroz-msgs-features" title="Permanent link">&para;</a></h2>
+<h3 id="default-features">Default Features<a class="headerlink" href="#default-features" title="Permanent link">&para;</a></h3>
+<p>The default build includes commonly used message types via <code>core_msgs</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs
+</span></code></pre></div>
+<p><strong>Includes:</strong></p>
+<ul>
+<li><code>std_msgs</code> - Basic types (String, Int32, etc.)</li>
+<li><code>geometry_msgs</code> - Spatial types (Point, Pose, Transform)</li>
+<li><code>sensor_msgs</code> - Sensor data (LaserScan, Image, Imu)</li>
+<li><code>nav_msgs</code> - Navigation (Path, Odometry, OccupancyGrid)</li>
+<li><code>example_interfaces</code> - Tutorial services (AddTwoInts)</li>
+<li><code>action_tutorials_interfaces</code> - Tutorial actions (Fibonacci)</li>
+</ul>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>All messages are vendored in assets - no ROS 2 installation required. Feature flags control which packages to include in your build.</p>
+</div>
+<h3 id="individual-package-features">Individual Package Features<a class="headerlink" href="#individual-package-features" title="Permanent link">&para;</a></h3>
+<p>hiroz bundles all packages in assets so they work without ROS 2:</p>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Package</th>
+<th>Use Case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>std_msgs</code></td>
+<td>Standard messages</td>
+<td>Strings, numbers, arrays</td>
+</tr>
+<tr>
+<td><code>geometry_msgs</code></td>
+<td>Geometric primitives</td>
+<td>Points, poses, transforms</td>
+</tr>
+<tr>
+<td><code>sensor_msgs</code></td>
+<td>Sensor data</td>
+<td>Cameras, lidars, IMUs</td>
+</tr>
+<tr>
+<td><code>nav_msgs</code></td>
+<td>Navigation</td>
+<td>Paths, maps, odometry</td>
+</tr>
+<tr>
+<td><code>example_interfaces</code></td>
+<td>Tutorial services</td>
+<td>AddTwoInts, Fibonacci</td>
+</tr>
+<tr>
+<td><code>action_tutorials_interfaces</code></td>
+<td>Tutorial actions</td>
+<td>Fibonacci action</td>
+</tr>
+<tr>
+<td><code>rcl_interfaces</code></td>
+<td>Parameter service types</td>
+<td>Parameter service client interop</td>
+</tr>
+<tr>
+<td><code>test_msgs</code></td>
+<td>Test types</td>
+<td>Testing and validation</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Usage:</strong></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Single package</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs<span class="w"> </span>--no-default-features<span class="w"> </span>--features<span class="w"> </span>std_msgs
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># Multiple packages</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs<span class="w"> </span>--no-default-features<span class="w"> </span>--features<span class="w"> </span><span class="s2">&quot;std_msgs,geometry_msgs&quot;</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1"># Default (core_msgs)</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs
+</span></code></pre></div>
+<h3 id="convenience-aliases">Convenience Aliases<a class="headerlink" href="#convenience-aliases" title="Permanent link">&para;</a></h3>
+<p><strong><code>core_msgs</code> (default):</strong></p>
+<p>The most commonly used packages for ROS 2 development.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs<span class="w">  </span><span class="c1"># Uses core_msgs by default</span>
+</span></code></pre></div>
+<p>Enables: <code>std_msgs</code>, <code>geometry_msgs</code>, <code>sensor_msgs</code>, <code>nav_msgs</code>, <code>example_interfaces</code>, <code>action_tutorials_interfaces</code></p>
+<p><strong><code>common_interfaces</code>:</strong></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs<span class="w"> </span>--features<span class="w"> </span>common_interfaces
+</span></code></pre></div>
+<p>Enables: <code>std_msgs</code>, <code>geometry_msgs</code>, <code>sensor_msgs</code></p>
+<p><strong><code>bundled_msgs</code>:</strong></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs<span class="w"> </span>--features<span class="w"> </span>bundled_msgs
+</span></code></pre></div>
+<p>Enables: <code>std_msgs</code>, <code>geometry_msgs</code>, <code>sensor_msgs</code>, <code>nav_msgs</code></p>
+<p><strong><code>robotics</code>:</strong></p>
+<p>Alias for <code>core_msgs</code>.</p>
+<p><strong><code>all_msgs</code>:</strong></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs<span class="w"> </span>--features<span class="w"> </span>all_msgs
+</span></code></pre></div>
+<p>Enables: All available packages including <code>test_msgs</code></p>
+<h3 id="protobuf-types">Protobuf Types<a class="headerlink" href="#protobuf-types" title="Permanent link">&para;</a></h3>
+<p>Generate protobuf types alongside ROS messages:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs<span class="w"> </span>--features<span class="w"> </span>protobuf
+</span></code></pre></div>
+<p><strong>Note:</strong> Requires <code>hiroz/protobuf</code> feature enabled as well.</p>
+<h2 id="hiroz-codegen-features">hiroz-codegen Features<a class="headerlink" href="#hiroz-codegen-features" title="Permanent link">&para;</a></h2>
+<h3 id="protobuf-code-generation">Protobuf Code Generation<a class="headerlink" href="#protobuf-code-generation" title="Permanent link">&para;</a></h3>
+<p>Enable protobuf code generation support:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-codegen<span class="w"> </span>--features<span class="w"> </span>protobuf
+</span></code></pre></div>
+<p><strong>Use case:</strong> Building tools that generate protobuf code from ROS messages</p>
+<h2 id="feature-dependency-graph">Feature Dependency Graph<a class="headerlink" href="#feature-dependency-graph" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>graph TD
+accTitle: Feature flag dependency graph for hiroz message packages
+accDescr: The all_msgs feature depends on bundled_msgs plus example, action tutorial, and test message packages; bundled_msgs and core_msgs both cover the four core geometry, sensor, nav, and std message packages.
+    A[all_msgs] --&gt; B[bundled_msgs]
+    A --&gt; C[example_interfaces]
+    A --&gt; D[action_tutorials_interfaces]
+    A --&gt; E[test_msgs]
+
+    B --&gt; F[std_msgs]
+    B --&gt; G[geometry_msgs]
+    B --&gt; H[sensor_msgs]
+    B --&gt; I[nav_msgs]
+
+    J[core_msgs] --&gt; F
+    J --&gt; G
+    J --&gt; H
+    J --&gt; I
+    J --&gt; C
+    J --&gt; D</code></pre>
+<h2 id="common-feature-combinations">Common Feature Combinations<a class="headerlink" href="#common-feature-combinations" title="Permanent link">&para;</a></h2>
+<h3 id="minimal-development">Minimal Development<a class="headerlink" href="#minimal-development" title="Permanent link">&para;</a></h3>
+<p>Core library only, no messages:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz
+</span></code></pre></div>
+<p><strong>Dependencies:</strong> Rust, Cargo
+<strong>Use case:</strong> Custom messages only</p>
+<h3 id="standard-development">Standard Development<a class="headerlink" href="#standard-development" title="Permanent link">&para;</a></h3>
+<p>Core with common message types:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs<span class="w">  </span><span class="c1"># Uses default common_interfaces</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz
+</span></code></pre></div>
+<p><strong>Dependencies:</strong> Rust, Cargo
+<strong>Use case:</strong> Most applications</p>
+<h3 id="full-message-set">Full Message Set<a class="headerlink" href="#full-message-set" title="Permanent link">&para;</a></h3>
+<p>All available message packages:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs<span class="w"> </span>--features<span class="w"> </span>all_msgs
+</span></code></pre></div>
+<p><strong>Dependencies:</strong> Rust, Cargo
+<strong>Use case:</strong> Access to all bundled message types including test_msgs</p>
+<h3 id="rcl-integration">RCL Integration<a class="headerlink" href="#rcl-integration" title="Permanent link">&para;</a></h3>
+<p>For C/C++ ROS 2 interoperability:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nb">source</span><span class="w"> </span>/opt/ros/jazzy/setup.bash
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>rcl-z
+</span></code></pre></div>
+<p><strong>Dependencies:</strong> Rust, Cargo, ROS 2
+<strong>Use case:</strong> Hybrid Rust/C++ applications</p>
+<h3 id="protobuf-development">Protobuf Development<a class="headerlink" href="#protobuf-development" title="Permanent link">&para;</a></h3>
+<p>Core with protobuf serialization:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-codegen<span class="w"> </span>--features<span class="w"> </span>protobuf
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs<span class="w"> </span>--features<span class="w"> </span>protobuf
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz<span class="w"> </span>--features<span class="w"> </span>protobuf
+</span></code></pre></div>
+<p><strong>Dependencies:</strong> Rust, Cargo, Protobuf compiler
+<strong>Use case:</strong> Cross-language data exchange</p>
+<h2 id="feature-matrix">Feature Matrix<a class="headerlink" href="#feature-matrix" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Feature</th>
+<th>Requires ROS 2</th>
+<th>Adds Dependencies</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>hiroz</td>
+<td>(none)</td>
+<td>No</td>
+<td>None</td>
+</tr>
+<tr>
+<td>hiroz</td>
+<td>jazzy (default)</td>
+<td>No</td>
+<td>None</td>
+</tr>
+<tr>
+<td>hiroz</td>
+<td>humble</td>
+<td>No</td>
+<td>None</td>
+</tr>
+<tr>
+<td>hiroz</td>
+<td>kilted</td>
+<td>No</td>
+<td>None</td>
+</tr>
+<tr>
+<td>hiroz</td>
+<td>lyrical</td>
+<td>No</td>
+<td>None</td>
+</tr>
+<tr>
+<td>hiroz</td>
+<td>rolling</td>
+<td>No</td>
+<td>None</td>
+</tr>
+<tr>
+<td>hiroz</td>
+<td>protobuf</td>
+<td>No</td>
+<td>prost, prost-types</td>
+</tr>
+<tr>
+<td>hiroz</td>
+<td>rcl-z</td>
+<td>Yes</td>
+<td>RCL libraries</td>
+</tr>
+<tr>
+<td>hiroz-msgs</td>
+<td>core_msgs (default)</td>
+<td>No</td>
+<td>None (bundled)</td>
+</tr>
+<tr>
+<td>hiroz-msgs</td>
+<td>bundled_msgs</td>
+<td>No</td>
+<td>None (bundled)</td>
+</tr>
+<tr>
+<td>hiroz-msgs</td>
+<td>all_msgs</td>
+<td>No</td>
+<td>None (bundled)</td>
+</tr>
+<tr>
+<td>hiroz-msgs</td>
+<td>protobuf</td>
+<td>No</td>
+<td>prost, prost-types</td>
+</tr>
+<tr>
+<td>hiroz-msgs</td>
+<td>jazzy (default)</td>
+<td>No</td>
+<td>None</td>
+</tr>
+<tr>
+<td>hiroz-msgs</td>
+<td>humble</td>
+<td>No</td>
+<td>None</td>
+</tr>
+<tr>
+<td>hiroz-msgs</td>
+<td>kilted</td>
+<td>No</td>
+<td>None</td>
+</tr>
+<tr>
+<td>hiroz-msgs</td>
+<td>lyrical</td>
+<td>No</td>
+<td>None</td>
+</tr>
+<tr>
+<td>hiroz-codegen</td>
+<td>protobuf</td>
+<td>No</td>
+<td>prost-build</td>
+</tr>
+</tbody>
+</table>
+<h2 id="checking-active-features">Checking Active Features<a class="headerlink" href="#checking-active-features" title="Permanent link">&para;</a></h2>
+<p>View enabled features for a package:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># Show features for hiroz-msgs</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>cargo<span class="w"> </span>tree<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs<span class="w"> </span>-e<span class="w"> </span>features
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="c1"># Show all workspace features</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>cargo<span class="w"> </span>tree<span class="w"> </span>-e<span class="w"> </span>features
+</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>
+</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="c1"># Build with specific features and verify</span>
+</span><span id="__span-20-8"><a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a>cargo<span class="w"> </span>build<span class="w"> </span>-p<span class="w"> </span>hiroz-msgs<span class="w"> </span>--features<span class="w"> </span>std_msgs,geometry_msgs<span class="w"> </span>-v
+</span></code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>Use <code>cargo tree</code> to debug feature resolution issues. It shows exactly which features are active and why.</p>
+</div>
+<h2 id="feature-selection-strategy">Feature Selection Strategy<a class="headerlink" href="#feature-selection-strategy" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart TD
+accTitle: Feature selection strategy flowchart for hiroz message features
+accDescr: A decision flowchart that directs projects needing no ROS messages to zero features, and those needing messages to core_msgs for common types, individual packages for minimal sets, or all_msgs for the full collection.
+    A[Start Project] --&gt; B{Need ROS messages?}
+    B --&gt;|No| C[Zero features&lt;br/&gt;Custom messages]
+    B --&gt;|Yes| D{Which messages?}
+
+    D --&gt;|Common| E[core_msgs&lt;br/&gt;default]
+    D --&gt;|Minimal| F[bundled_msgs or&lt;br/&gt;individual packages]
+    D --&gt;|All| G[all_msgs]
+
+    C --&gt; H[Minimal dependencies]
+    E --&gt; I[Standard dependencies]
+    F --&gt; I
+    G --&gt; I</code></pre>
+<p><strong>Decision guide:</strong></p>
+<ol>
+<li><strong>Most projects?</strong> → Use defaults (<code>core_msgs</code>) - includes common packages</li>
+<li><strong>Minimal build?</strong> → Use <code>--no-default-features</code> with specific packages</li>
+<li><strong>Custom messages only?</strong> → No message features</li>
+<li><strong>Cross-language data?</strong> → Add protobuf feature</li>
+<li><strong>C++ integration?</strong> → Add rcl-z feature (requires ROS 2)</li>
+</ol>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>All message packages are vendored - no ROS 2 installation required for any message feature.</p>
+</div>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<p>First build with message generation is slow. Incremental builds are fast. Choose the minimal feature set that meets your needs.</p>
+</div>
+<h2 id="examples-by-feature">Examples by Feature<a class="headerlink" href="#examples-by-feature" title="Permanent link">&para;</a></h2>
+<h3 id="bundled-messages-default">Bundled Messages (Default)<a class="headerlink" href="#bundled-messages-default" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>z_pubsub<span class="w">          </span><span class="c1"># std_msgs</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>twist_pub<span class="w">         </span><span class="c1"># geometry_msgs</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>battery_state_sub<span class="w"> </span><span class="c1"># sensor_msgs</span>
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>z_pingpong<span class="w">        </span><span class="c1"># std_msgs</span>
+</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>z_srvcli<span class="w">          </span><span class="c1"># example_interfaces (now bundled)</span>
+</span></code></pre></div>
+<h3 id="custom-messages">Custom Messages<a class="headerlink" href="#custom-messages" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>z_custom_message<span class="w">  </span><span class="c1"># No features needed</span>
+</span></code></pre></div>
+<h2 id="resources">Resources<a class="headerlink" href="#resources" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><a href="../../getting-started/building/">Building Guide</a></strong> - Build procedures for each scenario</li>
+<li><strong><a href="../../getting-started/distro-compatibility/">ROS 2 Distribution Compatibility</a></strong> - Target Jazzy, Humble, or other distributions</li>
+<li><strong><a href="../../user-guide/message-generation/">Message Generation</a></strong> - How hiroz generates messages</li>
+</ul>
+<p><strong>Start with default features and add more as your project evolves. Feature flags provide flexibility without forcing early architectural decisions.</strong></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../../experimental/keyexpr-formats/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Key Expression Formats">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Key Expression Formats
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../../getting-started/nix/" class="md-footer__link md-footer__link--next" aria-label="Next: Nix Development">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Nix Development
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "content.action.edit", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.e71a0d61.min.js"></script>
+      
+        <script src="../../javascripts/mermaid.js"></script>
+      
+        <script src="../../javascripts/action-anim.js"></script>
+      
+        <script src="../../javascripts/flashcards.js"></script>
+      
+    
+  </body>
+</html>
