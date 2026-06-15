@@ -6,6 +6,8 @@ use std::{
 use tracing::{debug, warn};
 use zenoh::{Result, Session, Wait};
 
+pub use hiroz_protocol::KeyExprFormat;
+
 use crate::{
     Builder,
     entity::normalize_node_namespace,

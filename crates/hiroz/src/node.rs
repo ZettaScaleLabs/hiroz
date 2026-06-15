@@ -955,6 +955,27 @@ impl ZNode {
     }
 
     // ========================================================================
+    // Advanced API
+    // ========================================================================
+
+    /// Returns the key expression format this node uses to construct Zenoh key expressions.
+    ///
+    /// Intended for advanced use cases where the caller needs to construct key expressions
+    /// for entities outside the normal hiroz builder API.
+    pub fn keyexpr_format(&self) -> hiroz_protocol::KeyExprFormat {
+        self.keyexpr_format
+    }
+
+    /// Allocates and returns the next entity ID from this node's shared counter.
+    ///
+    /// Each call returns a unique, monotonically increasing ID scoped to this node's
+    /// lifetime. Intended for advanced use cases where entities are created outside
+    /// the normal hiroz builder API.
+    pub fn next_entity_id(&self) -> usize {
+        self.counter.increment()
+    }
+
+    // ========================================================================
     // Parameter API
     // ========================================================================
 
