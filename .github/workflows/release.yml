@@ -147,43 +147,6 @@ jobs:
             artifact: bin-console-aarch64-macos
             target: aarch64-apple-darwin
             os: macos-latest
-          # hiroz-bridge — one binary per distro per platform
-          - bin: hiroz-bridge
-            package: hiroz-bridge
-            features: "jazzy"
-            artifact: bin-bridge-jazzy-x86_64-linux
-            target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-          - bin: hiroz-bridge
-            package: hiroz-bridge
-            features: "humble"
-            artifact: bin-bridge-humble-x86_64-linux
-            target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-          - bin: hiroz-bridge
-            package: hiroz-bridge
-            features: "jazzy"
-            artifact: bin-bridge-jazzy-aarch64-linux
-            target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-          - bin: hiroz-bridge
-            package: hiroz-bridge
-            features: "humble"
-            artifact: bin-bridge-humble-aarch64-linux
-            target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-          - bin: hiroz-bridge
-            package: hiroz-bridge
-            features: "jazzy"
-            artifact: bin-bridge-jazzy-aarch64-macos
-            target: aarch64-apple-darwin
-            os: macos-latest
-          - bin: hiroz-bridge
-            package: hiroz-bridge
-            features: "humble"
-            artifact: bin-bridge-humble-aarch64-macos
-            target: aarch64-apple-darwin
-            os: macos-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -368,33 +331,10 @@ jobs:
           name: bin-console-x86_64-linux
           path: dist/
 
-      - name: Download bridge binary (jazzy, x86_64)
-        uses: actions/download-artifact@v4
-        with:
-          name: bin-bridge-jazzy-x86_64-linux
-          path: dist/
-
       - name: Run --help
         run: |
-          chmod +x dist/bin-console-x86_64-linux dist/bin-bridge-jazzy-x86_64-linux
+          chmod +x dist/bin-console-x86_64-linux
           dist/bin-console-x86_64-linux --help
-          dist/bin-bridge-jazzy-x86_64-linux --help
-
-      - name: Runtime startup check (no crash without router)
-        run: |
-          # Run bridge for 3 s without a router; SIGTERM or connection-refused is
-          # expected. A crash (SIGSEGV=139, SIGABRT=134) is not.
-          dist/bin-bridge-jazzy-x86_64-linux &
-          BID=$!
-          sleep 3
-          kill $BID 2>/dev/null || true   # ignore: process may have exited already
-          EXIT=0; wait $BID 2>/dev/null || EXIT=$?
-          # SIGTERM = 143; SIGSEGV = 139; SIGABRT = 134
-          if [ "$EXIT" -eq 139 ] || [ "$EXIT" -eq 134 ]; then
-            echo "FAIL: bridge crashed on startup (exit $EXIT)"
-            exit 1
-          fi
-          echo "bridge runtime ok (exit $EXIT — expected SIGTERM/connection error)"
 
   smoke-test-go:
     name: Smoke test Go library

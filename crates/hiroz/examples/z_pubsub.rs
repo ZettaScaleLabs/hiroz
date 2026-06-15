@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use hiroz::{
     Builder, Result,
     context::{ZContext, ZContextBuilder},
@@ -62,12 +62,7 @@ async fn run_publisher(
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Convert backend enum to KeyExprFormat
-    let format = match args.backend {
-        Backend::RmwZenoh => hiroz_protocol::KeyExprFormat::RmwZenoh,
-        #[cfg(feature = "ros2dds")]
-        Backend::Ros2Dds => hiroz_protocol::KeyExprFormat::Ros2Dds,
-    };
+    let format = hiroz_protocol::KeyExprFormat::RmwZenoh;
 
     // Create a ZContext - the entry point for hiroz applications
     // ZContext manages the connection to the Zenoh network and coordinates
@@ -103,17 +98,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum Backend {
-    /// RmwZenoh backend (default) - compatible with rmw_zenoh nodes
-    /// Uses key expressions with domain prefix: <domain_id>/<topic>/**
-    RmwZenoh,
-    /// Ros2Dds backend - compatible with zenoh-bridge-ros2dds
-    /// Uses key expressions without domain prefix: <topic>/**
-    #[cfg(feature = "ros2dds")]
-    Ros2Dds,
-}
-
 #[derive(Debug, Parser)]
 struct Args {
     #[arg(short, long, default_value = "Hello hiroz")]
@@ -128,7 +112,4 @@ struct Args {
     mode: String,
     #[arg(short, long)]
     endpoint: Option<String>,
-    /// Backend selection: rmw-zenoh (default) or ros2-dds
-    #[arg(short, long, value_enum, default_value = "rmw-zenoh")]
-    backend: Backend,
 }

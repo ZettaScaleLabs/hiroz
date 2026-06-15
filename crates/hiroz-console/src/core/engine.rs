@@ -17,7 +17,6 @@ use super::{events::SystemEvent, metrics::MetricsCollector};
 pub enum Backend {
     #[default]
     RmwZenoh,
-    Ros2Dds,
 }
 
 pub struct CoreEngine {
@@ -56,33 +55,16 @@ impl CoreEngine {
             .map_err(|e| format!("Failed to initialize Zenoh session: {}", e))?;
         let session = Arc::new(session);
 
-        // Initialize graph with backend-specific liveliness pattern and parser
-        let format = match backend {
-            Backend::RmwZenoh => hiroz_protocol::KeyExprFormat::RmwZenoh,
-            Backend::Ros2Dds => hiroz_protocol::KeyExprFormat::Ros2Dds,
-        };
-
-        let (_liveliness_pattern, graph) = match backend {
-            Backend::RmwZenoh => {
-                // RmwZenoh format: @ros2_lv/{domain_id}/**
-                let pattern = format!("@ros2_lv/{domain_id}/**");
-                tracing::info!("Graph liveliness pattern (RmwZenoh): {}", pattern);
-                let fmt = format;
-                let g = Graph::new_with_pattern(&session, domain_id, pattern.clone(), move |ke| {
-                    fmt.parse_liveliness(ke)
-                })?;
-                (pattern, g)
-            }
-            Backend::Ros2Dds => {
-                // Ros2Dds format: @/<zenoh_id>/@ros2_lv/**
-                let pattern = "@/*/@ros2_lv/**".to_string();
-                tracing::info!("Graph liveliness pattern (Ros2Dds): {}", pattern);
-                let fmt = format;
-                let g = Graph::new_with_pattern(&session, domain_id, pattern.clone(), move |ke| {
-                    fmt.parse_liveliness(ke)
-                })?;
-                (pattern, g)
-            }
+        // Initialize graph with RmwZenoh liveliness pattern
+        let format = hiroz_protocol::KeyExprFormat::RmwZenoh;
+        let pattern = format!("@ros2_lv/{domain_id}/**");
+        tracing::info!("Graph liveliness pattern: {}", pattern);
+        let (_liveliness_pattern, graph) = {
+            let fmt = format;
+            let g = Graph::new_with_pattern(&session, domain_id, pattern.clone(), move |ke| {
+                fmt.parse_liveliness(ke)
+            })?;
+            (pattern, g)
         };
         let graph = Arc::new(Mutex::new(graph));
 

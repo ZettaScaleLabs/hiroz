@@ -6,9 +6,6 @@
 #[cfg(feature = "rmw-zenoh")]
 pub mod rmw_zenoh;
 
-#[cfg(feature = "ros2dds")]
-pub mod ros2dds;
-
 use alloc::string::String;
 use zenoh::{key_expr::KeyExpr, session::ZenohId, Result};
 
@@ -30,11 +27,6 @@ pub enum KeyExprFormat {
     /// - Format: `<domain>/<topic>/<type>/<hash>`
     #[default]
     RmwZenoh,
-
-    /// zenoh-plugin-ros2dds compatible format.
-    ///
-    /// Different key expression structure for DDS bridge compatibility.
-    Ros2Dds,
 }
 
 #[allow(unused_variables)]
@@ -50,16 +42,6 @@ impl KeyExprFormat {
                 #[cfg(not(feature = "rmw-zenoh"))]
                 {
                     Err(zenoh::Error::from("rmw-zenoh format not enabled"))
-                }
-            }
-            KeyExprFormat::Ros2Dds => {
-                #[cfg(feature = "ros2dds")]
-                {
-                    ros2dds::Ros2DdsFormatter::topic_key_expr(entity)
-                }
-                #[cfg(not(feature = "ros2dds"))]
-                {
-                    Err(zenoh::Error::from("ros2dds format not enabled"))
                 }
             }
         }
@@ -82,16 +64,6 @@ impl KeyExprFormat {
                     Err(zenoh::Error::from("rmw-zenoh format not enabled"))
                 }
             }
-            KeyExprFormat::Ros2Dds => {
-                #[cfg(feature = "ros2dds")]
-                {
-                    ros2dds::Ros2DdsFormatter::liveliness_key_expr(entity, zid)
-                }
-                #[cfg(not(feature = "ros2dds"))]
-                {
-                    Err(zenoh::Error::from("ros2dds format not enabled"))
-                }
-            }
         }
     }
 
@@ -106,16 +78,6 @@ impl KeyExprFormat {
                 #[cfg(not(feature = "rmw-zenoh"))]
                 {
                     Err(zenoh::Error::from("rmw-zenoh format not enabled"))
-                }
-            }
-            KeyExprFormat::Ros2Dds => {
-                #[cfg(feature = "ros2dds")]
-                {
-                    ros2dds::Ros2DdsFormatter::node_liveliness_key_expr(entity)
-                }
-                #[cfg(not(feature = "ros2dds"))]
-                {
-                    Err(zenoh::Error::from("ros2dds format not enabled"))
                 }
             }
         }
@@ -134,16 +96,6 @@ impl KeyExprFormat {
                     Err(zenoh::Error::from("rmw-zenoh format not enabled"))
                 }
             }
-            KeyExprFormat::Ros2Dds => {
-                #[cfg(feature = "ros2dds")]
-                {
-                    ros2dds::Ros2DdsFormatter::parse_liveliness(ke)
-                }
-                #[cfg(not(feature = "ros2dds"))]
-                {
-                    Err(zenoh::Error::from("ros2dds format not enabled"))
-                }
-            }
         }
     }
 
@@ -156,16 +108,6 @@ impl KeyExprFormat {
                     rmw_zenoh::RmwZenohFormatter::encode_qos(qos, keyless)
                 }
                 #[cfg(not(feature = "rmw-zenoh"))]
-                {
-                    String::new()
-                }
-            }
-            KeyExprFormat::Ros2Dds => {
-                #[cfg(feature = "ros2dds")]
-                {
-                    ros2dds::Ros2DdsFormatter::encode_qos(qos, keyless)
-                }
-                #[cfg(not(feature = "ros2dds"))]
                 {
                     String::new()
                 }
@@ -184,16 +126,6 @@ impl KeyExprFormat {
                 #[cfg(not(feature = "rmw-zenoh"))]
                 {
                     Err(zenoh::Error::from("rmw-zenoh format not enabled"))
-                }
-            }
-            KeyExprFormat::Ros2Dds => {
-                #[cfg(feature = "ros2dds")]
-                {
-                    ros2dds::Ros2DdsFormatter::decode_qos(s)
-                }
-                #[cfg(not(feature = "ros2dds"))]
-                {
-                    Err(zenoh::Error::from("ros2dds format not enabled"))
                 }
             }
         }

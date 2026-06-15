@@ -24,16 +24,12 @@ enum Backend {
     /// rmw_zenoh backend (default) - compatible with rmw_zenoh nodes
     #[default]
     RmwZenoh,
-    /// ros2dds backend - compatible with zenoh-bridge-ros2dds
-    #[value(name = "ros2dds")]
-    Ros2Dds,
 }
 
 impl From<Backend> for core::engine::Backend {
     fn from(backend: Backend) -> Self {
         match backend {
             Backend::RmwZenoh => core::engine::Backend::RmwZenoh,
-            Backend::Ros2Dds => core::engine::Backend::Ros2Dds,
         }
     }
 }
@@ -50,7 +46,6 @@ struct Cli {
     #[arg(default_value = "0")]
     domain: usize,
 
-    /// Backend selection (rmw-zenoh or ros2dds)
     #[arg(long, value_enum, default_value = "rmw-zenoh")]
     backend: Backend,
 

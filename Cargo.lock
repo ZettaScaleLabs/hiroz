@@ -1375,22 +1375,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hiroz-bridge"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "hiroz",
- "hiroz-msgs",
- "hiroz-protocol",
- "parking_lot",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "zenoh",
-]
-
-[[package]]
 name = "hiroz-cdr"
 version = "0.1.0"
 dependencies = [

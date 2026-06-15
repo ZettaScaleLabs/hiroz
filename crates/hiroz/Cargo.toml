@@ -83,9 +83,7 @@ dynamic-schema-loader = ["hiroz-codegen"]
 
 # Key expression format selection
 # rmw-zenoh: Compatible with rmw_zenoh_cpp (domain/topic/type/hash format)
-# ros2dds: Compatible with zenoh-bridge-ros2dds (simple topic format)
 rmw-zenoh = ["hiroz-protocol/rmw-zenoh"]
-ros2dds = ["hiroz-protocol/ros2dds"]
 rcl-z = []
 ffi = []
 
@@ -195,17 +193,6 @@ required-features = []
 name = "zenoh_router"
 path = "examples/zenoh_router.rs"
 required-features = []
-
-# ros2dds backend examples for interop with zenoh-plugin-ros2dds
-[[example]]
-name = "z_pubsub_ros2dds"
-path = "examples/z_pubsub_ros2dds.rs"
-required-features = ["ros2dds"]
-
-[[example]]
-name = "z_srvcli_ros2dds"
-path = "examples/z_srvcli_ros2dds.rs"
-required-features = ["ros2dds"]
 
 # Dynamic message examples
 [[example]]

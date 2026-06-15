@@ -1,22 +1,10 @@
 #[cfg(not(test))]
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use hiroz::{
     Builder, Result,
     context::{ZContext, ZContextBuilder},
 };
 use hiroz_msgs::example_interfaces::{AddTwoIntsRequest, AddTwoIntsResponse, srv::AddTwoInts};
-
-#[cfg(not(test))]
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum Backend {
-    /// RmwZenoh backend (default) - compatible with rmw_zenoh nodes
-    /// Uses key expressions with domain prefix
-    RmwZenoh,
-    /// Ros2Dds backend - compatible with zenoh-bridge-ros2dds
-    /// Uses key expressions without domain prefix
-    #[cfg(feature = "ros2dds")]
-    Ros2Dds,
-}
 
 #[cfg(not(test))]
 #[derive(Debug, Parser)]
@@ -37,10 +25,6 @@ struct Args {
     /// Connect endpoint (e.g. tcp/127.0.0.1:7447); enables client mode when set
     #[arg(long)]
     endpoint: Option<String>,
-
-    /// Backend selection: rmw-zenoh (default) or ros2-dds
-    #[arg(long, value_enum, default_value = "rmw-zenoh")]
-    backend: Backend,
 }
 
 #[cfg(not(test))]
@@ -48,12 +32,7 @@ struct Args {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Convert backend enum to KeyExprFormat
-    let format = match args.backend {
-        Backend::RmwZenoh => hiroz_protocol::KeyExprFormat::RmwZenoh,
-        #[cfg(feature = "ros2dds")]
-        Backend::Ros2Dds => hiroz_protocol::KeyExprFormat::Ros2Dds,
-    };
+    let format = hiroz_protocol::KeyExprFormat::RmwZenoh;
 
     let ctx = if let Some(ref ep) = args.endpoint {
         ZContextBuilder::default()

@@ -11,9 +11,6 @@
 //!   ROS 2 RMW implementation using Zenoh. Uses `strip_slashes()` for topic
 //!   key expressions and mangling for liveliness tokens.
 //!
-//! - **Ros2Dds**: Compatible with `zenoh-plugin-ros2dds`, useful for bridging
-//!   between Zenoh and DDS networks.
-//!
 //! # no_std Support
 //!
 //! This crate is `no_std` compatible with `alloc`:
@@ -58,6 +55,4 @@ pub use entity::{
 };
 #[cfg(feature = "rmw-zenoh")]
 pub use format::rmw_zenoh::RmwZenohFormatter;
-#[cfg(feature = "ros2dds")]
-pub use format::ros2dds::Ros2DdsFormatter;
 pub use format::{KeyExprFormat, KeyExprFormatter};

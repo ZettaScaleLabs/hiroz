@@ -1,71 +1,20 @@
-# Key Expression Formats
+# Key Expression Format
 
-**hiroz uses key expression formats to map ROS 2 entities (topics, services, actions) to Eclipse Zenoh key expressions.** The independent `hiroz-protocol` crate provides the format and determines how hiroz translates ROS 2 names for Zenoh routing and discovery.
+**hiroz maps ROS 2 entities (topics, services, actions) to Eclipse Zenoh key expressions using the RmwZenoh format.** The independent `hiroz-protocol` crate provides this mapping to ensure wire compatibility with [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh), the official ROS 2 Zenoh middleware.
 
-!!! note
-    Key expression format is a runtime choice that affects how hiroz maps ROS 2 entities to Zenoh key expressions. Choose the format that matches your infrastructure for proper message routing.
-
-## Available Formats
-
-hiroz supports multiple key expression formats for interoperability with different Zenoh-ROS bridges:
-
-| Format | Compatibility | Use Case |
-|--------|--------------|----------|
-| **RmwZenoh** (default) | [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) | Standard ROS 2 Zenoh middleware |
-| **Ros2Dds** | `zenoh-bridge-ros2dds` | DDS bridge compatibility |
-
-### RmwZenoh Format (Default)
-
-The RmwZenoh format targets compatibility with ROS 2's official Zenoh middleware implementation ([`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh)).
-
-**Key Expression Patterns:**
+## Key Expression Patterns
 
 ```text
 Topic keys:      <domain_id>/<topic>/<type>/<hash>
 Liveliness:      @ros2_lv/<domain_id>/<entity_kind>/<namespace>/<name>/...
 ```
 
-**Example Topic Keys:**
+**Example topic keys:**
 
 ```text
 0/chatter/std_msgs::msg::dds_::String_/RIHS01_...
 5/robot/sensors/camera/sensor_msgs::msg::dds_::Image_/RIHS01_...
 ```
-
-**Use this format when:**
-
-- Using [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) as your ROS 2 middleware
-- Running pure hiroz deployments
-- Requiring domain isolation via Zenoh
-
-### Ros2Dds Format
-
-The Ros2Dds format targets compatibility with `zenoh-bridge-ros2dds`, which bridges standard DDS-based ROS 2 nodes to Zenoh.
-
-**Key Expression Format:**
-
-```text
-<topic>/**
-```
-
-**Example:**
-
-```text
-chatter/**                    # Topic /chatter (no domain prefix)
-robot/sensors/camera/**       # Topic /robot/sensors/camera
-```
-
-**Use this format when:**
-
-- Bridging existing DDS-based ROS 2 systems to Zenoh
-- Using `zenoh-bridge-ros2dds`
-- Integrating with CycloneDDS or FastDDS nodes via Zenoh
-
-**Discovery consequences:**
-
-- `Ros2Dds` graph discovery can identify publishers/subscribers/services by topic or service name, but its liveliness data does not provide publisher node identity.
-- Topic-based graph helpers such as publisher/subscriber matching work with `Ros2Dds`.
-- Node-based discovery and automatic schema discovery via `create_dyn_sub_auto()` are not supported with `Ros2Dds`, because the publishing node cannot be identified from discovery data.
 
 ## Key Expression Behavior (IMPORTANT)
 
@@ -126,111 +75,15 @@ This is **intentional design** in [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_
 !!! tip
     If multi-segment topics like `/robot/sensors/camera` don't receive messages, check your hiroz version. Versions before 0.1.0 had a bug where publishers incorrectly mangled topic key expressions.
 
-## API Usage
-
-### Specifying Format at Context Creation
-
-```rust
-use hiroz::context::ZContextBuilder;
-use hiroz_protocol::KeyExprFormat;
-
-// Default (RmwZenoh)
-let ctx = ZContextBuilder::default().build()?;
-
-// Explicit format selection
-let ctx = ZContextBuilder::default()
-    .keyexpr_format(KeyExprFormat::RmwZenoh)
-    .build()?;
-
-// Ros2Dds format for DDS bridge compatibility
-let ctx = ZContextBuilder::default()
-    .keyexpr_format(KeyExprFormat::Ros2Dds)
-    .build()?;
-```
-
-**Key points:**
-
-- Format is set at context creation time
-- All nodes and entities created from the context use the same format
-- Default format is `KeyExprFormat::RmwZenoh`
-- Format choice is type-safe and explicit
-
-### Creating Entities
-
-Once you create the context with a format, all entities inherit it:
-
-```rust
-use hiroz_msgs::std_msgs::String as RosString;
-use hiroz::Builder;
-
-// Create context with RmwZenoh format (default)
-let ctx = ZContextBuilder::default().build()?;
-let node = ctx.create_node("my_node").build()?;
-
-// Publisher uses context's format
-let pub_rmw = node
-    .create_pub::<RosString>("chatter")
-    .build()?;
-
-// Subscriber uses same format
-let sub_rmw = node
-    .create_sub::<RosString>("chatter")
-    .build()?;
-```
-
-### Mixing Formats (Advanced)
-
-To communicate with both RmwZenoh and Ros2Dds systems, create separate contexts:
-
-```rust
-// Context for rmw_zenoh_cpp nodes
-let ctx_rmw = ZContextBuilder::default()
-    .keyexpr_format(KeyExprFormat::RmwZenoh)
-    .build()?;
-
-// Context for zenoh-bridge-ros2dds nodes
-let ctx_dds = ZContextBuilder::default()
-    .keyexpr_format(KeyExprFormat::Ros2Dds)
-    .build()?;
-
-// Create nodes from each context
-let node_rmw = ctx_rmw.create_node("rmw_node").build()?;
-let node_dds = ctx_dds.create_node("dds_node").build()?;
-```
-
-## Architecture Diagrams
-
-### RmwZenoh Format Architecture
+## Architecture
 
 ```mermaid
 graph LR
 accTitle: RmwZenoh key expression format connecting hiroz and ROS 2 nodes
-accDescr: A hiroz node in RmwZenoh format communicates through a Zenoh router using domain-prefixed key expressions to reach a standard ROS 2 node running rmw_zenoh_cpp.
-    A[hiroz Node<br/>RmwZenoh Format] -->|"0/chatter/**"| B[Zenoh Router<br/>rmw_zenoh]
+accDescr: A hiroz node communicates through a Zenoh router using domain-prefixed key expressions to reach a standard ROS 2 node running rmw_zenoh_cpp.
+    A[hiroz Node] -->|"0/chatter/**"| B[Zenoh Router<br/>rmw_zenoh]
     B -->|"0/chatter/**"| C[ROS 2 Node<br/>rmw_zenoh_cpp]
 ```
-
-**Use case:** Native Zenoh-based ROS 2 deployment
-
-- All nodes use rmw_zenoh or hiroz
-- Direct Zenoh communication
-- Domain isolation via key expression prefix
-
-### Ros2Dds Format Architecture
-
-```mermaid
-graph LR
-accTitle: Ros2Dds key expression format bridging Zenoh and DDS networks
-accDescr: A hiroz node in Ros2Dds format sends messages via Zenoh to the zenoh-bridge-ros2dds, which translates them to DDS for standard ROS 2 nodes running CycloneDDS or FastDDS.
-    A[hiroz Node<br/>Ros2Dds Format] -->|"chatter/**"| B[zenoh-bridge-ros2dds<br/>Router + Bridge]
-    B -->|DDS| C[ROS 2 Node<br/>CycloneDDS/FastDDS]
-```
-
-**Use case:** Bridge existing DDS systems to Zenoh
-
-- ROS 2 nodes use standard DDS middleware
-- `zenoh-bridge-ros2dds` translates DDS ↔ Zenoh
-- hiroz communicates via Zenoh side of bridge
 
 ## Key Expression Generation Details
 
@@ -283,20 +136,10 @@ Name:      /gripper    →  %gripper
 
 The independent `hiroz-protocol` crate provides the key expression logic:
 
-**Features:**
-
 - `no_std` compatible (with `alloc`)
 - Language-agnostic protocol layer (FFI-ready)
-- Feature-gated format implementations
 - Comprehensive unit tests
 - Type-safe API
-
-**Cargo features:**
-
-```toml
-[dependencies]
-hiroz-protocol = { version = "0.1", features = ["rmw-zenoh", "ros2dds"] }
-```
 
 **Using hiroz-protocol directly:**
 
@@ -342,8 +185,6 @@ Look for key expressions like:
 
 ### No Messages Between hiroz and rmw_zenoh_cpp?
 
-**Check format:** Ensure hiroz uses `KeyExprFormat::RmwZenoh` (the default).
-
 **Check type hash:** Enable debug logging and compare type hashes:
 
 ```bash
@@ -355,37 +196,3 @@ Type hashes must match between hiroz and rmw_zenoh_cpp. If they don't, you may h
 - Different message definitions
 - Different ROS 2 distros
 - Outdated generated messages
-
-### No Messages Through zenoh-bridge-ros2dds?
-
-**Check format:** Ensure hiroz uses `KeyExprFormat::Ros2Dds`:
-
-```rust
-let ctx = ZContextBuilder::default()
-    .keyexpr_format(KeyExprFormat::Ros2Dds)
-    .build()?;
-```
-
-**Check bridge configuration:** Verify `zenoh-bridge-ros2dds` is running and connected to the same Zenoh router as hiroz.
-
-## Format Comparison
-
-### When to Use RmwZenoh Format
-
-✅ **Use RmwZenoh when:**
-
-- Building pure Zenoh-based ROS 2 systems
-- Using [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) middleware
-- Requiring domain isolation
-- Deploying new systems with native Zenoh support
-- Maximizing Zenoh performance benefits
-
-### When to Use Ros2Dds Format
-
-✅ **Use Ros2Dds when:**
-
-- Bridging existing DDS-based ROS 2 systems
-- Using `zenoh-bridge-ros2dds`
-- Integrating with legacy ROS 2 infrastructure
-- Gradual migration from DDS to Zenoh
-- Heterogeneous deployments (DDS + Zenoh)

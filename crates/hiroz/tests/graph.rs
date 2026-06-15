@@ -677,44 +677,6 @@ mod tests {
         Ok(())
     }
 
-    /// Tests that a Ros2Dds context uses a Ros2Dds graph for introspection and matching.
-    #[cfg(feature = "ros2dds")]
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_ros2dds_context_graph_tracks_local_entities() -> Result<()> {
-        let ctx = ZContextBuilder::default()
-            .keyexpr_format(hiroz_protocol::KeyExprFormat::Ros2Dds)
-            .build()?;
-        let pub_node = ctx.create_node("test_graph_pub_dds").build()?;
-        let sub_node = ctx.create_node("test_graph_sub_dds").build()?;
-        let topic_name = "/test_ros2dds_context_graph";
-
-        let publisher = pub_node.create_pub::<RosString>(topic_name).build()?;
-        let subscriber = sub_node.create_sub::<RosString>(topic_name).build()?;
-
-        assert!(
-            publisher
-                .wait_for_subscription(1, Duration::from_secs(2))
-                .await
-        );
-        assert!(
-            subscriber
-                .wait_for_publisher(1, Duration::from_secs(2))
-                .await
-        );
-
-        let graph = ctx.graph();
-        assert!(
-            graph.count(EndpointKind::Publisher, topic_name) >= 1,
-            "Expected Ros2Dds graph to discover local publisher"
-        );
-        assert!(
-            graph.count(EndpointKind::Subscription, topic_name) >= 1,
-            "Expected Ros2Dds graph to discover local subscriber"
-        );
-
-        Ok(())
-    }
-
     /// Tests getting action names and types from the graph
     #[tokio::test(flavor = "multi_thread")]
     async fn test_action_names_and_types() -> Result<()> {

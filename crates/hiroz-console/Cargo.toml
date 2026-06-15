@@ -8,9 +8,9 @@ default-run = "hiroz-console"
 publish = false
 
 [dependencies]
-hiroz = { path = "../hiroz", features = ["ros2dds"] }
+hiroz = { path = "../hiroz" }
 hiroz-msgs = { path = "../hiroz-msgs" }
-hiroz-protocol = { path = "../hiroz-protocol", features = ["ros2dds"] }
+hiroz-protocol = { path = "../hiroz-protocol" }
 clap = { workspace = true }
 crossterm = "0.29"
 flume = { workspace = true }

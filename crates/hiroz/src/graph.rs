@@ -33,18 +33,6 @@ pub struct GraphSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entity::{EndpointEntity, EndpointKind};
-
-    #[test]
-    fn test_key_expr_origin_zid_supports_ros2dds_tokens() {
-        let zid: ZenohId = "1234567890abcdef1234567890abcdef".parse().unwrap();
-        let key_expr: KeyExpr<'static> = "@/1234567890abcdef1234567890abcdef/@ros2_lv/MP/chatter/std_msgs\u{00A7}msg\u{00A7}String"
-            .to_string()
-            .try_into()
-            .unwrap();
-
-        assert_eq!(key_expr_origin_zid(&key_expr), Some(zid));
-    }
 
     #[test]
     fn test_key_expr_origin_zid_supports_rmw_zenoh_tokens() {
@@ -54,25 +42,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(key_expr_origin_zid(&key_expr), Some(zid));
-    }
-
-    #[test]
-    fn test_entity_matches_local_zid_for_ros2dds_endpoint_without_node_identity() {
-        let zid: ZenohId = "1234567890abcdef1234567890abcdef".parse().unwrap();
-        let entity = Entity::Endpoint(EndpointEntity {
-            id: 1,
-            node: None,
-            kind: EndpointKind::Publisher,
-            topic: "/chatter".to_string(),
-            type_info: None,
-            qos: Default::default(),
-        });
-        let key_expr: KeyExpr<'static> = "@/1234567890abcdef1234567890abcdef/@ros2_lv/MP/chatter/std_msgs\u{00A7}msg\u{00A7}String"
-            .to_string()
-            .try_into()
-            .unwrap();
-
-        assert!(entity_matches_local_zid(&entity, &key_expr, zid));
     }
 }
 
@@ -115,20 +84,6 @@ fn key_expr_origin_zid(key_expr: &KeyExpr) -> Option<ZenohId> {
         }
         _ => None,
     }
-}
-
-#[cfg(test)]
-fn entity_matches_local_zid(entity: &Entity, key_expr: &KeyExpr, local_zid: ZenohId) -> bool {
-    let owner_zid = match entity {
-        Entity::Node(node) => Some(node.z_id),
-        Entity::Endpoint(endpoint) => endpoint
-            .node
-            .as_ref()
-            .map(|node| node.z_id)
-            .or_else(|| key_expr_origin_zid(key_expr)),
-    };
-
-    owner_zid.is_some_and(|zid| zid == local_zid)
 }
 
 /// Returns true if `(kind, topic)` is an action server sub-endpoint that should be
@@ -503,13 +458,7 @@ impl Graph {
             hiroz_protocol::KeyExprFormat::RmwZenoh => {
                 format!("{ADMIN_SPACE}/{domain_id}/**")
             }
-            hiroz_protocol::KeyExprFormat::Ros2Dds => "@/*/@ros2_lv/**".to_string(),
-            _ => {
-                return Err(zenoh::Error::from(format!(
-                    "unsupported key expression format for graph construction: {:?}",
-                    format
-                )));
-            }
+            _ => unreachable!("unknown KeyExprFormat variant"),
         };
 
         Self::new_with_pattern(session, domain_id, liveliness_pattern, move |ke| {
@@ -548,13 +497,12 @@ impl Graph {
     ///
     /// # Arguments
     /// * `session` - Zenoh session
-    /// * `domain_id` - ROS domain ID (used for filtering, may not be in pattern for ros2dds)
+    /// * `domain_id` - ROS domain ID
     /// * `liveliness_pattern` - Liveliness key expression pattern to subscribe to
     /// * `parser` - Function to parse liveliness key expressions into Entity
     ///
-    /// # Backend Patterns
+    /// # Pattern
     /// * RmwZenoh: `@ros2_lv/{domain_id}/**`
-    /// * Ros2Dds: `@/*/@ros2_lv/**`
     pub fn new_with_pattern<F>(
         session: &Session,
         _domain_id: usize,
@@ -669,7 +617,7 @@ impl Graph {
         // Filter current-session entities: add_local_entity() already inserted them, so
         // re-inserting from the query reply is redundant. Mirrors rmw_zenoh_cpp which passes
         // ignore_from_current_session=true for query replies.
-        // Ros2Dds endpoints (node: None) carry no z_id and are never filtered.
+        // Endpoints without node identity carry no z_id and are never filtered.
         let mut reply_count = 0;
         let mut filtered_count = 0;
         while let Ok(reply) = replies.recv() {

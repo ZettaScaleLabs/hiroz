@@ -208,10 +208,6 @@ impl App {
                 // rmw_zenoh format: <domain_id>/<topic>/**
                 format!("{}/{}/**", self.core.domain_id, topic_name)
             }
-            Backend::Ros2Dds => {
-                // ros2dds format: <topic>/** (no domain prefix)
-                format!("{}/**", topic_name)
-            }
         }
     }
 

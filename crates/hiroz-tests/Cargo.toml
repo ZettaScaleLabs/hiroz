@@ -47,17 +47,6 @@ ros-interop = [
 ]
 python-interop = ["ros-msgs"]
 
-# Humble ↔ Jazzy bridge integration tests (requires nix + ros-humble shell)
-humble-jazzy-bridge-tests = [
-  "ros-msgs",
-  "hiroz-msgs/example_interfaces",
-  "hiroz-msgs/action_tutorials_interfaces",
-]
-
-# ros2dds backend interop (with zenoh-bridge-ros2dds)
-# This enables testing hiroz with DDS-based ROS 2 nodes via zenoh-bridge-ros2dds
-ros2dds-interop = ["ros-msgs", "hiroz/ros2dds", "hiroz/rmw-zenoh"]
-
 # ROS 2 distro compatibility - propagate to hiroz and hiroz-msgs
 humble = ["hiroz/humble", "hiroz-msgs/humble"]
 jazzy = ["hiroz/jazzy", "hiroz-msgs/jazzy"]
