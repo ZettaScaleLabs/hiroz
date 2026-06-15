@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#key-expression-formats" class="md-skip">
+        <a href="#key-expression-format" class="md-skip">
           Skip to content
         </a>
       
@@ -2058,30 +2058,13 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#available-formats" class="md-nav__link">
+  <a href="#key-expression-patterns" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Available Formats
+        Key Expression Patterns
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Available Formats">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#rmwzenoh-format-default" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        RmwZenoh Format (Default)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -2124,34 +2107,6 @@
     <span class="md-ellipsis">
       
         Why Two Different Behaviors?
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#api-usage" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        API Usage
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="API Usage">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#specifying-format-at-context-creation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Specifying Format at Context Creation
       
     </span>
   </a>
@@ -2390,30 +2345,13 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#available-formats" class="md-nav__link">
+  <a href="#key-expression-patterns" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Available Formats
+        Key Expression Patterns
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Available Formats">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#rmwzenoh-format-default" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        RmwZenoh Format (Default)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -2456,34 +2394,6 @@
     <span class="md-ellipsis">
       
         Why Two Different Behaviors?
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#api-usage" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        API Usage
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="API Usage">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#specifying-format-at-context-creation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Specifying Format at Context Creation
       
     </span>
   </a>
@@ -2620,45 +2530,16 @@
   
 
 
-<h1 id="key-expression-formats">Key Expression Formats<a class="headerlink" href="#key-expression-formats" title="Permanent link">&para;</a></h1>
-<p><strong>hiroz uses key expression formats to map ROS 2 entities (topics, services, actions) to Eclipse Zenoh key expressions.</strong> The independent <code>hiroz-protocol</code> crate provides the format and determines how hiroz translates ROS 2 names for Zenoh routing and discovery.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Key expression format is a runtime choice that affects how hiroz maps ROS 2 entities to Zenoh key expressions. Choose the format that matches your infrastructure for proper message routing.</p>
-</div>
-<h2 id="available-formats">Available Formats<a class="headerlink" href="#available-formats" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Format</th>
-<th>Compatibility</th>
-<th>Use Case</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>RmwZenoh</strong> (default)</td>
-<td><a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a></td>
-<td>Standard ROS 2 Zenoh middleware</td>
-</tr>
-</tbody>
-</table>
-<h3 id="rmwzenoh-format-default">RmwZenoh Format (Default)<a class="headerlink" href="#rmwzenoh-format-default" title="Permanent link">&para;</a></h3>
-<p>The RmwZenoh format targets compatibility with ROS 2's official Zenoh middleware implementation (<a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a>).</p>
-<p><strong>Key Expression Patterns:</strong></p>
+<h1 id="key-expression-format">Key Expression Format<a class="headerlink" href="#key-expression-format" title="Permanent link">&para;</a></h1>
+<p><strong>hiroz maps ROS 2 entities (topics, services, actions) to Eclipse Zenoh key expressions using the RmwZenoh format.</strong> The independent <code>hiroz-protocol</code> crate provides this mapping to ensure wire compatibility with <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a>, the official ROS 2 Zenoh middleware.</p>
+<h2 id="key-expression-patterns">Key Expression Patterns<a class="headerlink" href="#key-expression-patterns" title="Permanent link">&para;</a></h2>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Topic keys:      &lt;domain_id&gt;/&lt;topic&gt;/&lt;type&gt;/&lt;hash&gt;
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>Liveliness:      @ros2_lv/&lt;domain_id&gt;/&lt;entity_kind&gt;/&lt;namespace&gt;/&lt;name&gt;/...
 </span></code></pre></div>
-<p><strong>Example Topic Keys:</strong></p>
+<p><strong>Example topic keys:</strong></p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>0/chatter/std_msgs::msg::dds_::String_/RIHS01_...
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>5/robot/sensors/camera/sensor_msgs::msg::dds_::Image_/RIHS01_...
 </span></code></pre></div>
-<p><strong>Use this format when:</strong></p>
-<ul>
-<li>Using <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a> as your ROS 2 middleware</li>
-<li>Running pure hiroz deployments</li>
-<li>Requiring domain isolation via Zenoh</li>
-</ul>
 <h2 id="key-expression-behavior-important">Key Expression Behavior (IMPORTANT)<a class="headerlink" href="#key-expression-behavior-important" title="Permanent link">&para;</a></h2>
 <p>Understanding how hiroz converts topic names to key expressions is critical for debugging:</p>
 <h3 id="topic-key-expressions-for-data-routing">Topic Key Expressions (For Data Routing)<a class="headerlink" href="#topic-key-expressions-for-data-routing" title="Permanent link">&para;</a></h3>
@@ -2756,36 +2637,16 @@
 <p class="admonition-title">Tip</p>
 <p>If multi-segment topics like <code>/robot/sensors/camera</code> don't receive messages, check your hiroz version. Versions before 0.1.0 had a bug where publishers incorrectly mangled topic key expressions.</p>
 </div>
-<h2 id="api-usage">API Usage<a class="headerlink" href="#api-usage" title="Permanent link">&para;</a></h2>
-<h3 id="specifying-format-at-context-creation">Specifying Format at Context Creation<a class="headerlink" href="#specifying-format-at-context-creation" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz</span><span class="p">::</span><span class="n">context</span><span class="p">::</span><span class="n">ZContextBuilder</span><span class="p">;</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz_protocol</span><span class="p">::</span><span class="n">KeyExprFormat</span><span class="p">;</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1">// Default (RmwZenoh)</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="kd">let</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ZContextBuilder</span><span class="p">::</span><span class="n">default</span><span class="p">().</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1">// Explicit format selection</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="kd">let</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ZContextBuilder</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="p">.</span><span class="n">keyexpr_format</span><span class="p">(</span><span class="n">KeyExprFormat</span><span class="p">::</span><span class="n">RmwZenoh</span><span class="p">)</span>
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
-</span></code></pre></div>
-<p><strong>Key points:</strong></p>
-<ul>
-<li>Format is set at context creation time</li>
-<li>All nodes and entities created from the context use the same format</li>
-<li>Default format is <code>KeyExprFormat::RmwZenoh</code></li>
-<li>Format choice is type-safe and explicit</li>
-</ul>
 <h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>graph LR
 accTitle: RmwZenoh key expression format connecting hiroz and ROS 2 nodes
-accDescr: A hiroz node in RmwZenoh format communicates through a Zenoh router using domain-prefixed key expressions to reach a standard ROS 2 node running rmw_zenoh_cpp.
-    A[hiroz Node&lt;br/&gt;RmwZenoh Format] --&gt;|"0/chatter/**"| B[Zenoh Router&lt;br/&gt;rmw_zenoh]
+accDescr: A hiroz node communicates through a Zenoh router using domain-prefixed key expressions to reach a standard ROS 2 node running rmw_zenoh_cpp.
+    A[hiroz Node] --&gt;|"0/chatter/**"| B[Zenoh Router&lt;br/&gt;rmw_zenoh]
     B --&gt;|"0/chatter/**"| C[ROS 2 Node&lt;br/&gt;rmw_zenoh_cpp]</code></pre>
 <h2 id="key-expression-generation-details">Key Expression Generation Details<a class="headerlink" href="#key-expression-generation-details" title="Permanent link">&para;</a></h2>
 <p>Understanding how <code>hiroz-protocol</code> generates key expressions helps with debugging and monitoring.</p>
 <h3 id="topic-key-expression-structure">Topic Key Expression Structure<a class="headerlink" href="#topic-key-expression-structure" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>&lt;domain_id&gt;/&lt;topic_stripped&gt;/&lt;type&gt;/&lt;hash&gt;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>&lt;domain_id&gt;/&lt;topic_stripped&gt;/&lt;type&gt;/&lt;hash&gt;
 </span></code></pre></div>
 <p><strong>Components:</strong></p>
 <ol>
@@ -2795,50 +2656,44 @@ accDescr: A hiroz node in RmwZenoh format communicates through a Zenoh router us
 <li><strong>Hash</strong>: Type hash for compatibility (e.g., <code>RIHS01_...</code>)</li>
 </ol>
 <p><strong>Example:</strong></p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>Topic: /robot/sensors/camera
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>Type:  sensor_msgs/msg/Image
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>Hash:  RIHS01_abc123...
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>Key Expression:
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>0/robot/sensors/camera/sensor_msgs::msg::dds_::Image_/RIHS01_abc123...
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>Topic: /robot/sensors/camera
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>Type:  sensor_msgs/msg/Image
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>Hash:  RIHS01_abc123...
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>Key Expression:
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>0/robot/sensors/camera/sensor_msgs::msg::dds_::Image_/RIHS01_abc123...
 </span></code></pre></div>
 <h3 id="liveliness-token-structure">Liveliness Token Structure<a class="headerlink" href="#liveliness-token-structure" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>@ros2_lv/&lt;domain&gt;/&lt;entity_kind&gt;/&lt;zid&gt;/&lt;id&gt;/&lt;namespace&gt;/&lt;name&gt;/&lt;type&gt;/&lt;hash&gt;/&lt;qos&gt;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>@ros2_lv/&lt;domain&gt;/&lt;entity_kind&gt;/&lt;zid&gt;/&lt;id&gt;/&lt;namespace&gt;/&lt;name&gt;/&lt;type&gt;/&lt;hash&gt;/&lt;qos&gt;
 </span></code></pre></div>
 <p><strong>hiroz mangles all name fields</strong> (/ → %):</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>Namespace: /robot/arm  →  %robot%arm
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>Name:      /gripper    →  %gripper
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>Namespace: /robot/arm  →  %robot%arm
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>Name:      /gripper    →  %gripper
 </span></code></pre></div>
 <p><strong>Example:</strong></p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>@ros2_lv/0/MP/01234567890abcdef/1/%robot%arm/%gripper/std_msgs::msg::String_/RIHS01_.../qos_string
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>@ros2_lv/0/MP/01234567890abcdef/1/%robot%arm/%gripper/std_msgs::msg::String_/RIHS01_.../qos_string
 </span></code></pre></div>
 <h2 id="hiroz-protocol-crate">hiroz-protocol Crate<a class="headerlink" href="#hiroz-protocol-crate" title="Permanent link">&para;</a></h2>
 <p>The independent <code>hiroz-protocol</code> crate provides the key expression logic:</p>
-<p><strong>Features:</strong></p>
 <ul>
 <li><code>no_std</code> compatible (with <code>alloc</code>)</li>
 <li>Language-agnostic protocol layer (FFI-ready)</li>
-<li>Feature-gated format implementations</li>
 <li>Comprehensive unit tests</li>
 <li>Type-safe API</li>
 </ul>
-<p><strong>Cargo features:</strong></p>
-<div class="language-toml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">[dependencies]</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">hiroz-protocol</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;0.1&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;rmw-zenoh&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
-</span></code></pre></div>
 <p><strong>Using hiroz-protocol directly:</strong></p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz_protocol</span><span class="p">::{</span><span class="n">KeyExprFormat</span><span class="p">,</span><span class="w"> </span><span class="n">entity</span><span class="p">::</span><span class="o">*</span><span class="p">};</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="kd">let</span><span class="w"> </span><span class="n">format</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">KeyExprFormat</span><span class="p">::</span><span class="n">default</span><span class="p">();</span><span class="w"> </span><span class="c1">// RmwZenoh</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1">// Generate topic key expression</span>
-</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="kd">let</span><span class="w"> </span><span class="n">topic_ke</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">format</span><span class="p">.</span><span class="n">topic_key_expr</span><span class="p">(</span><span class="o">&amp;</span><span class="n">entity</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
-</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>
-</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="c1">// Generate liveliness token</span>
-</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="kd">let</span><span class="w"> </span><span class="n">lv_ke</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">format</span><span class="p">.</span><span class="n">liveliness_key_expr</span><span class="p">(</span><span class="o">&amp;</span><span class="n">entity</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">zid</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
-</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>
-</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="c1">// Parse liveliness token back to entity</span>
-</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="kd">let</span><span class="w"> </span><span class="n">parsed_entity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">format</span><span class="p">.</span><span class="n">parse_liveliness</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lv_ke</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">use</span><span class="w"> </span><span class="n">hiroz_protocol</span><span class="p">::{</span><span class="n">KeyExprFormat</span><span class="p">,</span><span class="w"> </span><span class="n">entity</span><span class="p">::</span><span class="o">*</span><span class="p">};</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="kd">let</span><span class="w"> </span><span class="n">format</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">KeyExprFormat</span><span class="p">::</span><span class="n">default</span><span class="p">();</span><span class="w"> </span><span class="c1">// RmwZenoh</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="c1">// Generate topic key expression</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="kd">let</span><span class="w"> </span><span class="n">topic_ke</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">format</span><span class="p">.</span><span class="n">topic_key_expr</span><span class="p">(</span><span class="o">&amp;</span><span class="n">entity</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="c1">// Generate liveliness token</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="kd">let</span><span class="w"> </span><span class="n">lv_ke</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">format</span><span class="p">.</span><span class="n">liveliness_key_expr</span><span class="p">(</span><span class="o">&amp;</span><span class="n">entity</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">zid</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="c1">// Parse liveliness token back to entity</span>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="kd">let</span><span class="w"> </span><span class="n">parsed_entity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">format</span><span class="p">.</span><span class="n">parse_liveliness</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lv_ke</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
 </span></code></pre></div>
 <p>See the <a href="https://github.com/ZettaScaleLabs/hiroz/tree/main/crates/hiroz-protocol">hiroz-protocol crate</a> for details.</p>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
@@ -2847,16 +2702,15 @@ accDescr: A hiroz node in RmwZenoh format communicates through a Zenoh router us
 <p><strong>Cause:</strong> Old versions of hiroz (before 0.1.0) incorrectly mangled slashes in topic key expressions.</p>
 <p><strong>Fix:</strong> Update to hiroz 0.1.0+ which correctly uses <code>strip_slashes()</code> for all topic key expressions.</p>
 <p><strong>Verify:</strong> Enable debug logging to check key expressions:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nv">RUST_LOG</span><span class="o">=</span><span class="nv">hiroz</span><span class="o">=</span>debug<span class="w"> </span>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>z_pubsub
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nv">RUST_LOG</span><span class="o">=</span><span class="nv">hiroz</span><span class="o">=</span>debug<span class="w"> </span>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>z_pubsub
 </span></code></pre></div>
 <p>Look for key expressions like:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>✅ Correct:  0/robot/sensors/camera/sensor_msgs::msg::Image_/...
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>❌ Wrong:    0/robot%sensors%camera/sensor_msgs::msg::Image_/...
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>✅ Correct:  0/robot/sensors/camera/sensor_msgs::msg::Image_/...
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>❌ Wrong:    0/robot%sensors%camera/sensor_msgs::msg::Image_/...
 </span></code></pre></div>
 <h3 id="no-messages-between-hiroz-and-rmw_zenoh_cpp">No Messages Between hiroz and rmw_zenoh_cpp?<a class="headerlink" href="#no-messages-between-hiroz-and-rmw_zenoh_cpp" title="Permanent link">&para;</a></h3>
-<p><strong>Check format:</strong> Ensure hiroz uses <code>KeyExprFormat::RmwZenoh</code> (the default).</p>
 <p><strong>Check type hash:</strong> Enable debug logging and compare type hashes:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nv">RUST_LOG</span><span class="o">=</span><span class="nv">hiroz</span><span class="o">=</span>debug<span class="w"> </span>cargo<span class="w"> </span>run
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nv">RUST_LOG</span><span class="o">=</span><span class="nv">hiroz</span><span class="o">=</span>debug<span class="w"> </span>cargo<span class="w"> </span>run
 </span></code></pre></div>
 <p>Type hashes must match between hiroz and rmw_zenoh_cpp. If they don't, you may have:</p>
 <ul>
