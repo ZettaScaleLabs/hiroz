@@ -101,8 +101,10 @@ def run_client(ctx, action: str, target: int, cancel_after: float | None):
         action, CountToGoal, CountToResult, CountToFeedback
     )
 
-    # Give server time to advertise
-    time.sleep(1.0)
+    # Wait for the action server instead of sleeping (P1).
+    if not client.wait_for_server(timeout=5.0):
+        print("CLIENT:ERROR:server unavailable", flush=True)
+        sys.exit(1)
 
     print(f"CLIENT:SEND_GOAL:{target}", flush=True)
     handle = client.send_goal(CountToGoal(target=target))

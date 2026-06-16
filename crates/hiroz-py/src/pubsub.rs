@@ -40,6 +40,25 @@ impl PyZPublisher {
         self.inner.publish(data.into()).map_err(|e| e.into_pyerr())
     }
 
+    /// Wait until at least `count` subscriptions match this publisher.
+    ///
+    /// Mirrors rclpy's discovery-wait pattern and removes the need for
+    /// `time.sleep(...)` before publishing. Returns True if `count`
+    /// subscriptions were matched before `timeout`, False otherwise.
+    ///
+    /// Args:
+    ///     count: Number of subscriptions to wait for (default 1).
+    ///     timeout: Maximum seconds to wait. None waits effectively forever.
+    #[pyo3(signature = (count=1, timeout=None))]
+    fn wait_for_subscription(&self, py: Python, count: usize, timeout: Option<f64>) -> bool {
+        // None → wait "forever"; cap at a large but finite duration so the
+        // background thread can still observe interpreter shutdown.
+        let dur = timeout
+            .map(Duration::from_secs_f64)
+            .unwrap_or(Duration::from_secs(60 * 60 * 24 * 365));
+        py.allow_threads(|| self.inner.wait_for_subscription(count, dur))
+    }
+
     /// Get the topic name (for debugging)
     unsafe fn get_type_name(&self) -> String {
         self.type_name.clone()
