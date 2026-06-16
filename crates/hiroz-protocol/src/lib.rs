@@ -55,4 +55,4 @@ pub use entity::{
 };
 #[cfg(feature = "rmw-zenoh")]
 pub use format::rmw_zenoh::RmwZenohFormatter;
-pub use format::{KeyExprFormat, KeyExprFormatter};
+pub use format::{DynKeyExprFormatter, KeyExprFormat, KeyExprFormatter, KeyExprFormatterAdapter};

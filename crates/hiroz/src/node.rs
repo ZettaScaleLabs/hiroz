@@ -342,7 +342,7 @@ impl ZNode {
             clock: self.clock.clone(),
             with_attachment: true,
             shm_config: self.shm_config.clone(),
-            keyexpr_format: self.keyexpr_format,
+            keyexpr_format: self.keyexpr_format.clone(),
             dyn_schema: None,
             encoding: None,
             _phantom_data: Default::default(),
@@ -387,7 +387,7 @@ impl ZNode {
             entity,
             session: self.session.clone(),
             graph: self.graph.clone(),
-            keyexpr_format: self.keyexpr_format,
+            keyexpr_format: self.keyexpr_format.clone(),
             dyn_schema: None,
             locality: None,
             expected_encoding: None,
@@ -468,7 +468,7 @@ impl ZNode {
             entity,
             session: self.session.clone(),
             clock: self.clock.clone(),
-            keyexpr_format: self.keyexpr_format,
+            keyexpr_format: self.keyexpr_format.clone(),
             _phantom_data: Default::default(),
         }
     }
@@ -508,7 +508,7 @@ impl ZNode {
             entity,
             session: self.session.clone(),
             clock: self.clock.clone(),
-            keyexpr_format: self.keyexpr_format,
+            keyexpr_format: self.keyexpr_format.clone(),
             querier_timeout: Duration::from_secs(10),
             _phantom_data: Default::default(),
         }

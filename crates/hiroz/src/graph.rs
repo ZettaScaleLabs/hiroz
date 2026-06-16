@@ -9,9 +9,11 @@ use std::{
 use tokio::sync::Notify;
 use tracing::debug;
 
+#[cfg(test)]
+use crate::entity::ADMIN_SPACE;
 use crate::entity::{
-    ACTION_SERVER_SERVICE_SUFFIXES, ACTION_SERVER_TOPIC_SUFFIXES, ADMIN_SPACE, EndpointEntity,
-    EndpointKind, Entity, LivelinessKE, NodeKey, Topic, action_name_from_topic,
+    ACTION_SERVER_SERVICE_SUFFIXES, ACTION_SERVER_TOPIC_SUFFIXES, EndpointEntity, EndpointKind,
+    Entity, LivelinessKE, NodeKey, Topic, action_name_from_topic,
 };
 use crate::event::GraphEventManager;
 use tracing;
@@ -454,12 +456,7 @@ impl Graph {
         domain_id: usize,
         format: hiroz_protocol::KeyExprFormat,
     ) -> Result<Self> {
-        let liveliness_pattern = match format {
-            hiroz_protocol::KeyExprFormat::RmwZenoh => {
-                format!("{ADMIN_SPACE}/{domain_id}/**")
-            }
-            _ => unreachable!("unknown KeyExprFormat variant"),
-        };
+        let liveliness_pattern = format.liveliness_pattern(domain_id);
 
         Self::new_with_pattern(session, domain_id, liveliness_pattern, move |ke| {
             format.parse_liveliness(ke)

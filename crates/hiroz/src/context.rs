@@ -543,7 +543,11 @@ impl Builder for ZContextBuilder {
         }
 
         let domain_id = builder.domain_id;
-        let graph = Arc::new(Graph::new(&session, domain_id, builder.keyexpr_format)?);
+        let graph = Arc::new(Graph::new(
+            &session,
+            domain_id,
+            builder.keyexpr_format.clone(),
+        )?);
 
         Ok(ZContext {
             session: Arc::new(session),
@@ -633,7 +637,7 @@ impl ZContext {
             graph: self.graph.clone(),
             remap_rules: self.remap_rules.clone(),
             shm_config: self.shm_config.clone(),
-            keyexpr_format: self.keyexpr_format,
+            keyexpr_format: self.keyexpr_format.clone(),
             clock: self.clock.clone(),
             enable_type_desc_service: false,
             enable_parameters: true,
