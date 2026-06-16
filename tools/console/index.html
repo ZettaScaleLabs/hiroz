@@ -3480,35 +3480,13 @@ message rates, and inspect QoS settings.</p>
 </tr>
 <tr>
 <td><code>--backend &lt;BACKEND&gt;</code></td>
-<td>Backend protocol: <code>rmw-zenoh</code> (default) or <code>ros2dds</code></td>
+<td>Backend protocol: <code>rmw-zenoh</code> (default)</td>
 </tr>
 </tbody>
 </table>
 <h3 id="backend-selection">Backend Selection<a class="headerlink" href="#backend-selection" title="Permanent link">&para;</a></h3>
-<p>hiroz-console supports two discovery backends:</p>
-<table>
-<thead>
-<tr>
-<th>Backend</th>
-<th>Use when...</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>rmw-zenoh</code> (default)</td>
-<td>Nodes use <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a> directly</td>
-</tr>
-<tr>
-<td><code>ros2dds</code></td>
-<td>Nodes are bridged via <code>zenoh-bridge-ros2dds</code></td>
-</tr>
-</tbody>
-</table>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Monitor nodes using rmw_zenoh_cpp (default)</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>hiroz-console<span class="w"> </span>tcp/127.0.0.1:7447<span class="w"> </span><span class="m">0</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># Monitor nodes bridged via zenoh-bridge-ros2dds</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>hiroz-console<span class="w"> </span>--backend<span class="w"> </span>ros2dds<span class="w"> </span>tcp/127.0.0.1:7447<span class="w"> </span><span class="m">0</span>
+<p>hiroz-console uses <code>rmw-zenoh</code> as its discovery backend, compatible with nodes using <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a>.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>hiroz-console<span class="w"> </span>tcp/127.0.0.1:7447<span class="w"> </span><span class="m">0</span>
 </span></code></pre></div>
 <h2 id="modes">Modes<a class="headerlink" href="#modes" title="Permanent link">&para;</a></h2>
 <h3 id="tui-mode-default">TUI Mode (Default)<a class="headerlink" href="#tui-mode-default" title="Permanent link">&para;</a></h3>

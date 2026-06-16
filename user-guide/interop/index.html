@@ -2350,8 +2350,7 @@
 <p>hiroz nodes — whether written in Rust, Python, or Go — speak the same Eclipse Zenoh wire protocol as <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a>, the official ROS 2 middleware plugin for Zenoh. This means they interoperate transparently: a Go subscriber can receive messages from a ROS 2 C++ talker, a Python publisher can send to a Rust listener, and so on.</p>
 <div class="admonition tip">
 <p class="admonition-title">Mixing Humble with Jazzy, Kilted, or Lyrical?</p>
-<p>If you need to bridge a <strong>Humble</strong> (legacy) network and a <strong>Jazzy / Kilted / Lyrical</strong> (modern) network,
-see the <a href="../bridge/">Cross-Distro Bridge</a> chapter.</p>
+<p>If you need to bridge a <strong>Humble</strong> (legacy) network and a <strong>Jazzy / Kilted / Lyrical</strong> (modern) network, use <code>hiroz-bridge</code> from <a href="https://github.com/ZettaScaleLabs/hiroz-toolkit">hiroz-toolkit</a>. See the <a href="../bridge/">Cross-Distro Bridge</a> chapter for details.</p>
 </div>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
