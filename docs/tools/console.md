@@ -147,23 +147,14 @@ hiroz-console [OPTIONS] [ROUTER] [DOMAIN]
 | `--debug` | Enable debug logging |
 | `--echo <TOPIC>` | Subscribe to and display messages from topic (requires `--headless`; can be used multiple times) |
 | `--export <PATH>` | Export current state and exit (supports .json, .dot, .csv) |
-| `--backend <BACKEND>` | Backend protocol: `rmw-zenoh` (default) or `ros2dds` |
+| `--backend <BACKEND>` | Backend protocol: `rmw-zenoh` (default) |
 
 ### Backend Selection
 
-hiroz-console supports two discovery backends:
-
-| Backend | Use when... |
-|---------|-------------|
-| `rmw-zenoh` (default) | Nodes use [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) directly |
-| `ros2dds` | Nodes are bridged via `zenoh-bridge-ros2dds` |
+hiroz-console uses `rmw-zenoh` as its discovery backend, compatible with nodes using [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh).
 
 ```bash
-# Monitor nodes using rmw_zenoh_cpp (default)
 hiroz-console tcp/127.0.0.1:7447 0
-
-# Monitor nodes bridged via zenoh-bridge-ros2dds
-hiroz-console --backend ros2dds tcp/127.0.0.1:7447 0
 ```
 
 ## Modes

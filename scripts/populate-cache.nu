@@ -19,11 +19,10 @@ use lib/common.nu [log-step, log-success, log-warning, log-header]
 const CACHE = "hiroz"
 
 const DEVSHELLS = [
-    "pureRust-ci"        # formatting, no-ros-test, coverage, no-ros-checks
-    "ros-jazzy-ci"       # python-tests (jazzy), ros-tests (jazzy)
-    "ros-humble-ci"      # python-tests (humble), ros-tests (humble)
-    "ros-kilted-ci"      # python-tests (kilted), ros-tests (kilted)
-    "ros-bridge-interop" # bridge-interop job
+    "pureRust-ci"   # formatting, no-ros-test, coverage, no-ros-checks
+    "ros-jazzy-ci"  # python-tests (jazzy), ros-tests (jazzy)
+    "ros-humble-ci" # python-tests (humble), ros-tests (humble)
+    "ros-kilted-ci" # python-tests (kilted), ros-tests (kilted)
 ]
 
 # ── helpers ──────────────────────────────────────────────────────────────────
