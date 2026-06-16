@@ -311,7 +311,7 @@ impl ZContextBuilder {
         self
     }
 
-    /// Enable SHM with default pool size (10MB) and threshold (512 bytes).
+    /// Enable SHM with default pool size (10MB) and threshold (512 bytes). Also enables transport SHM on the session.
     ///
     /// # Example
     /// ```no_run
@@ -514,6 +514,14 @@ impl Builder for ZContextBuilder {
             // This is the key change - matching rmw_zenoh_cpp behavior
             crate::config::session_config()?
         };
+
+        // common_overrides disables transport SHM; re-enable it when an SHM provider is set.
+        if builder.shm_config.is_some() {
+            crate::config::enable_transport_shm(&mut config).map_err(|e| {
+                format!("Failed to enable transport shared memory for SHM config: {e}")
+            })?;
+            debug!("[CTX] SHM provider configured: enabled transport/shared_memory");
+        }
 
         // Apply all JSON overrides
         for (key, value) in builder.config_overrides {

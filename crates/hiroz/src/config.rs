@@ -293,6 +293,14 @@ pub fn session_overrides() -> Vec<ConfigOverride> {
     overrides.extend_from_slice(common_overrides());
     overrides
 }
+pub(crate) const TRANSPORT_SHM_ENABLED_KEY: &str = "transport/shared_memory/enabled";
+
+/// Re-enable transport SHM, which `common_overrides` forces off by default.
+pub(crate) fn enable_transport_shm(config: &mut zenoh::Config) -> zenoh::Result<()> {
+    config.insert_json5(TRANSPORT_SHM_ENABLED_KEY, "true")?;
+    Ok(())
+}
+
 /// Build a Zenoh config from a set of overrides
 fn build_config(overrides: &[ConfigOverride]) -> zenoh::Result<zenoh::Config> {
     let mut config = zenoh::Config::default();
@@ -540,6 +548,15 @@ impl RouterConfigBuilder {
         self
     }
 
+    /// Enable transport SHM on the router so it can relay zero-copy SHM buffers between peers.
+    pub fn with_shm_enabled(self) -> Self {
+        self.with_override(
+            TRANSPORT_SHM_ENABLED_KEY,
+            serde_json::json!(true),
+            "Enable transport SHM so the router can relay zero-copy buffers",
+        )
+    }
+
     /// Override a specific config key
     ///
     /// Replaces existing override if key exists, otherwise adds new one.
@@ -784,6 +801,33 @@ mod tests {
         assert!(json5.contains("GENERATED"));
         assert!(json5.contains("mode"));
         assert!(json5.contains("router"));
+    }
+
+    #[test]
+    fn test_enable_transport_shm_overrides_default() {
+        // Start from the session config, which disables transport SHM by default.
+        let mut config = session_config().expect("Failed to build session config");
+        assert_eq!(
+            config.get_json(TRANSPORT_SHM_ENABLED_KEY).unwrap(),
+            "false",
+            "session config should disable transport SHM by default"
+        );
+
+        enable_transport_shm(&mut config).expect("Failed to enable transport SHM");
+        assert_eq!(
+            config.get_json(TRANSPORT_SHM_ENABLED_KEY).unwrap(),
+            "true",
+            "enable_transport_shm should flip the value to true"
+        );
+    }
+
+    #[test]
+    fn test_router_builder_with_shm_enabled() {
+        let config = RouterConfigBuilder::new()
+            .with_shm_enabled()
+            .build_config()
+            .expect("Failed to build router config with SHM");
+        assert_eq!(config.get_json(TRANSPORT_SHM_ENABLED_KEY).unwrap(), "true");
     }
 
     #[test]
