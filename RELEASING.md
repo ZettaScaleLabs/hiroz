@@ -52,7 +52,7 @@ This pushes `v0.0.0-smoke-test`, waits for all CI jobs to pass (builds, smoke te
 The CI pipeline exercises:
 
 - All wheel builds (jazzy + humble × x86_64 Linux, aarch64 Linux, aarch64 macOS)
-- All binary builds (`hiroz-bridge`, `hiroz-console`)
+- All binary builds (`hiroz-console`)
 - All Go library builds (`libhiroz` static + shared)
 - Python smoke test: install into venv, `import hiroz_py`
 - Binary smoke test: `--help` + 3-second runtime check (no crash)

@@ -409,17 +409,13 @@
             extraShellHook = '''';
           };
 
-          # Bridge interop: Jazzy build + test environment with Humble tools accessible via
-          # the `humble-ros2` wrapper script (env var HUMBLE_ROS2).
-          # Tests call binaries directly — no `nix develop` subprocess invocations.
+          # DEPRECATED: Bridge interop test environment (Jazzy + Humble via humble-ros2 wrapper).
+          # Moved to zetta-hiroz-toolkit (private). Will be removed in a future release.
           ros-bridge-interop =
             let
               humbleEnv = mkRosEnv "humble";
               jazzyEnv = mkRosEnv "jazzy";
               pythonVer = pkgs.python3;
-              # Wrapper script: invokes ros2 inside the Humble environment.
-              # Overrides AMENT_PREFIX_PATH / ROS_DISTRO so Humble packages take precedence
-              # over anything inherited from the outer Jazzy shell.
               humbleRos2 = pkgs.writeShellScriptBin "humble-ros2" ''
                 export AMENT_PREFIX_PATH="${humbleEnv.dev}"
                 export ROS_PACKAGE_PATH="${humbleEnv.dev}/share"
@@ -433,7 +429,6 @@
             in
             mkDevShell {
               name = "ros-bridge-interop";
-              # Jazzy dev env gives us: build deps + ros2cli + rmw_zenoh_cpp for `ros2 topic list`
               packages =
                 commonBuildInputs
                 ++ testTools
@@ -444,12 +439,15 @@
               rosEnvPath = jazzyEnv.dev;
               pythonVersion = pythonVer;
               rosDistro = "jazzy";
-              # HUMBLE_ROS2 is set as a mkShell attribute so it is exported by
-              # `nix print-dev-env` (unlike shellHook which is not captured).
               extraEnvVars = {
                 HUMBLE_ROS2 = "${humbleRos2}/bin/humble-ros2";
               };
+              shellHook = ''
+                echo "WARNING: ros-bridge-interop is deprecated in this repo." >&2
+                echo "Use the shell from zetta-hiroz-toolkit instead." >&2
+              '';
             };
+
         }
         # Add per-distro dev shells (ros-jazzy, ros-rolling, ...)
         // (builtins.listToAttrs (

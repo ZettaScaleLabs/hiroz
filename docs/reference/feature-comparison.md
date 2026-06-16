@@ -80,7 +80,7 @@ ROS 2 (Zenoh) means `rmw_zenoh_cpp`: a drop-in RMW plugin that gives existing rc
 | ROS 2 CLI (`ros2 topic`, `ros2 service`, …) | ✅ | ✅ | ✅ via `rmw_zenoh_cpp` |
 | Jazzy / Kilted / Lyrical support | ✅ | ✅ | ✅ |
 | Humble support | ✅ | ✅ | ✅ |
-| Cross-distro bridge (Humble ↔ Jazzy) | ❌ | ❌ | ✅ |
+| Cross-distro bridge (Humble ↔ Jazzy) | ❌ | ❌ | ✅ via [hiroz-toolkit](https://github.com/ZettaScaleLabs/hiroz-toolkit) |
 | Python bindings | native | native | ✅ (`hiroz-py`) |
 | Go bindings | ❌ | ❌ | ✅ (`hiroz-go`) |
 | No ROS 2 install needed | ❌ | ❌ | ✅ |
@@ -96,4 +96,4 @@ ROS 2 (Zenoh) means `rmw_zenoh_cpp`: a drop-in RMW plugin that gives existing rc
 - **[ROS 2 → hiroz API Mapping](./ros2-to-hiroz.md)** — method-by-method translation table
 - **[rmw-zenoh-rs](../experimental/rmw-zenoh-rs.md)** — the RMW plugin powering `rmw_zenoh_cpp`
 - **[ROS 2 Interoperability](../user-guide/interop.md)** — running hiroz alongside rclcpp/rclpy nodes
-- **[Cross-Distro Bridge](../user-guide/bridge.md)** — Humble ↔ Jazzy bridging
+- **[Cross-Distro Bridge](../user-guide/bridge.md)** — Humble ↔ Jazzy bridging via hiroz-toolkit

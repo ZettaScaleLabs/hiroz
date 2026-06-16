@@ -319,7 +319,7 @@ impl ParameterService {
                 clock: clock.clone(),
                 with_attachment: true,
                 shm_config: None,
-                keyexpr_format: ke_format,
+                keyexpr_format: ke_format.clone(),
                 dyn_schema: None,
                 encoding: None,
                 _phantom_data: Default::default(),
@@ -348,7 +348,7 @@ impl ParameterService {
                 entity,
                 session: session.clone(),
                 clock: clock.clone(),
-                keyexpr_format: ke_format,
+                keyexpr_format: ke_format.clone(),
                 _phantom_data: Default::default(),
             };
             builder.build_with_callback(move |query| {
@@ -368,7 +368,7 @@ impl ParameterService {
                 entity,
                 session: session.clone(),
                 clock: clock.clone(),
-                keyexpr_format: ke_format,
+                keyexpr_format: ke_format.clone(),
                 _phantom_data: Default::default(),
             };
             builder.build_with_callback(move |query| {
@@ -388,7 +388,7 @@ impl ParameterService {
                 entity,
                 session: session.clone(),
                 clock: clock.clone(),
-                keyexpr_format: ke_format,
+                keyexpr_format: ke_format.clone(),
                 _phantom_data: Default::default(),
             };
             builder.build_with_callback(move |query| {
@@ -408,7 +408,7 @@ impl ParameterService {
                 entity,
                 session: session.clone(),
                 clock: clock.clone(),
-                keyexpr_format: ke_format,
+                keyexpr_format: ke_format.clone(),
                 _phantom_data: Default::default(),
             };
             builder.build_with_callback(move |query| {
@@ -428,7 +428,7 @@ impl ParameterService {
                 entity,
                 session: session.clone(),
                 clock: clock.clone(),
-                keyexpr_format: ke_format,
+                keyexpr_format: ke_format.clone(),
                 _phantom_data: Default::default(),
             };
             builder.build_with_callback(move |query| {
@@ -448,7 +448,7 @@ impl ParameterService {
                 entity,
                 session: session.clone(),
                 clock: clock.clone(),
-                keyexpr_format: ke_format,
+                keyexpr_format: ke_format.clone(),
                 _phantom_data: Default::default(),
             };
             builder.build_with_callback(move |query| {
