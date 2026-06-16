@@ -313,6 +313,14 @@ impl ZContextBuilder {
 
     /// Enable SHM with default pool size (10MB) and threshold (512 bytes).
     ///
+    /// This also enables transport-level shared memory on the session so that
+    /// co-located publishers and subscribers exchange large payloads zero-copy.
+    /// For zero-copy to engage end-to-end, the connected router (`zenohd` or a
+    /// [`RouterConfigBuilder`](crate::config::RouterConfigBuilder)) must also
+    /// have transport SHM enabled — e.g. via
+    /// `RouterConfigBuilder::new().with_shm_enabled()` or
+    /// `ZENOH_CONFIG_OVERRIDE=transport/shared_memory/enabled=true` for `zenohd`.
+    ///
     /// # Example
     /// ```no_run
     /// use hiroz::context::ZContextBuilder;
@@ -514,6 +522,19 @@ impl Builder for ZContextBuilder {
             // This is the key change - matching rmw_zenoh_cpp behavior
             crate::config::session_config()?
         };
+
+        // When an SHM provider is configured, transport-level shared memory must
+        // be enabled on the session as well. The common session config forces it
+        // off by default, so without this the publisher allocates from the SHM
+        // pool but zenoh copies the buffer into the regular network message
+        // instead of passing it zero-copy (see issue #208). Applied *before* the
+        // user/env `config_overrides` below so an explicit override can still win.
+        if builder.shm_config.is_some() {
+            crate::config::enable_transport_shm(&mut config).map_err(|e| {
+                format!("Failed to enable transport shared memory for SHM config: {e}")
+            })?;
+            debug!("[CTX] SHM provider configured: enabled transport/shared_memory");
+        }
 
         // Apply all JSON overrides
         for (key, value) in builder.config_overrides {

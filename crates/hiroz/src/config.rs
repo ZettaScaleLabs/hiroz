@@ -293,6 +293,21 @@ pub fn session_overrides() -> Vec<ConfigOverride> {
     overrides.extend_from_slice(common_overrides());
     overrides
 }
+/// Config key controlling transport-level shared memory.
+pub(crate) const TRANSPORT_SHM_ENABLED_KEY: &str = "transport/shared_memory/enabled";
+
+/// Enable transport-level shared memory on an existing config.
+///
+/// The common session/router overrides force `transport/shared_memory/enabled`
+/// to `false` by default. When an SHM provider is configured, the transport must
+/// also be told to accept SHM buffers, otherwise zenoh silently copies the SHM
+/// contents into the regular network message and the zero-copy path never
+/// engages. This applies the override that re-enables it.
+pub(crate) fn enable_transport_shm(config: &mut zenoh::Config) -> zenoh::Result<()> {
+    config.insert_json5(TRANSPORT_SHM_ENABLED_KEY, "true")?;
+    Ok(())
+}
+
 /// Build a Zenoh config from a set of overrides
 fn build_config(overrides: &[ConfigOverride]) -> zenoh::Result<zenoh::Config> {
     let mut config = zenoh::Config::default();
@@ -540,6 +555,29 @@ impl RouterConfigBuilder {
         self
     }
 
+    /// Enable transport-level shared memory on the router.
+    ///
+    /// The default router config disables `transport/shared_memory/enabled` (see
+    /// [`common_overrides`]). A router (or `zenohd`) that relays SHM traffic
+    /// between co-located peers must have transport SHM enabled, otherwise the
+    /// zero-copy path is broken end-to-end even when both peers request SHM.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use hiroz::config::RouterConfigBuilder;
+    /// let config = RouterConfigBuilder::new()
+    ///     .with_shm_enabled()
+    ///     .build_config()?;
+    /// # Ok::<(), zenoh::Error>(())
+    /// ```
+    pub fn with_shm_enabled(self) -> Self {
+        self.with_override(
+            TRANSPORT_SHM_ENABLED_KEY,
+            serde_json::json!(true),
+            "Enable transport SHM so the router can relay zero-copy buffers",
+        )
+    }
+
     /// Override a specific config key
     ///
     /// Replaces existing override if key exists, otherwise adds new one.
@@ -784,6 +822,43 @@ mod tests {
         assert!(json5.contains("GENERATED"));
         assert!(json5.contains("mode"));
         assert!(json5.contains("router"));
+    }
+
+    #[test]
+    fn test_common_default_disables_transport_shm() {
+        let common = common_overrides();
+        let shm = common
+            .iter()
+            .find(|o| o.key == TRANSPORT_SHM_ENABLED_KEY)
+            .expect("common overrides should set transport shared_memory");
+        assert_eq!(shm.value, serde_json::json!(false));
+    }
+
+    #[test]
+    fn test_enable_transport_shm_overrides_default() {
+        // Start from the session config, which disables transport SHM by default.
+        let mut config = session_config().expect("Failed to build session config");
+        assert_eq!(
+            config.get_json(TRANSPORT_SHM_ENABLED_KEY).unwrap(),
+            "false",
+            "session config should disable transport SHM by default"
+        );
+
+        enable_transport_shm(&mut config).expect("Failed to enable transport SHM");
+        assert_eq!(
+            config.get_json(TRANSPORT_SHM_ENABLED_KEY).unwrap(),
+            "true",
+            "enable_transport_shm should flip the value to true"
+        );
+    }
+
+    #[test]
+    fn test_router_builder_with_shm_enabled() {
+        let config = RouterConfigBuilder::new()
+            .with_shm_enabled()
+            .build_config()
+            .expect("Failed to build router config with SHM");
+        assert_eq!(config.get_json(TRANSPORT_SHM_ENABLED_KEY).unwrap(), "true");
     }
 
     #[test]
