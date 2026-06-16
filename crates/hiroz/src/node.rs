@@ -272,7 +272,7 @@ impl Builder for ZNodeBuilder {
             remap_rules: self.remap_rules,
             clock: self.clock,
             shm_config: self.shm_config,
-            keyexpr_format: self.keyexpr_format,
+            keyexpr_format: self.keyexpr_format.clone(),
             type_desc_service,
             parameter_service,
         })
@@ -960,7 +960,7 @@ impl ZNode {
 
     /// Returns the key expression format used by this node.
     pub fn keyexpr_format(&self) -> hiroz_protocol::KeyExprFormat {
-        self.keyexpr_format
+        self.keyexpr_format.clone()
     }
 
     /// Allocates and returns the next unique entity ID from this node's counter.
