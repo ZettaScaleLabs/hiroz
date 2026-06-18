@@ -96,6 +96,7 @@
                 ros2param
                 ros2service
                 ros2action
+                ros2pkg
                 rmw-zenoh-cpp
               ];
 
