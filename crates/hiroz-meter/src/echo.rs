@@ -105,12 +105,14 @@ fn decode_cdr_preview(payload: &[u8]) -> Option<String> {
     // Try string: 4-byte length then UTF-8
     if data.len() >= 4 {
         let len = u32::from_le_bytes(data[..4].try_into().ok()?) as usize;
-        if len > 0 && len <= 1024 && data.len() >= 4 + len {
-            if let Ok(s) = std::str::from_utf8(&data[4..4 + len]) {
-                let s = s.trim_end_matches('\0');
-                if s.chars().all(|c| !c.is_control() || c == '\n') {
-                    return Some(format!("\"{}\"", s));
-                }
+        if len > 0
+            && len <= 1024
+            && data.len() >= 4 + len
+            && let Ok(s) = std::str::from_utf8(&data[4..4 + len])
+        {
+            let s = s.trim_end_matches('\0');
+            if s.chars().all(|c| !c.is_control() || c == '\n') {
+                return Some(format!("\"{}\"", s));
             }
         }
     }

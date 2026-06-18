@@ -150,10 +150,10 @@ pub async fn run(ctx: &Ctx, args: LogArgs, json: bool) -> Result<()> {
             if log.level < min_level {
                 continue;
             }
-            if let Some(ref nf) = node_filter {
-                if !log.name.contains(nf.as_str()) {
-                    continue;
-                }
+            if let Some(ref nf) = node_filter
+                && !log.name.contains(nf.as_str())
+            {
+                continue;
             }
 
             printed += 1;

@@ -7,6 +7,7 @@ pub struct Ctx {
     pub node: Arc<ZNode>,
     pub graph: Arc<Graph>,
     pub domain: usize,
+    #[allow(dead_code)]
     pub router: String,
 }
 

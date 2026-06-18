@@ -41,7 +41,7 @@ fn encode_get_logger_levels_request(logger_names: &[&str]) -> Vec<u8> {
         buf.extend_from_slice(bytes);
         buf.push(0u8);
         // align
-        while buf.len() % 4 != 0 {
+        while !buf.len().is_multiple_of(4) {
             buf.push(0u8);
         }
     }
@@ -72,7 +72,7 @@ fn encode_set_logger_levels_request(logger: &str, level: &str) -> Vec<u8> {
     buf.extend_from_slice(&len.to_le_bytes());
     buf.extend_from_slice(bytes);
     buf.push(0u8);
-    while buf.len() % 4 != 0 {
+    while !buf.len().is_multiple_of(4) {
         buf.push(0u8);
     }
     // level u32

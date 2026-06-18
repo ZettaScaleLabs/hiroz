@@ -21,10 +21,10 @@ pub fn discover_plugins() -> Vec<(String, PathBuf)> {
         };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if let Some(plugin_name) = name.strip_prefix("hu-") {
-                if seen.insert(plugin_name.to_string()) {
-                    plugins.push((plugin_name.to_string(), entry.path()));
-                }
+            if let Some(plugin_name) = name.strip_prefix("hu-")
+                && seen.insert(plugin_name.to_string())
+            {
+                plugins.push((plugin_name.to_string(), entry.path()));
             }
         }
     }

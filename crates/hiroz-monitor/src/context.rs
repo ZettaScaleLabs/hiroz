@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 pub struct Ctx {
     pub session: Arc<zenoh::Session>,
+    #[allow(dead_code)]
     pub node: Arc<ZNode>,
     pub graph: Arc<Graph>,
     pub domain: usize,

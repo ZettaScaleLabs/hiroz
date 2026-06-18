@@ -50,14 +50,14 @@ pub async fn run(ctx: &Ctx, args: DelayArgs, json: bool) -> Result<()> {
                 .unwrap_or(0);
 
             let payload: Vec<u8> = sample.payload().to_bytes().into_owned();
-            if let Some(stamp_ns) = extract_stamp_ns(&payload) {
-                if recv_ns >= stamp_ns {
-                    let delay_s = (recv_ns - stamp_ns) as f64 / 1e9;
-                    let mut d = delays_cb.lock();
-                    d.push_back(delay_s);
-                    if d.len() > window {
-                        d.pop_front();
-                    }
+            if let Some(stamp_ns) = extract_stamp_ns(&payload)
+                && recv_ns >= stamp_ns
+            {
+                let delay_s = (recv_ns - stamp_ns) as f64 / 1e9;
+                let mut d = delays_cb.lock();
+                d.push_back(delay_s);
+                if d.len() > window {
+                    d.pop_front();
                 }
             }
         })

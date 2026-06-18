@@ -167,7 +167,7 @@ fn run_plugin_list(json: bool) -> Result<(), Box<dyn std::error::Error + Send + 
             println!("No hu-* plugins found on PATH.");
             return Ok(());
         }
-        println!("{:<20} {}", "PLUGIN", "PATH");
+        println!("{:<20} PATH", "PLUGIN");
         println!("{}", "-".repeat(60));
         for (name, path) in &plugins {
             let manifest = plugin::query_manifest(path);
