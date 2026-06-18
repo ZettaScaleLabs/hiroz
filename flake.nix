@@ -317,11 +317,11 @@
                 }
 
                 ${
-                  # Per-package AMENT_PREFIX_PATH: each package's own store path is appended
-                  # so its ament_index/resource_index/packages/<name> marker is visible.
-                  pkgs.lib.concatMapStrings (p: ''
-                    export AMENT_PREFIX_PATH="$AMENT_PREFIX_PATH:${p}"
-                  '') rosEnvPaths
+                  # Per-package AMENT_PREFIX_PATH: collapsed into one export so nix develop
+                  # doesn't evaluate 26 separate shell statements (each increments SHLVL).
+                  pkgs.lib.optionalString (rosEnvPaths != [ ]) ''
+                    export AMENT_PREFIX_PATH="$AMENT_PREFIX_PATH:${pkgs.lib.concatStringsSep ":" rosEnvPaths}"
+                  ''
                 }
 
                 ${extraShellHook}
