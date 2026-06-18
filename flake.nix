@@ -31,6 +31,9 @@
           "lyrical" # (May 2026 - May 2031, LTS)
           "rolling" # continuous release, no EOL
         ];
+        # Only include distros present in the pinned nix-ros-overlay; newer distros
+        # (lyrical, rolling) may not be cached on the CI worker yet.
+        availableDistros = builtins.filter (d: pkgs.rosPackages ? ${d}) distros;
 
         pkgs = import nixpkgs {
           inherit system;
@@ -376,12 +379,12 @@
             };
           };
 
-        # Generate shells for all distros
+        # Generate shells for available distros only
         allDistroShells = builtins.listToAttrs (
           builtins.map (distro: {
             name = distro;
             value = mkRosShells distro;
-          }) distros
+          }) availableDistros
         );
         # Pre-commit hooks configuration
         mkdocsPkg = builtins.elemAt docTools 1;
@@ -482,14 +485,14 @@
           builtins.map (distro: {
             name = "ros-${distro}";
             value = allDistroShells.${distro}.default;
-          }) distros
+          }) availableDistros
         ))
         # Add per-distro CI shells (ros-jazzy-ci, ros-rolling-ci, ...)
         // (builtins.listToAttrs (
           builtins.map (distro: {
             name = "ros-${distro}-ci";
             value = allDistroShells.${distro}.ci;
-          }) distros
+          }) availableDistros
         ));
 
         formatter = pkgs.nixfmt-rfc-style;
