@@ -202,6 +202,8 @@ impl RmwZenohDaemon {
     /// test gets its own isolated router. Retries up to 5 times if the
     /// randomly chosen port is taken before rmw_zenohd binds it.
     pub fn new() -> Self {
+        use std::os::unix::process::CommandExt;
+
         let binary =
             Self::find_binary().expect("rmw_zenohd not found — ensure rmw_zenoh_cpp is installed");
 
