@@ -96,6 +96,7 @@
                 ros2param
                 ros2service
                 ros2action
+                rmw-zenoh-cpp
               ];
 
               devExtras = with pkgs.rosPackages.${rosDistro}; [
