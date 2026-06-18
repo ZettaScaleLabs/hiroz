@@ -88,6 +88,16 @@
                 test-msgs
               ];
 
+              # CLI tools needed for interop tests (ros2 topic/param/node/service)
+              testCli = with pkgs.rosPackages.${rosDistro}; [
+                ros2cli
+                ros2topic
+                ros2node
+                ros2param
+                ros2service
+                ros2action
+              ];
+
               devExtras = with pkgs.rosPackages.${rosDistro}; [
                 ament-cmake-core
                 ros-core
@@ -142,9 +152,9 @@
               wrapPrograms = false;
             };
 
-            # Test environment with test messages (for all tests)
+            # Test environment with test messages and CLI tools (for all tests)
             testFull = pkgs.rosPackages.${rosDistro}.buildEnv {
-              paths = rosDeps.rcl ++ rosDeps.messages ++ rosDeps.testMessages;
+              paths = rosDeps.rcl ++ rosDeps.messages ++ rosDeps.testMessages ++ rosDeps.testCli;
               wrapPrograms = false;
             };
           };
