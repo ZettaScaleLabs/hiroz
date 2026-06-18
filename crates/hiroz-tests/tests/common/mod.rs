@@ -237,7 +237,7 @@ impl RmwZenohDaemon {
             // Wait for rmw_zenohd to confirm it is listening. Read stderr lines
             // until we see a "Listening" line or a port-in-use error.
             // We wrap the child in a ProcessGuard only after confirming startup.
-            let mut guard = ProcessGuard::new(child, "rmw_zenohd");
+            let guard = ProcessGuard::new(child, "rmw_zenohd");
 
             // Give the process a moment to bind the port, then probe it.
             thread::sleep(Duration::from_millis(200));

@@ -232,16 +232,11 @@ fn test_hiroz_reads_rclcpp_node_params() {
     let daemon = RmwZenohDaemon::new();
     let rmw_env = daemon.rmw_zenoh_env();
 
-    // Start an rclcpp talker node (it declares the 'use_sim_time' parameter by default)
+    // Start a plain rclcpp talker node (declares 'use_sim_time' by default).
+    // Do not remap __node: the remapping syntax causes an exit-code-2 failure
+    // on this ROS 2 distro. Use the default /talker node name instead.
     let server = Command::new("ros2")
-        .args([
-            "run",
-            "demo_nodes_cpp",
-            "talker",
-            "--ros-args",
-            "-r",
-            "__node:=rclcpp_param_node",
-        ])
+        .args(["run", "demo_nodes_cpp", "talker"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", &rmw_env)
         .stdout(std::process::Stdio::piped())
@@ -249,15 +244,15 @@ fn test_hiroz_reads_rclcpp_node_params() {
         .spawn()
         .expect("Failed to start rclcpp node");
 
-    let _guard = ProcessGuard::new(server, "rclcpp_param_node");
+    let _guard = ProcessGuard::new(server, "talker");
 
-    wait_for_node("rclcpp_param_node", &rmw_env, Duration::from_secs(15));
+    wait_for_node("/talker", &rmw_env, Duration::from_secs(15));
 
     let output = ros2_cmd(&rmw_env)
         .args([
             "param",
             "list",
-            "/rclcpp_param_node",
+            "/talker",
             "--spin-time",
             SPIN_TIME,
             "--no-daemon",

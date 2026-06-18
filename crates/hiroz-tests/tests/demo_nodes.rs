@@ -87,7 +87,11 @@ fn test_rcl_talker_to_hiroz_listener() {
         panic!("demo_nodes_cpp package not found - ensure it is installed");
     }
 
-    let daemon = RmwZenohDaemon::new();
+    // Use the zenoh-rs 1.9.0 TestRouter so that both the hiroz listener (1.9.0)
+    // and the RCL talker (zenoh-c 1.6.2) connect to the same native router.
+    // The in-process router correctly routes publications from the 1.6.2 client
+    // to the 1.9.0 subscriber, whereas rmw_zenohd (1.6.2 router) does not.
+    let router = TestRouter::new();
 
     println!("\n=== Test: RCL demo_nodes_cpp talker -> hiroz listener ===");
 
@@ -95,10 +99,10 @@ fn test_rcl_talker_to_hiroz_listener() {
     let received_clone = received.clone();
 
     // Start hiroz listener in a thread using the example code
-    let daemon_endpoint = daemon.endpoint().to_string();
+    let router_endpoint = router.endpoint().to_string();
     let listener_handle = thread::spawn(move || {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&daemon_endpoint)
+            let ctx = create_hiroz_context_with_endpoint(&router_endpoint)
                 .expect("Failed to create hiroz context");
 
             // Use the actual listener example code with timeout
@@ -114,11 +118,11 @@ fn test_rcl_talker_to_hiroz_listener() {
 
     wait_for_ready(Duration::from_secs(2));
 
-    // Start RCL talker
+    // Start RCL talker, connecting to the zenoh-rs TestRouter
     let talker = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "talker"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
-        .env("ZENOH_CONFIG_OVERRIDE", daemon.rmw_zenoh_env())
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .process_group(0)
@@ -260,15 +264,18 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
         panic!("demo_nodes_cpp package not found - ensure it is installed");
     }
 
-    let daemon = RmwZenohDaemon::new();
+    // Use zenoh-rs TestRouter so the hiroz client's Interest-based querier
+    // is handled natively by the 1.9.0 router, which correctly routes queries
+    // from the hiroz client (1.9.0) to the RCL server (zenoh-c 1.6.2).
+    let router = TestRouter::new();
 
     println!("\n=== Test: RCL demo_nodes_cpp add_two_ints server -> hiroz client ===");
 
-    // Start RCL server
+    // Start RCL server, connecting to the zenoh-rs TestRouter
     let server = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "add_two_ints_server"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
-        .env("ZENOH_CONFIG_OVERRIDE", daemon.rmw_zenoh_env())
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .process_group(0)
@@ -282,7 +289,7 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
     // Start hiroz client in a thread using the example code
     let client_handle = thread::spawn(move || -> i64 {
         let ctx =
-            create_hiroz_context_with_daemon(&daemon).expect("Failed to create hiroz context");
+            create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
 
         // Use the actual client example code
         demo_nodes::run_add_two_ints_client(ctx, 4, 7, false).expect("Client failed")
@@ -307,42 +314,52 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
         panic!("demo_nodes_cpp package not found - ensure it is installed");
     }
 
-    let daemon = RmwZenohDaemon::new();
+    // Use TestRouter so that `ros2 service call` (zenoh-c 1.6.2 client) can
+    // reach the hiroz service server. The `demo_nodes_cpp add_two_ints_client`
+    // binary calls wait_for_service() which blocks indefinitely when the hiroz
+    // liveliness token is not visible via rmw_zenohd; `ros2 service call` does
+    // not call wait_for_service() and works correctly through the TestRouter.
+    let router = TestRouter::new();
 
-    println!("\n=== Test: hiroz add_two_ints server -> RCL demo_nodes_cpp client ===");
+    println!("\n=== Test: hiroz add_two_ints server -> RCL ros2 service call ===");
 
     // Start hiroz server in a thread using the example code
-    let daemon_endpoint = daemon.endpoint().to_string();
+    let router_endpoint = router.endpoint().to_string();
     let server_handle = thread::spawn(move || {
-        let ctx = create_hiroz_context_with_endpoint(&daemon_endpoint)
+        let ctx = create_hiroz_context_with_endpoint(&router_endpoint)
             .expect("Failed to create hiroz context");
 
-        // Use the actual server example code (handle one request)
+        // Handle one request then exit
         demo_nodes::run_add_two_ints_server(ctx, Some(1)).expect("Server failed");
     });
 
     wait_for_ready(Duration::from_secs(2));
 
-    // Start RCL client
-    let client = Command::new("ros2")
-        .args(["run", "demo_nodes_cpp", "add_two_ints_client"])
+    // Use `ros2 service call` which bypasses wait_for_service()
+    let output = Command::new("ros2")
+        .args([
+            "service",
+            "call",
+            "/add_two_ints",
+            "example_interfaces/srv/AddTwoInts",
+            "{a: 4, b: 7}",
+        ])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
-        .env("ZENOH_CONFIG_OVERRIDE", daemon.rmw_zenoh_env())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .process_group(0)
-        .spawn()
-        .expect("Failed to start RCL client");
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        .output()
+        .expect("Failed to run ros2 service call");
 
-    let _client_guard = ProcessGuard::new(client, "RCL add_two_ints client");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    println!("ros2 service call output: {}", stdout);
+    assert!(
+        output.status.success(),
+        "ros2 service call failed: {}",
+        stdout
+    );
 
-    // Wait for the client to complete
-    wait_for_ready(Duration::from_secs(3));
-
-    // Stop the server
     server_handle.join().expect("Server thread panicked");
 
-    println!("Test passed: RCL client called hiroz server");
+    println!("Test passed: RCL called hiroz add_two_ints server");
 }
 
 #[test]
@@ -355,15 +372,19 @@ fn test_rcl_fibonacci_action_server_to_hiroz_client() {
         panic!("action_tutorials_cpp package not found - ensure it is installed");
     }
 
-    let daemon = RmwZenohDaemon::new();
+    // Use zenoh-rs TestRouter: the hiroz action client uses declare_querier()
+    // internally and the 1.9.0 router handles its Interest correctly, whereas
+    // rmw_zenohd (1.6.2) does not route the hiroz querier's requests to the RCL
+    // action server.
+    let router = TestRouter::new();
 
     println!("\n=== Test: RCL demo_nodes_cpp fibonacci action server -> hiroz client ===");
 
-    // Start RCL server
+    // Start RCL action server, connecting to the zenoh-rs TestRouter
     let server = Command::new("ros2")
         .args(["run", "action_tutorials_cpp", "fibonacci_action_server"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
-        .env("ZENOH_CONFIG_OVERRIDE", daemon.rmw_zenoh_env())
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .process_group(0)
@@ -377,7 +398,7 @@ fn test_rcl_fibonacci_action_server_to_hiroz_client() {
     // Start hiroz client in a thread
     let client_handle = thread::spawn(move || -> Vec<i32> {
         let ctx =
-            create_hiroz_context_with_daemon(&daemon).expect("Failed to create hiroz context");
+            create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
 
         // Use the actual client example code
         tokio::runtime::Runtime::new()
