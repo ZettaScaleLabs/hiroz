@@ -157,6 +157,10 @@
               paths = rosDeps.rcl ++ rosDeps.messages ++ rosDeps.testMessages ++ rosDeps.testCli;
               wrapPrograms = false;
             };
+
+            # Individual store paths for testFull — used to build a correct AMENT_PREFIX_PATH
+            # that preserves each package's own ament index (buildEnv merging drops index entries).
+            testFullPaths = rosDeps.rcl ++ rosDeps.messages ++ rosDeps.testMessages ++ rosDeps.testCli;
           };
 
         # Colcon configuration
@@ -270,6 +274,9 @@
             # Extra env vars set as mkShell attributes (exported by `nix print-dev-env`).
             extraEnvVars ? { },
             rosEnvPath ? null,
+            # Individual package store paths — when provided, each is added to AMENT_PREFIX_PATH
+            # separately so their ament indexes survive (buildEnv merging drops index entries).
+            rosEnvPaths ? [ ],
             pythonVersion ? pkgs.python3, # To determine site-packages path
             rosDistro ? null,
           }:
@@ -302,6 +309,14 @@
                     ''
                   else
                     ""
+                }
+
+                ${
+                  # Per-package AMENT_PREFIX_PATH: each package's own store path is appended
+                  # so its ament_index/resource_index/packages/<name> marker is visible.
+                  pkgs.lib.concatMapStrings (p: ''
+                    export AMENT_PREFIX_PATH="$AMENT_PREFIX_PATH:${p}"
+                  '') rosEnvPaths
                 }
 
                 ${extraShellHook}
@@ -352,6 +367,7 @@
               name = "hiroz-ci-${rosDistro}";
               packages = commonBuildInputs ++ pythonTools ++ docTools ++ testTools ++ [ rosEnv.testFull ];
               rosEnvPath = rosEnv.testFull;
+              rosEnvPaths = rosEnv.testFullPaths;
               pythonVersion = pythonVer;
               rosDistro = rosDistro;
               extraShellHook = '''';
