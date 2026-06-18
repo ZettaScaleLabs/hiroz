@@ -1,3 +1,4 @@
+mod action;
 mod bw;
 mod context;
 mod delay;
@@ -7,6 +8,7 @@ mod info;
 mod list;
 mod manifest;
 mod param;
+mod r#pub;
 mod service;
 
 use anyhow::Result;
@@ -48,13 +50,17 @@ enum Commands {
     Delay(delay::DelayArgs),
     /// Print received messages from a topic
     Echo(echo::EchoArgs),
-    /// List topics, nodes, or services
+    /// Publish messages to a topic
+    Pub(r#pub::PubArgs),
+    /// List topics, nodes, services, or actions
     List(list::ListArgs),
-    /// Show info about a topic, node, or service
+    /// Show info about a topic, node, service, or action
     Info(info::InfoArgs),
     /// Call a service
     Service(service::ServiceArgs),
-    /// Get, set, or list parameters
+    /// List, inspect, or send goals to action servers
+    Action(action::ActionArgs),
+    /// Get, set, list, dump, or load parameters
     Param(param::ParamArgs),
 }
 
@@ -86,9 +92,11 @@ async fn main() -> Result<()> {
         Commands::Bw(args) => bw::run(&ctx, args, cli.json).await,
         Commands::Delay(args) => delay::run(&ctx, args, cli.json).await,
         Commands::Echo(args) => echo::run(&ctx, args, cli.json).await,
+        Commands::Pub(args) => r#pub::run(&ctx, args, cli.json).await,
         Commands::List(args) => list::run(&ctx, args, cli.json).await,
         Commands::Info(args) => info::run(&ctx, args, cli.json).await,
         Commands::Service(args) => service::run(&ctx, args, cli.json).await,
+        Commands::Action(args) => action::run(&ctx, args, cli.json).await,
         Commands::Param(args) => param::run(&ctx, args, cli.json).await,
     }
 }

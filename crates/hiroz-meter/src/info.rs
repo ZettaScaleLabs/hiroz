@@ -57,28 +57,82 @@ pub async fn run(ctx: &Ctx, args: InfoArgs, json: bool) -> Result<()> {
 
         InfoWhat::Node { name } => {
             let n = name.trim_start_matches('/');
-            let nodes = ctx.graph.get_node_names();
-            let found = nodes.iter().any(|(ns, nm)| {
-                let full = if ns == "/" {
-                    format!("/{}", nm)
+            // Parse ns/name from the fully-qualified node name
+            let node_key: (String, String) = match n.rsplit_once('/') {
+                Some((ns_part, nm_part)) => {
+                    let ns = if ns_part.is_empty() { "/" } else { ns_part };
+                    (ns.to_string(), nm_part.to_string())
+                }
+                None => ("/".to_string(), n.to_string()),
+            };
+
+            let found = ctx.graph.node_exists(node_key.clone());
+
+            if !found {
+                if json {
+                    println!("{}", serde_json::json!({"node": name, "found": false}));
                 } else {
-                    format!("{}/{}", ns, nm)
-                };
-                full.trim_start_matches('/') == n
-            });
+                    println!("Node {} not found in graph", name);
+                }
+                return Ok(());
+            }
+
+            let publishers = ctx
+                .graph
+                .get_names_and_types_by_node(node_key.clone(), EndpointKind::Publisher);
+            let subscribers = ctx
+                .graph
+                .get_names_and_types_by_node(node_key.clone(), EndpointKind::Subscription);
+            let service_servers = ctx
+                .graph
+                .get_names_and_types_by_node(node_key.clone(), EndpointKind::Service);
+            let service_clients = ctx
+                .graph
+                .get_names_and_types_by_node(node_key.clone(), EndpointKind::Client);
+            let action_servers = ctx
+                .graph
+                .get_action_server_names_and_types_by_node(node_key.clone());
+            let action_clients = ctx
+                .graph
+                .get_action_client_names_and_types_by_node(node_key.clone());
 
             if json {
+                let to_entries = |v: &[(String, String)]| -> Vec<serde_json::Value> {
+                    v.iter()
+                        .map(|(n, t)| serde_json::json!({"name": n, "type": t}))
+                        .collect()
+                };
                 println!(
                     "{}",
                     serde_json::json!({
                         "node": name,
-                        "found": found,
+                        "found": true,
+                        "publishers": to_entries(&publishers),
+                        "subscribers": to_entries(&subscribers),
+                        "service_servers": to_entries(&service_servers),
+                        "service_clients": to_entries(&service_clients),
+                        "action_servers": to_entries(&action_servers),
+                        "action_clients": to_entries(&action_clients),
                     })
                 );
-            } else if found {
-                println!("Node: {}", name);
             } else {
-                println!("Node {} not found in graph", name);
+                println!("Node: {}", name);
+                let print_section = |label: &str, items: &[(String, String)]| {
+                    println!("  {}:", label);
+                    if items.is_empty() {
+                        println!("    (none)");
+                    } else {
+                        for (n, t) in items {
+                            println!("    {} [{}]", n, t);
+                        }
+                    }
+                };
+                print_section("Publishers", &publishers);
+                print_section("Subscribers", &subscribers);
+                print_section("Service Servers", &service_servers);
+                print_section("Service Clients", &service_clients);
+                print_section("Action Servers", &action_servers);
+                print_section("Action Clients", &action_clients);
             }
         }
 

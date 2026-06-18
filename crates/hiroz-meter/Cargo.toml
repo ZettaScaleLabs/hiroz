@@ -20,6 +20,7 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 anyhow = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 parking_lot = { workspace = true }
