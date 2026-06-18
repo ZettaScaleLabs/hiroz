@@ -7,13 +7,7 @@ pub const MAX_RULES: usize = 5;
 #[cfg(feature = "free-tier")]
 pub const MAX_DOMAIN_PAIRS: usize = 1;
 
-#[cfg(not(feature = "free-tier"))]
-pub const MAX_TOPICS: usize = usize::MAX;
-#[cfg(not(feature = "free-tier"))]
-pub const MAX_RULES: usize = usize::MAX;
-#[cfg(not(feature = "free-tier"))]
-pub const MAX_DOMAIN_PAIRS: usize = usize::MAX;
-
+#[cfg(feature = "free-tier")]
 pub fn check_topic_cap(count: usize) -> anyhow::Result<()> {
     if count > MAX_TOPICS {
         anyhow::bail!(
@@ -24,6 +18,12 @@ pub fn check_topic_cap(count: usize) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(not(feature = "free-tier"))]
+pub fn check_topic_cap(_count: usize) -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(feature = "free-tier")]
 pub fn check_rule_cap(count: usize) -> anyhow::Result<()> {
     if count > MAX_RULES {
         anyhow::bail!(
@@ -34,6 +34,12 @@ pub fn check_rule_cap(count: usize) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(not(feature = "free-tier"))]
+pub fn check_rule_cap(_count: usize) -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(feature = "free-tier")]
 pub fn check_domain_pair_cap(count: usize) -> anyhow::Result<()> {
     if count > MAX_DOMAIN_PAIRS {
         anyhow::bail!(
@@ -41,5 +47,10 @@ pub fn check_domain_pair_cap(count: usize) -> anyhow::Result<()> {
              Upgrade to hiroz-toolkit-pro for unlimited bridging."
         );
     }
+    Ok(())
+}
+
+#[cfg(not(feature = "free-tier"))]
+pub fn check_domain_pair_cap(_count: usize) -> anyhow::Result<()> {
     Ok(())
 }
