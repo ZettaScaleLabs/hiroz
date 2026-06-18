@@ -34,9 +34,9 @@ def check-bundled-msgs [] {
 }
 
 def check-console [] {
-    log-step "Check hiroz-console"
-    run-cmd "cargo check -p hiroz-console"
-    run-cmd "cargo clippy -p hiroz-console -- -D warnings"
+    log-step "Check hiroz-union plugins"
+    run-cmd "cargo check -p hiroz-union -p hiroz-meter -p hiroz-monitor"
+    run-cmd "cargo clippy -p hiroz-union -p hiroz-meter -p hiroz-monitor -- -D warnings"
 }
 
 def clippy-hiroz-py [] {
