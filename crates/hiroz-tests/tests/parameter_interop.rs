@@ -66,10 +66,10 @@ fn test_ros2_param_list_on_hiroz_node() {
         panic!("ros2 CLI not available");
     }
 
-    let router = TestRouter::new();
-    let rmw_env = router.rmw_zenoh_env();
+    let daemon = RmwZenohDaemon::new();
+    let rmw_env = daemon.rmw_zenoh_env();
 
-    let endpoint = router.endpoint().to_string();
+    let endpoint = daemon.endpoint().to_string();
     let _server = thread::spawn(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).expect("ctx");
         let node = ctx.create_node("param_list_node").build().expect("node");
@@ -125,10 +125,10 @@ fn test_ros2_param_get_set_on_hiroz_node() {
         panic!("ros2 CLI not available");
     }
 
-    let router = TestRouter::new();
-    let rmw_env = router.rmw_zenoh_env();
+    let daemon = RmwZenohDaemon::new();
+    let rmw_env = daemon.rmw_zenoh_env();
 
-    let endpoint = router.endpoint().to_string();
+    let endpoint = daemon.endpoint().to_string();
     let _server = thread::spawn(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).expect("ctx");
         let node = ctx.create_node("param_getset_node").build().expect("node");
@@ -229,8 +229,8 @@ fn test_hiroz_reads_rclcpp_node_params() {
         );
     }
 
-    let router = TestRouter::new();
-    let rmw_env = router.rmw_zenoh_env();
+    let daemon = RmwZenohDaemon::new();
+    let rmw_env = daemon.rmw_zenoh_env();
 
     // Start an rclcpp talker node (it declares the 'use_sim_time' parameter by default)
     let server = Command::new("ros2")

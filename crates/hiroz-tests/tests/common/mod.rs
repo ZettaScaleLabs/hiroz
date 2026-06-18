@@ -164,12 +164,144 @@ impl TestRouter {
     }
 }
 
+/// Per-test rmw_zenohd (zenoh-c 1.6.2 router) for RCL↔hiroz interop tests.
+///
+/// The in-process TestRouter uses zenoh-rs 1.9.0, which may not route traffic
+/// from zenoh-c 1.6.2 (rmw_zenoh_cpp) sessions correctly. rmw_zenohd is the
+/// reference router for rmw_zenoh_cpp and is known to work with it. Both the
+/// RCL processes (zenoh-c 1.6.2) and hiroz sessions (zenoh-rs 1.9.0) connect
+/// to this shared daemon.
+#[allow(dead_code)]
+pub struct RmwZenohDaemon {
+    pub port: u16,
+    pub endpoint: String,
+    _process: ProcessGuard,
+}
+
+#[allow(dead_code)]
+impl RmwZenohDaemon {
+    /// Find the rmw_zenohd binary path via `ros2 pkg prefix rmw_zenoh_cpp`.
+    fn find_binary() -> Option<std::path::PathBuf> {
+        let output = Command::new("ros2")
+            .args(["pkg", "prefix", "rmw_zenoh_cpp"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let prefix = String::from_utf8(output.stdout).ok()?;
+        let path = std::path::PathBuf::from(prefix.trim()).join("lib/rmw_zenoh_cpp/rmw_zenohd");
+        path.exists().then_some(path)
+    }
+
+    /// Start a new rmw_zenohd process on a free OS-assigned port.
+    ///
+    /// Uses `ZENOH_CONFIG_OVERRIDE` to override the listen endpoint so each
+    /// test gets its own isolated router. Retries up to 5 times if the
+    /// randomly chosen port is taken before rmw_zenohd binds it.
+    pub fn new() -> Self {
+        let binary =
+            Self::find_binary().expect("rmw_zenohd not found — ensure rmw_zenoh_cpp is installed");
+
+        for attempt in 0..5u32 {
+            // Ask the OS for a free port, release it, then let rmw_zenohd bind it.
+            let port = {
+                let listener =
+                    std::net::TcpListener::bind("127.0.0.1:0").expect("Failed to bind port 0");
+                listener.local_addr().unwrap().port()
+            };
+
+            let endpoint = format!("tcp/127.0.0.1:{}", port);
+            println!(
+                "Starting rmw_zenohd on port {} (attempt {})...",
+                port,
+                attempt + 1
+            );
+
+            // Use ZENOH_CONFIG_OVERRIDE to bind to our chosen port and disable
+            // multicast so each test's daemon is fully isolated.
+            let override_val = format!(
+                "listen/endpoints=[\"{}\"];connect/endpoints=[];scouting/multicast/enabled=false",
+                endpoint
+            );
+
+            let child = Command::new(&binary)
+                .env("ZENOH_CONFIG_OVERRIDE", &override_val)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .process_group(0)
+                .spawn()
+                .expect("Failed to spawn rmw_zenohd");
+
+            let pid = child.id();
+
+            // Wait for rmw_zenohd to confirm it is listening. Read stderr lines
+            // until we see a "Listening" line or a port-in-use error.
+            // We wrap the child in a ProcessGuard only after confirming startup.
+            let mut guard = ProcessGuard::new(child, "rmw_zenohd");
+
+            // Give the process a moment to bind the port, then probe it.
+            thread::sleep(Duration::from_millis(200));
+
+            // Verify the daemon is alive and bound by attempting a TCP connect.
+            let ready = std::net::TcpStream::connect_timeout(
+                &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+                Duration::from_millis(300),
+            )
+            .is_ok();
+
+            if ready {
+                println!("rmw_zenohd ready on {} (pid {})", endpoint, pid);
+                // Give it an extra moment to fully initialize before returning.
+                thread::sleep(Duration::from_millis(300));
+                return Self {
+                    port,
+                    endpoint,
+                    _process: guard,
+                };
+            }
+
+            // Port is not up — daemon may have failed to bind (TOCTOU race).
+            // ProcessGuard::drop() will SIGINT it.
+            println!("rmw_zenohd not ready on port {}, retrying...", port);
+            drop(guard);
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        panic!("Failed to start rmw_zenohd after 5 attempts");
+    }
+
+    /// The TCP endpoint string for this daemon.
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+
+    /// `ZENOH_CONFIG_OVERRIDE` value for RCL processes — directs them to
+    /// connect to this daemon instead of the default `tcp/localhost:7447`.
+    pub fn rmw_zenoh_env(&self) -> String {
+        format!(
+            "connect/endpoints=[\"{}\"];scouting/multicast/enabled=false",
+            self.endpoint
+        )
+    }
+}
+
 /// Create a hiroz context configured to connect to a specific Zenoh router
 #[allow(dead_code)]
 pub fn create_hiroz_context_with_router(
     router: &TestRouter,
 ) -> hiroz::Result<hiroz::context::ZContext> {
     create_hiroz_context_with_endpoint(router.endpoint())
+}
+
+/// Create a hiroz context configured to connect to an RmwZenohDaemon
+#[allow(dead_code)]
+pub fn create_hiroz_context_with_daemon(
+    daemon: &RmwZenohDaemon,
+) -> hiroz::Result<hiroz::context::ZContext> {
+    create_hiroz_context_with_endpoint(daemon.endpoint())
 }
 
 /// Create a hiroz context configured to connect to a specific endpoint
