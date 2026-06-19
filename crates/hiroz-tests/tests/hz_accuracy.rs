@@ -216,7 +216,7 @@ fn test_large_payload_hz() {
     thread::sleep(Duration::from_millis(500));
 
     // Spawn hu-meter hz — self-terminates after --duration.
-    let mut hu_child = Command::new(hu_meter_bin())
+    let hu_child = Command::new(hu_meter_bin())
         .args([
             "--router",
             &endpoint,
@@ -260,7 +260,7 @@ fn test_large_payload_hz() {
 
     // Wait for hu-meter to exit naturally, then kill ros2.
     let hu_output = hu_child.wait_with_output().ok();
-    let ros2_output = ros2_child.as_mut().and_then(|c| {
+    let ros2_output = ros2_child.and_then(|mut c| {
         let _ = c.kill();
         c.wait_with_output().ok()
     });
