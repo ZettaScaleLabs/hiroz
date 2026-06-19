@@ -435,6 +435,35 @@ fn test_hu_meter_service_call_add_two_ints() {
     );
 }
 
+#[test]
+fn test_hu_meter_service_call_timeout() {
+    // Call a service that doesn't exist; should time out and return non-zero exit within ~2s.
+    let router = TestRouter::new();
+    let start = std::time::Instant::now();
+    let out = run_hu_meter(
+        router.endpoint(),
+        &[
+            "service",
+            "call",
+            "/no_such_service_xyz",
+            "--payload",
+            "00 00 00 00",
+            "--timeout",
+            "2",
+        ],
+    );
+    let elapsed = start.elapsed();
+    assert!(
+        !out.status.success(),
+        "Expected non-zero exit on timeout, got success"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "Timeout took too long: {:?}",
+        elapsed
+    );
+}
+
 // ─── param ───────────────────────────────────────────────────────────────────
 
 #[test]

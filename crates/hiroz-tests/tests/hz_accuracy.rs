@@ -543,3 +543,31 @@ fn test_hz_accuracy_1khz() {
         );
     }
 }
+
+/// Demonstrates ros2cli#1043 / ros2cli#843 advantage: at 2 kHz, hu meter hz
+/// reports the correct rate regardless of Python deserialization overhead.
+/// ros2 topic hz is expected to under-report; we don't assert on it.
+#[test]
+#[serial_test::serial]
+fn test_hz_accuracy_2khz() {
+    let target = 2000.0_f64;
+    let (hu_rate, ros2_rate) = run_hz_comparison(target, 6.0, "hz_accuracy_2k");
+
+    println!("Target:      {target:.0} Hz");
+    println!(
+        "hu meter hz: {hu_rate:.3} Hz  (error: {:.1}%)",
+        (hu_rate - target).abs() / target * 100.0
+    );
+    if let Some(r) = ros2_rate {
+        println!("ros2 hz:     {r:.3} Hz  (ros2cli may under-report at high rates — #1043)");
+    } else {
+        println!("ros2 hz:     n/a");
+    }
+
+    // hu meter must be accurate; ros2 hz is informational only at this rate.
+    let hu_error_pct = (hu_rate - target).abs() / target * 100.0;
+    assert!(
+        hu_error_pct < 10.0,
+        "hu meter hz error {hu_error_pct:.1}% exceeds 10% at {target:.0} Hz (reported {hu_rate:.3} Hz)"
+    );
+}
