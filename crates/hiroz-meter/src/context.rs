@@ -40,7 +40,7 @@ pub async fn connect(router: &str, domain: usize) -> Result<Ctx> {
         .with_domain_id(domain)
         .with_zenoh_config(config)
         .build())?;
-    let node = ze!(zctx.create_node("hu-meter").build())?;
+    let node = ze!(zctx.create_node("hu_meter").build())?;
     let node = Arc::new(node);
 
     Ok(Ctx {
