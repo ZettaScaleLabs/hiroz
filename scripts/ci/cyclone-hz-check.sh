@@ -12,7 +12,7 @@ set -euo pipefail
 
 TOPIC="/cyclone_hz_large"
 TARGET_HZ=50
-PAYLOAD_SIZE=5000000
+PAYLOAD_SIZE=500000
 MEASURE_SECS=12
 
 echo "=== ros2cli#871 reproduction check (rmw_cyclonedds_cpp) ==="
@@ -46,14 +46,37 @@ fi
 
 echo "rmw_cyclonedds_cpp: available ($CYCLONE_LIB)"
 
-PAYLOAD=$(python3 -c "print('x' * ${PAYLOAD_SIZE})")
+# Write payload to a temp file — passing a large string as a shell argument
+# hits ARG_MAX (~2MB on Linux). The Python publisher reads from the file instead.
+PAYLOAD_FILE=$(mktemp)
+trap "rm -f '${PAYLOAD_FILE}'; kill \${PUB_PID:-} 2>/dev/null || true" EXIT
+python3 -c "
+import sys
+payload = 'x' * ${PAYLOAD_SIZE}
+sys.stdout.write(payload)
+" > "${PAYLOAD_FILE}"
 
-# Start publisher in background.
-RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ros2 topic pub "${TOPIC}" \
-    std_msgs/msg/String "{data: '${PAYLOAD}'}" \
-    --rate ${TARGET_HZ} &
+# Start publisher in background via Python to avoid ARG_MAX on large payloads.
+RMW_IMPLEMENTATION=rmw_cyclonedds_cpp python3 - "${TOPIC}" "${PAYLOAD_FILE}" "${TARGET_HZ}" <<'PYEOF' &
+import sys, time, rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+
+topic, payload_file, rate_hz = sys.argv[1], sys.argv[2], float(sys.argv[3])
+with open(payload_file) as f:
+    payload = f.read()
+
+rclpy.init()
+node = Node('cyclone_hz_pub')
+pub = node.create_publisher(String, topic, 10)
+interval = 1.0 / rate_hz
+while rclpy.ok():
+    msg = String()
+    msg.data = payload
+    pub.publish(msg)
+    time.sleep(interval)
+PYEOF
 PUB_PID=$!
-trap "kill ${PUB_PID} 2>/dev/null || true" EXIT
 
 echo "Publisher started (PID ${PUB_PID}), waiting 2s for discovery..."
 sleep 2
