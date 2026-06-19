@@ -80,6 +80,86 @@ fn encode_set_logger_levels_request(logger: &str, level: &str) -> Vec<u8> {
     buf
 }
 
+struct LoggerLevel {
+    name: String,
+    level: u32,
+}
+
+impl LoggerLevel {
+    fn level_name(&self) -> &'static str {
+        match self.level {
+            0 => "UNSET",
+            1..=10 => "DEBUG",
+            11..=20 => "INFO",
+            21..=30 => "WARN",
+            31..=40 => "ERROR",
+            _ => "FATAL",
+        }
+    }
+}
+
+/// Decode `GetLoggerLevels_Response` CDR.
+/// Layout: 4-byte header | u32 array_len | repeated { u32 str_len | bytes | null | pad(4) | u32 level }
+fn decode_get_logger_levels_response(buf: &[u8]) -> Result<Vec<LoggerLevel>> {
+    if buf.len() < 8 {
+        anyhow::bail!("CDR too short");
+    }
+    // buf[1] == 0x01 → little-endian; we only support LE (hiroz always writes LE)
+    let mut pos = 4usize; // skip CDR header
+    let array_len = u32::from_le_bytes(buf[pos..pos + 4].try_into()?) as usize;
+    pos += 4;
+
+    let mut levels = Vec::with_capacity(array_len);
+    for _ in 0..array_len {
+        if pos + 4 > buf.len() {
+            anyhow::bail!("CDR truncated at string length");
+        }
+        let str_len = u32::from_le_bytes(buf[pos..pos + 4].try_into()?) as usize;
+        pos += 4;
+        if pos + str_len > buf.len() {
+            anyhow::bail!("CDR truncated at string data");
+        }
+        // str_len includes null terminator
+        let name = std::str::from_utf8(&buf[pos..pos + str_len.saturating_sub(1)])
+            .unwrap_or("<invalid>")
+            .to_owned();
+        pos += str_len;
+        // align to 4 bytes
+        let rem = pos % 4;
+        if rem != 0 {
+            pos += 4 - rem;
+        }
+        if pos + 4 > buf.len() {
+            anyhow::bail!("CDR truncated at level");
+        }
+        let level = u32::from_le_bytes(buf[pos..pos + 4].try_into()?);
+        pos += 4;
+        levels.push(LoggerLevel { name, level });
+    }
+    Ok(levels)
+}
+
+fn print_logger_levels(node: &str, levels: &[LoggerLevel], json: bool) {
+    if json {
+        let entries: Vec<serde_json::Value> = levels
+            .iter()
+            .map(|l| serde_json::json!({"name": l.name, "level": l.level, "level_name": l.level_name()}))
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&entries).unwrap_or_default()
+        );
+    } else {
+        if levels.is_empty() {
+            println!("No loggers reported for {}", node);
+        } else {
+            for l in levels {
+                println!("  {}: {}", l.name, l.level_name());
+            }
+        }
+    }
+}
+
 pub async fn run(ctx: &Ctx, args: LogLevelArgs, json: bool) -> Result<()> {
     sleep(Duration::from_millis(300)).await;
 
@@ -102,13 +182,21 @@ pub async fn run(ctx: &Ctx, args: LogLevelArgs, json: bool) -> Result<()> {
                 match reply.result() {
                     Ok(sample) => {
                         let bytes = sample.payload().to_bytes().into_owned();
-                        if json {
-                            println!(
-                                "{}",
-                                serde_json::json!({"raw": bytes.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")})
-                            );
-                        } else {
-                            println!("response: {} bytes (raw CDR)", bytes.len());
+                        match decode_get_logger_levels_response(&bytes) {
+                            Ok(levels) => print_logger_levels(&node, &levels, json),
+                            Err(_) => {
+                                if json {
+                                    println!(
+                                        "{}",
+                                        serde_json::json!({"raw": bytes.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")})
+                                    );
+                                } else {
+                                    println!(
+                                        "response: {} bytes (raw CDR — parse failed)",
+                                        bytes.len()
+                                    );
+                                }
+                            }
                         }
                     }
                     Err(e) => anyhow::bail!("{e}"),
