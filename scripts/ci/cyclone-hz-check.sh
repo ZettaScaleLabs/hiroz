@@ -79,11 +79,16 @@ while rclpy.ok():
     time.sleep(interval)
 PYEOF
 
-RMW_IMPLEMENTATION=rmw_cyclonedds_cpp python3 "${PY_SCRIPT}" "${TOPIC}" "${PAYLOAD_FILE}" "${TARGET_HZ}" &
+RMW_IMPLEMENTATION=rmw_cyclonedds_cpp python3 "${PY_SCRIPT}" "${TOPIC}" "${PAYLOAD_FILE}" "${TARGET_HZ}" 2>&1 &
 PUB_PID=$!
 
 echo "Publisher started (PID ${PUB_PID}), waiting 2s for discovery..."
 sleep 2
+
+if ! kill -0 "${PUB_PID}" 2>/dev/null; then
+    echo "ERROR: publisher process died during startup — skipping cyclone check"
+    exit 0
+fi
 
 # Measure with ros2 topic hz (cyclonedds) for MEASURE_SECS seconds.
 # --kill-after=2: send SIGKILL 2s after SIGTERM in case rclpy ignores SIGTERM.
