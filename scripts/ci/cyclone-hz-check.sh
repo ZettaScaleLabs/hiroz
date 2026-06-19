@@ -26,11 +26,15 @@ if ! command -v ros2 &>/dev/null; then
 fi
 
 # Check via LD_LIBRARY_PATH — ros2 pkg list is unreliable with buildEnv-merged ament indexes.
+echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-<unset>}"
 CYCLONE_FOUND=false
 if [[ -n "${LD_LIBRARY_PATH:-}" ]]; then
     IFS=: read -ra _LIBDIRS <<< "$LD_LIBRARY_PATH"
     for _d in "${_LIBDIRS[@]}"; do
-        if [[ -f "$_d/librmw_cyclonedds_cpp.so" ]]; then
+        [[ -z "$_d" ]] && continue
+        # Match bare .so or versioned .so.X.Y
+        if compgen -G "$_d/librmw_cyclonedds*" > /dev/null 2>&1; then
+            echo "Found cyclonedds library in: $_d"
             CYCLONE_FOUND=true
             break
         fi
