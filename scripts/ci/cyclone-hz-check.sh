@@ -15,6 +15,9 @@ TARGET_HZ=50
 PAYLOAD_SIZE=500000
 MEASURE_SECS=12
 
+# Force CycloneDDS to use unicast via loopback — multicast is often blocked in CI.
+export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="lo" multicast="false"/></Interfaces></General></Domain></CycloneDDS>'
+
 echo "=== ros2cli#871 reproduction check (rmw_cyclonedds_cpp) ==="
 echo "Payload:    ${PAYLOAD_SIZE} bytes"
 echo "Target:     ${TARGET_HZ} Hz"
