@@ -188,11 +188,21 @@ fn test_hz_accuracy_500hz() {
         println!("ros2 hz:     n/a");
     }
 
-    let error_pct = (hu_rate - target).abs() / target * 100.0;
-    assert!(
-        error_pct < 10.0,
-        "hu meter hz error {error_pct:.1}% exceeds 10% at {target} Hz (reported {hu_rate:.3} Hz)"
-    );
+    if let Some(r) = ros2_rate {
+        // Compare hu meter hz against ros2 hz — both measure the same actual rate.
+        // The publisher may not reach target on a loaded CI machine; that's not our bug.
+        let diff_pct = (hu_rate - r).abs() / r * 100.0;
+        assert!(
+            diff_pct < 10.0,
+            "hu meter hz ({hu_rate:.3} Hz) differs from ros2 hz ({r:.3} Hz) by {diff_pct:.1}% at {target} Hz target"
+        );
+    } else {
+        let error_pct = (hu_rate - target).abs() / target * 100.0;
+        assert!(
+            error_pct < 10.0,
+            "hu meter hz error {error_pct:.1}% exceeds 10% at {target} Hz (reported {hu_rate:.3} Hz)"
+        );
+    }
 }
 
 #[test]
@@ -214,9 +224,17 @@ fn test_hz_accuracy_1khz() {
         println!("ros2 hz:     n/a");
     }
 
-    let error_pct = (hu_rate - target).abs() / target * 100.0;
-    assert!(
-        error_pct < 10.0,
-        "hu meter hz error {error_pct:.1}% exceeds 10% at {target:.0} Hz (reported {hu_rate:.3} Hz)"
-    );
+    if let Some(r) = ros2_rate {
+        let diff_pct = (hu_rate - r).abs() / r * 100.0;
+        assert!(
+            diff_pct < 10.0,
+            "hu meter hz ({hu_rate:.3} Hz) differs from ros2 hz ({r:.3} Hz) by {diff_pct:.1}% at {target:.0} Hz target"
+        );
+    } else {
+        let error_pct = (hu_rate - target).abs() / target * 100.0;
+        assert!(
+            error_pct < 10.0,
+            "hu meter hz error {error_pct:.1}% exceeds 10% at {target:.0} Hz (reported {hu_rate:.3} Hz)"
+        );
+    }
 }
