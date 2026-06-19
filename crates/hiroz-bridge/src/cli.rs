@@ -1,6 +1,8 @@
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
+use crate::status::{BridgeMode, BridgeState};
+
 #[cfg(feature = "cross-dds")]
 use crate::dds::participant::DdsParticipant as _;
 #[cfg(feature = "cross-dds")]
@@ -17,6 +19,9 @@ struct Cli {
     #[arg(long, default_value_t = 0, global = true)]
     domain: usize,
 
+    #[arg(long, global = true)]
+    json: bool,
+
     #[arg(long, hide = true, global = true)]
     hu_manifest: bool,
 
@@ -28,7 +33,7 @@ struct Cli {
 enum Commands {
     /// Start a bridge
     Start(StartArgs),
-    /// Show bridge status (placeholder)
+    /// Show running bridge status
     Status,
 }
 
@@ -103,15 +108,12 @@ async fn run_async(argv: &[String]) -> Result<()> {
         .unwrap_or(cli.domain);
 
     match cli.command {
-        Commands::Status => {
-            println!("hu-bridge: no running bridge tracked (stateless mode)");
-            Ok(())
-        }
-        Commands::Start(args) => run_bridge(args, domain).await,
+        Commands::Status => crate::status::show(cli.json),
+        Commands::Start(args) => run_bridge(args, domain, cli.json).await,
     }
 }
 
-async fn run_bridge(args: StartArgs, _domain: usize) -> Result<()> {
+async fn run_bridge(args: StartArgs, _domain: usize, _json: bool) -> Result<()> {
     let distro_enabled = args.distro.is_some();
 
     #[cfg(feature = "cross-dds")]
@@ -130,6 +132,26 @@ async fn run_bridge(args: StartArgs, _domain: usize) -> Result<()> {
         let rule_count = args.allow.is_some() as usize + args.deny.is_some() as usize;
         crate::limits::check_rule_cap(rule_count)?;
     }
+
+    // Write PID state file so `hu bridge status` can report what's running.
+    let mode = build_mode(&args, _domain, distro_enabled, dds_enabled);
+    let state = BridgeState {
+        pid: std::process::id(),
+        started_at: crate::status::now_secs(),
+        mode,
+    };
+    if let Err(e) = crate::status::write(&state) {
+        tracing::warn!("hu-bridge: could not write status file: {e}");
+    }
+
+    // Remove state file on exit regardless of how we exit.
+    struct Cleanup;
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            crate::status::remove();
+        }
+    }
+    let _cleanup = Cleanup;
 
     let mut tasks = tokio::task::JoinSet::new();
 
@@ -186,6 +208,63 @@ async fn run_bridge(args: StartArgs, _domain: usize) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn build_mode(
+    args: &StartArgs,
+    domain: usize,
+    distro_enabled: bool,
+    dds_enabled: bool,
+) -> BridgeMode {
+    match (distro_enabled, dds_enabled) {
+        (true, false) => {
+            let pair = args.distro.clone().unwrap_or_default();
+            #[cfg(feature = "cross-distro")]
+            let (src, tgt) = (args.source_endpoint.clone(), args.target_endpoint.clone());
+            #[cfg(not(feature = "cross-distro"))]
+            let (src, tgt) = (String::new(), String::new());
+            BridgeMode::CrossDistro {
+                pair,
+                source_endpoint: src,
+                target_endpoint: tgt,
+                domain,
+            }
+        }
+        (false, true) => {
+            #[cfg(feature = "cross-dds")]
+            let (ep, allow, deny) = (
+                args.dds_endpoint.clone(),
+                args.allow.clone(),
+                args.deny.clone(),
+            );
+            #[cfg(not(feature = "cross-dds"))]
+            let (ep, allow, deny) = (String::new(), None, None);
+            BridgeMode::CrossDds {
+                endpoint: ep,
+                domain,
+                allow,
+                deny,
+            }
+        }
+        _ => {
+            let pair = args.distro.clone().unwrap_or_default();
+            #[cfg(feature = "cross-distro")]
+            let (src, tgt) = (args.source_endpoint.clone(), args.target_endpoint.clone());
+            #[cfg(not(feature = "cross-distro"))]
+            let (src, tgt) = (String::new(), String::new());
+            #[cfg(feature = "cross-dds")]
+            let dds_ep = args.dds_endpoint.clone();
+            #[cfg(not(feature = "cross-dds"))]
+            let dds_ep = String::new();
+            BridgeMode::Combined {
+                distro_pair: pair,
+                source_endpoint: src,
+                target_endpoint: tgt,
+                dds_endpoint: dds_ep,
+                domain,
+            }
+        }
+    }
 }
 
 fn parse_distro_pair(s: &str) -> Result<(&str, &str)> {

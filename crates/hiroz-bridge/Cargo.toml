@@ -42,5 +42,7 @@ cyclors = { version = "=0.3.10", optional = true }
 flume = { workspace = true }
 cdr = "0.2"
 regex = "1"
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0"
+libc = "0.2"
+dirs-next = "2.0"
