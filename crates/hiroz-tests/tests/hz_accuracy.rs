@@ -233,7 +233,7 @@ fn test_large_payload_hz() {
 
     // Spawn ros2 topic hz concurrently — both tools subscribe at the same instant.
     let ros2_available = Command::new("ros2").arg("--help").output().is_ok();
-    let mut ros2_child = if ros2_available {
+    let ros2_child = if ros2_available {
         Command::new("ros2")
             .args([
                 "topic",
@@ -302,10 +302,21 @@ fn test_large_payload_hz() {
         println!("ros2 hz:     n/a");
     }
 
-    assert!(
-        hu_error_pct < 15.0,
-        "hu meter hz error {hu_error_pct:.1}% exceeds 15% at {target} Hz with {payload_bytes}B payload (reported {hu_rate:.3} Hz)"
-    );
+    // When ros2 is available, assert the two tools agree within 10% of each other.
+    // The publisher may not sustain the target rate on a loaded machine; that's expected.
+    // When ros2 is absent, fall back to checking hu meter hz against the target.
+    if let Some(r) = ros2_rate {
+        let diff_pct = (hu_rate - r).abs() / r * 100.0;
+        assert!(
+            diff_pct < 10.0,
+            "hu meter hz ({hu_rate:.3} Hz) differs from ros2 hz ({r:.3} Hz) by {diff_pct:.1}% with {payload_bytes}B payload"
+        );
+    } else {
+        assert!(
+            hu_error_pct < 15.0,
+            "hu meter hz error {hu_error_pct:.1}% exceeds 15% at {target} Hz with {payload_bytes}B payload (reported {hu_rate:.3} Hz)"
+        );
+    }
 }
 
 #[test]
