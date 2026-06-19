@@ -172,12 +172,16 @@ fn run_hz_comparison(publish_hz: f64, duration_secs: f64, topic: &str) -> (f64, 
 /// Reproduce ros2/ros2cli#871 (root cause B): rclpy deserializes every message, so large
 /// payloads cause ros2 topic hz to under-report. hu meter hz uses raw-byte subscription
 /// (no deserialization) and should remain accurate regardless of message size.
+///
+/// Both tools subscribe **concurrently** to the same publisher so they race against the
+/// same message stream. ros2 topic hz misses messages when Python deserialization takes
+/// longer than the publish interval; hu meter hz counts raw bytes and misses nothing.
 #[test]
 fn test_large_payload_hz() {
-    let target = 100.0_f64;
-    let payload_bytes = 1_000_000; // 1 MB
+    let target = 50.0_f64; // 20 ms interval — tight enough to stress Python deser
+    let payload_bytes = 5_000_000; // 5 MB per message
     let topic = "hz_large_payload";
-    let duration_secs = 8.0_f64;
+    let duration_secs = 10.0_f64;
 
     let router = TestRouter::new();
     let endpoint = router.endpoint().to_string();
@@ -211,7 +215,8 @@ fn test_large_payload_hz() {
 
     thread::sleep(Duration::from_millis(500));
 
-    let hu_out = Command::new(hu_meter_bin())
+    // Spawn hu-meter hz — self-terminates after --duration.
+    let mut hu_child = Command::new(hu_meter_bin())
         .args([
             "--router",
             &endpoint,
@@ -221,28 +226,23 @@ fn test_large_payload_hz() {
             &duration_secs.to_string(),
             "--json",
         ])
-        .output()
-        .expect("failed to run hu-meter hz");
-    let hu_stdout = String::from_utf8_lossy(&hu_out.stdout).into_owned();
-    let hu_rate = parse_hu_meter_hz(&hu_stdout).unwrap_or_else(|| {
-        eprintln!(
-            "hu-meter hz output (stderr: {}): {}",
-            String::from_utf8_lossy(&hu_out.stderr),
-            hu_stdout
-        );
-        0.0
-    });
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn hu-meter hz");
 
-    let ros2_rate = if Command::new("ros2").arg("--help").output().is_ok() {
-        let ros2_out = Command::new("ros2")
+    // Spawn ros2 topic hz concurrently — both tools subscribe at the same instant.
+    let ros2_available = Command::new("ros2").arg("--help").output().is_ok();
+    let mut ros2_child = if ros2_available {
+        Command::new("ros2")
             .args([
                 "topic",
                 "hz",
                 &format!("/{topic}"),
                 "--window",
-                "50",
+                "100",
                 "--filter",
-                &format!("{}", (duration_secs as u32).saturating_sub(1)),
+                &format!("{}", (duration_secs as u32).saturating_sub(2)),
             ])
             .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
             .env(
@@ -253,21 +253,39 @@ fn test_large_payload_hz() {
             .stderr(Stdio::piped())
             .spawn()
             .ok()
-            .and_then(|mut child| {
-                thread::sleep(Duration::from_secs_f64(duration_secs));
-                let _ = child.kill();
-                child.wait_with_output().ok()
-            });
-        ros2_out
-            .as_ref()
-            .and_then(|o| parse_ros2_hz(&String::from_utf8_lossy(&o.stdout)))
     } else {
         eprintln!("ros2 CLI not found — skipping ros2 topic hz measurement");
         None
     };
 
+    // Wait for hu-meter to exit naturally, then kill ros2.
+    let hu_output = hu_child.wait_with_output().ok();
+    let ros2_output = ros2_child.as_mut().and_then(|c| {
+        let _ = c.kill();
+        c.wait_with_output().ok()
+    });
+
+    let hu_stdout = hu_output
+        .as_ref()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    let hu_rate = parse_hu_meter_hz(&hu_stdout).unwrap_or_else(|| {
+        eprintln!(
+            "hu-meter stderr: {}",
+            hu_output
+                .as_ref()
+                .map(|o| String::from_utf8_lossy(&o.stderr).into_owned())
+                .unwrap_or_default()
+        );
+        0.0
+    });
+
+    let ros2_rate = ros2_output
+        .as_ref()
+        .and_then(|o| parse_ros2_hz(&String::from_utf8_lossy(&o.stdout)));
+
     let hu_error_pct = (hu_rate - target).abs() / target * 100.0;
-    println!("Payload:     {payload_bytes} bytes");
+    println!("Payload:     {payload_bytes} bytes  (concurrent measurement)");
     println!("Target:      {target:.1} Hz");
     println!("hu meter hz: {hu_rate:.3} Hz  (error: {hu_error_pct:.1}%)");
     if let Some(r) = ros2_rate {
@@ -275,18 +293,15 @@ fn test_large_payload_hz() {
         println!("ros2 hz:     {r:.3} Hz  (error: {ros2_error_pct:.1}%)");
         if ros2_error_pct > hu_error_pct + 5.0 {
             println!(
-                "→ ros2cli#871 reproduced: ros2 topic hz under-reports by {ros2_error_pct:.1}%, hu meter hz stays within {hu_error_pct:.1}%"
+                "→ ros2cli#871 reproduced: ros2 under-reports by {ros2_error_pct:.1}%, hu meter only {hu_error_pct:.1}%"
             );
         } else {
-            println!(
-                "→ ros2cli#871 not reproduced (ros2 hz within 5% of hu meter hz on this machine)"
-            );
+            println!("→ ros2cli#871 not reproduced on this machine (difference < 5pp)");
         }
     } else {
         println!("ros2 hz:     n/a");
     }
 
-    // hu meter hz must stay within 15% of target regardless of payload size.
     assert!(
         hu_error_pct < 15.0,
         "hu meter hz error {hu_error_pct:.1}% exceeds 15% at {target} Hz with {payload_bytes}B payload (reported {hu_rate:.3} Hz)"
