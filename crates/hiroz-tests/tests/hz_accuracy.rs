@@ -321,22 +321,21 @@ fn test_large_payload_hz() {
 
 /// Stress test for ros2cli#871 root cause B using Zenoh SHM.
 ///
-/// With SHM, the publisher writes once to shared memory — serialization/transport overhead
-/// is eliminated. The publisher can easily sustain 50 Hz even at 5 MB per message.
-/// ros2 topic hz (rclpy) must still deserialize from the SHM buffer in Python, so if
-/// root cause B is present on this machine the differential between hu-meter and ros2 hz
-/// becomes visible. hu-meter measures raw bytes (no deserialization) and must stay accurate.
+/// 100 MB payload at 10 Hz (1 GB/s) — achievable over SHM so the publisher is never the
+/// bottleneck. rclpy must construct a 100 MB Python str object per callback; hu-meter
+/// counts raw bytes with no object construction. If root cause B exists on this machine,
+/// ros2 topic hz will under-report relative to hu-meter.
 ///
-/// The test asserts hu-meter reaches ≥ 45 Hz (90% of 50 Hz target). ros2 topic hz
+/// The test asserts hu-meter reaches ≥ 9 Hz (90% of 10 Hz target). ros2 topic hz
 /// results are reported informally; the test does not fail on ros2 under-reporting
 /// because that is the bug we are detecting, not a requirement.
 #[test]
 fn test_hz_accuracy_shm() {
-    let target = 50.0_f64;
-    let payload_bytes = 5_000_000; // 5 MB — stress Python deserialization
+    let target = 10.0_f64;
+    let payload_bytes = 100_000_000; // 100 MB — force 100 MB Python str construction per callback
     let topic = "hz_shm_stress";
-    let duration_secs = 12.0_f64;
-    let shm_pool = 100 * 1024 * 1024; // 100 MB pool — fits multiple 5MB in-flight messages
+    let duration_secs = 20.0_f64;
+    let shm_pool = 512 * 1024 * 1024; // 512 MB pool — fits several 100 MB in-flight messages
 
     let router = TestRouter::new();
     let endpoint = router.endpoint().to_string();
