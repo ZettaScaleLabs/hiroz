@@ -27,10 +27,18 @@ fi
 
 # Detect via LD_LIBRARY_PATH — ros2 pkg list is unreliable with buildEnv-merged ament indexes.
 # The jazzy nix-ros-overlay pin on whippet may not include rmw_cyclonedds_cpp; skip cleanly.
-CYCLONE_LIB=$(IFS=:; for d in ${LD_LIBRARY_PATH:-}; do
-    [[ -z "$d" ]] && continue
-    f=$(compgen -G "$d/librmw_cyclonedds*" 2>/dev/null | head -1) && echo "$f" && break
-done)
+# Uses a subshell with set +e to avoid pipefail/errexit interactions with glob misses.
+CYCLONE_LIB=$(
+    set +e
+    IFS=: read -ra _dirs <<< "${LD_LIBRARY_PATH:-}"
+    for _d in "${_dirs[@]:-}"; do
+        [[ -z "$_d" ]] && continue
+        for _f in "$_d"/librmw_cyclonedds*.so*; do
+            [[ -f "$_f" ]] && echo "$_f" && exit 0
+        done
+    done
+    exit 0
+)
 if [[ -z "$CYCLONE_LIB" ]]; then
     echo "rmw_cyclonedds_cpp: not in nix environment (librmw_cyclonedds* absent from LD_LIBRARY_PATH) — skipping"
     exit 0
