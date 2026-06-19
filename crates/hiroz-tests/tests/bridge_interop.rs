@@ -35,19 +35,32 @@ fn humble_ros2_bin() -> String {
 }
 
 fn bridge_bin() -> String {
-    std::env::var("HIROZ_BRIDGE_BIN").unwrap_or_else(|_| {
-        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let workspace = manifest
-            .parent()
-            .unwrap() // hiroz-tests → crates/
-            .parent()
-            .unwrap(); // crates/ → workspace root
-        workspace
-            .join("target/debug/hu-bridge")
-            .to_str()
-            .unwrap()
-            .to_string()
-    })
+    if let Ok(v) = std::env::var("HIROZ_BRIDGE_BIN") {
+        return v;
+    }
+    // Respect CARGO_TARGET_DIR if set (e.g. on CI with a shared target cache).
+    let target_dir = std::env::var("CARGO_TARGET_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            manifest
+                .parent()
+                .unwrap() // hiroz-tests → crates/
+                .parent()
+                .unwrap() // crates/ → workspace root
+                .join("target")
+        });
+    let profile = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
+    target_dir
+        .join(profile)
+        .join("hu-bridge")
+        .to_str()
+        .unwrap()
+        .to_string()
 }
 
 fn rmw_override(endpoint: &str) -> String {
