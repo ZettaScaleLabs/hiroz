@@ -36,7 +36,8 @@ fn humble_ros2_bin() -> String {
 
 fn bridge_bin() -> String {
     std::env::var("HIROZ_BRIDGE_BIN").unwrap_or_else(|_| {
-        let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let workspace = manifest
             .parent()
             .unwrap() // hiroz-tests → crates/
             .parent()
