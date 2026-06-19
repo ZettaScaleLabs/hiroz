@@ -32,6 +32,10 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
+    /// Enable Zenoh shared memory (SHM) for zero-copy transport
+    #[arg(long, global = true)]
+    shm: bool,
+
     /// Emit plugin manifest and exit
     #[arg(long, hide = true, global = true)]
     hu_manifest: bool,
@@ -85,7 +89,7 @@ async fn main() -> Result<()> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(cli.domain);
 
-    let ctx = context::connect(&router, domain).await?;
+    let ctx = context::connect(&router, domain, cli.shm).await?;
 
     match cli.command {
         Commands::Hz(args) => hz::run(&ctx, args, cli.json).await,

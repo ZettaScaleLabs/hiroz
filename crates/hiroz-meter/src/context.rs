@@ -17,7 +17,7 @@ macro_rules! ze {
     };
 }
 
-pub async fn connect(router: &str, domain: usize) -> Result<Ctx> {
+pub async fn connect(router: &str, domain: usize, shm: bool) -> Result<Ctx> {
     let mut config = zenoh::Config::default();
     ze!(config.insert_json5("mode", "\"client\""))?;
     ze!(config.insert_json5("connect/endpoints", &format!("[\"{}\"]", router)))?;
@@ -36,10 +36,15 @@ pub async fn connect(router: &str, domain: usize) -> Result<Ctx> {
     ))?;
     let graph = Arc::new(graph);
 
-    let zctx = ze!(ZContextBuilder::default()
+    let builder = ZContextBuilder::default()
         .with_domain_id(domain)
-        .with_zenoh_config(config)
-        .build())?;
+        .with_zenoh_config(config);
+    let builder = if shm {
+        ze!(builder.with_shm_pool_size(100 * 1024 * 1024))?
+    } else {
+        builder
+    };
+    let zctx = ze!(builder.build())?;
     let node = ze!(zctx.create_node("hu_meter").build())?;
     let node = Arc::new(node);
 

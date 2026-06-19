@@ -319,6 +319,166 @@ fn test_large_payload_hz() {
     }
 }
 
+/// Stress test for ros2cli#871 root cause B using Zenoh SHM.
+///
+/// With SHM, the publisher writes once to shared memory — serialization/transport overhead
+/// is eliminated. The publisher can easily sustain 50 Hz even at 5 MB per message.
+/// ros2 topic hz (rclpy) must still deserialize from the SHM buffer in Python, so if
+/// root cause B is present on this machine the differential between hu-meter and ros2 hz
+/// becomes visible. hu-meter measures raw bytes (no deserialization) and must stay accurate.
+///
+/// The test asserts hu-meter reaches ≥ 45 Hz (90% of 50 Hz target). ros2 topic hz
+/// results are reported informally; the test does not fail on ros2 under-reporting
+/// because that is the bug we are detecting, not a requirement.
+#[test]
+fn test_hz_accuracy_shm() {
+    let target = 50.0_f64;
+    let payload_bytes = 5_000_000; // 5 MB — stress Python deserialization
+    let topic = "hz_shm_stress";
+    let duration_secs = 12.0_f64;
+    let shm_pool = 100 * 1024 * 1024; // 100 MB pool — fits multiple 5MB in-flight messages
+
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+
+    // Publisher with SHM — zero-copy to all SHM-capable subscribers.
+    {
+        let endpoint2 = endpoint.clone();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                use hiroz::context::ZContextBuilder;
+
+                let ctx = ZContextBuilder::default()
+                    .disable_multicast_scouting()
+                    .with_connect_endpoints([endpoint2.as_str()])
+                    .with_mode("client")
+                    .with_shm_pool_size(shm_pool)
+                    .expect("SHM not supported in this build")
+                    .build()
+                    .unwrap();
+                let node = ctx.create_node("hz_shm_pub").build().unwrap();
+                let pub_ = node
+                    .create_pub::<RosString>(&format!("/{topic}"))
+                    .build()
+                    .unwrap();
+                let interval_us = (1_000_000.0 / target) as u64;
+                let stop = std::time::Instant::now()
+                    + std::time::Duration::from_secs_f64(duration_secs + 5.0);
+                let payload = "x".repeat(payload_bytes);
+                while std::time::Instant::now() < stop {
+                    let _ = pub_
+                        .async_publish(&RosString {
+                            data: payload.clone(),
+                        })
+                        .await;
+                    tokio::time::sleep(tokio::time::Duration::from_micros(interval_us)).await;
+                }
+            });
+        });
+    }
+
+    thread::sleep(Duration::from_millis(500));
+
+    // hu-meter with --shm flag — receives zero-copy from the SHM publisher.
+    let hu_child = Command::new(hu_meter_bin())
+        .args([
+            "--router",
+            &endpoint,
+            "--shm",
+            "hz",
+            &format!("/{topic}"),
+            "--duration",
+            &duration_secs.to_string(),
+            "--json",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn hu-meter hz --shm");
+
+    // ros2 topic hz with SHM enabled via ZENOH_CONFIG_OVERRIDE — concurrent measurement.
+    let ros2_available = Command::new("ros2").arg("--help").output().is_ok();
+    let ros2_child = if ros2_available {
+        Command::new("ros2")
+            .args([
+                "topic",
+                "hz",
+                &format!("/{topic}"),
+                "--window",
+                "100",
+                "--filter",
+                &format!("{}", (duration_secs as u32).saturating_sub(2)),
+            ])
+            .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+            .env(
+                "ZENOH_CONFIG_OVERRIDE",
+                format!(
+                    "connect/endpoints=[\"{endpoint}\"];scouting/multicast/enabled=false;transport/shared_memory/enabled=true"
+                ),
+            )
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .ok()
+    } else {
+        eprintln!("ros2 CLI not found — skipping ros2 topic hz SHM measurement");
+        None
+    };
+
+    let hu_output = hu_child.wait_with_output().ok();
+    let ros2_output = ros2_child.and_then(|mut c| {
+        let _ = c.kill();
+        c.wait_with_output().ok()
+    });
+
+    let hu_stdout = hu_output
+        .as_ref()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    let hu_rate = parse_hu_meter_hz(&hu_stdout).unwrap_or_else(|| {
+        eprintln!(
+            "hu-meter stderr: {}",
+            hu_output
+                .as_ref()
+                .map(|o| String::from_utf8_lossy(&o.stderr).into_owned())
+                .unwrap_or_default()
+        );
+        0.0
+    });
+
+    let ros2_rate = ros2_output
+        .as_ref()
+        .and_then(|o| parse_ros2_hz(&String::from_utf8_lossy(&o.stdout)));
+
+    let hu_error_pct = (hu_rate - target).abs() / target * 100.0;
+    println!("=== SHM stress test ({payload_bytes}B @ {target} Hz) ===");
+    println!("hu meter hz (SHM): {hu_rate:.3} Hz  (error: {hu_error_pct:.1}%)");
+    if let Some(r) = ros2_rate {
+        let ros2_error_pct = (r - target).abs() / target * 100.0;
+        println!("ros2 hz (SHM):     {r:.3} Hz  (error: {ros2_error_pct:.1}%)");
+        if ros2_error_pct > hu_error_pct + 5.0 {
+            println!(
+                "→ ros2cli#871 root cause B CONFIRMED: ros2 lags by {:.1}pp vs hu-meter",
+                ros2_error_pct - hu_error_pct
+            );
+        } else {
+            println!(
+                "→ ros2cli#871 root cause B not reproduced on this machine (differential < 5pp)"
+            );
+        }
+    } else {
+        println!("ros2 hz:           n/a");
+    }
+
+    // SHM removes the publisher bottleneck — hu-meter must sustain ≥ 90% of target.
+    assert!(
+        hu_rate >= target * 0.9,
+        "hu-meter hz {hu_rate:.3} Hz < 90% of {target} Hz target with SHM (error {hu_error_pct:.1}%); \
+        publisher bottleneck should be eliminated by SHM"
+    );
+}
+
 #[test]
 fn test_hz_accuracy_500hz() {
     let target = 500.0_f64;
