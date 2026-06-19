@@ -25,7 +25,18 @@ if ! command -v ros2 &>/dev/null; then
     exit 1
 fi
 
-if ! RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ros2 pkg list 2>/dev/null | grep -q cyclonedds; then
+# Check via LD_LIBRARY_PATH — ros2 pkg list is unreliable with buildEnv-merged ament indexes.
+CYCLONE_FOUND=false
+if [[ -n "${LD_LIBRARY_PATH:-}" ]]; then
+    IFS=: read -ra _LIBDIRS <<< "$LD_LIBRARY_PATH"
+    for _d in "${_LIBDIRS[@]}"; do
+        if [[ -f "$_d/librmw_cyclonedds_cpp.so" ]]; then
+            CYCLONE_FOUND=true
+            break
+        fi
+    done
+fi
+if ! $CYCLONE_FOUND; then
     echo "rmw_cyclonedds_cpp: not available — skipping"
     exit 0
 fi
