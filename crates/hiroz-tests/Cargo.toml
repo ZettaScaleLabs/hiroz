@@ -48,6 +48,12 @@ ros-interop = [
 ]
 python-interop = ["ros-msgs"]
 hu-meter-tests = ["ros-msgs"]
+bridge-interop-tests = [
+  "ros-msgs",
+  "hiroz-msgs/example_interfaces",
+  "hiroz-msgs/action_tutorials_interfaces",
+]
+hz-comparison-tests = ["ros-msgs"]
 
 # ROS 2 distro compatibility - propagate to hiroz and hiroz-msgs
 humble = ["hiroz/humble", "hiroz-msgs/humble"]

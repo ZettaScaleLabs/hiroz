@@ -29,3 +29,4 @@ zenoh = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = { workspace = true }
 which = "7"
+libloading = "0.8"

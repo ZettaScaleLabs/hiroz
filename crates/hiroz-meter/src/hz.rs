@@ -15,9 +15,13 @@ pub struct HzArgs {
     #[arg(long, default_value = "100")]
     pub window: usize,
 
-    /// Measurement interval in seconds
+    /// Reporting interval in seconds
     #[arg(long, default_value = "1.0")]
     pub interval: f64,
+
+    /// Stop after this many seconds (0 = run indefinitely)
+    #[arg(long, default_value = "0")]
+    pub duration: f64,
 }
 
 pub async fn run(ctx: &Ctx, args: HzArgs, json: bool) -> Result<()> {
@@ -42,9 +46,16 @@ pub async fn run(ctx: &Ctx, args: HzArgs, json: bool) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let interval = Duration::from_secs_f64(args.interval);
+    let deadline = (args.duration > 0.0)
+        .then(|| std::time::Instant::now() + std::time::Duration::from_secs_f64(args.duration));
 
     loop {
         sleep(interval).await;
+        if let Some(dl) = deadline {
+            if std::time::Instant::now() >= dl {
+                break Ok(());
+            }
+        }
 
         let t = times.lock();
         let n = t.len();

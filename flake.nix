@@ -440,8 +440,8 @@
             extraShellHook = '''';
           };
 
-          # DEPRECATED: Bridge interop test environment (Jazzy + Humble via humble-ros2 wrapper).
-          # Moved to zetta-hiroz-toolkit (private). Will be removed in a future release.
+          # Bridge interop test environment (Jazzy + Humble side-by-side).
+          # Used by `cargo test -p hiroz-tests --features bridge-interop-tests,jazzy`.
           ros-bridge-interop =
             let
               humbleEnv = mkRosEnv "humble";
@@ -473,11 +473,10 @@
               extraEnvVars = {
                 HUMBLE_ROS2 = "${humbleRos2}/bin/humble-ros2";
               };
-              shellHook = ''
-                echo "WARNING: ros-bridge-interop is deprecated in this repo." >&2
-                echo "Use the shell from zetta-hiroz-toolkit instead." >&2
-              '';
             };
+
+          # CI shell for bridge interop + hz-comparison tests (same as ros-bridge-interop).
+          bridge-interop-ci = self.devShells.${system}.ros-bridge-interop;
 
         }
         # Add per-distro dev shells (ros-jazzy, ros-rolling, ...)

@@ -1,3 +1,5 @@
+pub mod abi;
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -45,17 +47,41 @@ pub fn query_manifest(path: &std::path::Path) -> Option<PluginManifest> {
     serde_json::from_slice(&output.stdout).ok()
 }
 
-/// Dispatch `hu <plugin> [args...]` → exec `hu-<plugin> [args...]`.
-/// Passes HU_ROUTER and HU_DOMAIN from the environment to the subprocess.
+/// Dispatch `hu <plugin> [args...]`.
+///
+/// Tries dynamic loading (`libhu_<plugin>.so`) first; falls back to a
+/// `hu-<plugin>` subprocess on PATH.  Passes `HU_ROUTER` and `HU_DOMAIN`
+/// as environment variables in both cases.
 pub fn dispatch(
     plugin_name: &str,
     args: &[String],
     router: &str,
     domain: usize,
 ) -> anyhow::Result<std::process::ExitStatus> {
+    // Set env vars so both the .so and subprocess paths pick them up.
+    // SAFETY: we are single-threaded at this point (pre-tokio dispatch).
+    unsafe {
+        std::env::set_var("HU_ROUTER", router);
+        std::env::set_var("HU_DOMAIN", domain.to_string());
+    }
+
+    // argv[0] = canonical binary name; rest = the args the caller passed.
+    let full_args: Vec<String> = std::iter::once(format!("hu-{}", plugin_name))
+        .chain(args.iter().cloned())
+        .collect();
+
+    if let Some(code) = abi::try_dispatch_so(plugin_name, &full_args) {
+        std::process::exit(code);
+    }
+
+    // Fall back to subprocess.
     let binary = format!("hu-{}", plugin_name);
-    let path = which::which(&binary)
-        .map_err(|_| anyhow::anyhow!("Plugin '{}' not found on PATH", binary))?;
+    let path = which::which(&binary).map_err(|_| {
+        anyhow::anyhow!(
+            "Plugin '{}' not found on PATH (no .so found either)",
+            binary
+        )
+    })?;
 
     let status = std::process::Command::new(path)
         .args(args)

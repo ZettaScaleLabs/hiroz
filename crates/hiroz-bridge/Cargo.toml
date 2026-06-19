@@ -9,6 +9,7 @@ publish = false
 [lib]
 name = "hiroz_bridge"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "hu-bridge"
