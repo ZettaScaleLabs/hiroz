@@ -28,13 +28,20 @@ use hiroz_msgs::std_msgs::String as RosString;
 
 fn hu_meter_bin() -> String {
     std::env::var("CARGO_BIN_EXE_hu-meter").unwrap_or_else(|_| {
-        let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap();
-        workspace
-            .join("target/debug/hu-meter")
+        let target_dir = std::env::var("CARGO_TARGET_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| {
+                let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+                manifest.parent().unwrap().parent().unwrap().join("target")
+            });
+        let profile = if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        };
+        target_dir
+            .join(profile)
+            .join("hu-meter")
             .to_str()
             .unwrap()
             .to_string()
