@@ -46,18 +46,20 @@ fi
 
 echo "rmw_cyclonedds_cpp: available ($CYCLONE_LIB)"
 
-# Write payload to a temp file — passing a large string as a shell argument
-# hits ARG_MAX (~2MB on Linux). The Python publisher reads from the file instead.
+# Write payload and publisher script to temp files.
+# Passing a large string as a shell argument hits ARG_MAX (~2MB on Linux).
+# Using a heredoc with `python3 -` is unreliable in nix devshells — the
+# background process stdin is disconnected, causing python to read EOF and exit.
 PAYLOAD_FILE=$(mktemp)
-trap "rm -f '${PAYLOAD_FILE}'; kill \${PUB_PID:-} 2>/dev/null || true" EXIT
+PY_SCRIPT=$(mktemp --suffix=.py)
+trap "rm -f '${PAYLOAD_FILE}' '${PY_SCRIPT}'; kill \${PUB_PID:-} 2>/dev/null || true" EXIT
 python3 -c "
 import sys
 payload = 'x' * ${PAYLOAD_SIZE}
 sys.stdout.write(payload)
 " > "${PAYLOAD_FILE}"
 
-# Start publisher in background via Python to avoid ARG_MAX on large payloads.
-RMW_IMPLEMENTATION=rmw_cyclonedds_cpp python3 - "${TOPIC}" "${PAYLOAD_FILE}" "${TARGET_HZ}" <<'PYEOF' &
+cat > "${PY_SCRIPT}" << 'PYEOF'
 import sys, time, rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -76,15 +78,19 @@ while rclpy.ok():
     pub.publish(msg)
     time.sleep(interval)
 PYEOF
+
+RMW_IMPLEMENTATION=rmw_cyclonedds_cpp python3 "${PY_SCRIPT}" "${TOPIC}" "${PAYLOAD_FILE}" "${TARGET_HZ}" &
 PUB_PID=$!
 
 echo "Publisher started (PID ${PUB_PID}), waiting 2s for discovery..."
 sleep 2
 
 # Measure with ros2 topic hz (cyclonedds) for MEASURE_SECS seconds.
+# --kill-after=2: send SIGKILL 2s after SIGTERM in case rclpy ignores SIGTERM.
 echo "Running ros2 topic hz for ${MEASURE_SECS}s..."
-HZ_OUTPUT=$(RMW_IMPLEMENTATION=rmw_cyclonedds_cpp timeout $((MEASURE_SECS + 2)) \
-    ros2 topic hz "${TOPIC}" --window 50 --filter $((MEASURE_SECS - 2)) 2>/dev/null || true)
+HZ_OUTPUT=$(RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
+    timeout --kill-after=2 $((MEASURE_SECS + 2)) \
+    ros2 topic hz "${TOPIC}" --window 50 2>/dev/null || true)
 
 echo ""
 echo "=== ros2 topic hz output ==="
