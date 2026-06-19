@@ -25,27 +25,18 @@ if ! command -v ros2 &>/dev/null; then
     exit 1
 fi
 
-# Check via LD_LIBRARY_PATH — ros2 pkg list is unreliable with buildEnv-merged ament indexes.
-echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-<unset>}"
-CYCLONE_FOUND=false
-if [[ -n "${LD_LIBRARY_PATH:-}" ]]; then
-    IFS=: read -ra _LIBDIRS <<< "$LD_LIBRARY_PATH"
-    for _d in "${_LIBDIRS[@]}"; do
-        [[ -z "$_d" ]] && continue
-        # Match bare .so or versioned .so.X.Y
-        if compgen -G "$_d/librmw_cyclonedds*" > /dev/null 2>&1; then
-            echo "Found cyclonedds library in: $_d"
-            CYCLONE_FOUND=true
-            break
-        fi
-    done
-fi
-if ! $CYCLONE_FOUND; then
-    echo "rmw_cyclonedds_cpp: not available — skipping"
+# Detect via LD_LIBRARY_PATH — ros2 pkg list is unreliable with buildEnv-merged ament indexes.
+# The jazzy nix-ros-overlay pin on whippet may not include rmw_cyclonedds_cpp; skip cleanly.
+CYCLONE_LIB=$(IFS=:; for d in ${LD_LIBRARY_PATH:-}; do
+    [[ -z "$d" ]] && continue
+    f=$(compgen -G "$d/librmw_cyclonedds*" 2>/dev/null | head -1) && echo "$f" && break
+done)
+if [[ -z "$CYCLONE_LIB" ]]; then
+    echo "rmw_cyclonedds_cpp: not in nix environment (librmw_cyclonedds* absent from LD_LIBRARY_PATH) — skipping"
     exit 0
 fi
 
-echo "rmw_cyclonedds_cpp: available"
+echo "rmw_cyclonedds_cpp: available ($CYCLONE_LIB)"
 
 PAYLOAD=$(python3 -c "print('x' * ${PAYLOAD_SIZE})")
 
