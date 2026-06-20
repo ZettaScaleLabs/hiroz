@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
+use hiroz::attachment::Attachment;
 use tokio::time::{Duration, sleep};
 
 use crate::context::Ctx;
@@ -69,10 +70,15 @@ pub async fn run(ctx: &Ctx, args: ServiceArgs, json: bool) -> Result<()> {
 
             let timeout_dur = Duration::from_secs_f64(timeout);
 
+            // hiroz service protocol requires an Attachment (sequence number + GID) on the query.
+            let attachment = Attachment::new(1, [0u8; 16]);
+            let attachment_bytes: zenoh::bytes::ZBytes = attachment.into();
+
             let replies = ctx
                 .session
                 .get(&ke)
                 .payload(zenoh::bytes::ZBytes::from(payload_bytes))
+                .attachment(attachment_bytes)
                 .timeout(timeout_dur)
                 .await
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
