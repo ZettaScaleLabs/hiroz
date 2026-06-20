@@ -219,11 +219,62 @@ fn yaml_to_cdr(yaml_str: &str, msg_type: &str) -> Result<Vec<u8>> {
             buf.extend_from_slice(&z.to_le_bytes());
             Ok(buf)
         }
+        // geometry_msgs/msg/Twist: linear (Vector3) + angular (Vector3) = 6 × f64
+        // ros2cli#22: ros2 topic pub fails to serialize nested message types
+        "geometry_msgs/Twist" => {
+            let mut buf = cdr_header();
+            for field in ["linear", "angular"] {
+                let sub = yaml_submap(&v, field)?;
+                buf.extend_from_slice(&yaml_field_f64(&sub, "x")?.to_le_bytes());
+                buf.extend_from_slice(&yaml_field_f64(&sub, "y")?.to_le_bytes());
+                buf.extend_from_slice(&yaml_field_f64(&sub, "z")?.to_le_bytes());
+            }
+            Ok(buf)
+        }
+        // geometry_msgs/msg/Point: x, y, z (3 × f64)
+        "geometry_msgs/Point" => {
+            let x = yaml_field_f64(&v, "x")?;
+            let y = yaml_field_f64(&v, "y")?;
+            let z = yaml_field_f64(&v, "z")?;
+            let mut buf = cdr_header();
+            buf.extend_from_slice(&x.to_le_bytes());
+            buf.extend_from_slice(&y.to_le_bytes());
+            buf.extend_from_slice(&z.to_le_bytes());
+            Ok(buf)
+        }
+        // geometry_msgs/msg/Quaternion: x, y, z, w (4 × f64)
+        "geometry_msgs/Quaternion" => {
+            let x = yaml_field_f64(&v, "x")?;
+            let y = yaml_field_f64(&v, "y")?;
+            let z = yaml_field_f64(&v, "z")?;
+            let w = yaml_field_f64(&v, "w")?;
+            let mut buf = cdr_header();
+            buf.extend_from_slice(&x.to_le_bytes());
+            buf.extend_from_slice(&y.to_le_bytes());
+            buf.extend_from_slice(&z.to_le_bytes());
+            buf.extend_from_slice(&w.to_le_bytes());
+            Ok(buf)
+        }
+        // geometry_msgs/msg/Pose: position (Point) + orientation (Quaternion) = 7 × f64
+        "geometry_msgs/Pose" => {
+            let mut buf = cdr_header();
+            let pos = yaml_submap(&v, "position")?;
+            buf.extend_from_slice(&yaml_field_f64(&pos, "x")?.to_le_bytes());
+            buf.extend_from_slice(&yaml_field_f64(&pos, "y")?.to_le_bytes());
+            buf.extend_from_slice(&yaml_field_f64(&pos, "z")?.to_le_bytes());
+            let ori = yaml_submap(&v, "orientation")?;
+            buf.extend_from_slice(&yaml_field_f64(&ori, "x")?.to_le_bytes());
+            buf.extend_from_slice(&yaml_field_f64(&ori, "y")?.to_le_bytes());
+            buf.extend_from_slice(&yaml_field_f64(&ori, "z")?.to_le_bytes());
+            buf.extend_from_slice(&yaml_field_f64(&ori, "w")?.to_le_bytes());
+            Ok(buf)
+        }
         other => {
             anyhow::bail!(
                 "YAML encoding not supported for type '{other}'. \
                  Supported: std_msgs/msg/{{String,Bool,Int8/16/32/64,UInt8/16/32/64,Float32/64}}, \
-                 geometry_msgs/msg/Vector3. For other types use --payload <hex> or --file."
+                 geometry_msgs/msg/{{Vector3,Point,Quaternion,Pose,Twist}}. \
+                 For other types use --payload <hex> or --file."
             )
         }
     }
@@ -237,6 +288,19 @@ fn encode_cdr_primitive(payload: &[u8]) -> Vec<u8> {
     let mut buf = cdr_header();
     buf.extend_from_slice(payload);
     buf
+}
+
+fn yaml_submap<'a>(v: &'a serde_yaml::Value, field: &str) -> Result<serde_yaml::Value> {
+    match v {
+        serde_yaml::Value::Mapping(m) => {
+            let key = serde_yaml::Value::String(field.to_string());
+            match m.get(&key) {
+                Some(sub) => Ok(sub.clone()),
+                None => anyhow::bail!("Missing field '{field}' in YAML"),
+            }
+        }
+        _ => anyhow::bail!("Expected YAML mapping with '{field}' field"),
+    }
 }
 
 fn yaml_field_str(v: &serde_yaml::Value, field: &str) -> Result<String> {

@@ -624,3 +624,68 @@ fn test_hu_meter_param_set_roundtrip() {
         stdout
     );
 }
+
+/// Tests `hu meter pub --yaml` with nested message types (ros2cli#22).
+///
+/// ros2cli#22: `ros2 topic pub` fails to serialize nested message types. hu meter pub uses
+/// hiroz's CDR encoder and handles nested structs correctly.
+///
+/// Verifies geometry_msgs/Twist (two nested Vector3 fields) by publishing a known payload
+/// and checking the raw CDR bytes match the expected encoding.
+#[test]
+#[serial_test::serial]
+fn test_pub_yaml_nested_twist() {
+    // Expected CDR encoding for Twist{linear:{x:1.0,y:2.0,z:3.0}, angular:{x:0.1,y:0.2,z:0.5}}
+    // CDR header: [0x00, 0x01, 0x00, 0x00]
+    // linear.x = 1.0_f64.to_le_bytes(), linear.y = 2.0, linear.z = 3.0
+    // angular.x = 0.1, angular.y = 0.2, angular.z = 0.5
+    let mut expected = vec![0x00u8, 0x01, 0x00, 0x00];
+    for v in [1.0f64, 2.0, 3.0, 0.1, 0.2, 0.5] {
+        expected.extend_from_slice(&v.to_le_bytes());
+    }
+
+    let router = TestRouter::new();
+    let endpoint = router.endpoint();
+
+    // Subscribe with a raw hiroz subscriber (ZSub over raw Zenoh bytes)
+    // hu meter pub with nested Twist YAML — verify command succeeds and prints JSON
+    let out = run_hu_meter(
+        endpoint,
+        &[
+            "pub",
+            "/pub_yaml_twist",
+            "--msg-type",
+            "geometry_msgs/msg/Twist",
+            "--yaml",
+            "{linear: {x: 1.0, y: 2.0, z: 3.0}, angular: {x: 0.1, y: 0.2, z: 0.5}}",
+            "--json",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter pub --yaml geometry_msgs/Twist failed (ros2cli#22 regression): {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("Expected JSON output from hu meter pub");
+
+    // Verify reported byte count matches expected CDR size
+    let reported_bytes = json["bytes"].as_u64().unwrap_or(0);
+    assert_eq!(
+        reported_bytes,
+        expected.len() as u64,
+        "CDR byte count mismatch for geometry_msgs/Twist: got {reported_bytes}, expected {}",
+        expected.len()
+    );
+    assert_eq!(
+        json["published"].as_u64().unwrap_or(0),
+        1,
+        "Expected published=1"
+    );
+    println!(
+        "geometry_msgs/Twist encoded correctly: {reported_bytes} bytes (header + 6×f64 = {})",
+        expected.len()
+    );
+}

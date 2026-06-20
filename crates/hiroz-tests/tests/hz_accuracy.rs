@@ -24,6 +24,7 @@ use std::{
 
 use common::*;
 use hiroz::Builder;
+use hiroz::prelude::{QosProfile, QosReliability};
 use hiroz_msgs::std_msgs::String as RosString;
 
 fn hu_meter_bin() -> String {
@@ -867,6 +868,296 @@ fn test_hz_python_saturation() {
             "hu meter only captured {capture_pct:.0}% of messages (ground truth: {ground_truth_rate:.0} Hz)"
         );
     }
+}
+
+/// Simulates a 1080p RGB8 camera stream (1920 × 1080 × 3 = 6,220,800 bytes per frame @ 30 Hz).
+/// This is the motivating use-case for ros2cli#871 (root cause B): rclpy deserializes every
+/// message, so a 6.2 MB frame at 30 Hz causes Python callback saturation and under-reporting.
+/// hu meter hz uses raw-byte subscription and should remain accurate regardless of payload size.
+///
+/// Both tools subscribe concurrently to the same stream. The assertion is that they agree within
+/// 15 percentage points — not that either matches 30 Hz exactly, since the VM may not sustain
+/// 6.2 MB × 30 = 186 MB/s.
+#[test]
+#[serial_test::serial]
+fn test_hz_camera_1080p_30fps() {
+    let target = 30.0_f64;
+    // 1920 × 1080 × 3 bytes (RGB8)
+    let width = 1920usize;
+    let height = 1080usize;
+    let channels = 3usize;
+    let payload_bytes = width * height * channels; // 6,220,800
+    let topic = "hz_camera_1080p";
+    let duration_secs = 10.0_f64;
+
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+
+    {
+        let endpoint2 = endpoint.clone();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let ctx = create_hiroz_context_with_endpoint(&endpoint2).unwrap();
+                let node = ctx.create_node("hz_camera_pub").build().unwrap();
+                let pub_ = node
+                    .create_pub::<RosString>(&format!("/{topic}"))
+                    .build()
+                    .unwrap();
+                let interval_us = (1_000_000.0 / target) as u64;
+                let stop = std::time::Instant::now()
+                    + std::time::Duration::from_secs_f64(duration_secs + 5.0);
+                let payload = "x".repeat(payload_bytes);
+                while std::time::Instant::now() < stop {
+                    let _ = pub_
+                        .async_publish(&RosString {
+                            data: payload.clone(),
+                        })
+                        .await;
+                    tokio::time::sleep(tokio::time::Duration::from_micros(interval_us)).await;
+                }
+            });
+        });
+    }
+
+    thread::sleep(Duration::from_millis(500));
+
+    let hu_child = Command::new(hu_meter_bin())
+        .args([
+            "--router",
+            &endpoint,
+            "hz",
+            &format!("/{topic}"),
+            "--duration",
+            &duration_secs.to_string(),
+            "--json",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn hu-meter hz");
+
+    let ros2_available = Command::new("ros2").arg("--help").output().is_ok();
+    let ros2_child = if ros2_available {
+        Command::new("ros2")
+            .args([
+                "topic",
+                "hz",
+                &format!("/{topic}"),
+                "--window",
+                "100",
+                "--filter",
+                &format!("{}", (duration_secs as u32).saturating_sub(2)),
+            ])
+            .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+            .env(
+                "ZENOH_CONFIG_OVERRIDE",
+                format!("connect/endpoints=[\"{endpoint}\"];scouting/multicast/enabled=false"),
+            )
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .ok()
+    } else {
+        eprintln!("ros2 CLI not found — skipping ros2 topic hz measurement");
+        None
+    };
+
+    let hu_output = hu_child.wait_with_output().ok();
+    let ros2_output = ros2_child.and_then(|mut c| {
+        let _ = c.kill();
+        c.wait_with_output().ok()
+    });
+
+    let hu_stdout = hu_output
+        .as_ref()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    let hu_rate = parse_hu_meter_hz(&hu_stdout).unwrap_or_else(|| {
+        eprintln!(
+            "hu-meter stderr: {}",
+            hu_output
+                .as_ref()
+                .map(|o| String::from_utf8_lossy(&o.stderr).into_owned())
+                .unwrap_or_default()
+        );
+        0.0
+    });
+    let ros2_rate = ros2_output
+        .as_ref()
+        .and_then(|o| parse_ros2_hz(&String::from_utf8_lossy(&o.stdout)));
+
+    println!(
+        "Payload: {payload_bytes} bytes  ({}×{}×{} RGB8 @ {target} Hz target)",
+        width, height, channels
+    );
+    println!(
+        "hu meter hz: {hu_rate:.3} Hz  (error: {:.1}%)",
+        (hu_rate - target).abs() / target * 100.0
+    );
+    if let Some(r) = ros2_rate {
+        println!(
+            "ros2 hz:     {r:.3} Hz  (error: {:.1}%)",
+            (r - target).abs() / target * 100.0
+        );
+        let diff_pct = (hu_rate - r).abs() / r.max(1.0) * 100.0;
+        if diff_pct < 5.0 {
+            println!("→ ros2cli#871 not reproduced on this machine (difference < 5pp)");
+        } else {
+            println!("→ ros2cli#871 reproduced: hu meter sees {diff_pct:.1}pp more than ros2");
+        }
+        assert!(
+            diff_pct < 15.0,
+            "hu meter hz ({hu_rate:.3} Hz) differs from ros2 hz ({r:.3} Hz) by {diff_pct:.1}% with {payload_bytes}B payload"
+        );
+    } else {
+        println!("ros2 hz:     n/a");
+        let hu_error_pct = (hu_rate - target).abs() / target * 100.0;
+        assert!(
+            hu_error_pct < 50.0,
+            "hu meter hz error {hu_error_pct:.1}% is extreme at 1080p 30 Hz (reported {hu_rate:.3} Hz)"
+        );
+    }
+}
+
+/// Demonstrates ros2cli#970: ros2 topic hz subscribes with RELIABLE QoS by default.
+/// When the publisher uses BEST_EFFORT QoS, there is a QoS incompatibility — ros2 topic hz
+/// silently receives 0 messages and reports 0 Hz (or never prints a rate).
+///
+/// hu meter hz uses a raw Zenoh subscriber with no ROS QoS layer, so it receives all messages
+/// regardless of the publisher's QoS setting.
+#[test]
+#[serial_test::serial]
+fn test_hz_qos_mismatch() {
+    let target = 100.0_f64;
+    let topic = "hz_qos_mismatch";
+    let duration_secs = 8.0_f64;
+
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+
+    {
+        let endpoint2 = endpoint.clone();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let ctx = create_hiroz_context_with_endpoint(&endpoint2).unwrap();
+                let node = ctx.create_node("hz_qos_mismatch_pub").build().unwrap();
+                // BEST_EFFORT publisher — QoS incompatible with ros2 topic hz (which uses RELIABLE)
+                let qos = QosProfile {
+                    reliability: QosReliability::BestEffort,
+                    ..QosProfile::default()
+                };
+                let pub_ = node
+                    .create_pub::<RosString>(&format!("/{topic}"))
+                    .with_qos(qos)
+                    .build()
+                    .unwrap();
+                let interval_us = (1_000_000.0 / target) as u64;
+                let stop = std::time::Instant::now()
+                    + std::time::Duration::from_secs_f64(duration_secs + 5.0);
+                while std::time::Instant::now() < stop {
+                    let _ = pub_.async_publish(&RosString { data: "x".into() }).await;
+                    tokio::time::sleep(tokio::time::Duration::from_micros(interval_us)).await;
+                }
+            });
+        });
+    }
+
+    thread::sleep(Duration::from_millis(500));
+
+    let hu_child = Command::new(hu_meter_bin())
+        .args([
+            "--router",
+            &endpoint,
+            "hz",
+            &format!("/{topic}"),
+            "--duration",
+            &duration_secs.to_string(),
+            "--json",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn hu-meter hz");
+
+    let ros2_available = Command::new("ros2").arg("--help").output().is_ok();
+    let ros2_child = if ros2_available {
+        Command::new("ros2")
+            .args([
+                "topic",
+                "hz",
+                &format!("/{topic}"),
+                "--window",
+                "100",
+                "--filter",
+                &format!("{}", (duration_secs as u32).saturating_sub(2)),
+            ])
+            .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+            .env(
+                "ZENOH_CONFIG_OVERRIDE",
+                format!("connect/endpoints=[\"{endpoint}\"];scouting/multicast/enabled=false"),
+            )
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .ok()
+    } else {
+        eprintln!("ros2 CLI not found — skipping ros2 topic hz measurement");
+        None
+    };
+
+    let hu_output = hu_child.wait_with_output().ok();
+    let ros2_output = ros2_child.and_then(|mut c| {
+        let _ = c.kill();
+        c.wait_with_output().ok()
+    });
+
+    let hu_stdout = hu_output
+        .as_ref()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    let hu_rate = parse_hu_meter_hz(&hu_stdout).unwrap_or_else(|| {
+        eprintln!(
+            "hu-meter stderr: {}",
+            hu_output
+                .as_ref()
+                .map(|o| String::from_utf8_lossy(&o.stderr).into_owned())
+                .unwrap_or_default()
+        );
+        0.0
+    });
+    let ros2_rate = ros2_output
+        .as_ref()
+        .and_then(|o| parse_ros2_hz(&String::from_utf8_lossy(&o.stdout)));
+
+    println!("=== QoS mismatch test (publisher: BEST_EFFORT, ros2 expects RELIABLE) ===");
+    println!("Target: {target:.0} Hz");
+    println!("hu meter hz: {hu_rate:.3} Hz  (raw Zenoh subscriber, QoS-agnostic)");
+    if let Some(r) = ros2_rate {
+        println!(
+            "ros2 hz:     {r:.3} Hz  (ros2cli#970: RELIABLE subscriber → QoS mismatch → drops)"
+        );
+        if hu_rate > r * 2.0 {
+            println!(
+                "→ ros2cli#970 reproduced: hu meter sees {:.0}× more messages than ros2",
+                hu_rate / r.max(0.1)
+            );
+        } else if r < 10.0 {
+            println!("→ ros2cli#970 reproduced: ros2 sees near-zero messages ({r:.1} Hz)");
+        } else {
+            println!(
+                "→ ros2cli#970 not reproduced on this machine (rmw_zenoh_cpp may auto-adapt QoS)"
+            );
+        }
+    } else {
+        println!("ros2 hz:     n/a");
+    }
+    // hu-meter must receive messages regardless of QoS mismatch
+    assert!(
+        hu_rate >= target * 0.5,
+        "hu meter should see ≥50% of {target} Hz despite QoS mismatch, got {hu_rate:.1} Hz — raw Zenoh subscriber broken?"
+    );
 }
 
 /// Demonstrates ros2cli#1043 / ros2cli#843 advantage: at 2 kHz, hu meter hz
