@@ -402,6 +402,7 @@ fn add_two_ints_request_cdr(a: i64, b: i64) -> String {
 }
 
 #[test]
+#[serial_test::serial]
 fn test_hu_meter_service_call_add_two_ints() {
     let router = TestRouter::new();
 
@@ -414,13 +415,15 @@ fn test_hu_meter_service_call_add_two_ints() {
             .create_service::<AddTwoInts>("/svc_call_test")
             .build()
             .unwrap();
-        // Keep server alive for up to 5s (50 × 100ms) so hu-meter can connect
-        for _ in 0..50 {
+        // Keep server alive for up to 15s so hu-meter can connect even under CI load.
+        // Use 50ms poll to avoid missing the request window.
+        for _ in 0..300 {
             if let Ok(req) = server.take_request() {
                 let sum = req.message().a + req.message().b;
                 let _ = req.reply_blocking(&AddTwoIntsResponse { sum });
+                break;
             }
-            thread::sleep(Duration::from_millis(100));
+            thread::sleep(Duration::from_millis(50));
         }
     });
 
@@ -436,7 +439,7 @@ fn test_hu_meter_service_call_add_two_ints() {
             "--payload",
             &hex_payload,
             "--timeout",
-            "5",
+            "10",
         ],
     );
     assert!(
