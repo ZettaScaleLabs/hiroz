@@ -18,13 +18,32 @@ use std::{
 use common::*;
 use hiroz::Builder;
 use hiroz_msgs::{
-    example_interfaces::{AddTwoIntsRequest, AddTwoIntsResponse, srv::AddTwoInts},
+    example_interfaces::{AddTwoIntsResponse, srv::AddTwoInts},
     std_msgs::String as RosString,
 };
 
-// Path to the hu-meter binary. In tests, CARGO_BIN_EXE_<name> is set by cargo.
 fn hu_meter_bin() -> String {
-    std::env::var("CARGO_BIN_EXE_hu-meter").unwrap_or_else(|_| "hu-meter".to_string())
+    std::env::var("CARGO_BIN_EXE_hu-meter").unwrap_or_else(|_| {
+        // CARGO_BIN_EXE_* is only set when the binary lives in the same crate as the test.
+        // hu-meter is in hiroz-meter, so fall back to locating it via CARGO_TARGET_DIR.
+        let target_dir = std::env::var("CARGO_TARGET_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| {
+                let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+                manifest.parent().unwrap().parent().unwrap().join("target")
+            });
+        let profile = if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        };
+        target_dir
+            .join(profile)
+            .join("hu-meter")
+            .to_str()
+            .unwrap()
+            .to_string()
+    })
 }
 
 /// Run hu-meter with the given arguments and a specific router endpoint.
