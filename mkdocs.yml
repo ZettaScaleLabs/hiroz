@@ -105,6 +105,7 @@ nav:
           - Custom Messages: user-guide/custom-messages.md
           - Protobuf Serialization: user-guide/protobuf.md
   - Tools:
+      - hu (unified tool): tools/hu.md
       - hiroz-console: tools/console.md
   - Language Bindings:
       - Python:
