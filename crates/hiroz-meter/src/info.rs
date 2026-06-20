@@ -27,8 +27,10 @@ pub async fn run(ctx: &Ctx, args: InfoArgs, json: bool) -> Result<()> {
     match args.what {
         InfoWhat::Topic { name } => {
             let n = name.trim_start_matches('/');
-            let pub_count = ctx.graph.count(EndpointKind::Publisher, n);
-            let sub_count = ctx.graph.count(EndpointKind::Subscription, n);
+            // by_topic keys include the leading '/' so pass the original name
+            let topic_key = format!("/{}", n);
+            let pub_count = ctx.graph.count(EndpointKind::Publisher, &topic_key);
+            let sub_count = ctx.graph.count(EndpointKind::Subscription, &topic_key);
             let typ = ctx
                 .graph
                 .get_topic_names_and_types()
@@ -57,13 +59,13 @@ pub async fn run(ctx: &Ctx, args: InfoArgs, json: bool) -> Result<()> {
 
         InfoWhat::Node { name } => {
             let n = name.trim_start_matches('/');
-            // Parse ns/name from the fully-qualified node name
+            // Parse ns/name — by_node uses empty string for root namespace
             let node_key: (String, String) = match n.rsplit_once('/') {
                 Some((ns_part, nm_part)) => {
-                    let ns = if ns_part.is_empty() { "/" } else { ns_part };
+                    let ns = if ns_part.is_empty() { "" } else { ns_part };
                     (ns.to_string(), nm_part.to_string())
                 }
-                None => ("/".to_string(), n.to_string()),
+                None => ("".to_string(), n.to_string()),
             };
 
             let found = ctx.graph.node_exists(node_key.clone());

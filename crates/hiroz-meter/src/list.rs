@@ -56,11 +56,11 @@ pub async fn run(ctx: &Ctx, args: ListArgs, json: bool) -> Result<()> {
             if json {
                 let entries: Vec<_> = nodes
                     .iter()
-                    .map(|(ns, n)| serde_json::json!({"namespace": ns, "name": n}))
+                    .map(|(name, ns)| serde_json::json!({"namespace": ns, "name": name}))
                     .collect();
                 println!("{}", serde_json::to_string_pretty(&entries)?);
             } else {
-                for (ns, name) in &nodes {
+                for (name, ns) in &nodes {
                     let full = if ns == "/" {
                         format!("/{}", name)
                     } else {

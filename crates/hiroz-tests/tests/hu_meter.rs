@@ -363,7 +363,7 @@ fn test_hu_meter_service_list() {
     thread::spawn(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
         let node = ctx.create_node("svc_list_node").build().unwrap();
-        let mut server = node
+        let _server = node
             .create_service::<AddTwoInts>("/svc_list_test")
             .build()
             .unwrap();
@@ -414,8 +414,8 @@ fn test_hu_meter_service_call_add_two_ints() {
             .create_service::<AddTwoInts>("/svc_call_test")
             .build()
             .unwrap();
-        // Handle up to 3 requests
-        for _ in 0..3 {
+        // Keep server alive for up to 5s (50 × 100ms) so hu-meter can connect
+        for _ in 0..50 {
             if let Ok(req) = server.take_request() {
                 let sum = req.message().a + req.message().b;
                 let _ = req.reply_blocking(&AddTwoIntsResponse { sum });
