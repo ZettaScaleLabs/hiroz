@@ -544,6 +544,318 @@ fn test_hz_accuracy_1khz() {
     }
 }
 
+/// Five publishers all posting to the same topic at 1 kHz each produce a 5 kHz aggregate
+/// message stream. hu meter hz subscribes once and counts every message in Rust — no
+/// deserialization, no GIL, no Python callback overhead. ros2 topic hz runs a Python
+/// rclpy node whose per-message callback rate tops out at ~2–5 kHz regardless of how many
+/// publishers there are. The aggregate stream reliably saturates the Python callback rate,
+/// making the hu meter advantage visible even on loaded CI machines.
+#[test]
+#[serial_test::serial]
+fn test_hz_multi_publisher_aggregation() {
+    const N_PUBS: usize = 5;
+    const PUB_RATE: f64 = 1000.0; // Hz per publisher
+    const TOTAL_TARGET: f64 = (N_PUBS as f64) * PUB_RATE; // 5000 Hz aggregate
+    let duration_secs = 10.0_f64;
+    let topic = "hz_multi_pub";
+
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+
+    // Spawn N independent publishers, each at PUB_RATE Hz.
+    for i in 0..N_PUBS {
+        let endpoint2 = endpoint.clone();
+        let topic2 = topic.to_string();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let ctx = create_hiroz_context_with_endpoint(&endpoint2).unwrap();
+                let node = ctx
+                    .create_node(&format!("hz_multi_pub_{i}"))
+                    .build()
+                    .unwrap();
+                let pub_ = node
+                    .create_pub::<RosString>(&format!("/{topic2}"))
+                    .build()
+                    .unwrap();
+                let interval_us = (1_000_000.0 / PUB_RATE) as u64;
+                let stop = std::time::Instant::now()
+                    + std::time::Duration::from_secs_f64(duration_secs + 5.0);
+                while std::time::Instant::now() < stop {
+                    let _ = pub_.async_publish(&RosString { data: "x".into() }).await;
+                    tokio::time::sleep(tokio::time::Duration::from_micros(interval_us)).await;
+                }
+            });
+        });
+    }
+
+    // Wait for all publishers to connect and stabilise.
+    thread::sleep(Duration::from_millis(1000));
+
+    // Spawn both tools concurrently — they observe the same message stream.
+    let hu_child = Command::new(hu_meter_bin())
+        .args([
+            "--router",
+            &endpoint,
+            "hz",
+            &format!("/{topic}"),
+            "--duration",
+            &duration_secs.to_string(),
+            "--json",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn hu-meter hz");
+
+    let ros2_available = Command::new("ros2").arg("--help").output().is_ok();
+    let ros2_child = if ros2_available {
+        Command::new("ros2")
+            .args([
+                "topic",
+                "hz",
+                &format!("/{topic}"),
+                "--window",
+                "100",
+                "--filter",
+                &format!("{}", (duration_secs as u32).saturating_sub(2)),
+            ])
+            .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+            .env(
+                "ZENOH_CONFIG_OVERRIDE",
+                format!("connect/endpoints=[\"{endpoint}\"];scouting/multicast/enabled=false"),
+            )
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .ok()
+    } else {
+        eprintln!("ros2 CLI not found — skipping ros2 topic hz measurement");
+        None
+    };
+
+    let hu_output = hu_child.wait_with_output().ok();
+    let ros2_output = ros2_child.and_then(|mut c| {
+        let _ = c.kill();
+        c.wait_with_output().ok()
+    });
+
+    let hu_stdout = hu_output
+        .as_ref()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    let hu_rate = parse_hu_meter_hz(&hu_stdout).unwrap_or_else(|| {
+        eprintln!(
+            "hu-meter stderr: {}",
+            hu_output
+                .as_ref()
+                .map(|o| String::from_utf8_lossy(&o.stderr).into_owned())
+                .unwrap_or_default()
+        );
+        0.0
+    });
+    let ros2_rate = ros2_output
+        .as_ref()
+        .and_then(|o| parse_ros2_hz(&String::from_utf8_lossy(&o.stdout)));
+
+    println!(
+        "=== Multi-publisher: {N_PUBS} × {PUB_RATE:.0} Hz = {TOTAL_TARGET:.0} Hz aggregate ==="
+    );
+    println!(
+        "hu meter hz: {hu_rate:.1} Hz  ({:.0}% of aggregate target)",
+        hu_rate / TOTAL_TARGET * 100.0
+    );
+    if let Some(r) = ros2_rate {
+        println!(
+            "ros2 hz:     {r:.1} Hz  ({:.0}% of aggregate target)",
+            r / TOTAL_TARGET * 100.0
+        );
+        if hu_rate > r * 1.1 {
+            let advantage = (hu_rate - r) / r * 100.0;
+            println!(
+                "→ hu meter advantage confirmed: {advantage:.0}% more messages counted than ros2cli"
+            );
+        } else {
+            println!(
+                "→ tools agree within 10% (machine may not sustain {TOTAL_TARGET:.0} Hz aggregate)"
+            );
+        }
+        // hu meter must not be significantly worse than ros2cli.
+        assert!(
+            hu_rate >= r * 0.8,
+            "hu meter ({hu_rate:.1} Hz) is worse than ros2cli ({r:.1} Hz) — subscriber issue"
+        );
+    } else {
+        // Without ros2 baseline, just verify hu meter counted something.
+        assert!(
+            hu_rate > 0.0,
+            "hu meter returned 0 Hz — subscriber did not receive any messages"
+        );
+    }
+}
+
+/// Single publisher in a tight loop (100 µs sleep → ~10 kHz target) demonstrates Python
+/// callback saturation. The Python rclpy callback queue tops out at roughly 2–5 kHz;
+/// beyond that, ros2 topic hz under-reports while hu meter hz (Rust, no GIL) continues to
+/// count every message. An AtomicU64 counter tracks ground-truth messages sent during the
+/// measurement window so we can compute the true publish rate independently of either tool.
+#[test]
+#[serial_test::serial]
+fn test_hz_python_saturation() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    };
+
+    let duration_secs = 10.0_f64;
+    let topic = "hz_python_sat";
+
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+
+    let sent = Arc::new(AtomicU64::new(0));
+    let sent2 = sent.clone();
+
+    // Publisher: tight loop at ~10 kHz (100 µs sleep) — above Python's callback rate ceiling.
+    {
+        let endpoint2 = endpoint.clone();
+        let topic2 = topic.to_string();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let ctx = create_hiroz_context_with_endpoint(&endpoint2).unwrap();
+                let node = ctx.create_node("hz_python_sat_pub").build().unwrap();
+                let pub_ = node
+                    .create_pub::<RosString>(&format!("/{topic2}"))
+                    .build()
+                    .unwrap();
+                let stop = std::time::Instant::now()
+                    + std::time::Duration::from_secs_f64(duration_secs + 5.0);
+                while std::time::Instant::now() < stop {
+                    let _ = pub_.async_publish(&RosString { data: "x".into() }).await;
+                    sent2.fetch_add(1, Ordering::Relaxed);
+                    tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
+                }
+            });
+        });
+    }
+
+    thread::sleep(Duration::from_millis(500));
+
+    let count_before = sent.load(Ordering::Relaxed);
+    let t_start = std::time::Instant::now();
+
+    // Spawn both measurement tools at the same instant.
+    let hu_child = Command::new(hu_meter_bin())
+        .args([
+            "--router",
+            &endpoint,
+            "hz",
+            &format!("/{topic}"),
+            "--duration",
+            &duration_secs.to_string(),
+            "--json",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn hu-meter hz");
+
+    let ros2_available = Command::new("ros2").arg("--help").output().is_ok();
+    let ros2_child = if ros2_available {
+        Command::new("ros2")
+            .args([
+                "topic",
+                "hz",
+                &format!("/{topic}"),
+                "--window",
+                "200",
+                "--filter",
+                &format!("{}", (duration_secs as u32).saturating_sub(2)),
+            ])
+            .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+            .env(
+                "ZENOH_CONFIG_OVERRIDE",
+                format!("connect/endpoints=[\"{endpoint}\"];scouting/multicast/enabled=false"),
+            )
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .ok()
+    } else {
+        eprintln!("ros2 CLI not found — skipping ros2 topic hz measurement");
+        None
+    };
+
+    // hu-meter self-terminates after --duration; record ground truth at that moment.
+    let hu_output = hu_child.wait_with_output().ok();
+    let elapsed = t_start.elapsed().as_secs_f64();
+    let count_after = sent.load(Ordering::Relaxed);
+
+    let ros2_output = ros2_child.and_then(|mut c| {
+        let _ = c.kill();
+        c.wait_with_output().ok()
+    });
+
+    let messages_in_window = count_after.saturating_sub(count_before);
+    let ground_truth_rate = messages_in_window as f64 / elapsed.max(0.1);
+
+    let hu_stdout = hu_output
+        .as_ref()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    let hu_rate = parse_hu_meter_hz(&hu_stdout).unwrap_or_else(|| {
+        eprintln!(
+            "hu-meter stderr: {}",
+            hu_output
+                .as_ref()
+                .map(|o| String::from_utf8_lossy(&o.stderr).into_owned())
+                .unwrap_or_default()
+        );
+        0.0
+    });
+    let ros2_rate = ros2_output
+        .as_ref()
+        .and_then(|o| parse_ros2_hz(&String::from_utf8_lossy(&o.stdout)));
+
+    println!("=== Python saturation test (publisher: ~10 kHz target) ===");
+    println!(
+        "Ground truth: {ground_truth_rate:.0} Hz  ({messages_in_window} msgs in {elapsed:.1}s)"
+    );
+    println!(
+        "hu meter hz:  {hu_rate:.0} Hz  ({:.0}% of ground truth)",
+        hu_rate / ground_truth_rate.max(1.0) * 100.0
+    );
+    if let Some(r) = ros2_rate {
+        println!(
+            "ros2 hz:      {r:.0} Hz  ({:.0}% of ground truth)",
+            r / ground_truth_rate.max(1.0) * 100.0
+        );
+        if hu_rate > r * 1.2 {
+            let advantage = (hu_rate - r) / r * 100.0;
+            println!("→ Python saturation confirmed: hu meter sees {advantage:.0}% more messages");
+        } else if ground_truth_rate < 3000.0 {
+            println!(
+                "→ publisher only reached {ground_truth_rate:.0} Hz — below Python saturation threshold, tools agree"
+            );
+        } else {
+            println!("→ tools agree within 20% at {ground_truth_rate:.0} Hz ground truth");
+        }
+        // hu meter must not significantly undercount relative to ros2cli.
+        assert!(
+            hu_rate >= r * 0.8,
+            "hu meter ({hu_rate:.0} Hz) is worse than ros2cli ({r:.0} Hz) — subscriber issue"
+        );
+    } else {
+        // Without ros2 baseline, verify hu meter captures a meaningful fraction of messages.
+        let capture_pct = hu_rate / ground_truth_rate.max(1.0) * 100.0;
+        assert!(
+            capture_pct >= 10.0 || ground_truth_rate < 100.0,
+            "hu meter only captured {capture_pct:.0}% of messages (ground truth: {ground_truth_rate:.0} Hz)"
+        );
+    }
+}
+
 /// Demonstrates ros2cli#1043 / ros2cli#843 advantage: at 2 kHz, hu meter hz
 /// and ros2 topic hz measure the same actual rate. The machine may not sustain
 /// 2 kHz under CI load — both tools will under-report equally. What matters is
