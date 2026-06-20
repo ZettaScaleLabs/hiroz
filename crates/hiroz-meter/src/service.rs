@@ -69,15 +69,13 @@ pub async fn run(ctx: &Ctx, args: ServiceArgs, json: bool) -> Result<()> {
 
             let timeout_dur = Duration::from_secs_f64(timeout);
 
-            let replies = tokio::time::timeout(timeout_dur, async {
-                ctx.session
-                    .get(&ke)
-                    .payload(zenoh::bytes::ZBytes::from(payload_bytes))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{e}"))
-            })
-            .await
-            .map_err(|_| anyhow::anyhow!("Service call timed out after {timeout}s"))??;
+            let replies = ctx
+                .session
+                .get(&ke)
+                .payload(zenoh::bytes::ZBytes::from(payload_bytes))
+                .timeout(timeout_dur)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
 
             let mut got_reply = false;
             while let Ok(reply) = replies.recv_async().await {

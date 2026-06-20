@@ -427,7 +427,7 @@ fn test_hu_meter_service_call_add_two_ints() {
         }
     });
 
-    thread::sleep(Duration::from_millis(800));
+    thread::sleep(Duration::from_millis(3000));
 
     let hex_payload = add_two_ints_request_cdr(4, 7);
     let out = run_hu_meter(
