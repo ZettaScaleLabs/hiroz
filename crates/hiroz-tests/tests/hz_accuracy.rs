@@ -699,9 +699,16 @@ fn test_hz_multi_publisher_aggregation() {
 /// beyond that, ros2 topic hz under-reports while hu meter hz (Rust, no GIL) continues to
 /// count every message. An AtomicU64 counter tracks ground-truth messages sent during the
 /// measurement window so we can compute the true publish rate independently of either tool.
+///
+/// CPU pinning for stability:
+///   CPU 0–1: publisher thread (tokio runtime)
+///   CPU 2:   hu-meter process
+///   CPU 3:   ros2 topic hz process
 #[test]
 #[serial_test::serial]
 fn test_hz_python_saturation() {
+    use nix::sched::{CpuSet, sched_setaffinity};
+    use nix::unistd::Pid;
     use std::sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -716,11 +723,18 @@ fn test_hz_python_saturation() {
     let sent = Arc::new(AtomicU64::new(0));
     let sent2 = sent.clone();
 
-    // Publisher: tight loop with yield_now (no sleep) — runs at tokio scheduler speed.
+    // Publisher: tight loop with yield_now (no sleep) — pinned to CPUs 0–1.
     {
         let endpoint2 = endpoint.clone();
         let topic2 = topic.to_string();
         thread::spawn(move || {
+            // Pin this thread to CPUs 0–1 so hu-meter (CPU 2) and ros2 (CPU 3) get
+            // dedicated cores and their receive rates are not affected by publisher load.
+            let mut cpu_set = CpuSet::new();
+            let _ = cpu_set.set(0);
+            let _ = cpu_set.set(1);
+            let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
+
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async move {
                 let ctx = create_hiroz_context_with_endpoint(&endpoint2).unwrap();
@@ -745,8 +759,9 @@ fn test_hz_python_saturation() {
     let count_before = sent.load(Ordering::Relaxed);
     let t_start = std::time::Instant::now();
 
-    // Spawn both measurement tools at the same instant.
-    let hu_child = Command::new(hu_meter_bin())
+    // Spawn both measurement tools at the same instant, each pinned to its own CPU.
+    let hu_child = Command::new("taskset")
+        .args(["-c", "2", &hu_meter_bin()])
         .args([
             "--router",
             &endpoint,
@@ -763,7 +778,8 @@ fn test_hz_python_saturation() {
 
     let ros2_available = Command::new("ros2").arg("--help").output().is_ok();
     let ros2_child = if ros2_available {
-        Command::new("ros2")
+        Command::new("taskset")
+            .args(["-c", "3", "ros2"])
             .args([
                 "topic",
                 "hz",
