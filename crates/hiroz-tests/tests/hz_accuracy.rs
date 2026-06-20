@@ -694,8 +694,8 @@ fn test_hz_multi_publisher_aggregation() {
     }
 }
 
-/// Single publisher in a tight loop (100 µs sleep → ~10 kHz target) demonstrates Python
-/// callback saturation. The Python rclpy callback queue tops out at roughly 2–5 kHz;
+/// Single publisher in a tight loop (yield_now between publishes, no sleep) demonstrates
+/// Python callback saturation. The Python rclpy callback queue tops out at roughly 2–5 kHz;
 /// beyond that, ros2 topic hz under-reports while hu meter hz (Rust, no GIL) continues to
 /// count every message. An AtomicU64 counter tracks ground-truth messages sent during the
 /// measurement window so we can compute the true publish rate independently of either tool.
@@ -716,7 +716,7 @@ fn test_hz_python_saturation() {
     let sent = Arc::new(AtomicU64::new(0));
     let sent2 = sent.clone();
 
-    // Publisher: tight loop at ~10 kHz (100 µs sleep) — above Python's callback rate ceiling.
+    // Publisher: tight loop with yield_now (no sleep) — runs at tokio scheduler speed.
     {
         let endpoint2 = endpoint.clone();
         let topic2 = topic.to_string();
@@ -734,7 +734,7 @@ fn test_hz_python_saturation() {
                 while std::time::Instant::now() < stop {
                     let _ = pub_.async_publish(&RosString { data: "x".into() }).await;
                     sent2.fetch_add(1, Ordering::Relaxed);
-                    tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
+                    tokio::task::yield_now().await;
                 }
             });
         });
@@ -818,7 +818,7 @@ fn test_hz_python_saturation() {
         .as_ref()
         .and_then(|o| parse_ros2_hz(&String::from_utf8_lossy(&o.stdout)));
 
-    println!("=== Python saturation test (publisher: ~10 kHz target) ===");
+    println!("=== Python saturation test (publisher: no-sleep yield_now loop) ===");
     println!(
         "Ground truth: {ground_truth_rate:.0} Hz  ({messages_in_window} msgs in {elapsed:.1}s)"
     );
