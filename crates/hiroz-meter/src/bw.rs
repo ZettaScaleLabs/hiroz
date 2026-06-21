@@ -4,7 +4,7 @@ use parking_lot::Mutex;
 use std::{collections::VecDeque, sync::Arc};
 use tokio::time::{Duration, Instant, sleep};
 
-use crate::context::Ctx;
+use crate::{context::Ctx, qos_warn};
 
 #[derive(Args)]
 pub struct BwArgs {
@@ -53,6 +53,11 @@ pub async fn run(ctx: &Ctx, args: BwArgs, json: bool) -> Result<()> {
         })
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    tokio::spawn(qos_warn::warn_if_qos_mismatch(
+        ctx.graph.clone(),
+        args.topic.clone(),
+    ));
 
     let interval = Duration::from_secs_f64(args.interval);
     let deadline = (args.duration > 0.0)

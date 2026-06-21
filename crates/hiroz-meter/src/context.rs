@@ -45,7 +45,10 @@ pub async fn connect(router: &str, domain: usize, shm: bool) -> Result<Ctx> {
         builder
     };
     let zctx = ze!(builder.build())?;
-    let node = ze!(zctx.create_node("hu_meter").build())?;
+    let node = ze!(zctx
+        .create_node("hu_meter")
+        .with_type_description_service()
+        .build())?;
     let node = Arc::new(node);
 
     Ok(Ctx {

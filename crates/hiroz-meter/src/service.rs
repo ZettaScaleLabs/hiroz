@@ -3,7 +3,7 @@ use clap::{Args, Subcommand};
 use hiroz::attachment::Attachment;
 use tokio::time::{Duration, sleep};
 
-use crate::context::Ctx;
+use crate::{context::Ctx, r#pub::yaml_to_cdr};
 
 #[derive(Args)]
 pub struct ServiceArgs {
@@ -15,7 +15,7 @@ pub struct ServiceArgs {
 pub enum ServiceAction {
     /// List all services
     List,
-    /// Call a service with raw CDR payload
+    /// Call a service
     Call {
         /// Service name (e.g. /add_two_ints)
         name: String,
@@ -27,6 +27,14 @@ pub enum ServiceAction {
         /// Request payload from file
         #[arg(long)]
         file: Option<String>,
+
+        /// Request as YAML (requires --msg-type)
+        #[arg(long)]
+        yaml: Option<String>,
+
+        /// Message type for --yaml encoding (e.g. example_interfaces/srv/AddTwoInts_Request)
+        #[arg(long)]
+        msg_type: Option<String>,
 
         /// Timeout in seconds
         #[arg(long, default_value = "5.0")]
@@ -56,6 +64,8 @@ pub async fn run(ctx: &Ctx, args: ServiceArgs, json: bool) -> Result<()> {
             name,
             payload,
             file,
+            yaml,
+            msg_type,
             timeout,
         } => {
             let ke = format!("{}/{}/**", ctx.domain, name.trim_start_matches('/'));
@@ -64,6 +74,11 @@ pub async fn run(ctx: &Ctx, args: ServiceArgs, json: bool) -> Result<()> {
                 parse_hex(&hex)?
             } else if let Some(path) = file {
                 std::fs::read(&path)?
+            } else if let Some(y) = yaml {
+                let t = msg_type
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--yaml requires --msg-type"))?;
+                yaml_to_cdr(&y, t)?
             } else {
                 vec![0u8; 4] // empty CDR
             };

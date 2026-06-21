@@ -9,6 +9,7 @@ mod list;
 mod manifest;
 mod param;
 mod r#pub;
+mod qos_warn;
 mod service;
 
 use anyhow::Result;

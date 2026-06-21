@@ -145,7 +145,7 @@ fn build_payload(args: &PubArgs) -> Result<Vec<u8>> {
 
 /// Encode a YAML string to CDR bytes for supported std_msgs primitive types.
 /// msg_type may be "std_msgs/msg/String", "std_msgs/String", or just "String".
-fn yaml_to_cdr(yaml_str: &str, msg_type: &str) -> Result<Vec<u8>> {
+pub(crate) fn yaml_to_cdr(yaml_str: &str, msg_type: &str) -> Result<Vec<u8>> {
     let v: serde_yaml::Value =
         serde_yaml::from_str(yaml_str).map_err(|e| anyhow::anyhow!("Invalid YAML: {e}"))?;
 
