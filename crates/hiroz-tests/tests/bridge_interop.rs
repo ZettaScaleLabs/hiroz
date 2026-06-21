@@ -270,8 +270,8 @@ fn test_bridge_humble_server_jazzy_client() {
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     let response = rt.block_on(async {
-        // Humble nix shell startup + bridge proxy setup can take 30-60s.
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        // Give the bridge time to discover the Humble server and declare the proxy queryable.
+        tokio::time::sleep(Duration::from_secs(5)).await;
 
         let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
         let node = ctx.create_node("test_jazzy_client").build().unwrap();
