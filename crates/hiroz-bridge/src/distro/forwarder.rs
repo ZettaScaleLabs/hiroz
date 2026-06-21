@@ -124,6 +124,9 @@ pub fn start_service_forwarder(
                 // required by hiroz service.rs — it must be forwarded verbatim.
                 let payload: Option<ZBytes> = query.payload().cloned();
                 let attachment: Option<ZBytes> = query.attachment().cloned();
+                tracing::debug!(
+                    "service forwarder {proxy_ke_log}: query received, forwarding to {target_ke}"
+                );
                 tokio::spawn(async move {
                     let mut get = target_session.get(target_ke.as_ref());
                     if let Some(p) = payload {
@@ -141,6 +144,9 @@ pub fn start_service_forwarder(
                             return;
                         }
                     };
+                    tracing::debug!(
+                        "service forwarder {proxy_ke_log} → {target_ke}: waiting for reply"
+                    );
                     // Forward the first reply back to the original querier.
                     // Use the query's own KE (Jazzy KE) so the reply routes
                     // back correctly — Zenoh requires the reply KE to intersect
@@ -150,6 +156,9 @@ pub fn start_service_forwarder(
                         match reply.result() {
                             Ok(sample) => {
                                 let payload = sample.payload().clone();
+                                tracing::debug!(
+                                    "service forwarder {proxy_ke_log}: got reply, sending back"
+                                );
                                 if let Err(e) = query.reply(&reply_ke, payload).await {
                                     tracing::warn!(
                                         "service forwarder reply failed: {e}"
