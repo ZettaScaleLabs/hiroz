@@ -269,11 +269,29 @@ pub(crate) fn yaml_to_cdr(yaml_str: &str, msg_type: &str) -> Result<Vec<u8>> {
             buf.extend_from_slice(&yaml_field_f64(&ori, "w")?.to_le_bytes());
             Ok(buf)
         }
+        // example_interfaces/srv/AddTwoInts_Request: a (int64), b (int64)
+        "AddTwoInts_Request" => {
+            let a = yaml_field_i64(&v, "a")?;
+            let b = yaml_field_i64(&v, "b")?;
+            let mut buf = cdr_header();
+            buf.extend_from_slice(&a.to_le_bytes());
+            buf.extend_from_slice(&b.to_le_bytes());
+            Ok(buf)
+        }
+        // std_srvs/srv/SetBool_Request: data (bool)
+        "SetBool_Request" => {
+            let d = yaml_field_bool(&v, "data")?;
+            Ok(encode_cdr_primitive(&[d as u8]))
+        }
+        // std_srvs/srv/Trigger_Request, std_srvs/srv/Empty — no fields
+        "Trigger_Request" | "Empty" => Ok(cdr_header()),
         other => {
             anyhow::bail!(
                 "YAML encoding not supported for type '{other}'. \
                  Supported: std_msgs/msg/{{String,Bool,Int8/16/32/64,UInt8/16/32/64,Float32/64}}, \
-                 geometry_msgs/msg/{{Vector3,Point,Quaternion,Pose,Twist}}. \
+                 geometry_msgs/msg/{{Vector3,Point,Quaternion,Pose,Twist}}, \
+                 example_interfaces/srv/AddTwoInts_Request, \
+                 std_srvs/srv/{{SetBool_Request,Trigger_Request,Empty}}. \
                  For other types use --payload <hex> or --file."
             )
         }

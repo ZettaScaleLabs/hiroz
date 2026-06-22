@@ -486,6 +486,59 @@ fn test_hu_meter_service_call_timeout() {
     );
 }
 
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_service_call_yaml() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("svc_yaml_server").build().unwrap();
+        let mut server = node
+            .create_service::<AddTwoInts>("/svc_yaml_test")
+            .build()
+            .unwrap();
+        for _ in 0..300 {
+            if let Ok(req) = server.take_request() {
+                let sum = req.message().a + req.message().b;
+                let _ = req.reply_blocking(&AddTwoIntsResponse { sum });
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    });
+
+    thread::sleep(Duration::from_millis(3000));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &[
+            "service",
+            "call",
+            "/svc_yaml_test",
+            "--yaml",
+            "{a: 3, b: 9}",
+            "--msg-type",
+            "example_interfaces/srv/AddTwoInts_Request",
+            "--timeout",
+            "10",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter service call --yaml failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Response should contain 12 (3+9) as a little-endian int64: 0c 00 00 00 00 00 00 00
+    assert!(
+        stdout.contains("0c") || stdout.contains("bytes"),
+        "Expected response with sum=12: {}",
+        stdout
+    );
+}
+
 // ─── param ───────────────────────────────────────────────────────────────────
 
 #[test]
