@@ -69,9 +69,7 @@ fn param_value_to_yaml(v: &ParameterValue) -> serde_yaml::Value {
         ParameterValue::NotSet => serde_yaml::Value::Null,
         ParameterValue::Bool(b) => serde_yaml::Value::Bool(*b),
         ParameterValue::Integer(i) => serde_yaml::Value::Number((*i).into()),
-        ParameterValue::Double(d) => {
-            serde_yaml::Value::Number(serde_yaml::Number::from((*d) as f64))
-        }
+        ParameterValue::Double(d) => serde_yaml::Value::Number(serde_yaml::Number::from(*d)),
         ParameterValue::String(s) => serde_yaml::Value::String(s.clone()),
         ParameterValue::BoolArray(a) => {
             serde_yaml::Value::Sequence(a.iter().map(|b| serde_yaml::Value::Bool(*b)).collect())
@@ -83,7 +81,7 @@ fn param_value_to_yaml(v: &ParameterValue) -> serde_yaml::Value {
         ),
         ParameterValue::DoubleArray(a) => serde_yaml::Value::Sequence(
             a.iter()
-                .map(|d| serde_yaml::Value::Number(serde_yaml::Number::from(*d as f64)))
+                .map(|d| serde_yaml::Value::Number(serde_yaml::Number::from(*d)))
                 .collect(),
         ),
         ParameterValue::StringArray(a) => serde_yaml::Value::Sequence(
@@ -166,13 +164,9 @@ fn extract_ros_params<'a>(
     if let serde_yaml::Value::Mapping(root) = doc {
         // Try ros2 dump format: look up by node name
         for key in [node_name, node_name.trim_start_matches('/')] {
-            if let Some(node_val) = root.get(key) {
-                if let serde_yaml::Value::Mapping(node_map) = node_val {
-                    if let Some(rp) = node_map.get("ros__parameters") {
-                        if let serde_yaml::Value::Mapping(params) = rp {
-                            return Ok(params);
-                        }
-                    }
+            if let Some(serde_yaml::Value::Mapping(node_map)) = root.get(key) {
+                if let Some(serde_yaml::Value::Mapping(params)) = node_map.get("ros__parameters") {
+                    return Ok(params);
                 }
             }
         }

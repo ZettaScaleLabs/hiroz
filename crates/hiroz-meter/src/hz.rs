@@ -91,10 +91,10 @@ pub async fn run(ctx: &Ctx, args: HzArgs, json: bool) -> Result<()> {
 
     loop {
         sleep(interval).await;
-        if let Some(dl) = deadline {
-            if std::time::Instant::now() >= dl {
-                break Ok(());
-            }
+        if let Some(dl) = deadline
+            && std::time::Instant::now() >= dl
+        {
+            break Ok(());
         }
 
         for tracker in &trackers {

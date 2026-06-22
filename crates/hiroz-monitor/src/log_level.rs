@@ -149,13 +149,11 @@ fn print_logger_levels(node: &str, levels: &[LoggerLevel], json: bool) {
             "{}",
             serde_json::to_string_pretty(&entries).unwrap_or_default()
         );
+    } else if levels.is_empty() {
+        println!("No loggers reported for {}", node);
     } else {
-        if levels.is_empty() {
-            println!("No loggers reported for {}", node);
-        } else {
-            for l in levels {
-                println!("  {}: {}", l.name, l.level_name());
-            }
+        for l in levels {
+            println!("  {}: {}", l.name, l.level_name());
         }
     }
 }
