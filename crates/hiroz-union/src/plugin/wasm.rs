@@ -276,7 +276,7 @@ fn load_one(
 
     let mut linker: Linker<PluginState> = Linker::new(wasm_engine);
     wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
-    HuPlugin::add_to_linker(&mut linker, |s: &mut PluginState| HasSelf(s))?;
+    HuPlugin::add_to_linker::<_, HasSelf<PluginState>>(&mut linker, |s| s)?;
 
     let output_lines = Arc::new(Mutex::new(Vec::new()));
     let title = Arc::new(Mutex::new(String::new()));
