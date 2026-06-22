@@ -164,10 +164,10 @@ fn extract_ros_params<'a>(
     if let serde_yaml::Value::Mapping(root) = doc {
         // Try ros2 dump format: look up by node name
         for key in [node_name, node_name.trim_start_matches('/')] {
-            if let Some(serde_yaml::Value::Mapping(node_map)) = root.get(key) {
-                if let Some(serde_yaml::Value::Mapping(params)) = node_map.get("ros__parameters") {
-                    return Ok(params);
-                }
+            if let Some(serde_yaml::Value::Mapping(node_map)) = root.get(key)
+                && let Some(serde_yaml::Value::Mapping(params)) = node_map.get("ros__parameters")
+            {
+                return Ok(params);
             }
         }
         // Fall back: treat the entire mapping as flat params

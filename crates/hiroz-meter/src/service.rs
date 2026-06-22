@@ -149,21 +149,21 @@ pub async fn run(ctx: &Ctx, args: ServiceArgs, json: bool) -> Result<()> {
                 match reply.result() {
                     Ok(sample) => {
                         let bytes = sample.payload().to_bytes().into_owned();
-                        if let Some(rt) = resp_type {
-                            if let Ok(v) = cdr_to_json(&bytes, rt) {
-                                if json {
-                                    println!(
-                                        "{}",
-                                        serde_json::json!({
-                                            "service": name,
-                                            "response": v,
-                                        })
-                                    );
-                                } else {
-                                    println!("{}", serde_json::to_string_pretty(&v)?);
-                                }
-                                continue;
+                        if let Some(rt) = resp_type
+                            && let Ok(v) = cdr_to_json(&bytes, rt)
+                        {
+                            if json {
+                                println!(
+                                    "{}",
+                                    serde_json::json!({
+                                        "service": name,
+                                        "response": v,
+                                    })
+                                );
+                            } else {
+                                println!("{}", serde_json::to_string_pretty(&v)?);
                             }
+                            continue;
                         }
                         let hex = bytes
                             .iter()
