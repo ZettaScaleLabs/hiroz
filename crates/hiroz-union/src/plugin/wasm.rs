@@ -10,7 +10,7 @@ use wasmtime::{
     Engine, Store,
     component::{Component, Linker, Resource, bindgen},
 };
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
+use wasmtime_wasi::{WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::core::engine::CoreEngine;
 
@@ -33,8 +33,7 @@ struct SubscriptionData {
 // ─── Per-plugin state stored in the wasmtime Store ───────────────────────────
 
 pub struct PluginState {
-    wasi: WasiCtx,
-    table: wasmtime_wasi::ResourceTable,
+    wasi: wasmtime_wasi::WasiCtx,
     engine: Arc<CoreEngine>,
     /// Active subscriptions keyed by a per-plugin u32 rep.
     subscriptions: HashMap<u32, SubscriptionData>,
@@ -47,8 +46,7 @@ pub struct PluginState {
 impl WasiView for PluginState {
     fn ctx(&mut self) -> WasiCtxView<'_> {
         WasiCtxView {
-            wasi: &mut self.wasi,
-            table: &mut self.table,
+            ctx: &mut self.wasi,
         }
     }
 }
@@ -276,7 +274,7 @@ fn load_one(
 
     let mut linker: Linker<PluginState> = Linker::new(wasm_engine);
     wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
-    HuPlugin::add_to_linker(&mut linker, |s| s)?;
+    HuPlugin::add_to_linker::<PluginState, PluginState>(&mut linker, |s| s)?;
 
     let output_lines = Arc::new(Mutex::new(Vec::new()));
     let title = Arc::new(Mutex::new(String::new()));
@@ -285,7 +283,6 @@ fn load_one(
 
     let state = PluginState {
         wasi,
-        table: wasmtime_wasi::ResourceTable::new(),
         engine: engine_ref,
         subscriptions: HashMap::new(),
         next_sub_rep: 0,
