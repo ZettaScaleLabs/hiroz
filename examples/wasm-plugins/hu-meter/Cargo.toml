@@ -1,0 +1,16 @@
+[package]
+name = "hu-meter-wasm"
+version = "0.1.0"
+edition = "2024"
+description = "Reference WASM plugin for hu: hz/bw measurement panel"
+publish = false
+
+# WASM component plugins must be compiled as a cdylib.
+# Build with: cargo component build --target wasm32-wasip2 --release
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# wit-bindgen generates the guest-side WIT bindings.
+# Version must match the wasmtime version used by the hu host (wasmtime 38 → wit-bindgen ~0.32).
+wit-bindgen = "0.32"
