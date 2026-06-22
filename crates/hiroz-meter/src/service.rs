@@ -98,12 +98,34 @@ pub async fn run(ctx: &Ctx, args: ServiceArgs, json: bool) -> Result<()> {
                 .await
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
 
+            // Derive response type from request type for pretty-printing.
+            let resp_type = msg_type.as_deref().and_then(response_type_for_request);
+
             let mut got_reply = false;
             while let Ok(reply) = replies.recv_async().await {
                 got_reply = true;
                 match reply.result() {
                     Ok(sample) => {
                         let bytes = sample.payload().to_bytes().into_owned();
+                        if let Some(rt) = resp_type {
+                            match cdr_to_json(&bytes, rt) {
+                                Ok(v) => {
+                                    if json {
+                                        println!(
+                                            "{}",
+                                            serde_json::json!({
+                                                "service": name,
+                                                "response": v,
+                                            })
+                                        );
+                                    } else {
+                                        println!("{}", serde_json::to_string_pretty(&v)?);
+                                    }
+                                    continue;
+                                }
+                                Err(_) => {} // fall through to hex
+                            }
+                        }
                         let hex = bytes
                             .iter()
                             .map(|b| format!("{:02x}", b))
@@ -143,4 +165,63 @@ fn parse_hex(s: &str) -> Result<Vec<u8>> {
             u8::from_str_radix(tok, 16).map_err(|e| anyhow::anyhow!("Invalid hex '{tok}': {e}"))
         })
         .collect()
+}
+
+/// Map a request type name to its corresponding response type.
+fn response_type_for_request(req_type: &str) -> Option<&'static str> {
+    let short = req_type
+        .rsplit_once('/')
+        .map(|(_, s)| s)
+        .unwrap_or(req_type);
+    match short {
+        "AddTwoInts_Request" => Some("AddTwoInts_Response"),
+        "SetBool_Request" => Some("SetBool_Response"),
+        "Trigger_Request" => Some("Trigger_Response"),
+        "Empty" => Some("Empty"),
+        _ => None,
+    }
+}
+
+/// Decode a CDR response payload into a JSON value for known service response types.
+fn cdr_to_json(payload: &[u8], resp_type: &str) -> Result<serde_json::Value> {
+    // CDR header is 4 bytes: [0x00, 0x01, 0x00, 0x00] (little-endian)
+    let data = payload
+        .get(4..)
+        .ok_or_else(|| anyhow::anyhow!("payload too short"))?;
+    match resp_type {
+        "AddTwoInts_Response" => {
+            // int64 sum
+            let sum = read_i64_le(data)?;
+            Ok(serde_json::json!({ "sum": sum }))
+        }
+        "SetBool_Response" | "Trigger_Response" => {
+            // bool success, string message
+            let success = *data.first().ok_or_else(|| anyhow::anyhow!("short"))? != 0;
+            // string: 4-byte length + utf8 bytes (no null terminator in CDR)
+            let msg = if data.len() >= 5 {
+                let len = u32::from_le_bytes(data[1..5].try_into().unwrap_or_default()) as usize;
+                let end = 5 + len;
+                if end <= data.len() {
+                    // strip null terminator if present
+                    let s = &data[5..end];
+                    let s = s.strip_suffix(b"\0").unwrap_or(s);
+                    String::from_utf8_lossy(s).into_owned()
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+            Ok(serde_json::json!({ "success": success, "message": msg }))
+        }
+        "Empty" => Ok(serde_json::json!({})),
+        _ => anyhow::bail!("unknown response type"),
+    }
+}
+
+fn read_i64_le(data: &[u8]) -> Result<i64> {
+    data.get(..8)
+        .and_then(|b| b.try_into().ok())
+        .map(i64::from_le_bytes)
+        .ok_or_else(|| anyhow::anyhow!("not enough bytes for i64"))
 }

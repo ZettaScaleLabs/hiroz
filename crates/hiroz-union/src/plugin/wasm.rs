@@ -2,9 +2,11 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
+use hiroz::dynamic::{DynamicMessage, DynamicValue};
 use hiroz_protocol::EndpointKind;
 use wasmtime::{
     Engine, Store,
@@ -115,20 +117,39 @@ impl hu::plugin::ros::Host for PluginState {
         let rep = self.next_sub_rep;
         self.next_sub_rep += 1;
 
-        // Spawn a background task that polls the Zenoh session for messages on
-        // this topic and forwards JSON-decoded payloads via a bounded channel.
-        // v0.1: returns an empty channel; real CDR→JSON decoding comes later.
         let (tx, rx) = flume::bounded::<String>(256);
-        let session = self.engine.session.clone();
+        let node = self.engine.node.clone();
         let topic_clone = topic.clone();
+
         let handle = tokio::spawn(async move {
-            // We need the full key expression including type hash to subscribe.
-            // For v0.1 emit a synthetic message so the plugin at least loads.
-            let _ = tx
-                .send_async(format!("{{\"__topic\":\"{topic_clone}\"}}"))
-                .await;
-            // Real implementation: use node.create_dyn_sub_auto() and decode CDR to JSON.
-            let _session = session; // keep alive
+            let sub = match node
+                .create_dyn_sub_auto(&topic_clone, Duration::from_secs(5))
+                .await
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!(
+                        "WASM plugin: schema discovery failed for {}: {e}",
+                        topic_clone
+                    );
+                    return;
+                }
+            };
+            // Forward decoded messages as JSON until the receiving end drops.
+            loop {
+                match sub.try_recv() {
+                    Some(Ok(msg)) => {
+                        let json = dyn_msg_to_json(&msg).to_string();
+                        if tx.send_async(json).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(Err(_)) => {}
+                    None => {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                }
+            }
         });
 
         self.subscriptions.insert(
@@ -208,6 +229,47 @@ impl hu::plugin::render::Host for PluginState {
     fn emit_json(&mut self, key: String, value: String) {
         let line = format!("{{\"{}\":{}}}", key, value);
         self.println(line);
+    }
+}
+
+// ─── CDR→JSON helpers ────────────────────────────────────────────────────────
+
+fn dyn_msg_to_json(msg: &DynamicMessage) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for (name, value) in msg.iter() {
+        map.insert(name.to_string(), dyn_value_to_json(value));
+    }
+    serde_json::Value::Object(map)
+}
+
+fn dyn_value_to_json(value: &DynamicValue) -> serde_json::Value {
+    match value {
+        DynamicValue::Bool(b) => serde_json::Value::Bool(*b),
+        DynamicValue::Int8(i) => (*i as i64).into(),
+        DynamicValue::Int16(i) => (*i as i64).into(),
+        DynamicValue::Int32(i) => (*i as i64).into(),
+        DynamicValue::Int64(i) => (*i).into(),
+        DynamicValue::Uint8(u) => (*u as u64).into(),
+        DynamicValue::Uint16(u) => (*u as u64).into(),
+        DynamicValue::Uint32(u) => (*u as u64).into(),
+        DynamicValue::Uint64(u) => (*u).into(),
+        DynamicValue::Float32(f) => serde_json::Number::from_f64(*f as f64)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        DynamicValue::Float64(f) => serde_json::Number::from_f64(*f)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        DynamicValue::String(s) => serde_json::Value::String(s.clone()),
+        DynamicValue::Bytes(b) => serde_json::Value::String(
+            b.iter()
+                .map(|x| format!("{:02x}", x))
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
+        DynamicValue::Message(inner) => dyn_msg_to_json(inner),
+        DynamicValue::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(dyn_value_to_json).collect())
+        }
     }
 }
 
