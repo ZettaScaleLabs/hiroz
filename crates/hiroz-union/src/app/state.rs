@@ -46,6 +46,7 @@ pub enum Panel {
     Services,
     Nodes,
     Measure,
+    Plugins,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]

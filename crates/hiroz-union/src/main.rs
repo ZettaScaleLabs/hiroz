@@ -190,7 +190,8 @@ async fn run_tui_mode(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(core).await?;
+    let mut app = App::new(core.clone()).await?;
+    app.wasm_plugins = plugin::wasm::load_plugins(core);
     let result = run_tui_loop(&mut terminal, &mut app).await;
 
     disable_raw_mode()?;
@@ -324,7 +325,7 @@ async fn handle_key_event(
                 Panel::Topics => app.cached_topics.len().saturating_sub(1),
                 Panel::Nodes => app.cached_nodes.len().saturating_sub(1),
                 Panel::Services => app.cached_services.len().saturating_sub(1),
-                Panel::Measure => 0,
+                Panel::Measure | Panel::Plugins => 0,
             };
             app.selected_index = max;
         }
@@ -334,17 +335,19 @@ async fn handle_key_event(
                 Panel::Topics => Panel::Services,
                 Panel::Services => Panel::Nodes,
                 Panel::Nodes => Panel::Measure,
-                Panel::Measure => Panel::Topics,
+                Panel::Measure => Panel::Plugins,
+                Panel::Plugins => Panel::Topics,
             };
             app.selected_index = 0;
             app.detail_scroll = 0;
         }
         KeyCode::BackTab => {
             app.current_panel = match app.current_panel {
-                Panel::Topics => Panel::Measure,
+                Panel::Topics => Panel::Plugins,
                 Panel::Services => Panel::Topics,
                 Panel::Nodes => Panel::Services,
                 Panel::Measure => Panel::Nodes,
+                Panel::Plugins => Panel::Measure,
             };
             app.selected_index = 0;
             app.detail_scroll = 0;
@@ -364,6 +367,17 @@ async fn handle_key_event(
         KeyCode::Char('4') => {
             app.current_panel = Panel::Measure;
             app.selected_index = 0;
+        }
+        KeyCode::Char('5') => {
+            app.current_panel = Panel::Plugins;
+            app.plugin_selected_index = 0;
+        }
+        KeyCode::Char('t') if app.current_panel == Panel::Plugins => {
+            let idx = app.plugin_selected_index;
+            if idx < app.wasm_plugins.len() {
+                app.wasm_plugins[idx]
+                    .dispatch_event(crate::plugin::wasm::hu::plugin::types::PluginEvent::Tick);
+            }
         }
 
         KeyCode::Enter | KeyCode::Char(' ') => {

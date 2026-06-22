@@ -10,6 +10,7 @@
 pub mod common;
 mod measure;
 mod nodes;
+mod plugins;
 mod services;
 mod topics;
 
@@ -153,6 +154,7 @@ impl App {
             ("2:Services", Panel::Services),
             ("3:Nodes", Panel::Nodes),
             ("4:Measure", Panel::Measure),
+            ("5:Plugins", Panel::Plugins),
         ];
 
         let mut spans = Vec::new();
@@ -266,6 +268,11 @@ impl App {
                     let total = self.measuring_topics.len();
                     (items, total)
                 }
+                Panel::Plugins => {
+                    let total = self.wasm_plugins.len();
+                    let items = self.render_plugin_list_items();
+                    (items, total)
+                }
             };
 
         // Clamp selected_index to filtered results
@@ -279,6 +286,7 @@ impl App {
             Panel::Services => "Services",
             Panel::Nodes => "Nodes",
             Panel::Measure => "Monitoring",
+            Panel::Plugins => "Plugins",
         };
         let title = if self.current_panel == Panel::Measure {
             format!(" {} ({}) ", panel_name, total_count)
@@ -308,6 +316,7 @@ impl App {
     fn render_detail(&mut self, f: &mut Frame, area: Rect) {
         match self.current_panel {
             Panel::Measure => self.render_measurement_panel(f, area),
+            Panel::Plugins => self.render_plugin_output(f, area),
             _ => {
                 let detail_text = match self.current_panel {
                     Panel::Topics => self.render_topic_detail(),

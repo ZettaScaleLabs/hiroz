@@ -22,6 +22,7 @@ use ratatui::widgets::ScrollbarState;
 use rusqlite::Connection;
 
 use crate::core::engine::{Backend, CoreEngine};
+use crate::plugin::wasm::WasmPlugin;
 
 pub use state::*;
 
@@ -87,6 +88,10 @@ pub struct App {
     // Recording state
     pub recording_active: bool,
     pub recording_id: Option<i64>,
+
+    // WASM plugin state
+    pub wasm_plugins: Vec<WasmPlugin>,
+    pub plugin_selected_index: usize,
 }
 
 impl App {
@@ -182,6 +187,8 @@ impl App {
             measure_selected_index: 0,
             recording_active: false,
             recording_id: None,
+            wasm_plugins: Vec::new(),
+            plugin_selected_index: 0,
         })
     }
 
@@ -220,33 +227,52 @@ impl App {
     }
 
     pub fn select_next(&mut self) {
-        if self.current_panel == Panel::Measure {
-            let max = self.measuring_topics.len();
-            if max > 0 && self.measure_selected_index < max - 1 {
-                self.measure_selected_index += 1;
+        match self.current_panel {
+            Panel::Measure => {
+                let max = self.measuring_topics.len();
+                if max > 0 && self.measure_selected_index < max - 1 {
+                    self.measure_selected_index += 1;
+                }
             }
-        } else {
-            let max = match self.current_panel {
-                Panel::Topics => self.cached_topics.len(),
-                Panel::Nodes => self.cached_nodes.len(),
-                Panel::Services => self.cached_services.len(),
-                Panel::Measure => 0,
-            };
-            if max > 0 && self.selected_index < max - 1 {
-                self.selected_index += 1;
-                self.detail_scroll = 0;
+            Panel::Plugins => {
+                let max = self.wasm_plugins.len();
+                if max > 0 && self.plugin_selected_index < max - 1 {
+                    self.plugin_selected_index += 1;
+                }
+            }
+            _ => {
+                let max = match self.current_panel {
+                    Panel::Topics => self.cached_topics.len(),
+                    Panel::Nodes => self.cached_nodes.len(),
+                    Panel::Services => self.cached_services.len(),
+                    _ => 0,
+                };
+                if max > 0 && self.selected_index < max - 1 {
+                    self.selected_index += 1;
+                    self.detail_scroll = 0;
+                }
             }
         }
     }
 
     pub fn select_previous(&mut self) {
-        if self.current_panel == Panel::Measure {
-            if self.measure_selected_index > 0 {
-                self.measure_selected_index -= 1;
+        match self.current_panel {
+            Panel::Measure => {
+                if self.measure_selected_index > 0 {
+                    self.measure_selected_index -= 1;
+                }
             }
-        } else if self.selected_index > 0 {
-            self.selected_index -= 1;
-            self.detail_scroll = 0;
+            Panel::Plugins => {
+                if self.plugin_selected_index > 0 {
+                    self.plugin_selected_index -= 1;
+                }
+            }
+            _ => {
+                if self.selected_index > 0 {
+                    self.selected_index -= 1;
+                    self.detail_scroll = 0;
+                }
+            }
         }
     }
 
@@ -619,7 +645,14 @@ impl App {
                 } else if self.recording_active {
                     "j/k:select w:stop recording r:clear | [REC] ?:help q:quit".to_string()
                 } else {
-                    "j/k:select w:record r:clear | 1-3:panels ?:help q:quit".to_string()
+                    "j/k:select w:record r:clear | 1-5:panels ?:help q:quit".to_string()
+                }
+            }
+            Panel::Plugins => {
+                if self.wasm_plugins.is_empty() {
+                    "No WASM plugins found. Set HU_PLUGIN_PATH to a dir with .wasm files | ?:help q:quit".to_string()
+                } else {
+                    "j/k:select t:tick plugin | 1-5:panels ?:help q:quit".to_string()
                 }
             }
             _ => {
@@ -627,9 +660,7 @@ impl App {
                     FocusPane::List => {
                         let panel_hints = match self.current_panel {
                             Panel::Topics => "r:rate m:measure",
-                            Panel::Services => "",
-                            Panel::Nodes => "",
-                            Panel::Measure => "",
+                            Panel::Services | Panel::Nodes | Panel::Measure | Panel::Plugins => "",
                         };
                         let base = "j/k:nav l:detail Enter:drill-in /:filter";
                         if panel_hints.is_empty() {
