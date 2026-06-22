@@ -16,7 +16,7 @@ name = "hu-bridge"
 path = "src/main.rs"
 
 [features]
-default = ["cross-distro", "cross-dds"]
+default = ["cross-distro"]
 cross-distro = []
 cross-dds = ["dep:cyclors", "dep:zenoh-ext"]
 free-tier = []
