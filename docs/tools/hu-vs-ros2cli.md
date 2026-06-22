@@ -71,6 +71,16 @@ This is a known class of issues in ros2cli ([#871](https://github.com/ros2/ros2c
 
 ---
 
+## DDS Discovery Server incompatibility
+
+When using the Fast-DDS Discovery Server (`FASTRTPS_DEFAULT_PROFILES_FILE` with a `<discovery_server>` profile), `ros2 topic list`, `ros2 node info`, and `ros2 topic echo` all fail silently — they return empty results or hang. The root cause is structural: `ros2cli` uses standard DDS participant discovery, which is incompatible with the topology the Discovery Server imposes ([rmw_fastrtps#499](https://github.com/ros2/rmw_fastrtps/issues/499)). The workaround is to restart the daemon or run each command twice.
+
+`hu` does not use DDS at all. It reads the Zenoh liveliness index directly from the router, so there is no DDS-layer concept of "discovery server" to be incompatible with. On a Zenoh-only or `rmw_zenoh_cpp` network, `hu` sees the full graph regardless of how the router is configured.
+
+This is a narrower advantage than it looks: if your network uses `rmw_fastrtps_cpp` or `rmw_cyclonedds_cpp`, `hu` cannot see those nodes at all (see [When ros2cli is the right choice](#when-ros2cli-is-the-right-choice)). The comparison applies specifically when you are already running `rmw_zenoh_cpp` and also running a Zenoh router in anything other than the default peer-discovery mode.
+
+---
+
 ## Machine-readable output
 
 Every `hu` command accepts `--json` and emits newline-delimited JSON. This makes it composable with `jq`, shell scripts, CI test harnesses, and logging pipelines without fragile text parsing.
