@@ -123,7 +123,7 @@ jobs:
           else
             cargo nextest run -p hiroz-tests --profile interop \
               --features "ros-interop,$FEATURES"
-            cargo nextest run -p hiroz-console --profile interop \
+            cargo nextest run -p hiroz-union --profile interop \
               --features ros-interop \
               -E 'test(dynamic_subscriber)'
           fi

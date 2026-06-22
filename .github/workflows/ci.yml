@@ -379,7 +379,7 @@ jobs:
           nu scripts/test-pure-rust.nu check-bundled-msgs
         shell: bash
 
-      - name: Check hiroz-console
+      - name: Check hu (hiroz-union)
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
             source /tmp/nix-dev-env.sh
