@@ -1,4 +1,5 @@
 pub mod abi;
+pub mod wasm;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
