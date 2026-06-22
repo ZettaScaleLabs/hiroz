@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -84,7 +83,7 @@ impl CoreEngine {
 
         // Create ROS node with type description service for dynamic subscriptions
         let node = context
-            .create_node("hiroz_console")
+            .create_node("hu")
             .with_type_description_service()
             .build()?;
         let node = Arc::new(node);
@@ -128,49 +127,100 @@ impl CoreEngine {
     }
 
     pub async fn start_monitoring(&self) {
-        // Background task: Monitor graph changes
-        let graph = self.graph.clone();
-        let event_tx = self.event_tx.clone();
         let session = self.session.clone();
+        let event_tx = self.event_tx.clone();
         let is_connected = self.is_connected.clone();
+        let domain_id = self.domain_id;
+
+        let ke = format!("@ros2_lv/{domain_id}/**");
+        let fmt = hiroz_protocol::KeyExprFormat::RmwZenoh;
+
+        // Liveliness subscriber with history so we see all currently-alive tokens on startup.
+        let sub = match session
+            .liveliness()
+            .declare_subscriber(&ke)
+            .history(true)
+            .await
+        {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("Failed to declare liveliness subscriber: {e}");
+                return;
+            }
+        };
 
         tokio::spawn(async move {
-            let mut last_state: HashMap<String, String> = HashMap::new();
-
-            loop {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-
-                // Check connection status by looking at routers info
-                let info = session.info();
-                let routers = info.routers_zid().await.count();
-                let connected = routers > 0;
-                is_connected.store(connected, Ordering::SeqCst);
-
-                let g = graph.lock();
-                let current_topics = g.get_topic_names_and_types();
-
-                // Detect new topics
-                for (topic, type_name) in &current_topics {
-                    if !last_state.contains_key(topic) {
-                        let _ = event_tx.send(SystemEvent::TopicDiscovered {
-                            topic: topic.clone(),
-                            type_name: type_name.clone(),
-                            timestamp: SystemTime::now(),
-                        });
-                    }
+            // Track connection status via a periodic info check in a separate task.
+            let session2 = session.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    let connected = session2.info().routers_zid().await.count() > 0;
+                    is_connected.store(connected, Ordering::SeqCst);
                 }
+            });
 
-                // Detect removed topics
-                for topic in last_state.keys() {
-                    if !current_topics.iter().any(|(t, _)| t == topic) {
-                        let _ = event_tx.send(SystemEvent::TopicRemoved {
-                            topic: topic.clone(),
-                            timestamp: SystemTime::now(),
-                        });
+            while let Ok(sample) = sub.recv_async().await {
+                let appeared = sample.kind() == zenoh::sample::SampleKind::Put;
+                let Ok(entity) = fmt.parse_liveliness(sample.key_expr()) else {
+                    continue;
+                };
+
+                let now = SystemTime::now();
+                let event = match &entity {
+                    hiroz_protocol::Entity::Node(n) => {
+                        if appeared {
+                            SystemEvent::NodeDiscovered {
+                                namespace: n.namespace.clone(),
+                                name: n.name.clone(),
+                                timestamp: now,
+                            }
+                        } else {
+                            SystemEvent::NodeRemoved {
+                                namespace: n.namespace.clone(),
+                                name: n.name.clone(),
+                                timestamp: now,
+                            }
+                        }
                     }
-                }
-
-                last_state = current_topics.into_iter().collect();
+                    hiroz_protocol::Entity::Endpoint(ep) => {
+                        let type_name = ep
+                            .type_info
+                            .as_ref()
+                            .map(|t| t.name.clone())
+                            .unwrap_or_default();
+                        match ep.kind {
+                            hiroz_protocol::EndpointKind::Publisher
+                            | hiroz_protocol::EndpointKind::Subscription => {
+                                if appeared {
+                                    SystemEvent::TopicDiscovered {
+                                        topic: ep.topic.clone(),
+                                        type_name,
+                                        timestamp: now,
+                                    }
+                                } else {
+                                    SystemEvent::TopicRemoved {
+                                        topic: ep.topic.clone(),
+                                        timestamp: now,
+                                    }
+                                }
+                            }
+                            hiroz_protocol::EndpointKind::Service
+                            | hiroz_protocol::EndpointKind::Client => {
+                                if appeared {
+                                    SystemEvent::ServiceDiscovered {
+                                        service: ep.topic.clone(),
+                                        type_name,
+                                        timestamp: now,
+                                    }
+                                } else {
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                };
+                let _ = event_tx.send(event);
             }
         });
     }
