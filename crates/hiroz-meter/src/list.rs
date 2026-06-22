@@ -38,6 +38,11 @@ pub enum ListWhat {
         /// Service type to search for (e.g. example_interfaces/srv/AddTwoInts)
         type_filter: String,
     },
+    /// Find nodes by name (substring match)
+    FindNodes {
+        /// Node name substring to search for
+        name_filter: String,
+    },
 }
 
 fn is_hidden_topic(name: &str) -> bool {
@@ -155,6 +160,41 @@ pub async fn run(ctx: &Ctx, args: ListArgs, json: bool) -> Result<()> {
             } else {
                 for (name, typ) in &matched {
                     println!("{}\t[{}]", name, typ);
+                }
+            }
+        }
+
+        ListWhat::FindNodes { name_filter } => {
+            let mut nodes = ctx.graph.get_node_names();
+            if !show_all {
+                nodes.retain(|(name, _)| !is_hidden_node(name));
+            }
+            let matched: Vec<_> = nodes
+                .into_iter()
+                .filter(|(name, ns)| {
+                    let full = if ns == "/" {
+                        format!("/{}", name)
+                    } else {
+                        format!("{}/{}", ns, name)
+                    };
+                    name.contains(&name_filter) || full.contains(&name_filter)
+                })
+                .collect();
+            let matched = apply_count(matched, count);
+            if json {
+                let entries: Vec<_> = matched
+                    .iter()
+                    .map(|(name, ns)| serde_json::json!({"namespace": ns, "name": name}))
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&entries)?);
+            } else {
+                for (name, ns) in &matched {
+                    let full = if ns == "/" {
+                        format!("/{}", name)
+                    } else {
+                        format!("{}/{}", ns, name)
+                    };
+                    println!("{}", full);
                 }
             }
         }

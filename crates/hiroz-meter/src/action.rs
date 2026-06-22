@@ -19,6 +19,16 @@ pub enum ActionCmd {
         /// Action name (e.g. /fibonacci)
         name: String,
     },
+    /// Print the type of an action server
+    Type {
+        /// Action name (e.g. /fibonacci)
+        name: String,
+    },
+    /// Find action servers by type (substring match)
+    Find {
+        /// Type filter (e.g. example_interfaces/action/Fibonacci)
+        type_filter: String,
+    },
     /// Send a goal to an action server (raw hex CDR)
     SendGoal {
         /// Action name (e.g. /fibonacci)
@@ -88,6 +98,46 @@ pub async fn run(ctx: &Ctx, args: ActionArgs, json: bool) -> Result<()> {
                 println!("Type:    {}", typ);
                 println!("Servers: {}", server_count);
                 println!("Clients: {}", client_count);
+            }
+        }
+
+        ActionCmd::Type { name } => {
+            sleep(Duration::from_millis(500)).await;
+            let all = ctx.graph.get_action_names_and_types();
+            let typ = all
+                .iter()
+                .find(|(n, _)| {
+                    n == &name || n.trim_start_matches('/') == name.trim_start_matches('/')
+                })
+                .map(|(_, t)| t.clone())
+                .unwrap_or_default();
+            if typ.is_empty() {
+                anyhow::bail!("Unknown action: {}", name);
+            }
+            if json {
+                println!("{}", serde_json::json!({"action": name, "type": typ}));
+            } else {
+                println!("{}", typ);
+            }
+        }
+
+        ActionCmd::Find { type_filter } => {
+            sleep(Duration::from_millis(500)).await;
+            let all = ctx.graph.get_action_names_and_types();
+            let matched: Vec<_> = all
+                .into_iter()
+                .filter(|(_, t)| t.contains(&type_filter))
+                .collect();
+            if json {
+                let entries: Vec<_> = matched
+                    .iter()
+                    .map(|(n, t)| serde_json::json!({"name": n, "type": t}))
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&entries)?);
+            } else {
+                for (name, _) in &matched {
+                    println!("{}", name);
+                }
             }
         }
 

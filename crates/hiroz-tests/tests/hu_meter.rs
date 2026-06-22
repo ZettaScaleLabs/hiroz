@@ -17,6 +17,11 @@ use std::{
 
 use common::*;
 use hiroz::Builder;
+use hiroz::action::server::ExecutingGoal;
+#[cfg(not(any(feature = "kilted", feature = "lyrical")))]
+use hiroz_msgs::action_tutorials_interfaces::{FibonacciGoal, FibonacciResult, action::Fibonacci};
+#[cfg(any(feature = "kilted", feature = "lyrical"))]
+use hiroz_msgs::example_interfaces::{FibonacciGoal, FibonacciResult, action::Fibonacci};
 use hiroz_msgs::{
     example_interfaces::{AddTwoIntsResponse, srv::AddTwoInts},
     std_msgs::{Header, String as RosString},
@@ -1634,6 +1639,245 @@ fn test_hu_meter_service_type() {
     assert!(
         stdout.contains("AddTwoInts"),
         "Expected AddTwoInts in service type output: {}",
+        stdout
+    );
+}
+
+// ─── list nodes find ─────────────────────────────────────────────────────────
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_list_nodes_find() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let _node = ctx.create_node("find_nodes_target").build().unwrap();
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+    });
+
+    thread::sleep(Duration::from_millis(1000));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["list", "find-nodes", "find_nodes_target", "--json"],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter list find-nodes failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Expected JSON from list find-nodes");
+    let nodes = json.as_array().expect("Expected JSON array");
+    assert!(
+        !nodes.is_empty(),
+        "Expected at least one node matching filter: {}",
+        stdout
+    );
+    assert!(
+        nodes.iter().any(|n| n["name"]
+            .as_str()
+            .unwrap_or("")
+            .contains("find_nodes_target")),
+        "Expected find_nodes_target in filtered output: {}",
+        stdout
+    );
+}
+
+// ─── info edge cases ─────────────────────────────────────────────────────────
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_info_zero_pub() {
+    let router = TestRouter::new();
+
+    // Subscriber only — no publisher for this topic.
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("zero_pub_node").build().unwrap();
+            let _sub = node
+                .create_sub::<RosString>("/zero_pub_topic")
+                .build()
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+    });
+
+    thread::sleep(Duration::from_millis(1000));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["info", "topic", "/zero_pub_topic", "--json"],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter info topic failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Expected JSON from info topic");
+    assert_eq!(
+        json["publisher_count"].as_u64().unwrap_or(99),
+        0,
+        "Expected 0 publishers for subscriber-only topic: {}",
+        stdout
+    );
+    assert!(
+        json["subscriber_count"].as_u64().unwrap_or(0) >= 1,
+        "Expected at least 1 subscriber: {}",
+        stdout
+    );
+}
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_info_unknown_topic() {
+    let router = TestRouter::new();
+
+    // No nodes at all — topic does not exist in the graph.
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["info", "topic-type", "/nonexistent_topic_xyzzy"],
+    );
+    assert!(
+        !out.status.success(),
+        "Expected failure for unknown topic, got success"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("Unknown topic") || stderr.contains("nonexistent"),
+        "Expected error message about unknown topic: {}",
+        stderr
+    );
+}
+
+// ─── action ──────────────────────────────────────────────────────────────────
+
+fn spawn_fibonacci_action_server(router: &TestRouter) {
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async move {
+                let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+                let node = ctx.create_node("fib_hu_meter_server").build().unwrap();
+                let _server = node
+                    .create_action_server::<Fibonacci>("/fibonacci_hu_test")
+                    .build()
+                    .unwrap()
+                    .with_handler(|executing: ExecutingGoal<Fibonacci>| async move {
+                        let order = executing.goal().order as usize;
+                        let mut seq = vec![0i32, 1];
+                        for i in 2..=order {
+                            let next = seq[i - 1] + seq[i - 2];
+                            seq.push(next);
+                        }
+                        Ok(FibonacciResult { sequence: seq })
+                    });
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            });
+    });
+}
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_action_list() {
+    let router = TestRouter::new();
+    spawn_fibonacci_action_server(&router);
+    thread::sleep(Duration::from_millis(1200));
+
+    let out = run_hu_meter(router.endpoint(), &["action", "list", "--json"]);
+    assert!(
+        out.status.success(),
+        "hu meter action list failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Expected JSON from action list");
+    let actions = json.as_array().expect("Expected JSON array");
+    assert!(
+        actions.iter().any(|a| a["name"]
+            .as_str()
+            .unwrap_or("")
+            .contains("fibonacci_hu_test")),
+        "Expected /fibonacci_hu_test in action list: {}",
+        stdout
+    );
+}
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_action_info() {
+    let router = TestRouter::new();
+    spawn_fibonacci_action_server(&router);
+    thread::sleep(Duration::from_millis(1200));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["action", "info", "/fibonacci_hu_test", "--json"],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter action info failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Expected JSON from action info");
+    assert!(
+        json["servers"].as_u64().unwrap_or(0) >= 1,
+        "Expected at least 1 action server: {}",
+        stdout
+    );
+    assert!(
+        json["type"].as_str().unwrap_or("").contains("Fibonacci"),
+        "Expected Fibonacci in action type: {}",
+        stdout
+    );
+}
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_action_send_goal() {
+    let router = TestRouter::new();
+    spawn_fibonacci_action_server(&router);
+    thread::sleep(Duration::from_millis(1200));
+
+    // Minimal CDR goal payload for Fibonacci{order: 3}:
+    // CDR header (4 bytes) + int32 (4 bytes) = 00 01 00 00  03 00 00 00
+    let out = run_hu_meter(
+        router.endpoint(),
+        &[
+            "action",
+            "send-goal",
+            "/fibonacci_hu_test",
+            "--payload",
+            "00 01 00 00 00 00 00 00 03 00 00 00",
+            "--timeout",
+            "10",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter action send-goal failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("response") || stdout.contains("bytes"),
+        "Expected response in send-goal output: {}",
         stdout
     );
 }

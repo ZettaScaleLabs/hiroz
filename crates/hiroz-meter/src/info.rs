@@ -15,6 +15,8 @@ pub struct InfoArgs {
 pub enum InfoWhat {
     /// Show info for a topic
     Topic { name: String },
+    /// Print the type of a topic
+    TopicType { name: String },
     /// Show info for a node
     Node { name: String },
     /// Show info for a service
@@ -25,6 +27,25 @@ pub async fn run(ctx: &Ctx, args: InfoArgs, json: bool) -> Result<()> {
     sleep(Duration::from_millis(500)).await;
 
     match args.what {
+        InfoWhat::TopicType { name } => {
+            let n = name.trim_start_matches('/');
+            let typ = ctx
+                .graph
+                .get_topic_names_and_types()
+                .into_iter()
+                .find(|(t, _)| t.trim_start_matches('/') == n)
+                .map(|(_, t)| t)
+                .unwrap_or_default();
+            if typ.is_empty() {
+                anyhow::bail!("Unknown topic: {}", name);
+            }
+            if json {
+                println!("{}", serde_json::json!({"topic": name, "type": typ}));
+            } else {
+                println!("{}", typ);
+            }
+        }
+
         InfoWhat::Topic { name } => {
             let n = name.trim_start_matches('/');
             // by_topic keys include the leading '/' so pass the original name

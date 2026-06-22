@@ -55,6 +55,13 @@ pub enum ParamAction {
         /// Path to YAML file
         file: String,
     },
+    /// Delete a parameter (set to NOT_SET)
+    Delete {
+        /// Fully-qualified node name
+        node: String,
+        /// Parameter name
+        name: String,
+    },
 }
 
 fn param_value_to_yaml(v: &ParameterValue) -> serde_yaml::Value {
@@ -384,6 +391,28 @@ pub async fn run(ctx: &Ctx, args: ParamArgs, json: bool) -> Result<()> {
             }
             if any_failed {
                 anyhow::bail!("One or more parameters failed to set");
+            }
+        }
+
+        ParamAction::Delete { node, name } => {
+            let target = parse_node(&node)?;
+            let client = ParameterClient::new(ctx.node.clone(), target)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            let results = client
+                .set(&[Parameter::new(&name, ParameterValue::NotSet)])
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            for r in &results {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"successful": r.successful, "reason": r.reason})
+                    );
+                } else if r.successful {
+                    println!("Deleted {}", name);
+                } else {
+                    anyhow::bail!("Failed to delete {}: {}", name, r.reason);
+                }
             }
         }
 
