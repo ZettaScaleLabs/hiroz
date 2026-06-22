@@ -3,9 +3,19 @@
 # (i.e., in pureRust-ci devshell which lacks ROS 2 headers).
 set -euo pipefail
 
+# Exclude rmw-zenoh-rs if rcutils headers are not actually present.
+# AMENT_PREFIX_PATH may be inherited from the host env but point to paths
+# that don't contain the headers (e.g. on the whippet worker in pureRust-ci).
 EXCLUDE_ARGS=""
-if [[ -z "${AMENT_PREFIX_PATH:-}" ]]; then
-  # pureRust-ci: no ROS headers, skip crates that need them
+rcutils_found=false
+for prefix in ${AMENT_PREFIX_PATH//:/ } /opt/ros/jazzy /opt/ros/humble /opt/ros/rolling; do
+  if [[ -f "${prefix}/include/rcutils/strdup.h" ]] || \
+     [[ -f "${prefix}/include/rcutils/rcutils/strdup.h" ]]; then
+    rcutils_found=true
+    break
+  fi
+done
+if ! $rcutils_found; then
   EXCLUDE_ARGS="--exclude rmw-zenoh-rs"
 fi
 
