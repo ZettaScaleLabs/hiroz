@@ -42,18 +42,20 @@
 
 `hu meter hz` subscribes at the raw Zenoh byte layer. It records arrival timestamps from the transport without deserializing any payload.
 
-**At moderate rates (≤ 500 Hz, any payload size)** both tools report the same rate to within measurement noise — the Python overhead is not the limiting factor and the differential is under 2%.
+**At moderate rates (≤ 500 Hz, any payload size)** both tools report the same rate to within measurement noise — the Python overhead is not the limiting factor and the differential is under a few percent.
 
-**At high rates the Python GIL becomes the bottleneck.** The hiroz test suite measures this directly with `test_hz_python_saturation`: a `yield_now` publisher on CPUs 0–1 generates ~120,000 messages/second; each tool is pinned to a separate CPU to isolate the measurement.
+**At high rates the Python GIL becomes the bottleneck.** The hiroz test suite measures this directly with `test_hz_python_saturation`: a `yield_now` publisher saturates the CPU to produce a burst stream; each tool is pinned to a separate CPU to isolate the measurement.
 
-| Metric | Run 1 | Run 2 |
-|---|---|---|
-| Ground truth (time-avg) | 123,797 Hz | 121,086 Hz |
-| `hu meter hz` (sliding window) | 263,445 Hz | 455,340 Hz |
-| `ros2 topic hz` | 3,772 Hz | 4,853 Hz |
-| hu advantage | **70×** | **94×** |
+| Metric | Measured value |
+|---|---|
+| Ground truth (time-avg) | 64,320 Hz |
+| `hu meter hz` (sliding window) | 57,920 Hz |
+| `ros2 topic hz` | 1,398 Hz |
+| hu advantage | **41×** |
 
-`ros2 topic hz` saturates at 4–5 kHz because `rclpy` deserializes every message inside the Python GIL. `hu meter hz` tracks the arrival stream orders of magnitude closer to the true rate.
+*Measured on the hiroz CI worker (feat/hiroz-union, job 316, debug binary). `test_hz_python_saturation` in `hiroz-tests`.*
+
+`ros2 topic hz` saturates below 1–2 kHz because `rclpy` deserializes every message inside the Python GIL. `hu meter hz` tracks the arrival stream an order of magnitude closer to the true rate.
 
 At the rates common in robot perception pipelines (image at 30 fps, lidar at 10–20 Hz, IMU at 100–400 Hz) both tools agree closely. The gap becomes significant at high-frequency topics — motor controllers, high-rate IMUs, sensor fusion outputs — where Python deserialization throughput is the ceiling.
 
