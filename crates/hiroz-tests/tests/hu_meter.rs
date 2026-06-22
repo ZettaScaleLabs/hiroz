@@ -19,7 +19,7 @@ use common::*;
 use hiroz::Builder;
 use hiroz_msgs::{
     example_interfaces::{AddTwoIntsResponse, srv::AddTwoInts},
-    std_msgs::String as RosString,
+    std_msgs::{Header, String as RosString},
 };
 
 fn hu_meter_bin() -> String {
@@ -531,10 +531,163 @@ fn test_hu_meter_service_call_yaml() {
         String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    // Response should contain 12 (3+9) as a little-endian int64: 0c 00 00 00 00 00 00 00
+    // Response is pretty-printed JSON: {"sum": 12}
     assert!(
-        stdout.contains("0c") || stdout.contains("bytes"),
-        "Expected response with sum=12: {}",
+        stdout.contains("sum") && stdout.contains("12"),
+        "Expected JSON response with sum=12: {}",
+        stdout
+    );
+}
+
+// ─── service list with types ──────────────────────────────────────────────────
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_service_list_with_types() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("svc_list_types_node").build().unwrap();
+        let _server = node
+            .create_service::<AddTwoInts>("/svc_list_types_test")
+            .build()
+            .unwrap();
+        thread::sleep(Duration::from_secs(5));
+    });
+
+    thread::sleep(Duration::from_millis(800));
+
+    let out = run_hu_meter(router.endpoint(), &["service", "list"]);
+    assert!(
+        out.status.success(),
+        "hu meter service list failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("/svc_list_types_test"),
+        "Expected /svc_list_types_test in service list: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("[") && stdout.contains("]"),
+        "Expected [type] annotation in service list: {}",
+        stdout
+    );
+}
+
+// ─── echo --raw ───────────────────────────────────────────────────────────────
+
+#[test]
+fn test_hu_meter_echo_raw() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("echo_raw_pub").build().unwrap();
+            let pub_ = node
+                .create_pub::<RosString>("/echo_raw_test")
+                .build()
+                .unwrap();
+            // Give echo time to subscribe
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            let _ = pub_
+                .async_publish(&RosString {
+                    data: "rawtest".into(),
+                })
+                .await;
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        });
+    });
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["echo", "/echo_raw_test", "--count", "1", "--raw"],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter echo --raw failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // --raw output is hex bytes, not decoded fields — check for hex pattern
+    assert!(
+        stdout
+            .split_whitespace()
+            .any(|tok| { tok.len() == 2 && tok.chars().all(|c| c.is_ascii_hexdigit()) }),
+        "Expected hex byte output from echo --raw: {}",
+        stdout
+    );
+    // Should NOT contain decoded field names
+    assert!(
+        !stdout.contains("data:") && !stdout.contains("\"data\""),
+        "Unexpected decoded output from echo --raw: {}",
+        stdout
+    );
+}
+
+// ─── delay ────────────────────────────────────────────────────────────────────
+
+/// Spawn hu-meter, let it run for `secs` seconds, kill it, and return accumulated output.
+fn run_hu_meter_timed(router: &str, args: &[&str], secs: u64) -> (Vec<u8>, Vec<u8>) {
+    let mut child = Command::new(hu_meter_bin())
+        .arg("--router")
+        .arg(router)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn hu-meter");
+
+    thread::sleep(Duration::from_secs(secs));
+    let _ = child.kill();
+    let out = child
+        .wait_with_output()
+        .expect("failed to wait on hu-meter");
+    (out.stdout, out.stderr)
+}
+
+#[test]
+fn test_hu_meter_delay_basic() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("delay_pub").build().unwrap();
+            let pub_ = node.create_pub::<Header>("/delay_test").build().unwrap();
+            // Give delay subscriber time to connect
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            for _ in 0..20 {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default();
+                let _ = pub_
+                    .async_publish(&Header {
+                        stamp: hiroz_msgs::builtin_interfaces::Time {
+                            sec: now.as_secs() as i32,
+                            nanosec: now.subsec_nanos(),
+                        },
+                        frame_id: "delay_test".into(),
+                    })
+                    .await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        });
+    });
+
+    // Let delay run for 3 seconds — enough to capture at least one report (interval=1s)
+    let (stdout, _stderr) = run_hu_meter_timed(router.endpoint(), &["delay", "/delay_test"], 3);
+    let stdout = String::from_utf8_lossy(&stdout);
+
+    assert!(
+        stdout.contains("delay") || stdout.contains("mean") || stdout.contains("Waiting"),
+        "Expected delay measurement output, got: {}",
         stdout
     );
 }
