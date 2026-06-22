@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use hiroz_protocol::EndpointKind;
 use wasmtime::{
     Engine, Store,
-    component::{Component, Linker, Resource, bindgen},
+    component::{Component, HasSelf, Linker, Resource, bindgen},
 };
 use wasmtime_wasi::{WasiCtxBuilder, WasiCtxView, WasiView};
 
@@ -34,6 +34,7 @@ struct SubscriptionData {
 
 pub struct PluginState {
     wasi: wasmtime_wasi::WasiCtx,
+    table: wasmtime_wasi::ResourceTable,
     engine: Arc<CoreEngine>,
     /// Active subscriptions keyed by a per-plugin u32 rep.
     subscriptions: HashMap<u32, SubscriptionData>,
@@ -47,6 +48,7 @@ impl WasiView for PluginState {
     fn ctx(&mut self) -> WasiCtxView<'_> {
         WasiCtxView {
             ctx: &mut self.wasi,
+            table: &mut self.table,
         }
     }
 }
@@ -274,7 +276,7 @@ fn load_one(
 
     let mut linker: Linker<PluginState> = Linker::new(wasm_engine);
     wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
-    HuPlugin::add_to_linker::<PluginState, PluginState>(&mut linker, |s| s)?;
+    HuPlugin::add_to_linker(&mut linker, |s: &mut PluginState| HasSelf(s))?;
 
     let output_lines = Arc::new(Mutex::new(Vec::new()));
     let title = Arc::new(Mutex::new(String::new()));
@@ -283,6 +285,7 @@ fn load_one(
 
     let state = PluginState {
         wasi,
+        table: wasmtime_wasi::ResourceTable::new(),
         engine: engine_ref,
         subscriptions: HashMap::new(),
         next_sub_rep: 0,
