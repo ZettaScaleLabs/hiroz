@@ -12,16 +12,16 @@ pub async fn warn_if_qos_mismatch(graph: Arc<Graph>, topic: String) {
     let publishers = graph.get_entities_by_topic(EndpointKind::Publisher, &topic_key);
 
     for pub_arc in publishers {
-        if let Some(ep) = hiroz::entity::entity_get_endpoint(&pub_arc) {
-            if ep.qos.reliability == QosReliability::BestEffort {
-                eprintln!(
-                    "[warn] Publisher on {} uses BEST_EFFORT reliability — \
+        if let Some(ep) = hiroz::entity::entity_get_endpoint(&pub_arc)
+            && ep.qos.reliability == QosReliability::BestEffort
+        {
+            eprintln!(
+                "[warn] Publisher on {} uses BEST_EFFORT reliability — \
                      hu-meter subscribes with RELIABLE and may miss messages \
                      if your rmw enforces QoS compatibility (ros2cli#593)",
-                    topic
-                );
-                return;
-            }
+                topic
+            );
+            return;
         }
     }
 }

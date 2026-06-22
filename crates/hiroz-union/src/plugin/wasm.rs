@@ -25,6 +25,7 @@ bindgen!({
 // ─── Subscription tracking ────────────────────────────────────────────────────
 
 struct SubscriptionData {
+    #[allow(dead_code)]
     topic: String,
     /// Messages decoded to JSON.  Populated by a background tokio task.
     rx: flume::Receiver<String>,

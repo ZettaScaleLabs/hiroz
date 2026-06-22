@@ -50,7 +50,7 @@ pub fn try_dispatch_so(plugin_name: &str, args: &[String]) -> Option<i32> {
             let code = unsafe { f(c_ptrs.len() as c_int, c_ptrs.as_ptr()) };
             // Keep lib alive until f returns (it is a blocking call).
             drop(lib);
-            Ok(code as i32)
+            Ok(code)
         });
 
         match result {

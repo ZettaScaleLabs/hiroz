@@ -308,7 +308,7 @@ fn encode_cdr_primitive(payload: &[u8]) -> Vec<u8> {
     buf
 }
 
-fn yaml_submap<'a>(v: &'a serde_yaml::Value, field: &str) -> Result<serde_yaml::Value> {
+fn yaml_submap(v: &serde_yaml::Value, field: &str) -> Result<serde_yaml::Value> {
     match v {
         serde_yaml::Value::Mapping(m) => {
             let key = serde_yaml::Value::String(field.to_string());
