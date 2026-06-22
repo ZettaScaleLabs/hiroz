@@ -188,11 +188,19 @@ fn fmt_value(out: &mut String, name: &str, value: &DynamicValue, indent: usize) 
                 fmt_value(out, &format!("[{i}]"), item, indent + 1);
             }
         }
+        DynamicValue::Bool(b) => out.push_str(&format!("{}{name}: {b}\n", pad)),
+        DynamicValue::Int8(i) => out.push_str(&format!("{}{name}: {i}\n", pad)),
+        DynamicValue::Int16(i) => out.push_str(&format!("{}{name}: {i}\n", pad)),
+        DynamicValue::Int32(i) => out.push_str(&format!("{}{name}: {i}\n", pad)),
+        DynamicValue::Int64(i) => out.push_str(&format!("{}{name}: {i}\n", pad)),
+        DynamicValue::Uint8(u) => out.push_str(&format!("{}{name}: {u}\n", pad)),
+        DynamicValue::Uint16(u) => out.push_str(&format!("{}{name}: {u}\n", pad)),
+        DynamicValue::Uint32(u) => out.push_str(&format!("{}{name}: {u}\n", pad)),
+        DynamicValue::Uint64(u) => out.push_str(&format!("{}{name}: {u}\n", pad)),
         DynamicValue::Float32(f) => out.push_str(&format!("{}{name}: {f}\n", pad)),
         DynamicValue::Float64(f) => out.push_str(&format!("{}{name}: {f}\n", pad)),
         DynamicValue::String(s) => out.push_str(&format!("{}{name}: \"{s}\"\n", pad)),
         DynamicValue::Bytes(b) => out.push_str(&format!("{}{name}: <{} bytes>\n", pad, b.len())),
-        _ => out.push_str(&format!("{}{name}: {value:?}\n", pad)),
     }
 }
 
