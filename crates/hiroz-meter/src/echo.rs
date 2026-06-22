@@ -18,6 +18,10 @@ pub struct EchoArgs {
     /// Print raw bytes as hex instead of type-aware output
     #[arg(long)]
     pub raw: bool,
+
+    /// Timeout in seconds waiting for each message (0 = no timeout)
+    #[arg(long, default_value = "0")]
+    pub timeout: f64,
 }
 
 pub async fn run(ctx: &Ctx, args: EchoArgs, json: bool) -> Result<()> {
@@ -73,8 +77,19 @@ pub async fn run(ctx: &Ctx, args: EchoArgs, json: bool) -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
+    let timeout_dur = (args.timeout > 0.0).then(|| Duration::from_secs_f64(args.timeout));
     let mut printed = 0usize;
-    while let Some(payload) = rx.recv().await {
+    loop {
+        let maybe_payload = if let Some(t) = timeout_dur {
+            match tokio::time::timeout(t, rx.recv()).await {
+                Ok(Some(p)) => Some(p),
+                Ok(None) | Err(_) => None,
+            }
+        } else {
+            rx.recv().await
+        };
+        let Some(payload) = maybe_payload else { break };
+
         printed += 1;
 
         if let Some(ref s) = schema {

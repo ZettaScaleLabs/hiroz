@@ -15,6 +15,16 @@ pub struct ServiceArgs {
 pub enum ServiceAction {
     /// List all services
     List,
+    /// Find services by name (substring match)
+    Find {
+        /// Name substring to search for
+        name_filter: String,
+    },
+    /// Show the type of a service
+    Type {
+        /// Service name (e.g. /add_two_ints)
+        name: String,
+    },
     /// Call a service
     Call {
         /// Service name (e.g. /add_two_ints)
@@ -57,6 +67,38 @@ pub async fn run(ctx: &Ctx, args: ServiceArgs, json: bool) -> Result<()> {
                 for (name, typ) in &services {
                     println!("{}\t[{}]", name, typ);
                 }
+            }
+        }
+
+        ServiceAction::Find { name_filter } => {
+            sleep(Duration::from_millis(500)).await;
+            let services = ctx.graph.get_service_names_and_types();
+            let matched: Vec<_> = services
+                .into_iter()
+                .filter(|(name, _)| name.contains(&name_filter))
+                .collect();
+            if json {
+                let entries: Vec<_> = matched
+                    .iter()
+                    .map(|(n, t)| serde_json::json!({"name": n, "type": t}))
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&entries)?);
+            } else {
+                for (name, _) in &matched {
+                    println!("{}", name);
+                }
+            }
+        }
+
+        ServiceAction::Type { name } => {
+            sleep(Duration::from_millis(500)).await;
+            let services = ctx.graph.get_service_names_and_types();
+            let found = services
+                .into_iter()
+                .find(|(n, _)| n == &name || n == &format!("/{}", name.trim_start_matches('/')));
+            match found {
+                Some((_, typ)) => println!("{}", typ),
+                None => anyhow::bail!("Service '{}' not found", name),
             }
         }
 

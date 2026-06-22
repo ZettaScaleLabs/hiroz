@@ -8,6 +8,14 @@ use crate::context::Ctx;
 pub struct ListArgs {
     #[command(subcommand)]
     pub what: ListWhat,
+
+    /// Show hidden topics/nodes (names starting with _)
+    #[arg(long)]
+    pub all: bool,
+
+    /// Limit output to N items (0 = unlimited)
+    #[arg(long, default_value = "0")]
+    pub count: usize,
 }
 
 #[derive(Subcommand)]
@@ -32,13 +40,35 @@ pub enum ListWhat {
     },
 }
 
+fn is_hidden_topic(name: &str) -> bool {
+    name.split('/').any(|seg| seg.starts_with('_'))
+}
+
+fn is_hidden_node(name: &str) -> bool {
+    name.starts_with('_')
+}
+
+fn apply_count<T>(mut v: Vec<T>, count: usize) -> Vec<T> {
+    if count > 0 && v.len() > count {
+        v.truncate(count);
+    }
+    v
+}
+
 pub async fn run(ctx: &Ctx, args: ListArgs, json: bool) -> Result<()> {
     // Brief wait for liveliness to settle
     sleep(Duration::from_millis(500)).await;
 
+    let show_all = args.all;
+    let count = args.count;
+
     match args.what {
         ListWhat::Topics => {
-            let topics = ctx.graph.get_topic_names_and_types();
+            let mut topics = ctx.graph.get_topic_names_and_types();
+            if !show_all {
+                topics.retain(|(name, _)| !is_hidden_topic(name));
+            }
+            let topics = apply_count(topics, count);
             if json {
                 let entries: Vec<_> = topics
                     .iter()
@@ -52,7 +82,11 @@ pub async fn run(ctx: &Ctx, args: ListArgs, json: bool) -> Result<()> {
             }
         }
         ListWhat::Nodes => {
-            let nodes = ctx.graph.get_node_names();
+            let mut nodes = ctx.graph.get_node_names();
+            if !show_all {
+                nodes.retain(|(name, _)| !is_hidden_node(name));
+            }
+            let nodes = apply_count(nodes, count);
             if json {
                 let entries: Vec<_> = nodes
                     .iter()
@@ -71,7 +105,11 @@ pub async fn run(ctx: &Ctx, args: ListArgs, json: bool) -> Result<()> {
             }
         }
         ListWhat::Services => {
-            let services = ctx.graph.get_service_names_and_types();
+            let mut services = ctx.graph.get_service_names_and_types();
+            if !show_all {
+                services.retain(|(name, _)| !is_hidden_topic(name));
+            }
+            let services = apply_count(services, count);
             if json {
                 let entries: Vec<_> = services
                     .iter()
@@ -87,6 +125,7 @@ pub async fn run(ctx: &Ctx, args: ListArgs, json: bool) -> Result<()> {
 
         ListWhat::Actions => {
             let actions = ctx.graph.get_action_names_and_types();
+            let actions = apply_count(actions, count);
             if json {
                 let entries: Vec<_> = actions
                     .iter()
@@ -106,6 +145,7 @@ pub async fn run(ctx: &Ctx, args: ListArgs, json: bool) -> Result<()> {
                 .into_iter()
                 .filter(|(_, t)| t.contains(&type_filter))
                 .collect();
+            let matched = apply_count(matched, count);
             if json {
                 let entries: Vec<_> = matched
                     .iter()
@@ -125,6 +165,7 @@ pub async fn run(ctx: &Ctx, args: ListArgs, json: bool) -> Result<()> {
                 .into_iter()
                 .filter(|(_, t)| t.contains(&type_filter))
                 .collect();
+            let matched = apply_count(matched, count);
             if json {
                 let entries: Vec<_> = matched
                     .iter()

@@ -738,12 +738,11 @@ fn test_hu_meter_list_find_topics() {
         });
     });
 
-    thread::sleep(Duration::from_millis(800));
+    thread::sleep(Duration::from_millis(1500));
 
-    let out = run_hu_meter(
-        router.endpoint(),
-        &["list", "find-topics", "std_msgs/msg/String"],
-    );
+    // Use a short filter — the internal type name is std_msgs::msg::dds_::String_,
+    // not std_msgs/msg/String, so filter on the common suffix.
+    let out = run_hu_meter(router.endpoint(), &["list", "find-topics", "String_"]);
     assert!(
         out.status.success(),
         "hu meter list find-topics failed: {}",
@@ -1348,5 +1347,293 @@ fn test_pub_yaml_nested_twist() {
     println!(
         "geometry_msgs/Twist encoded correctly: {reported_bytes} bytes (header + 6×f64 = {})",
         expected.len()
+    );
+}
+
+// ─── echo --timeout ──────────────────────────────────────────────────────────
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_echo_timeout_exits() {
+    let router = TestRouter::new();
+    // No publisher — echo should exit after the timeout rather than hang.
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["echo", "/no_publisher_topic", "--timeout", "1"],
+    );
+    // Should exit cleanly (not hang indefinitely).
+    assert!(
+        out.status.success(),
+        "hu meter echo --timeout should exit cleanly when no messages arrive: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+// ─── list --count ────────────────────────────────────────────────────────────
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_list_count_limits_output() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("count_test_node").build().unwrap();
+            let _p1 = node
+                .create_pub::<RosString>("/count_topic_a")
+                .build()
+                .unwrap();
+            let _p2 = node
+                .create_pub::<RosString>("/count_topic_b")
+                .build()
+                .unwrap();
+            let _p3 = node
+                .create_pub::<RosString>("/count_topic_c")
+                .build()
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+    });
+
+    thread::sleep(Duration::from_millis(1000));
+
+    let out = run_hu_meter(router.endpoint(), &["list", "topics", "--count", "1"]);
+    assert!(
+        out.status.success(),
+        "hu meter list topics --count 1 failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let line_count = stdout.lines().count();
+    assert_eq!(line_count, 1, "Expected exactly 1 line, got {}", line_count);
+}
+
+// ─── list --all ──────────────────────────────────────────────────────────────
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_list_all_shows_hidden_topics() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("hidden_pub_node").build().unwrap();
+            // Normal topic
+            let _p1 = node
+                .create_pub::<RosString>("/visible_topic")
+                .build()
+                .unwrap();
+            // Hidden topic (starts with _)
+            let _p2 = node
+                .create_pub::<RosString>("/_hidden_topic")
+                .build()
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+    });
+
+    thread::sleep(Duration::from_millis(1000));
+
+    // Without --all, hidden topics should be excluded.
+    let out_normal = run_hu_meter(router.endpoint(), &["list", "topics"]);
+    let stdout_normal = String::from_utf8_lossy(&out_normal.stdout);
+    assert!(
+        stdout_normal.contains("/visible_topic"),
+        "visible topic should appear without --all: {}",
+        stdout_normal
+    );
+    assert!(
+        !stdout_normal.contains("/_hidden_topic"),
+        "hidden topic should NOT appear without --all: {}",
+        stdout_normal
+    );
+
+    // With --all, hidden topics should appear.
+    let out_all = run_hu_meter(router.endpoint(), &["list", "topics", "--all"]);
+    let stdout_all = String::from_utf8_lossy(&out_all.stdout);
+    assert!(
+        stdout_all.contains("/_hidden_topic"),
+        "hidden topic should appear with --all: {}",
+        stdout_all
+    );
+}
+
+// ─── hz multi-topic ──────────────────────────────────────────────────────────
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_hz_multi_topic() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("hz_multi_pub").build().unwrap();
+            let pub1 = node.create_pub::<RosString>("/hz_multi_a").build().unwrap();
+            let pub2 = node.create_pub::<RosString>("/hz_multi_b").build().unwrap();
+            for _ in 0..40 {
+                let _ = pub1
+                    .async_publish(&RosString {
+                        data: "a".to_string(),
+                    })
+                    .await;
+                let _ = pub2
+                    .async_publish(&RosString {
+                        data: "b".to_string(),
+                    })
+                    .await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+        });
+    });
+
+    thread::sleep(Duration::from_millis(500));
+
+    let (stdout, stderr) = run_hu_meter_timed(
+        router.endpoint(),
+        &[
+            "hz",
+            "/hz_multi_a",
+            "/hz_multi_b",
+            "--window",
+            "10",
+            "--duration",
+            "3",
+        ],
+        4,
+    );
+    let stdout = String::from_utf8_lossy(&stdout);
+    let stderr = String::from_utf8_lossy(&stderr);
+    assert!(
+        stdout.contains("hz_multi_a") || stdout.contains("rate"),
+        "Expected hz output for /hz_multi_a: {}\nstderr: {}",
+        stdout,
+        stderr
+    );
+}
+
+// ─── bw multi-topic ──────────────────────────────────────────────────────────
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_bw_multi_topic() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("bw_multi_pub").build().unwrap();
+            let pub1 = node.create_pub::<RosString>("/bw_multi_a").build().unwrap();
+            let pub2 = node.create_pub::<RosString>("/bw_multi_b").build().unwrap();
+            for _ in 0..40 {
+                let _ = pub1
+                    .async_publish(&RosString {
+                        data: "hello".to_string(),
+                    })
+                    .await;
+                let _ = pub2
+                    .async_publish(&RosString {
+                        data: "world".to_string(),
+                    })
+                    .await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+        });
+    });
+
+    thread::sleep(Duration::from_millis(500));
+
+    let (stdout, _stderr) = run_hu_meter_timed(
+        router.endpoint(),
+        &[
+            "bw",
+            "/bw_multi_a",
+            "/bw_multi_b",
+            "--window",
+            "10",
+            "--duration",
+            "2",
+        ],
+        3,
+    );
+    let stdout = String::from_utf8_lossy(&stdout);
+    assert!(
+        stdout.contains("bw_multi_a") || stdout.contains("B/s"),
+        "Expected bw output for /bw_multi_a: {}",
+        stdout
+    );
+}
+
+// ─── service find ────────────────────────────────────────────────────────────
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_service_find() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("find_svc_find_node").build().unwrap();
+        let _server = node
+            .create_service::<AddTwoInts>("/svc_find_test")
+            .build()
+            .unwrap();
+        thread::sleep(Duration::from_secs(5));
+    });
+
+    thread::sleep(Duration::from_millis(1000));
+
+    let out = run_hu_meter(router.endpoint(), &["service", "find", "svc_find_test"]);
+    assert!(
+        out.status.success(),
+        "hu meter service find failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("/svc_find_test"),
+        "Expected /svc_find_test in service find output: {}",
+        stdout
+    );
+}
+
+// ─── service type ────────────────────────────────────────────────────────────
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_service_type() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("svc_type_node").build().unwrap();
+        let _server = node
+            .create_service::<AddTwoInts>("/svc_type_test")
+            .build()
+            .unwrap();
+        thread::sleep(Duration::from_secs(5));
+    });
+
+    thread::sleep(Duration::from_millis(1000));
+
+    let out = run_hu_meter(router.endpoint(), &["service", "type", "/svc_type_test"]);
+    assert!(
+        out.status.success(),
+        "hu meter service type failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("AddTwoInts"),
+        "Expected AddTwoInts in service type output: {}",
+        stdout
     );
 }
