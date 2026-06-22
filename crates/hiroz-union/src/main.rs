@@ -456,6 +456,7 @@ async fn handle_key_event(
                 app.set_temp_status("Use Topics tab to add topics to measurement".to_string());
             }
             Panel::Measure => {}
+            Panel::Plugins => {}
         },
 
         KeyCode::Char('S') => {

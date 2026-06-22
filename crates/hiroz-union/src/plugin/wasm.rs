@@ -46,7 +46,10 @@ pub struct PluginState {
 
 impl WasiView for PluginState {
     fn ctx(&mut self) -> WasiCtxView<'_> {
-        WasiCtxView::new(&mut self.wasi, &mut self.table)
+        WasiCtxView {
+            wasi: &mut self.wasi,
+            table: &mut self.table,
+        }
     }
 }
 
@@ -160,16 +163,11 @@ impl hu::plugin::ros::Host for PluginState {
 }
 
 impl hu::plugin::ros::HostSubscription for PluginState {
-    fn try_recv(
-        &mut self,
-        res: Resource<hu::plugin::ros::Subscription>,
-    ) -> wasmtime::Result<Option<String>> {
+    fn try_recv(&mut self, res: Resource<hu::plugin::ros::Subscription>) -> Option<String> {
         let rep = res.rep();
-        let msg = self
-            .subscriptions
+        self.subscriptions
             .get(&rep)
-            .and_then(|sub| sub.rx.try_recv().ok());
-        Ok(msg)
+            .and_then(|sub| sub.rx.try_recv().ok())
     }
 
     fn drop(&mut self, res: Resource<hu::plugin::ros::Subscription>) -> wasmtime::Result<()> {
@@ -184,8 +182,8 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         _res: Resource<hu::plugin::ros::ServiceClient>,
         _request_json: String,
         _timeout_ms: u32,
-    ) -> wasmtime::Result<Result<String, String>> {
-        Ok(Err("service calls not yet implemented in v0.1".to_string()))
+    ) -> Result<String, String> {
+        Err("service calls not yet implemented in v0.1".to_string())
     }
 
     fn drop(&mut self, _res: Resource<hu::plugin::ros::ServiceClient>) -> wasmtime::Result<()> {
@@ -296,7 +294,7 @@ fn load_one(
     };
 
     let mut store = Store::new(wasm_engine, state);
-    let (bindings, _) = HuPlugin::instantiate(&mut store, &component, &linker)?;
+    let bindings = HuPlugin::instantiate(&mut store, &component, &linker)?;
 
     let manifest = bindings
         .call_manifest(&mut store)
