@@ -539,6 +539,256 @@ fn test_hu_meter_service_call_yaml() {
     );
 }
 
+// ─── service call no-args / repeated ─────────────────────────────────────────
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_service_call_no_args() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("svc_noargs_server").build().unwrap();
+        let mut server = node
+            .create_service::<AddTwoInts>("/svc_noargs_test")
+            .build()
+            .unwrap();
+        for _ in 0..300 {
+            if let Ok(req) = server.take_request() {
+                let sum = req.message().a + req.message().b;
+                let _ = req.reply_blocking(&AddTwoIntsResponse { sum });
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    });
+
+    thread::sleep(Duration::from_millis(3000));
+
+    // Call without --yaml — sends an empty CDR payload (4 zero bytes)
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["service", "call", "/svc_noargs_test", "--timeout", "10"],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter service call (no args) failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_service_call_repeated() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("svc_repeat_server").build().unwrap();
+        let mut server = node
+            .create_service::<AddTwoInts>("/svc_repeat_test")
+            .build()
+            .unwrap();
+        let mut served = 0;
+        while served < 2 {
+            if let Ok(req) = server.take_request() {
+                let sum = req.message().a + req.message().b;
+                let _ = req.reply_blocking(&AddTwoIntsResponse { sum });
+                served += 1;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    });
+
+    thread::sleep(Duration::from_millis(3000));
+
+    for i in 0..2 {
+        let out = run_hu_meter(
+            router.endpoint(),
+            &[
+                "service",
+                "call",
+                "/svc_repeat_test",
+                "--yaml",
+                "{a: 1, b: 1}",
+                "--msg-type",
+                "example_interfaces/srv/AddTwoInts_Request",
+                "--timeout",
+                "10",
+            ],
+        );
+        assert!(
+            out.status.success(),
+            "hu meter service call repeated (call {}) failed: {}",
+            i,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            stdout.contains("sum") && stdout.contains("2"),
+            "Expected sum=2 on call {}: {}",
+            i,
+            stdout
+        );
+    }
+}
+
+// ─── echo --once ─────────────────────────────────────────────────────────────
+
+#[test]
+fn test_hu_meter_echo_once() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("echo_once_pub").build().unwrap();
+            let pub_ = node
+                .create_pub::<RosString>("/echo_once_test")
+                .build()
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            for i in 0..5 {
+                let _ = pub_
+                    .async_publish(&RosString {
+                        data: format!("once_{}", i),
+                    })
+                    .await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        });
+    });
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["echo", "/echo_once_test", "--count", "1"],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter echo --count 1 failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let line_count = stdout.lines().filter(|l| !l.is_empty()).count();
+    assert_eq!(
+        line_count, 1,
+        "Expected exactly 1 output line from echo --count 1, got {}: {}",
+        line_count, stdout
+    );
+}
+
+// ─── list with-types / find-topics / find-services ───────────────────────────
+
+#[test]
+fn test_hu_meter_list_topics_with_types() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("list_types_pub").build().unwrap();
+            let _pub = node
+                .create_pub::<RosString>("/list_types_test")
+                .build()
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+    });
+
+    thread::sleep(Duration::from_millis(800));
+
+    // Non-JSON list should include [type] annotation
+    let out = run_hu_meter(router.endpoint(), &["list", "topics"]);
+    assert!(
+        out.status.success(),
+        "hu meter list topics failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("/list_types_test"),
+        "Expected /list_types_test in topic list: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("[") && stdout.contains("]"),
+        "Expected [type] annotation in topic list: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_hu_meter_list_find_topics() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("find_topics_pub").build().unwrap();
+            let _pub = node
+                .create_pub::<RosString>("/find_topics_test")
+                .build()
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+    });
+
+    thread::sleep(Duration::from_millis(800));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["list", "find-topics", "std_msgs/msg/String"],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter list find-topics failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("/find_topics_test"),
+        "Expected /find_topics_test in find-topics output: {}",
+        stdout
+    );
+}
+
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_list_find_services() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("find_svc_node").build().unwrap();
+        let _server = node
+            .create_service::<AddTwoInts>("/find_svc_test")
+            .build()
+            .unwrap();
+        thread::sleep(Duration::from_secs(5));
+    });
+
+    thread::sleep(Duration::from_millis(800));
+
+    let out = run_hu_meter(router.endpoint(), &["list", "find-services", "AddTwoInts"]);
+    assert!(
+        out.status.success(),
+        "hu meter list find-services failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("/find_svc_test"),
+        "Expected /find_svc_test in find-services output: {}",
+        stdout
+    );
+}
+
 // ─── service list with types ──────────────────────────────────────────────────
 
 #[test]
@@ -827,6 +1077,211 @@ fn test_hu_meter_param_set_roundtrip() {
         map["counter"].as_i64().unwrap_or(-1),
         77,
         "Expected counter=77 after set: {}",
+        stdout
+    );
+}
+
+// ─── param: filter / multi-get / multi-set / dump / load / describe ──────────
+
+fn spawn_param_node(endpoint: String, node_name: &'static str, params: Vec<(&'static str, i64)>) {
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            use hiroz::parameter::{ParameterDescriptor, ParameterType, ParameterValue};
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node(node_name).build().unwrap();
+            for (name, val) in params {
+                node.declare_parameter(
+                    name,
+                    ParameterValue::Integer(val),
+                    ParameterDescriptor::new(name, ParameterType::Integer),
+                )
+                .unwrap();
+            }
+            tokio::time::sleep(Duration::from_secs(15)).await;
+        });
+    });
+}
+
+#[test]
+fn test_hu_meter_param_list_filter() {
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+    spawn_param_node(
+        endpoint,
+        "param_filter_node",
+        vec![("alpha", 1), ("beta", 2), ("another", 3)],
+    );
+    thread::sleep(Duration::from_millis(800));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["param", "list", "/param_filter_node", "--filter", "al"],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter param list --filter failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("alpha"),
+        "Expected 'alpha' in filtered list: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("beta"),
+        "Expected 'beta' to be filtered out: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_hu_meter_param_get_multiple() {
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+    spawn_param_node(endpoint, "param_multi_get_node", vec![("x", 10), ("y", 20)]);
+    thread::sleep(Duration::from_millis(800));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["param", "get", "/param_multi_get_node", "x", "y", "--json"],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter param get multiple failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let map: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Expected JSON map from multi param get");
+    assert_eq!(map["x"].as_i64().unwrap_or(-1), 10, "x should be 10");
+    assert_eq!(map["y"].as_i64().unwrap_or(-1), 20, "y should be 20");
+}
+
+#[test]
+fn test_hu_meter_param_set_multiple_sequential() {
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+    spawn_param_node(endpoint, "param_multi_set_node", vec![("p", 0), ("q", 0)]);
+    thread::sleep(Duration::from_millis(800));
+
+    for (name, val) in [("p", "11"), ("q", "22")] {
+        let out = run_hu_meter(
+            router.endpoint(),
+            &["param", "set", "/param_multi_set_node", name, val],
+        );
+        assert!(
+            out.status.success(),
+            "hu meter param set {name} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["param", "get", "/param_multi_set_node", "p", "q", "--json"],
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let map: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Expected JSON from param get after multi-set");
+    assert_eq!(map["p"].as_i64().unwrap_or(-1), 11, "p should be 11");
+    assert_eq!(map["q"].as_i64().unwrap_or(-1), 22, "q should be 22");
+}
+
+#[test]
+fn test_hu_meter_param_dump() {
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+    spawn_param_node(endpoint, "param_dump_node", vec![("dumpval", 99)]);
+    thread::sleep(Duration::from_millis(800));
+
+    let out = run_hu_meter(router.endpoint(), &["param", "dump", "/param_dump_node"]);
+    assert!(
+        out.status.success(),
+        "hu meter param dump failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Output should be YAML in ros2 param dump format
+    assert!(
+        stdout.contains("ros__parameters"),
+        "Expected ros__parameters in dump output: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("dumpval") && stdout.contains("99"),
+        "Expected dumpval: 99 in dump output: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_hu_meter_param_load() {
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+    spawn_param_node(endpoint, "param_load_node", vec![("loadval", 0)]);
+    thread::sleep(Duration::from_millis(800));
+
+    // Write a YAML file to _tmp/
+    let yaml_path = "_tmp/param_load_test.yaml";
+    std::fs::write(
+        yaml_path,
+        "/param_load_node:\n  ros__parameters:\n    loadval: 55\n",
+    )
+    .expect("failed to write param yaml");
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["param", "load", "/param_load_node", yaml_path],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter param load failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Verify the param was actually set
+    let get_out = run_hu_meter(
+        router.endpoint(),
+        &["param", "get", "/param_load_node", "loadval", "--json"],
+    );
+    let stdout = String::from_utf8_lossy(&get_out.stdout);
+    let map: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Expected JSON from param get after load");
+    assert_eq!(
+        map["loadval"].as_i64().unwrap_or(-1),
+        55,
+        "Expected loadval=55 after param load: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_hu_meter_param_describe() {
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+    spawn_param_node(endpoint, "param_desc_node", vec![("descparam", 7)]);
+    thread::sleep(Duration::from_millis(800));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &[
+            "param",
+            "describe",
+            "/param_desc_node",
+            "descparam",
+            "--json",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter param describe failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("descparam"),
+        "Expected descparam in describe output: {}",
         stdout
     );
 }
