@@ -10,7 +10,7 @@ use wasmtime::{
     Engine, Store,
     component::{Component, Linker, Resource, bindgen},
 };
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
+use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::core::engine::CoreEngine;
 
@@ -18,7 +18,6 @@ use crate::core::engine::CoreEngine;
 bindgen!({
     world: "hu-plugin",
     path: "wit/hu-plugin.wit",
-    async: false,
 });
 
 // ─── Subscription tracking ────────────────────────────────────────────────────
@@ -46,11 +45,8 @@ pub struct PluginState {
 }
 
 impl WasiView for PluginState {
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.wasi
-    }
-    fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
-        &mut self.table
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView::new(&mut self.wasi, &mut self.table)
     }
 }
 
@@ -281,7 +277,7 @@ fn load_one(
         .with_context(|| format!("compiling {}", path.display()))?;
 
     let mut linker: Linker<PluginState> = Linker::new(wasm_engine);
-    wasmtime_wasi::add_to_linker_sync(&mut linker)?;
+    wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
     HuPlugin::add_to_linker(&mut linker, |s| s)?;
 
     let output_lines = Arc::new(Mutex::new(Vec::new()));
