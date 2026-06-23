@@ -13,11 +13,11 @@ use super::common::{border_style, border_type};
 impl App {
     pub fn render_plugin_list_items(&self) -> Vec<ListItem<'static>> {
         #[cfg(feature = "wasm-plugins")]
-        let loaded_count = self.wasm_plugins.len();
+        let loaded_count = self.plugin_mgr.plugins.len();
         #[cfg(not(feature = "wasm-plugins"))]
         let loaded_count = 0usize;
 
-        if loaded_count == 0 && self.failed_plugins.is_empty() {
+        if loaded_count == 0 && self.plugin_mgr.failed.is_empty() {
             return vec![ListItem::new(Span::styled(
                 "  No WASM plugins loaded",
                 Style::default().fg(Color::DarkGray),
@@ -27,14 +27,14 @@ impl App {
         let mut items: Vec<ListItem<'static>> = Vec::new();
 
         #[cfg(feature = "wasm-plugins")]
-        for (i, plugin) in self.wasm_plugins.iter().enumerate() {
+        for (i, plugin) in self.plugin_mgr.plugins.iter().enumerate() {
             let title = plugin.title.lock().clone();
             let display = if title.is_empty() {
                 plugin.manifest.name.clone()
             } else {
                 format!("{} — {}", plugin.manifest.name, title)
             };
-            let style = if i == self.plugin_selected_index {
+            let style = if i == self.plugin_mgr.selected_index {
                 Style::default()
                     .fg(Color::Black)
                     .bg(Color::White)
@@ -49,7 +49,7 @@ impl App {
         }
 
         // Failed plugins shown below loaded ones with a red [FAILED] indicator.
-        for (path, _err) in &self.failed_plugins {
+        for (path, _err) in &self.plugin_mgr.failed {
             let stem = std::path::Path::new(path)
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -69,9 +69,9 @@ impl App {
 
         // Check if the selected index falls on a failed plugin.
         let failed_offset = self.plugin_count();
-        if self.plugin_selected_index >= failed_offset {
-            let fi = self.plugin_selected_index - failed_offset;
-            if let Some((path, err)) = self.failed_plugins.get(fi) {
+        if self.plugin_mgr.selected_index >= failed_offset {
+            let fi = self.plugin_mgr.selected_index - failed_offset;
+            if let Some((path, err)) = self.plugin_mgr.failed.get(fi) {
                 let text = format!("Failed to load plugin:\n{path}\n\nError: {err}");
                 let widget = Paragraph::new(text)
                     .block(
@@ -102,7 +102,8 @@ impl App {
 
         #[cfg(feature = "wasm-plugins")]
         {
-            if self.wasm_plugins.is_empty() || self.plugin_selected_index >= self.wasm_plugins.len()
+            if self.plugin_mgr.plugins.is_empty()
+                || self.plugin_mgr.selected_index >= self.plugin_mgr.plugins.len()
             {
                 let placeholder = Paragraph::new("Select a plugin from the list").block(
                     Block::default()
@@ -115,7 +116,7 @@ impl App {
                 return;
             }
 
-            let plugin = &self.wasm_plugins[self.plugin_selected_index];
+            let plugin = &self.plugin_mgr.plugins[self.plugin_mgr.selected_index];
             let lines: Vec<String> = plugin.output_lines.lock().clone();
             let text = lines.join("\n");
             let title = format!(" {} v{} ", plugin.manifest.name, plugin.manifest.version);

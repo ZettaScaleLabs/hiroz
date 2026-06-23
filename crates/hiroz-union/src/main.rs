@@ -9,12 +9,10 @@ mod plugin;
 
 use core::engine::CoreEngine;
 
-use app::{
-    App, FocusPane, PAGE_SCROLL_AMOUNT, POLL_TIMEOUT_MS, Panel, QUICK_MEASURE_DURATION_SECS,
-};
+use app::{App, POLL_TIMEOUT_MS};
 use clap::{Parser, Subcommand, ValueEnum};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -303,8 +301,8 @@ async fn run_tui_mode(
     #[cfg(feature = "wasm-plugins")]
     {
         let (plugins, failed) = plugin::wasm::load_plugins(core)?;
-        app.wasm_plugins = plugins;
-        app.failed_plugins = failed;
+        app.plugin_mgr.plugins = plugins;
+        app.plugin_mgr.failed = failed;
     }
     let result = run_tui_loop(&mut terminal, &mut app).await;
 
@@ -330,281 +328,12 @@ async fn run_tui_loop(
 
         terminal.draw(|f| app.render(f))?;
 
-        if app.quit {
-            return Ok(());
-        }
-
         if event::poll(Duration::from_millis(POLL_TIMEOUT_MS))?
             && let Event::Key(key) = event::read()?
         {
-            handle_key_event(app, key).await?;
+            if app::input::handle_key(app, key).await? {
+                return Ok(());
+            }
         }
     }
-}
-
-async fn handle_key_event(
-    app: &mut App,
-    key: event::KeyEvent,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        app.quit = true;
-        return Ok(());
-    }
-
-    if app.filter_mode {
-        match key.code {
-            KeyCode::Esc => app.exit_filter_mode(),
-            KeyCode::Enter => app.exit_filter_mode(),
-            KeyCode::Backspace => app.delete_filter_char(),
-            KeyCode::Left => app.move_filter_cursor_left(),
-            KeyCode::Right => app.move_filter_cursor_right(),
-            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                app.clear_filter()
-            }
-            KeyCode::Char(c) => app.enter_filter_char(c),
-            _ => {}
-        }
-        return Ok(());
-    }
-
-    if app.show_help {
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
-                app.show_help = false;
-            }
-            _ => {}
-        }
-        return Ok(());
-    }
-
-    match key.code {
-        KeyCode::Char('q') => app.quit = true,
-        KeyCode::Char('?') => app.show_help = true,
-
-        KeyCode::Up | KeyCode::Char('k') => {
-            if app.focus_pane == FocusPane::List {
-                app.select_previous();
-            } else {
-                app.detail_state.selected_section = match app.detail_state.selected_section {
-                    app::DetailSection::Publishers => app::DetailSection::Clients,
-                    app::DetailSection::Subscribers => app::DetailSection::Publishers,
-                    app::DetailSection::Clients => app::DetailSection::Subscribers,
-                };
-                app.scroll_detail_up();
-            }
-        }
-        KeyCode::Down | KeyCode::Char('j') => {
-            if app.focus_pane == FocusPane::List {
-                app.select_next();
-            } else {
-                app.detail_state.selected_section = match app.detail_state.selected_section {
-                    app::DetailSection::Publishers => app::DetailSection::Subscribers,
-                    app::DetailSection::Subscribers => app::DetailSection::Clients,
-                    app::DetailSection::Clients => app::DetailSection::Publishers,
-                };
-                app.scroll_detail_down();
-            }
-        }
-        KeyCode::Left | KeyCode::Char('h') if app.focus_pane == FocusPane::Detail => {
-            app.focus_pane = FocusPane::List;
-        }
-        KeyCode::Right | KeyCode::Char('l') if app.focus_pane == FocusPane::List => {
-            app.focus_pane = FocusPane::Detail;
-        }
-
-        KeyCode::PageUp => {
-            for _ in 0..PAGE_SCROLL_AMOUNT {
-                if app.focus_pane == FocusPane::List {
-                    app.select_previous();
-                } else {
-                    app.scroll_detail_up();
-                }
-            }
-        }
-        KeyCode::PageDown => {
-            for _ in 0..PAGE_SCROLL_AMOUNT {
-                if app.focus_pane == FocusPane::List {
-                    app.select_next();
-                } else {
-                    app.scroll_detail_down();
-                }
-            }
-        }
-        KeyCode::Home => {
-            app.selected_index = 0;
-            app.detail_scroll = 0;
-        }
-        KeyCode::End => {
-            let max = match app.current_panel {
-                Panel::Topics => app.cached_topics.len().saturating_sub(1),
-                Panel::Nodes => app.cached_nodes.len().saturating_sub(1),
-                Panel::Services => app.cached_services.len().saturating_sub(1),
-                Panel::Measure | Panel::Plugins => 0,
-            };
-            app.selected_index = max;
-        }
-
-        KeyCode::Tab => {
-            app.current_panel = match app.current_panel {
-                Panel::Topics => Panel::Services,
-                Panel::Services => Panel::Nodes,
-                Panel::Nodes => Panel::Measure,
-                Panel::Measure => Panel::Plugins,
-                Panel::Plugins => Panel::Topics,
-            };
-            app.selected_index = 0;
-            app.detail_scroll = 0;
-        }
-        KeyCode::BackTab => {
-            app.current_panel = match app.current_panel {
-                Panel::Topics => Panel::Plugins,
-                Panel::Services => Panel::Topics,
-                Panel::Nodes => Panel::Services,
-                Panel::Measure => Panel::Nodes,
-                Panel::Plugins => Panel::Measure,
-            };
-            app.selected_index = 0;
-            app.detail_scroll = 0;
-        }
-        KeyCode::Char('1') => {
-            app.current_panel = Panel::Topics;
-            app.selected_index = 0;
-        }
-        KeyCode::Char('2') => {
-            app.current_panel = Panel::Services;
-            app.selected_index = 0;
-        }
-        KeyCode::Char('3') => {
-            app.current_panel = Panel::Nodes;
-            app.selected_index = 0;
-        }
-        KeyCode::Char('4') => {
-            app.current_panel = Panel::Measure;
-            app.selected_index = 0;
-        }
-        KeyCode::Char('5') => {
-            app.current_panel = Panel::Plugins;
-            app.plugin_selected_index = 0;
-        }
-        KeyCode::Char('t') if app.current_panel == Panel::Plugins => {
-            #[cfg(feature = "wasm-plugins")]
-            {
-                let idx = app.plugin_selected_index;
-                if idx < app.wasm_plugins.len() {
-                    app.wasm_plugins[idx]
-                        .dispatch_event(crate::plugin::wasm::hu::plugin::types::PluginEvent::Tick);
-                    // exit_code is ignored in TUI mode — plugin pane stays open
-                }
-            }
-        }
-
-        KeyCode::Enter | KeyCode::Char(' ') => {
-            if app.focus_pane == FocusPane::Detail {
-                match app.current_panel {
-                    Panel::Nodes => {
-                        app.detail_state.publishers_expanded =
-                            !app.detail_state.publishers_expanded;
-                    }
-                    _ => match app.detail_state.selected_section {
-                        app::DetailSection::Publishers => {
-                            app.detail_state.publishers_expanded =
-                                !app.detail_state.publishers_expanded;
-                        }
-                        app::DetailSection::Subscribers => {
-                            app.detail_state.subscribers_expanded =
-                                !app.detail_state.subscribers_expanded;
-                        }
-                        app::DetailSection::Clients => {
-                            app.detail_state.clients_expanded = !app.detail_state.clients_expanded;
-                        }
-                    },
-                }
-            } else {
-                app.focus_pane = FocusPane::Detail;
-            }
-        }
-
-        KeyCode::Esc if app.focus_pane == FocusPane::Detail => {
-            app.focus_pane = FocusPane::List;
-        }
-
-        KeyCode::Char('/') => app.enter_filter_mode(),
-
-        KeyCode::Char('r') => {
-            if app.current_panel == Panel::Measure {
-                app.clear_measuring_topics();
-            } else if app.current_panel == Panel::Topics
-                && !app.cached_topics.is_empty()
-                && let Some((topic, _)) = app.cached_topics.get(app.selected_index)
-            {
-                let topic = topic.clone();
-                app.status_message = format!("Measuring rate for {}...", topic);
-                match app
-                    .quick_measure_rate(&topic, QUICK_MEASURE_DURATION_SECS)
-                    .await
-                {
-                    Ok(rate) => {
-                        app.set_temp_status(format!("{}: {:.1} Hz", topic, rate));
-                    }
-                    Err(e) => {
-                        app.set_temp_status(format!("Rate measurement failed: {}", e));
-                    }
-                }
-            }
-        }
-
-        KeyCode::Char('m') => match app.current_panel {
-            Panel::Topics => {
-                if !app.cached_topics.is_empty()
-                    && let Some((topic, _)) = app.cached_topics.get(app.selected_index)
-                {
-                    let topic = topic.clone();
-                    app.toggle_measuring_topic(&topic).await;
-                }
-            }
-            Panel::Services => {
-                if !app.cached_services.is_empty()
-                    && let Some((service, _)) = app.cached_services.get(app.selected_index)
-                {
-                    let service = service.clone();
-                    app.toggle_measuring_topic(&service).await;
-                }
-            }
-            Panel::Nodes => {
-                app.set_temp_status("Use Topics tab to add topics to measurement".to_string());
-            }
-            Panel::Measure => {}
-            Panel::Plugins => {}
-        },
-
-        KeyCode::Char('S') => {
-            app.take_screenshot = true;
-        }
-
-        KeyCode::Char('e') => {
-            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-            let filename = format!("hiroz-rates_{}.csv", timestamp);
-            match app.export_metrics(&filename) {
-                Ok(()) => {
-                    app.set_temp_status(format!("Exported to {}", filename));
-                }
-                Err(e) => {
-                    app.set_temp_status(format!("Export failed: {}", e));
-                }
-            }
-        }
-
-        KeyCode::Char('w') => match app.toggle_recording() {
-            Ok(msg) => {
-                app.set_temp_status(msg);
-            }
-            Err(e) => {
-                app.set_temp_status(format!("{}", e));
-            }
-        },
-
-        _ => {}
-    }
-
-    Ok(())
 }

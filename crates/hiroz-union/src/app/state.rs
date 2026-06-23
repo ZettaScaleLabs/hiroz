@@ -49,6 +49,28 @@ pub enum Panel {
     Plugins,
 }
 
+impl Panel {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Topics => Self::Services,
+            Self::Services => Self::Nodes,
+            Self::Nodes => Self::Measure,
+            Self::Measure => Self::Plugins,
+            Self::Plugins => Self::Topics,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Topics => Self::Plugins,
+            Self::Services => Self::Topics,
+            Self::Nodes => Self::Services,
+            Self::Measure => Self::Nodes,
+            Self::Plugins => Self::Measure,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum FocusPane {
     #[default]
@@ -87,16 +109,6 @@ impl Default for DetailState {
             selected_section: DetailSection::Publishers,
         }
     }
-}
-
-#[derive(Default)]
-pub struct LiveMetrics {
-    pub msgs_sec: f64,
-    pub bytes_sec: f64,
-    pub avg_payload: u64,
-    pub samples: VecDeque<(Instant, usize)>,
-    pub rate_history: VecDeque<u64>, // msg/s history for sparkline
-    pub bandwidth_history: VecDeque<u64>, // KB/s * 10 history for sparkline (scaled for precision)
 }
 
 #[derive(Clone, Default)]

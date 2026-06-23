@@ -16,18 +16,18 @@ use super::common::*;
 impl App {
     /// Get sorted list of measuring topics (ensures consistent ordering)
     fn get_sorted_measuring_topics(&self) -> Vec<String> {
-        let mut topics: Vec<_> = self.measuring_topics.iter().cloned().collect();
+        let mut topics: Vec<_> = self.monitor.measuring_topics.iter().cloned().collect();
         topics.sort();
         topics
     }
 
     /// Render list items for measuring topics
     pub fn render_measure_list_items(&self, list_width: usize) -> Vec<ListItem<'static>> {
-        if self.measuring_topics.is_empty() {
+        if self.monitor.measuring_topics.is_empty() {
             return vec![];
         }
 
-        let metrics = self.topic_metrics.lock();
+        let metrics = self.monitor.topic_metrics.lock();
         let topics = self.get_sorted_measuring_topics();
 
         topics
@@ -61,7 +61,7 @@ impl App {
 
     /// Render the measurement detail panel (sparklines for selected topic)
     pub fn render_measurement_panel(&self, f: &mut Frame, area: Rect) {
-        let measuring_count = self.measuring_topics.len();
+        let measuring_count = self.monitor.measuring_topics.len();
 
         if measuring_count == 0 {
             // No topics being monitored
@@ -85,7 +85,7 @@ impl App {
             return;
         };
 
-        let metrics = self.topic_metrics.lock();
+        let metrics = self.monitor.topic_metrics.lock();
         let Some(tm) = metrics.get(topic) else {
             let info = Paragraph::new("Waiting for data...").block(
                 Block::default()

@@ -118,11 +118,14 @@ impl App {
         } else {
             // Focus-aware hints with optional rate cache info
             let hint = self.get_status_hint();
-            if self.current_panel == Panel::Topics && !self.rate_cache.is_empty() {
+            if self.current_panel == Panel::Topics && !self.monitor.rate_cache.is_empty() {
                 let fresh_count = self
+                    .monitor
                     .rate_cache
                     .values()
-                    .filter(|c| Instant::now().duration_since(c.last_updated) < self.rate_cache_ttl)
+                    .filter(|c| {
+                        Instant::now().duration_since(c.last_updated) < self.monitor.rate_cache_ttl
+                    })
                     .count();
                 if fresh_count > 0 {
                     format!("{} | {} cached", hint, fresh_count)
@@ -265,11 +268,11 @@ impl App {
                 }
                 Panel::Measure => {
                     let items = self.render_measure_list_items(list_width);
-                    let total = self.measuring_topics.len();
+                    let total = self.monitor.measuring_topics.len();
                     (items, total)
                 }
                 Panel::Plugins => {
-                    let total = self.plugin_count() + self.failed_plugins.len();
+                    let total = self.plugin_count() + self.plugin_mgr.failed.len();
                     let items = self.render_plugin_list_items();
                     (items, total)
                 }

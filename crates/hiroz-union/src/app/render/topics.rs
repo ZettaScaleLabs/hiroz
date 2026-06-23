@@ -39,13 +39,14 @@ impl App {
                 let measure_color = ratatui::style::Color::Magenta;
 
                 // Get rate info if available
-                let (rate_str, rate_color) = if let Some(cached) = self.rate_cache.get(topic) {
-                    let age = Instant::now().duration_since(cached.last_updated);
-                    let is_fresh = age < self.rate_cache_ttl;
-                    format_rate(cached.rate, is_fresh)
-                } else {
-                    ("".to_string(), ratatui::style::Color::Blue)
-                };
+                let (rate_str, rate_color) =
+                    if let Some(cached) = self.monitor.rate_cache.get(topic) {
+                        let age = Instant::now().duration_since(cached.last_updated);
+                        let is_fresh = age < self.monitor.rate_cache_ttl;
+                        format_rate(cached.rate, is_fresh)
+                    } else {
+                        ("".to_string(), ratatui::style::Color::Blue)
+                    };
 
                 // Calculate available space for topic name
                 let icon_width = 2; // "# "
@@ -108,9 +109,9 @@ impl App {
         let mut detail = format!("Topic: {}\nType: {}\n", topic, type_name);
 
         // Show cached rate if available
-        if let Some(cached) = self.rate_cache.get(topic) {
+        if let Some(cached) = self.monitor.rate_cache.get(topic) {
             let age = Instant::now().duration_since(cached.last_updated);
-            if age < self.rate_cache_ttl {
+            if age < self.monitor.rate_cache_ttl {
                 detail.push_str(&format!(
                     "Rate: {:.1} Hz (measured {}s ago)\n",
                     cached.rate,
