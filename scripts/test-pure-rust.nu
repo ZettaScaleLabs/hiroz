@@ -37,6 +37,8 @@ def check-console [] {
     log-step "Check hiroz-union plugins"
     run-cmd "cargo check -p hiroz-union -p hiroz-meter -p hiroz-monitor"
     run-cmd "cargo clippy -p hiroz-union -p hiroz-meter -p hiroz-monitor -- -D warnings"
+    log-step "Build WASM plugins (wasm32-wasip2)"
+    run-cmd "cargo build -p hu-meter -p hu-monitor --target wasm32-wasip2"
 }
 
 def clippy-hiroz-py [] {

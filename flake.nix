@@ -49,6 +49,7 @@
             "rust-analyzer"
             "llvm-tools-preview"
           ];
+          targets = [ "wasm32-wasip2" ];
         };
 
         rustfmtNightly = pkgs.rust-bin.nightly.latest.rustfmt;

@@ -1,0 +1,11 @@
+[package]
+name = "hu-monitor"
+version = "0.1.0"
+edition = "2021"
+description = "hu monitor — graph watch, log, and log-level for ROS 2 (WASM plugin)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.46"
