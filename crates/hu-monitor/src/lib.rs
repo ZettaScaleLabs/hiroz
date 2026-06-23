@@ -1,6 +1,6 @@
 wit_bindgen::generate!({
     world: "hu-plugin",
-    path: "../wit/hu-plugin.wit",
+    path: "wit/hu-plugin.wit",
 });
 
 use exports::hu::plugin::types::{Guest, PluginEvent, PluginManifest};
