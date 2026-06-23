@@ -250,8 +250,6 @@ pub async fn handle_key(
     Ok(false)
 }
 
-use super::App;
-
 impl App {
     pub fn matches_filter(&self, filter_text: &str, item: &str) -> bool {
         if filter_text.is_empty() {
