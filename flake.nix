@@ -526,8 +526,6 @@
             cargoBuildFlags = [
               "-p"
               "hiroz-union"
-              "--features"
-              "jazzy"
             ];
             cargoInstallFlags = [
               "--bin"
