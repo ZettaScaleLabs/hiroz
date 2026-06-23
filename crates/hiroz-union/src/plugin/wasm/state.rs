@@ -128,7 +128,7 @@ impl PluginState {
         let topic_stripped = topic.trim_start_matches('/').to_string();
         let ke = format!("{domain_id}/{topic_stripped}/**");
         let session = self.engine.session.clone();
-        let (tx, rx) = flume::bounded::<(Instant, usize)>(1024);
+        let (tx, rx) = flume::unbounded::<(Instant, usize)>();
         let ke_clone = ke.clone();
         let handle = tokio::spawn(async move {
             let sub = match session.declare_subscriber(&ke_clone).await {
@@ -140,7 +140,7 @@ impl PluginState {
             };
             while let Ok(sample) = sub.recv_async().await {
                 let size = sample.payload().to_bytes().len();
-                let _ = tx.try_send((Instant::now(), size));
+                let _ = tx.send((Instant::now(), size));
             }
         });
         self.rate_trackers.insert(
