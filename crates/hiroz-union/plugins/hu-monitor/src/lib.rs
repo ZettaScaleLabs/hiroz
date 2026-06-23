@@ -341,10 +341,14 @@ fn log_level_to_int(level: &str) -> u32 {
 
 use std::cell::{OnceCell, RefCell};
 
-static STATE: OnceCell<RefCell<HuMonitor>> = OnceCell::new();
+struct AssertSync<T>(T);
+unsafe impl<T> Sync for AssertSync<T> {}
+
+static STATE: AssertSync<OnceCell<RefCell<HuMonitor>>> = AssertSync(OnceCell::new());
 
 fn state() -> std::cell::RefMut<'static, HuMonitor> {
     STATE
+        .0
         .get_or_init(|| RefCell::new(HuMonitor::new()))
         .borrow_mut()
 }
