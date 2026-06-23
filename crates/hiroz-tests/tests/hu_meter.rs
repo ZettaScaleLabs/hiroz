@@ -27,10 +27,8 @@ use hiroz_msgs::{
     std_msgs::{Header, String as RosString},
 };
 
-fn hu_meter_bin() -> String {
-    std::env::var("CARGO_BIN_EXE_hu-meter").unwrap_or_else(|_| {
-        // CARGO_BIN_EXE_* is only set when the binary lives in the same crate as the test.
-        // hu-meter is in hiroz-meter, so fall back to locating it via CARGO_TARGET_DIR.
+fn hu_bin() -> String {
+    std::env::var("CARGO_BIN_EXE_hu").unwrap_or_else(|_| {
         let target_dir = std::env::var("CARGO_TARGET_DIR")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| {
@@ -44,23 +42,27 @@ fn hu_meter_bin() -> String {
         };
         target_dir
             .join(profile)
-            .join("hu-meter")
+            .join("hu")
             .to_str()
             .unwrap()
             .to_string()
     })
 }
 
-/// Run hu-meter with the given arguments and a specific router endpoint.
+/// Run `hu meter <args>` with a specific router endpoint.
+///
+/// Requires HU_PLUGIN_PATH to contain the compiled hu-meter.wasm.
+/// Build it first: cargo build -p hu-meter --target wasm32-wasip2
 fn run_hu_meter(router: &str, args: &[&str]) -> Output {
-    Command::new(hu_meter_bin())
+    Command::new(hu_bin())
+        .arg("meter")
         .arg("--router")
         .arg(router)
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .expect("failed to run hu-meter")
+        .expect("failed to run hu meter")
 }
 
 // ─── hz ─────────────────────────────────────────────────────────────────────
@@ -888,7 +890,8 @@ fn test_hu_meter_echo_raw() {
 
 /// Spawn hu-meter, let it run for `secs` seconds, kill it, and return accumulated output.
 fn run_hu_meter_timed(router: &str, args: &[&str], secs: u64) -> (Vec<u8>, Vec<u8>) {
-    let mut child = Command::new(hu_meter_bin())
+    let mut child = Command::new(hu_bin())
+        .arg("meter")
         .arg("--router")
         .arg(router)
         .args(args)

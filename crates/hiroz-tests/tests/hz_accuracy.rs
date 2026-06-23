@@ -27,8 +27,8 @@ use hiroz::Builder;
 use hiroz::prelude::{QosProfile, QosReliability};
 use hiroz_msgs::std_msgs::String as RosString;
 
-fn hu_meter_bin() -> String {
-    std::env::var("CARGO_BIN_EXE_hu-meter").unwrap_or_else(|_| {
+fn hu_bin() -> String {
+    std::env::var("CARGO_BIN_EXE_hu").unwrap_or_else(|_| {
         let target_dir = std::env::var("CARGO_TARGET_DIR")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| {
@@ -42,7 +42,7 @@ fn hu_meter_bin() -> String {
         };
         target_dir
             .join(profile)
-            .join("hu-meter")
+            .join("hu")
             .to_str()
             .unwrap()
             .to_string()
@@ -110,8 +110,9 @@ fn run_hz_comparison(publish_hz: f64, duration_secs: f64, topic: &str) -> (f64, 
     thread::sleep(Duration::from_millis(500));
 
     // --- hu meter hz ---
-    let hu_out = Command::new(hu_meter_bin())
+    let hu_out = Command::new(hu_bin())
         .args([
+            "meter",
             "--router",
             &endpoint,
             "hz",
@@ -121,7 +122,7 @@ fn run_hz_comparison(publish_hz: f64, duration_secs: f64, topic: &str) -> (f64, 
             "--json",
         ])
         .output()
-        .expect("failed to run hu-meter hz");
+        .expect("failed to run hu meter hz");
     let hu_stdout = String::from_utf8_lossy(&hu_out.stdout).into_owned();
     let hu_rate = parse_hu_meter_hz(&hu_stdout);
     let hu_rate = hu_rate.unwrap_or_else(|| {
