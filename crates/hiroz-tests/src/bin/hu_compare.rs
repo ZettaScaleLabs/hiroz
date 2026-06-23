@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use clap::Parser;
-use hiroz::ZContextBuilder;
+use hiroz::prelude::ZContextBuilder;
 use hiroz_msgs::std_msgs::String as RosString;
 use serde_json::json;
 
@@ -233,7 +233,7 @@ fn run_case(spec: &RateSpec, duration_secs: f64, topic: &str, endpoint: &str) ->
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     let rates: Vec<RateSpec> = cli
