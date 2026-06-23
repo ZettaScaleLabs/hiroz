@@ -1,10 +1,22 @@
 # hu Plugin Authoring Guide
 
-`hu` supports third-party WASM plugins that run sandboxed inside the TUI's Plugins panel (panel 5) or as CLI commands (`hu <plugin-name> <args>`). Plugins are compiled to WebAssembly and loaded at startup from `HU_PLUGIN_PATH` or `~/.local/share/hu/plugins/`.
+`hu` supports third-party WASM plugins that run sandboxed as CLI commands (`hu <plugin-name> <args>`), as TUI panes (panel 5), or as web handlers (`hu --web`). Plugins are compiled to WebAssembly and loaded at startup from `$HU_PLUGIN_PATH` or `~/.local/share/hu/plugins/`.
 
-## Quick start
+## Worlds
 
-A plugin is a Rust `cdylib` crate that implements the `hu-plugin` WIT world using `wit_bindgen`.
+There are three WIT worlds — pick the one that matches your plugin's role:
+
+| World | Use case | Event type |
+|---|---|---|
+| `hu-cli-plugin` | One-shot or streaming terminal tool (hz, bw, echo, bridge) | `cli-event` — startup, tick, interrupt |
+| `hu-tui-plugin` | Tick-driven TUI pane with keybindings and topic navigation | `tui-event` — startup, tick, interrupt, key-action, topic-selected |
+| `hu-web-plugin` | HTTP request/response handler for `hu --web` | no events — stateless `handle(req) → response` |
+
+The `hu-plugin` world still exists as a compatibility alias for `hu-tui-plugin`. New plugins should use one of the three typed worlds above.
+
+## Quick start (CLI plugin)
+
+A plugin is a Rust `cdylib` crate that implements a WIT world using `wit_bindgen`.
 
 ### 1. Create the crate
 
@@ -25,13 +37,13 @@ wit-bindgen = "0.46"
 
 ### 2. Copy the WIT schema
 
-Copy `hu-plugin.wit` from `crates/hiroz-union/wit/` into your crate's `wit/` directory. This file defines the stable ABI — do not modify it.
+Copy `hu-plugin.wit` from `crates/hiroz-union/wit/v0.4/` into your crate's `wit/` directory. The file declares package `hu:plugin@0.4.0` — do not modify it.
 
 ### 3. Implement the world
 
 ```rust
 wit_bindgen::generate!({
-    world: "hu-plugin",
+    world: "hu-cli-plugin",
     path: "wit/hu-plugin.wit",
 });
 
@@ -54,17 +66,19 @@ impl Guest for MyPlugin {
         }
     }
 
-    fn on_event(event: PluginEvent) {
+    fn on_event(event: CliEvent) {
         match event {
-            PluginEvent::Startup(args) => {
+            CliEvent::Startup(args) => {
                 // args is the CLI argument list after the plugin name.
                 // e.g. `hu my-plugin foo bar` → args = ["foo", "bar"]
                 let _ = args;
             }
-            PluginEvent::Tick => {
+            CliEvent::Tick => {
                 render::println("hello from WASM!");
             }
-            _ => {}
+            CliEvent::Interrupt => {
+                render::exit(130);
+            }
         }
     }
 }
@@ -72,13 +86,17 @@ impl Guest for MyPlugin {
 export!(MyPlugin);
 ```
 
+`CliEvent` has exactly three arms: `Startup`, `Tick`, and `Interrupt`. There are no dead arms for TUI-only events — the type system enforces the CLI/TUI boundary at compile time.
+
 ### 4. Build
 
-Build for the WASI Preview 2 target with plain `cargo build` (no `cargo-component` needed):
+Build for the WASI Preview 2 target:
 
 ```sh
 cargo build --target wasm32-wasip2 --release
 ```
+
+No `cargo-component` or other tooling required — plain `cargo build` with the `wasm32-wasip2` target is sufficient.
 
 ### 5. Install
 
@@ -90,24 +108,22 @@ cp target/wasm32-wasip2/release/my_hu_plugin.wasm \
    ~/.local/share/hu/plugins/my-plugin.wasm
 ```
 
-Start `hu` and press `5` to open the Plugins panel, or run `hu my-plugin <args>` from the terminal.
+Start `hu` and press `5` to open the Plugins panel (TUI plugins), or run `hu my-plugin <args>` from the terminal (CLI plugins).
 
 ## WIT world boundary
-
-The `hu-plugin` WIT world defines a strict boundary between what the host provides and what the plugin must export.
 
 ```mermaid
 flowchart LR
     subgraph Host["Host (hu binary)"]
         G["graph\nlist-topics / list-nodes / list-services"]
-        R["ros\nsubscribe / measure-hz / measure-bw\nconnect-service / encode-yaml-to-cdr"]
+        R["ros\nsubscribe / measure-hz / measure-hz-typed\nconnect-service / encode-yaml-to-cdr"]
         RT["raw-transport\nZenoh sessions declared in manifest"]
         S["session\nnamed Zenoh sessions"]
         Ren["render\nprintln / set-title / emit-json / exit"]
     end
     subgraph Plugin["Plugin (.wasm)"]
-        MF["manifest() → PluginManifest\n(name, version, description, sessions, tick_ms)"]
-        OE["on-event(PluginEvent)\n(startup / tick / key-action / topic-selected)"]
+        MF["manifest() → PluginManifest"]
+        OE["on-event(CliEvent | TuiEvent)\nor handle(HttpRequest) → HttpResponse"]
     end
     Host -->|imports provided to plugin| Plugin
     Plugin -->|exports consumed by host| Host
@@ -128,34 +144,57 @@ flowchart LR
 | Function | Description |
 |---|---|
 | `subscribe(topic)` | Returns a `subscription` resource; call `try-recv()` for the next JSON message |
-| `measure-hz(topic, window-ms)` | Estimate publish rate (Hz) over the given window |
-| `measure-bw(topic, window-ms)` | Estimate bandwidth (KB/s) over the given window |
+| `measure-hz(topic, window-ms)` | Estimate publish rate (Hz) as a scalar `f64` |
+| `measure-hz-typed(topic, window-ms)` | Returns `hz-measurement { topic, rate-hz, sample-count }` |
+| `measure-bw(topic, window-ms)` | Estimate bandwidth (KB/s) as a scalar `f64` |
+| `measure-bw-typed(topic, window-ms)` | Returns `bw-measurement { topic, rate-kbps, sample-count }` |
 | `connect-service(name, type)` | Returns a `service-client` resource; call `call(request-json, timeout-ms)` |
 | `encode-yaml-to-cdr(yaml, type-name)` | Encode a YAML string to CDR bytes for the given ROS type |
 
-Messages are delivered as JSON strings. CDR decoding is handled by the host; plugins never see raw bytes.
+Prefer the `*-typed` variants for new plugins — they carry topic name and sample count alongside the measurement and avoid a JSON round-trip.
+
+Messages delivered by `subscribe` are JSON strings. CDR decoding is handled by the host; plugins never see raw bytes unless they use `raw-transport` directly.
 
 ### `render` — output
 
 | Function | Description |
 |---|---|
-| `println(text)` | Append a line to the plugin's output buffer (shown in the right pane) |
-| `set-title(title)` | Update the panel title |
+| `println(text)` | Append a line to the plugin's output buffer |
+| `set-title(title)` | Update the panel title (TUI mode) |
 | `emit-json(key, value)` | Shorthand for `println({"key":value})` |
 | `exit(code)` | Signal the host to flush output and exit with the given code (CLI mode only) |
 
 The output buffer is a ring-buffer of 1000 lines. Old lines are discarded automatically.
 
+### `session` — raw Zenoh sessions
+
+For bridge plugins and other low-level use: declare sessions in your manifest and retrieve them via `session::get-session(name)`. The returned `session-handle` exposes raw subscribe, publish, liveliness, queryable, and querier primitives over Zenoh key expressions.
+
 ## Events
 
+### CLI events (`hu-cli-plugin`)
+
 ```wit
-variant plugin-event {
-    startup(list<string>),   // fired once on load with CLI args (after plugin name)
-    key-action(string),      // user pressed a key bound in the manifest
-    topic-selected(string),  // user pressed Enter on a topic in another panel
+variant cli-event {
+    startup(list<string>),   // fired once on load with CLI args after the plugin name
     tick,                    // fired every tick-ms milliseconds
+    interrupt,               // user pressed Ctrl-C
 }
 ```
+
+### TUI events (`hu-tui-plugin`)
+
+```wit
+variant tui-event {
+    startup(list<string>),
+    key-action(string),      // user pressed a key declared in the manifest
+    topic-selected(string),  // user pressed Enter on a topic in another panel
+    tick,
+    interrupt,
+}
+```
+
+## Event lifecycle
 
 ```mermaid
 sequenceDiagram
@@ -165,29 +204,20 @@ sequenceDiagram
     Host->>Plugin: manifest()
     Plugin-->>Host: PluginManifest (name, sessions, tick_ms, …)
     Host->>Host: open Zenoh sessions declared in manifest
-    Host->>Plugin: on-event(startup([args…]))
+    Host->>Plugin: on-event(Startup([args…]))
     Note over Plugin: parse subcommand / init state
 
     loop every tick_ms ms
-        Host->>Plugin: on-event(tick)
+        Host->>Plugin: on-event(Tick)
         Plugin-->>Host: render::println(…)
     end
 
-    alt user presses a bound key
-        Host->>Plugin: on-event(key-action("k"))
-    else user selects a topic in another panel
-        Host->>Plugin: on-event(topic-selected("/scan"))
-    end
-
-    Plugin->>Host: render::exit(0)
-    Host->>Host: flush output, exit (CLI mode)
+    Host->>Plugin: on-event(Interrupt)
+    Plugin->>Host: render::exit(130)
+    Host->>Host: flush output, exit
 ```
 
-`startup` is always the first event. In CLI mode (`hu <name> <args>`) use it to parse your subcommand and arguments. Call `render::exit(code)` when done; the host will flush output and exit. Set `tick_ms` in your manifest to control how often `Tick` fires. Use `0` to disable ticks entirely (useful for one-shot CLI commands that exit in `startup`).
-
-## Security note
-
-Plugins can read environment variables from the `hu` process (including `HU_ROUTER`, `HU_DOMAIN`, and any other vars set in the shell). Filesystem and network access are not available. Only install plugins you trust.
+`Startup` is always the first event. In CLI mode parse your subcommand and arguments there. Call `render::exit(code)` when done; the host flushes output and exits. Set `tick_ms` to `0` to disable ticks (useful for one-shot commands that finish in `Startup`).
 
 ## Plugin discovery
 
@@ -201,8 +231,12 @@ flowchart TD
     D -->|no| F["log warning, skip\n(visible in hu plugin list)"]
 ```
 
-`hu` searches both locations in order. Files named `hu-<name>.wasm` are registered as `<name>` (the `hu-` prefix is stripped). Run `hu plugin list` to see which plugins loaded successfully.
+`hu` searches both locations in order. Files named `hu-<name>.wasm` register as `<name>`. Run `hu plugin list` to see which plugins loaded successfully.
+
+## Environment
+
+Plugins can read environment variables from the `hu` process (`HU_ROUTER`, `HU_DOMAIN`, and any others set in the shell). Filesystem and network access are not available. Only install plugins you trust.
 
 ## Reference implementations
 
-See `crates/hiroz-union/plugins/hu-meter/` and `crates/hiroz-union/plugins/hu-monitor/` for complete examples that implement full CLI subcommand dispatch via the `startup` event.
+See `crates/hiroz-union/plugins/hu-meter/` and `crates/hiroz-union/plugins/hu-monitor/` for complete examples that implement full CLI subcommand dispatch via the `Startup` event and periodic output via `Tick`.
