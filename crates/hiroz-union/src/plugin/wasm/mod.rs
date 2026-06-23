@@ -74,28 +74,28 @@ pub enum WasmPlugin {
 impl WasmPlugin {
     pub fn manifest(&self) -> &hu::plugin::types::PluginManifest {
         match self {
-            WasmPlugin::Cli { manifest, .. } => manifest,
-            WasmPlugin::Tui { manifest, .. } => manifest,
-            WasmPlugin::Web { manifest, .. } => manifest,
-            WasmPlugin::Legacy { manifest, .. } => manifest,
+            WasmPlugin::Cli { manifest, .. }
+            | WasmPlugin::Tui { manifest, .. }
+            | WasmPlugin::Web { manifest, .. }
+            | WasmPlugin::Legacy { manifest, .. } => manifest,
         }
     }
 
     pub fn output_lines(&self) -> &Arc<Mutex<Vec<String>>> {
         match self {
-            WasmPlugin::Cli { output_lines, .. } => output_lines,
-            WasmPlugin::Tui { output_lines, .. } => output_lines,
-            WasmPlugin::Web { output_lines, .. } => output_lines,
-            WasmPlugin::Legacy { output_lines, .. } => output_lines,
+            WasmPlugin::Cli { output_lines, .. }
+            | WasmPlugin::Tui { output_lines, .. }
+            | WasmPlugin::Web { output_lines, .. }
+            | WasmPlugin::Legacy { output_lines, .. } => output_lines,
         }
     }
 
     pub fn title(&self) -> &Arc<Mutex<String>> {
         match self {
-            WasmPlugin::Cli { title, .. } => title,
-            WasmPlugin::Tui { title, .. } => title,
-            WasmPlugin::Web { title, .. } => title,
-            WasmPlugin::Legacy { title, .. } => title,
+            WasmPlugin::Cli { title, .. }
+            | WasmPlugin::Tui { title, .. }
+            | WasmPlugin::Web { title, .. }
+            | WasmPlugin::Legacy { title, .. } => title,
         }
     }
 
@@ -161,7 +161,9 @@ impl WasmPlugin {
                 bindings,
                 manifest,
                 ..
-            } => dispatch_tui_inner(store, manifest, |s| bindings.call_on_event(s, &event)),
+            } => dispatch_inner("TUI", store, manifest, |s| {
+                bindings.call_on_event(s, &event)
+            }),
             WasmPlugin::Legacy {
                 store,
                 bindings,
@@ -170,7 +172,9 @@ impl WasmPlugin {
             } => {
                 // Convert TuiEvent → PluginEvent for the legacy world.
                 let pe = tui_to_plugin_event(event);
-                dispatch_legacy_inner(store, manifest, |s| bindings.call_on_event(s, &pe))
+                dispatch_inner("Legacy", store, manifest, |s| {
+                    bindings.call_on_event(s, &pe)
+                })
             }
             _ => None,
         }
@@ -198,26 +202,15 @@ impl WasmPlugin {
     }
 }
 
-fn dispatch_tui_inner(
+fn dispatch_inner(
+    label: &str,
     store: &mut Store<PluginState>,
     manifest: &hu::plugin::types::PluginManifest,
     call: impl FnOnce(&mut Store<PluginState>) -> anyhow::Result<()>,
 ) -> Option<u32> {
     store.set_epoch_deadline(30);
     if let Err(e) = call(store) {
-        tracing::warn!("TUI plugin '{}' error: {e}", manifest.name);
-    }
-    store.data().exit_code
-}
-
-fn dispatch_legacy_inner(
-    store: &mut Store<PluginState>,
-    manifest: &hu::plugin::types::PluginManifest,
-    call: impl FnOnce(&mut Store<PluginState>) -> anyhow::Result<()>,
-) -> Option<u32> {
-    store.set_epoch_deadline(30);
-    if let Err(e) = call(store) {
-        tracing::warn!("Legacy plugin '{}' error: {e}", manifest.name);
+        tracing::warn!("{label} plugin '{}' error: {e}", manifest.name);
     }
     store.data().exit_code
 }
@@ -237,7 +230,6 @@ fn tui_to_plugin_event(e: TuiEvent) -> hu::plugin::types::PluginEvent {
 type LoadResult = (Vec<WasmPlugin>, Vec<(String, String)>);
 
 pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Result<LoadResult> {
-    let search_dirs = plugin_search_dirs();
     let mut engine_config = wasmtime::Config::default();
     engine_config.epoch_interruption(true);
     let wasm_engine = Engine::new(&engine_config).context("creating WASM engine")?;
@@ -254,30 +246,21 @@ pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Result<LoadResult> {
     let mut plugins = Vec::new();
     let mut failed: Vec<(String, String)> = Vec::new();
 
-    for dir in &search_dirs {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("wasm") {
-                continue;
+    for path in iter_wasm_files() {
+        match load_one(&wasm_engine, &path, engine_ref.clone()) {
+            Ok(plugin) => {
+                tracing::info!(
+                    "Loaded WASM plugin '{}' ({}) from {}",
+                    plugin.manifest().name,
+                    plugin_kind_label(&plugin),
+                    path.display()
+                );
+                plugins.push(plugin);
             }
-            match load_one(&wasm_engine, &path, engine_ref.clone()) {
-                Ok(plugin) => {
-                    tracing::info!(
-                        "Loaded WASM plugin '{}' ({}) from {}",
-                        plugin.manifest().name,
-                        plugin_kind_label(&plugin),
-                        path.display()
-                    );
-                    plugins.push(plugin);
-                }
-                Err(e) => {
-                    let path_str = path.display().to_string();
-                    tracing::warn!("Failed to load WASM plugin {path_str}: {e}");
-                    failed.push((path_str, e.to_string()));
-                }
+            Err(e) => {
+                let path_str = path.display().to_string();
+                tracing::warn!("Failed to load WASM plugin {path_str}: {e}");
+                failed.push((path_str, e.to_string()));
             }
         }
     }
@@ -295,26 +278,26 @@ fn plugin_kind_label(p: &WasmPlugin) -> &'static str {
 }
 
 pub fn discover_wasm_plugins() -> Vec<(String, PathBuf)> {
-    let mut result = Vec::new();
-    for dir in plugin_search_dirs() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("wasm") {
-                continue;
-            }
+    let mut result: Vec<(String, PathBuf)> = iter_wasm_files()
+        .map(|path| {
             let stem = path
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
             let name = stem.strip_prefix("hu-").unwrap_or(stem).to_string();
-            result.push((name, path));
-        }
-    }
+            (name, path)
+        })
+        .collect();
     result.sort_by(|a, b| a.0.cmp(&b.0));
     result
+}
+
+fn iter_wasm_files() -> impl Iterator<Item = PathBuf> {
+    plugin_search_dirs()
+        .into_iter()
+        .flat_map(|dir| std::fs::read_dir(dir).into_iter().flatten().flatten())
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("wasm"))
 }
 
 fn plugin_work_dir(plugin_stem: &str) -> PathBuf {
@@ -425,109 +408,39 @@ fn load_one(
         .with_context(|| format!("loading {}", path.display()))
 }
 
-fn try_load_cli(
-    wasm_engine: &Engine,
-    component: &Component,
-    work_dir: &PathBuf,
-    engine_ref: Arc<CoreEngine>,
-) -> Result<WasmPlugin> {
-    let mut linker: Linker<PluginState> = Linker::new(wasm_engine);
-    wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
-    cli_bindgen::HuCliPlugin::add_to_linker::<_, HasSelf<PluginState>>(&mut linker, |s| s)?;
-
-    let (output_lines, title, mut store) = make_state_and_store(wasm_engine, work_dir, engine_ref)?;
-    let bindings = cli_bindgen::HuCliPlugin::instantiate(&mut store, component, &linker)?;
-    let manifest = bindings.call_manifest(&mut store).context("manifest()")?;
-    store.data_mut().permissions = manifest.required_permissions.clone();
-    open_declared_sessions(&mut store, &manifest)?;
-    *title.lock() = manifest.name.clone();
-
-    Ok(WasmPlugin::Cli {
-        manifest,
-        output_lines,
-        title,
-        store,
-        bindings,
-    })
+macro_rules! try_load {
+    ($fn_name:ident, $bindings_ty:ty, $variant:ident) => {
+        fn $fn_name(
+            wasm_engine: &Engine,
+            component: &Component,
+            work_dir: &PathBuf,
+            engine_ref: Arc<CoreEngine>,
+        ) -> Result<WasmPlugin> {
+            let mut linker: Linker<PluginState> = Linker::new(wasm_engine);
+            wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
+            <$bindings_ty>::add_to_linker::<_, HasSelf<PluginState>>(&mut linker, |s| s)?;
+            let (output_lines, title, mut store) =
+                make_state_and_store(wasm_engine, work_dir, engine_ref)?;
+            let bindings = <$bindings_ty>::instantiate(&mut store, component, &linker)?;
+            let manifest = bindings.call_manifest(&mut store).context("manifest()")?;
+            store.data_mut().permissions = manifest.required_permissions.clone();
+            open_declared_sessions(&mut store, &manifest)?;
+            *title.lock() = manifest.name.clone();
+            Ok(WasmPlugin::$variant {
+                manifest,
+                output_lines,
+                title,
+                store,
+                bindings,
+            })
+        }
+    };
 }
 
-fn try_load_tui(
-    wasm_engine: &Engine,
-    component: &Component,
-    work_dir: &PathBuf,
-    engine_ref: Arc<CoreEngine>,
-) -> Result<WasmPlugin> {
-    let mut linker: Linker<PluginState> = Linker::new(wasm_engine);
-    wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
-    tui_bindgen::HuTuiPlugin::add_to_linker::<_, HasSelf<PluginState>>(&mut linker, |s| s)?;
-
-    let (output_lines, title, mut store) = make_state_and_store(wasm_engine, work_dir, engine_ref)?;
-    let bindings = tui_bindgen::HuTuiPlugin::instantiate(&mut store, component, &linker)?;
-    let manifest = bindings.call_manifest(&mut store).context("manifest()")?;
-    store.data_mut().permissions = manifest.required_permissions.clone();
-    open_declared_sessions(&mut store, &manifest)?;
-    *title.lock() = manifest.name.clone();
-
-    Ok(WasmPlugin::Tui {
-        manifest,
-        output_lines,
-        title,
-        store,
-        bindings,
-    })
-}
-
-fn try_load_web(
-    wasm_engine: &Engine,
-    component: &Component,
-    work_dir: &PathBuf,
-    engine_ref: Arc<CoreEngine>,
-) -> Result<WasmPlugin> {
-    let mut linker: Linker<PluginState> = Linker::new(wasm_engine);
-    wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
-    web_bindgen::HuWebPlugin::add_to_linker::<_, HasSelf<PluginState>>(&mut linker, |s| s)?;
-
-    let (output_lines, title, mut store) = make_state_and_store(wasm_engine, work_dir, engine_ref)?;
-    let bindings = web_bindgen::HuWebPlugin::instantiate(&mut store, component, &linker)?;
-    let manifest = bindings.call_manifest(&mut store).context("manifest()")?;
-    store.data_mut().permissions = manifest.required_permissions.clone();
-    open_declared_sessions(&mut store, &manifest)?;
-    *title.lock() = manifest.name.clone();
-
-    Ok(WasmPlugin::Web {
-        manifest,
-        output_lines,
-        title,
-        store,
-        bindings,
-    })
-}
-
-fn try_load_legacy(
-    wasm_engine: &Engine,
-    component: &Component,
-    work_dir: &PathBuf,
-    engine_ref: Arc<CoreEngine>,
-) -> Result<WasmPlugin> {
-    let mut linker: Linker<PluginState> = Linker::new(wasm_engine);
-    wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
-    HuPlugin::add_to_linker::<_, HasSelf<PluginState>>(&mut linker, |s| s)?;
-
-    let (output_lines, title, mut store) = make_state_and_store(wasm_engine, work_dir, engine_ref)?;
-    let bindings = HuPlugin::instantiate(&mut store, component, &linker)?;
-    let manifest = bindings.call_manifest(&mut store).context("manifest()")?;
-    store.data_mut().permissions = manifest.required_permissions.clone();
-    open_declared_sessions(&mut store, &manifest)?;
-    *title.lock() = manifest.name.clone();
-
-    Ok(WasmPlugin::Legacy {
-        manifest,
-        output_lines,
-        title,
-        store,
-        bindings,
-    })
-}
+try_load!(try_load_cli, cli_bindgen::HuCliPlugin, Cli);
+try_load!(try_load_tui, tui_bindgen::HuTuiPlugin, Tui);
+try_load!(try_load_web, web_bindgen::HuWebPlugin, Web);
+try_load!(try_load_legacy, HuPlugin, Legacy);
 
 fn open_declared_sessions(
     store: &mut Store<PluginState>,

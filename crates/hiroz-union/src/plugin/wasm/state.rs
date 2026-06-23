@@ -165,6 +165,23 @@ impl PluginState {
         }
     }
 
+    /// Shared setup for all four measurement host functions.
+    /// Returns `(sample_count, total_bytes, window_s)` after draining the tracker.
+    pub fn get_tracker_snapshot(
+        &mut self,
+        topic: &str,
+        window_ms: u32,
+    ) -> Result<(usize, usize, f64), String> {
+        self.require_perm(hu::plugin::types::Permission::MeasureMetrics)?;
+        self.ensure_rate_tracker(topic)?;
+        let tracker = self.rate_trackers.get_mut(topic).unwrap();
+        tracker.drain_and_trim(window_ms);
+        let count = tracker.arrivals.len();
+        let total_bytes: usize = tracker.arrivals.iter().map(|(_, b)| b).sum();
+        let window_s = window_ms as f64 / 1000.0;
+        Ok((count, total_bytes, window_s))
+    }
+
     pub fn session_for_handle(
         &self,
         res: &Resource<hu::plugin::session::SessionHandle>,

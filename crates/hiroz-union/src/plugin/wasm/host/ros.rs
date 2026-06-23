@@ -118,22 +118,12 @@ impl hu::plugin::ros::Host for PluginState {
     }
 
     fn measure_hz(&mut self, topic: String, window_ms: u32) -> Result<f64, String> {
-        self.require_perm(hu::plugin::types::Permission::MeasureMetrics)?;
-        self.ensure_rate_tracker(&topic)?;
-        let tracker = self.rate_trackers.get_mut(&topic).unwrap();
-        tracker.drain_and_trim(window_ms);
-        let count = tracker.arrivals.len() as f64;
-        let window_s = window_ms as f64 / 1000.0;
-        Ok(count / window_s)
+        let (count, _, window_s) = self.get_tracker_snapshot(&topic, window_ms)?;
+        Ok(count as f64 / window_s)
     }
 
     fn measure_bw(&mut self, topic: String, window_ms: u32) -> Result<f64, String> {
-        self.require_perm(hu::plugin::types::Permission::MeasureMetrics)?;
-        self.ensure_rate_tracker(&topic)?;
-        let tracker = self.rate_trackers.get_mut(&topic).unwrap();
-        tracker.drain_and_trim(window_ms);
-        let total_bytes: usize = tracker.arrivals.iter().map(|(_, b)| b).sum();
-        let window_s = window_ms as f64 / 1000.0;
+        let (_, total_bytes, window_s) = self.get_tracker_snapshot(&topic, window_ms)?;
         Ok(total_bytes as f64 / 1024.0 / window_s)
     }
 
@@ -152,16 +142,11 @@ impl hu::plugin::ros::Host for PluginState {
         topic: String,
         window_ms: u32,
     ) -> Result<hu::plugin::ros::HzMeasurement, String> {
-        self.require_perm(hu::plugin::types::Permission::MeasureMetrics)?;
-        self.ensure_rate_tracker(&topic)?;
-        let tracker = self.rate_trackers.get_mut(&topic).unwrap();
-        tracker.drain_and_trim(window_ms);
-        let count = tracker.arrivals.len() as f64;
-        let window_s = window_ms as f64 / 1000.0;
+        let (count, _, window_s) = self.get_tracker_snapshot(&topic, window_ms)?;
         Ok(hu::plugin::ros::HzMeasurement {
             topic,
-            rate_hz: count / window_s,
-            sample_count: tracker.arrivals.len() as u32,
+            rate_hz: count as f64 / window_s,
+            sample_count: count as u32,
         })
     }
 
@@ -170,16 +155,11 @@ impl hu::plugin::ros::Host for PluginState {
         topic: String,
         window_ms: u32,
     ) -> Result<hu::plugin::ros::BwMeasurement, String> {
-        self.require_perm(hu::plugin::types::Permission::MeasureMetrics)?;
-        self.ensure_rate_tracker(&topic)?;
-        let tracker = self.rate_trackers.get_mut(&topic).unwrap();
-        tracker.drain_and_trim(window_ms);
-        let total_bytes: usize = tracker.arrivals.iter().map(|(_, b)| b).sum();
-        let window_s = window_ms as f64 / 1000.0;
+        let (count, total_bytes, window_s) = self.get_tracker_snapshot(&topic, window_ms)?;
         Ok(hu::plugin::ros::BwMeasurement {
             topic,
             rate_kbps: total_bytes as f64 / 1024.0 / window_s,
-            sample_count: tracker.arrivals.len() as u32,
+            sample_count: count as u32,
         })
     }
 }
