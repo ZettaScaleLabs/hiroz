@@ -472,15 +472,10 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
                     return;
                 }
             };
-            loop {
-                match sub.recv_async().await {
-                    Ok(sample) => {
-                        let bytes = sample.payload().to_bytes().into_owned();
-                        if tx.send_async(bytes).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
+            while let Ok(sample) = sub.recv_async().await {
+                let bytes = sample.payload().to_bytes().into_owned();
+                if tx.send_async(bytes).await.is_err() {
+                    break;
                 }
             }
         });
@@ -550,16 +545,11 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
                     return;
                 }
             };
-            loop {
-                match sub.recv_async().await {
-                    Ok(sample) => {
-                        let key = sample.key_expr().to_string();
-                        let appeared = sample.kind() == zenoh::sample::SampleKind::Put;
-                        if tx.send_async((key, appeared)).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
+            while let Ok(sample) = sub.recv_async().await {
+                let key = sample.key_expr().to_string();
+                let appeared = sample.kind() == zenoh::sample::SampleKind::Put;
+                if tx.send_async((key, appeared)).await.is_err() {
+                    break;
                 }
             }
         });
@@ -594,21 +584,16 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
                 }
             };
             let mut next_qid: u64 = 0;
-            loop {
-                match queryable.recv_async().await {
-                    Ok(query) => {
-                        let id = next_qid;
-                        next_qid += 1;
-                        let payload = query
-                            .payload()
-                            .map(|p| p.to_bytes().into_owned())
-                            .unwrap_or_default();
-                        pending_task.lock().unwrap().insert(id, query);
-                        if tx.send_async((id, payload)).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
+            while let Ok(query) = queryable.recv_async().await {
+                let id = next_qid;
+                next_qid += 1;
+                let payload = query
+                    .payload()
+                    .map(|p| p.to_bytes().into_owned())
+                    .unwrap_or_default();
+                pending_task.lock().unwrap().insert(id, query);
+                if tx.send_async((id, payload)).await.is_err() {
+                    break;
                 }
             }
         });
