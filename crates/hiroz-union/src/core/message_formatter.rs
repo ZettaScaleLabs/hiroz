@@ -73,43 +73,25 @@ pub fn format_message_pretty(msg: &DynamicMessage) -> String {
 }
 
 /// Recursively format a DynamicValue with indentation
+fn push_scalar(output: &mut String, prefix: &str, name: &str, val: impl std::fmt::Display) {
+    output.push_str(&format!("{}{}: {}\n", prefix, name, val));
+}
+
 fn format_value_pretty(output: &mut String, name: &str, value: &DynamicValue, indent: usize) {
     let prefix = "  ".repeat(indent);
 
     match value {
-        DynamicValue::Bool(b) => {
-            output.push_str(&format!("{}{}: {}\n", prefix, name, b));
-        }
-        DynamicValue::Int8(i) => {
-            output.push_str(&format!("{}{}: {}\n", prefix, name, i));
-        }
-        DynamicValue::Int16(i) => {
-            output.push_str(&format!("{}{}: {}\n", prefix, name, i));
-        }
-        DynamicValue::Int32(i) => {
-            output.push_str(&format!("{}{}: {}\n", prefix, name, i));
-        }
-        DynamicValue::Int64(i) => {
-            output.push_str(&format!("{}{}: {}\n", prefix, name, i));
-        }
-        DynamicValue::Uint8(u) => {
-            output.push_str(&format!("{}{}: {}\n", prefix, name, u));
-        }
-        DynamicValue::Uint16(u) => {
-            output.push_str(&format!("{}{}: {}\n", prefix, name, u));
-        }
-        DynamicValue::Uint32(u) => {
-            output.push_str(&format!("{}{}: {}\n", prefix, name, u));
-        }
-        DynamicValue::Uint64(u) => {
-            output.push_str(&format!("{}{}: {}\n", prefix, name, u));
-        }
-        DynamicValue::Float32(f) => {
-            output.push_str(&format!("{}{}: {}\n", prefix, name, f));
-        }
-        DynamicValue::Float64(f) => {
-            output.push_str(&format!("{}{}: {}\n", prefix, name, f));
-        }
+        DynamicValue::Bool(b) => push_scalar(output, &prefix, name, b),
+        DynamicValue::Int8(i) => push_scalar(output, &prefix, name, i),
+        DynamicValue::Int16(i) => push_scalar(output, &prefix, name, i),
+        DynamicValue::Int32(i) => push_scalar(output, &prefix, name, i),
+        DynamicValue::Int64(i) => push_scalar(output, &prefix, name, i),
+        DynamicValue::Uint8(u) => push_scalar(output, &prefix, name, u),
+        DynamicValue::Uint16(u) => push_scalar(output, &prefix, name, u),
+        DynamicValue::Uint32(u) => push_scalar(output, &prefix, name, u),
+        DynamicValue::Uint64(u) => push_scalar(output, &prefix, name, u),
+        DynamicValue::Float32(f) => push_scalar(output, &prefix, name, f),
+        DynamicValue::Float64(f) => push_scalar(output, &prefix, name, f),
         DynamicValue::String(s) => {
             output.push_str(&format!("{}{}: \"{}\"\n", prefix, name, s));
         }

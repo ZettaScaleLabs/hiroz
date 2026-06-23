@@ -107,14 +107,31 @@ pub enum ConnectionStatus {
 }
 
 /// Per-topic metrics for multi-topic monitoring
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct TopicMetrics {
     pub msg_count: u64,
     pub byte_count: u64,
     pub last_msg_time: Option<Instant>,
+    pub counter_reset_at: Instant, // When msg_count/byte_count were last zeroed
     pub rate_history: VecDeque<u64>, // msg/s history (raw per-second counts)
     pub bandwidth_history: VecDeque<u64>, // KB/s * 10 history (raw per-second)
-    pub current_rate: f64,           // Smoothed rate (EMA)
-    pub current_bandwidth: f64,      // Smoothed bandwidth (EMA)
-    pub samples_collected: u64,      // Track if we have enough data for EMA
+    pub current_rate: f64,         // Smoothed rate (EMA)
+    pub current_bandwidth: f64,    // Smoothed bandwidth (EMA)
+    pub samples_collected: u64,    // Track if we have enough data for EMA
+}
+
+impl Default for TopicMetrics {
+    fn default() -> Self {
+        Self {
+            msg_count: 0,
+            byte_count: 0,
+            last_msg_time: None,
+            counter_reset_at: Instant::now(),
+            rate_history: VecDeque::new(),
+            bandwidth_history: VecDeque::new(),
+            current_rate: 0.0,
+            current_bandwidth: 0.0,
+            samples_collected: 0,
+        }
+    }
 }

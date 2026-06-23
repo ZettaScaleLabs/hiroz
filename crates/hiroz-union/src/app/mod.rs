@@ -199,7 +199,13 @@ impl App {
     }
 
     fn load_config() -> Config {
-        let config_paths = ["hiroz-console.json", ".hiroz-console.json"];
+        // Legacy hiroz-console.json is accepted as a deprecated fallback.
+        let config_paths = [
+            "hu.json",
+            ".hu.json",
+            "hiroz-console.json",
+            ".hiroz-console.json",
+        ];
 
         for path in &config_paths {
             if let Ok(content) = fs::read_to_string(path)
@@ -375,7 +381,11 @@ impl App {
 
     /// Stop recording and finalize
     pub fn stop_recording(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(recording_id) = self.recording_id {
+        let recording_id = self.recording_id.take();
+        // Clear flags unconditionally so the state machine is never stuck.
+        self.recording_active = false;
+
+        if let Some(recording_id) = recording_id {
             let conn = self.db_conn.lock();
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
@@ -387,8 +397,6 @@ impl App {
             )?;
         }
 
-        self.recording_active = false;
-        self.recording_id = None;
         Ok(())
     }
 
@@ -420,20 +428,19 @@ impl App {
 
         let metrics = self.topic_metrics.lock();
 
-        if let Some(conn) = self.db_conn.try_lock() {
-            for (topic, tm) in metrics.iter() {
-                let _ = conn.execute(
-                    "INSERT INTO recording_samples (recording_id, timestamp, topic, rate, bandwidth)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    rusqlite::params![
-                        recording_id,
-                        timestamp,
-                        topic,
-                        tm.current_rate,
-                        tm.current_bandwidth
-                    ],
-                );
-            }
+        let conn = self.db_conn.lock();
+        for (topic, tm) in metrics.iter() {
+            let _ = conn.execute(
+                "INSERT INTO recording_samples (recording_id, timestamp, topic, rate, bandwidth)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![
+                    recording_id,
+                    timestamp,
+                    topic,
+                    tm.current_rate,
+                    tm.current_bandwidth
+                ],
+            );
         }
     }
 
@@ -602,9 +609,9 @@ impl App {
         let mut metrics = self.topic_metrics.lock();
 
         for (_topic, tm) in metrics.iter_mut() {
-            // Raw per-second values
-            let instant_rate = tm.msg_count as f64;
-            let instant_bw = tm.byte_count as f64 / BYTES_PER_KB;
+            let elapsed = tm.counter_reset_at.elapsed().as_secs_f64().max(1e-6);
+            let instant_rate = tm.msg_count as f64 / elapsed;
+            let instant_bw = tm.byte_count as f64 / BYTES_PER_KB / elapsed;
 
             // Update history with raw values (for sparkline)
             if tm.rate_history.len() >= HISTORY_LENGTH {
@@ -632,9 +639,10 @@ impl App {
                     + (1.0 - EMA_SMOOTHING_FACTOR) * tm.current_bandwidth;
             }
 
-            // Reset counters for next second
+            // Reset counters for next tick
             tm.msg_count = 0;
             tm.byte_count = 0;
+            tm.counter_reset_at = Instant::now();
         }
 
         // Release the lock before recording

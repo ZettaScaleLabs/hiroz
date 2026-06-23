@@ -90,11 +90,7 @@ impl HuMeter {
             "hz" => self.cmd_hz(&args[1..]),
             "bw" => self.cmd_bw(&args[1..]),
             "echo" => self.cmd_echo(&args[1..]),
-            "delay" => {
-                render::println("delay subcommand: not yet implemented in WASM plugin");
-                render::exit(1);
-                self.mode = Mode::Done;
-            }
+            "delay" => self.cmd_delay(&args[1..]),
             "list" => {
                 self.cmd_list(&args[1..]);
                 self.mode = Mode::Done;
@@ -838,7 +834,8 @@ fn infer_param_value(s: &str) -> (u8, String) {
     if let Ok(f) = s.parse::<f64>() {
         return (3, format!(r#""double_value":{f}"#));
     }
-    (4, format!(r#""string_value":"{s}""#))
+    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
+    (4, format!(r#""string_value":"{escaped}""#))
 }
 
 fn extract_delay_note(json: &str) -> String {

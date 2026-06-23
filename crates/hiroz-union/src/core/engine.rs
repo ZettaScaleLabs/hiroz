@@ -31,6 +31,16 @@ pub struct CoreEngine {
     #[allow(dead_code)]
     pub context: Arc<ZContext>,
     pub node: Arc<ZNode>,
+    // AbortHandles for background tasks spawned by start_monitoring.
+    monitoring_tasks: Mutex<Vec<tokio::task::AbortHandle>>,
+}
+
+impl Drop for CoreEngine {
+    fn drop(&mut self) {
+        for handle in self.monitoring_tasks.lock().iter() {
+            handle.abort();
+        }
+    }
 }
 
 impl CoreEngine {
@@ -74,7 +84,11 @@ impl CoreEngine {
         // Initialize metrics collector
         let metrics = Arc::new(Mutex::new(MetricsCollector::new()));
 
-        // Create ROS context for node creation
+        // KNOWN GAP: ZContextBuilder does not accept an existing Arc<Session>, so this opens a
+        // second independent Zenoh session alongside self.session. Graph liveliness runs on
+        // self.session; ZNode pub/sub uses the context's internal session. Under load the two
+        // sessions may observe liveliness events in different orders. Track as hiroz API gap:
+        // ZContextBuilder needs with_session(Arc<Session>) to share a single session.
         let context = hiroz::context::ZContextBuilder::default()
             .with_domain_id(domain_id)
             .with_zenoh_config(config)
@@ -100,6 +114,7 @@ impl CoreEngine {
             is_connected: Arc::new(AtomicBool::new(true)),
             context,
             node,
+            monitoring_tasks: Mutex::new(Vec::new()),
         })
     }
 
@@ -136,7 +151,13 @@ impl CoreEngine {
         let ke = format!("@ros2_lv/{domain_id}/**");
         let fmt = hiroz_protocol::KeyExprFormat::RmwZenoh;
 
-        // Liveliness subscriber with history so we see all currently-alive tokens on startup.
+        // KNOWN GAP: this opens a second liveliness subscriber on @ros2_lv/{domain_id}/**;
+        // Graph::new_with_pattern (called in CoreEngine::new) already subscribes the same pattern
+        // for graph state. Until hiroz::Graph exposes a way to hook into its liveliness callback,
+        // or ZContextBuilder accepts an existing Arc<Session>, we cannot share the single session
+        // subscriber here. Consequence: each liveliness token triggers two callbacks — one in the
+        // Graph and one here — which is harmless but redundant. Track as architecture gap: hiroz
+        // needs ZContextBuilder::with_session(Arc<Session>) so the graph and context share state.
         let sub = match session
             .liveliness()
             .declare_subscriber(&ke)
@@ -150,17 +171,20 @@ impl CoreEngine {
             }
         };
 
-        tokio::spawn(async move {
-            // Track connection status via a periodic info check in a separate task.
-            let session2 = session.clone();
-            tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    let connected = session2.info().routers_zid().await.count() > 0;
-                    is_connected.store(connected, Ordering::SeqCst);
-                }
-            });
+        // Connection-check task: polls router presence every 5 seconds.
+        let session2 = session.clone();
+        let conn_handle = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                let connected = session2.info().routers_zid().await.count() > 0;
+                is_connected.store(connected, Ordering::SeqCst);
+            }
+        });
+        self.monitoring_tasks
+            .lock()
+            .push(conn_handle.abort_handle());
 
+        let lv_handle = tokio::spawn(async move {
             while let Ok(sample) = sub.recv_async().await {
                 let appeared = sample.kind() == zenoh::sample::SampleKind::Put;
                 let Ok(entity) = fmt.parse_liveliness(sample.key_expr()) else {
@@ -224,5 +248,6 @@ impl CoreEngine {
                 let _ = event_tx.send(event);
             }
         });
+        self.monitoring_tasks.lock().push(lv_handle.abort_handle());
     }
 }
