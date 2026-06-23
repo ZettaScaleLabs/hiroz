@@ -43,6 +43,14 @@ impl WasmPlugin {
                 hu::plugin::types::PluginEvent::Tick => EventKind::Tick,
                 hu::plugin::types::PluginEvent::KeyAction(_) => EventKind::KeyAction,
                 hu::plugin::types::PluginEvent::TopicSelected(_) => EventKind::TopicSelected,
+                // Interrupt bypasses subscription filtering — always delivered.
+                hu::plugin::types::PluginEvent::Interrupt => {
+                    self.store.set_epoch_deadline(30);
+                    if let Err(e) = self.bindings.call_on_event(&mut self.store, &event) {
+                        tracing::warn!("WASM plugin '{}' interrupt error: {e}", self.manifest.name);
+                    }
+                    return self.store.data().exit_code;
+                }
             };
             let subscribed = self.manifest.subscribed_events.iter().any(|k| {
                 matches!(
@@ -172,7 +180,13 @@ fn load_one(
     let title = Arc::new(Mutex::new(String::new()));
 
     let mut wasi_builder = WasiCtxBuilder::new();
-    wasi_builder.inherit_env();
+    // Expose only the env vars plugins legitimately need; inherit_env() leaks
+    // secrets and internal paths from the host process.
+    for var in &["HU_ROUTER", "HU_DOMAIN", "HOME", "PATH", "RUST_LOG"] {
+        if let Ok(val) = std::env::var(var) {
+            wasi_builder.env(var, &val);
+        }
+    }
     if let Err(e) = wasi_builder.preopened_dir(
         &work_dir,
         "/work",

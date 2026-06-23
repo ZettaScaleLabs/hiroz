@@ -7,5 +7,7 @@ description = "hu monitor — graph watch, log, and log-level for ROS 2 (WASM pl
 [lib]
 crate-type = ["cdylib"]
 
+[workspace]
+
 [dependencies]
 wit-bindgen = "0.46"

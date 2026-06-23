@@ -42,7 +42,7 @@ pub async fn run_cli_plugin(
     loop {
         // Check for SIGINT; fire interrupt action so the plugin can clean up.
         if sigint_rx.try_recv().is_ok() {
-            plugin.dispatch_event(PluginEvent::KeyAction("interrupt".to_string()));
+            plugin.dispatch_event(PluginEvent::Interrupt);
             flush_output(plugin);
             // Give the plugin one more tick to call exit().
             let code = plugin.dispatch_event(PluginEvent::Tick);

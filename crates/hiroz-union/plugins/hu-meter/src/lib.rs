@@ -1,5 +1,5 @@
 wit_bindgen::generate!({
-    world: "hu-plugin",
+    world: "hu-cli-plugin",
     path: "wit/hu-plugin.wit",
 });
 
@@ -1143,12 +1143,8 @@ impl Guest for Plugin {
         match event {
             PluginEvent::Startup(args) => state().startup(args),
             PluginEvent::Tick => state().on_tick(),
-            PluginEvent::KeyAction(cmd) => {
-                if cmd == "interrupt" {
-                    render::exit(130);
-                }
-            }
-            PluginEvent::TopicSelected(_) => {}
+            PluginEvent::Interrupt => render::exit(130),
+            PluginEvent::KeyAction(_) | PluginEvent::TopicSelected(_) => {}
         }
     }
 }

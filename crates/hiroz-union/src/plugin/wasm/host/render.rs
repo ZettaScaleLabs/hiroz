@@ -5,11 +5,7 @@ use super::hu;
 
 impl hu::plugin::render::Host for PluginState {
     fn println(&mut self, text: String) {
-        let mut lines = self.output_lines.lock();
-        lines.push(text);
-        if lines.len() > 1000 {
-            lines.drain(0..500);
-        }
+        self.output_lines.lock().push(text);
     }
 
     fn set_title(&mut self, title: String) {

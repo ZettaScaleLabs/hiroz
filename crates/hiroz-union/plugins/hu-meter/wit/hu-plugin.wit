@@ -43,6 +43,7 @@ interface types {
         tick,
         key-action,
         topic-selected,
+        interrupt,
     }
 
     enum permission {
@@ -80,6 +81,8 @@ interface types {
         topic-selected(string),
         // Periodic tick at the interval declared in the manifest.
         tick,
+        // Sent on SIGINT so CLI plugins can flush and exit cleanly.
+        interrupt,
     }
 }
 
@@ -229,7 +232,46 @@ interface render {
     exit: func(code: u32);
 }
 
-// The plugin world: what the host imports and what the plugin exports.
+// ─── Worlds ──────────────────────────────────────────────────────────────────
+
+// CLI plugin world: one-shot or tick-driven tools (hz, bw, echo, bridge, …).
+// Plugins target this world when they run from the terminal and do not need
+// TUI keybindings or topic-navigation events.
+//
+// Binary-compatible with hu-tui-plugin: both export on-event with the same
+// plugin-event type so the host can load either kind with a single bindgen.
+// The interrupt variant in plugin-event replaces the old KeyAction("interrupt")
+// hack used by the CLI executor for SIGINT notification.
+world hu-cli-plugin {
+    use types.{plugin-manifest, plugin-event};
+
+    import graph;
+    import ros;
+    import raw-transport;
+    import session;
+    import render;
+
+    export manifest: func() -> plugin-manifest;
+    export on-event: func(event: plugin-event);
+}
+
+// TUI plugin world: full event set including keybindings and topic navigation.
+// Used by plugins that render inside the hu TUI pane system.
+world hu-tui-plugin {
+    use types.{plugin-manifest, plugin-event};
+
+    import graph;
+    import ros;
+    import raw-transport;
+    import session;
+    import render;
+
+    export manifest: func() -> plugin-manifest;
+    export on-event: func(event: plugin-event);
+}
+
+// Legacy alias — kept for backward compatibility with plugins compiled before
+// the world split. Equivalent to hu-tui-plugin.
 world hu-plugin {
     use types.{plugin-manifest, plugin-event};
 
@@ -239,8 +281,6 @@ world hu-plugin {
     import session;
     import render;
 
-    // Called once at load time to discover the plugin's identity and keybindings.
     export manifest: func() -> plugin-manifest;
-    // Called on every event the plugin subscribed to.
     export on-event: func(event: plugin-event);
 }

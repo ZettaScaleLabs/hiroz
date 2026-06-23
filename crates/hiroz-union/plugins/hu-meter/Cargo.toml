@@ -7,5 +7,7 @@ description = "hu meter — rate, bandwidth, echo, list, and info for ROS 2 (WAS
 [lib]
 crate-type = ["cdylib"]
 
+[workspace]
+
 [dependencies]
 wit-bindgen = "0.46"
