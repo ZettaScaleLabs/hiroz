@@ -492,12 +492,25 @@
 
           # CI shell for bridge interop + hz-comparison tests.
           # Same as ros-bridge-interop but with the pre-built `hu` binary injected
-          # so hz-comparison tests can call `hu meter hz` without a separate build step.
+          # and hu-meter.wasm built at shell-entry time so `hu meter hz` can dispatch
+          # to the WASM plugin (hu uses the WASM plugin system, not a native binary).
           bridge-interop-ci = (self.devShells.${system}.ros-bridge-interop).overrideAttrs (old: {
             buildInputs = (old.buildInputs or [ ]) ++ [
+              rustToolchainWasm
               self.packages.${system}.hu
-              self.packages.${system}.hu-meter
             ];
+            shellHook = (old.shellHook or "") + ''
+              # Build hu-meter WASM plugin and expose it via HU_PLUGIN_PATH.
+              # hu uses the WASM plugin system: `hu meter` → loads meter.wasm from HU_PLUGIN_PATH.
+              _HU_PLUGIN_DIR="''${CARGO_TARGET_DIR:-target}/hu-plugins"
+              mkdir -p "$_HU_PLUGIN_DIR"
+              if RUSTFLAGS="" cargo build -p hu-meter --target wasm32-wasip2 --release \
+                  --target-dir "''${CARGO_TARGET_DIR:-target}" -j4 2>/dev/null; then
+                ln -sf "''${CARGO_TARGET_DIR:-target}/wasm32-wasip2/release/hu_meter.wasm" \
+                       "$_HU_PLUGIN_DIR/hu-meter.wasm" 2>/dev/null || true
+              fi
+              export HU_PLUGIN_PATH="$_HU_PLUGIN_DIR"
+            '';
           });
 
         }
@@ -533,26 +546,6 @@
             cargoInstallFlags = [
               "--bin"
               "hu"
-            ];
-            doCheck = false;
-            RUSTFLAGS = "";
-          };
-          hu-meter = pkgs.rustPlatform.buildRustPackage {
-            pname = "hu-meter";
-            version = "0.1.0";
-            src = ./.;
-            cargoLock.lockFile = ./Cargo.lock;
-            nativeBuildInputs = [
-              pkgs.pkg-config
-              pkgs.protobuf
-            ];
-            cargoBuildFlags = [
-              "-p"
-              "hiroz-meter"
-            ];
-            cargoInstallFlags = [
-              "--bin"
-              "hu-meter"
             ];
             doCheck = false;
             RUSTFLAGS = "";
