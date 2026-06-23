@@ -3,6 +3,7 @@ wit_bindgen::generate!({
     path: "wit/hu-plugin.wit",
 });
 
+use hu::plugin::session::RawPublisher;
 use hu::plugin::types::{EventKind, Permission};
 use hu::plugin::{graph, render, ros};
 
@@ -35,11 +36,27 @@ enum Mode {
         sub: Option<ros::Subscription>,
         count: usize,
         printed: usize,
+        field: Option<String>,
     },
     /// Delay measurement (header stamp vs receive time) — requires JSON with header.stamp
     Delay {
         topic: String,
         sub: Option<ros::Subscription>,
+    },
+    /// Repeated publish with rate/times support
+    Pub {
+        pub_: RawPublisher,
+        cdr: Vec<u8>,
+        topic: String,
+        interval_ticks: u32,
+        times_remaining: u32,
+        ticks_since_last: u32,
+    },
+    /// Subscribe to action feedback topic
+    ActionEcho {
+        sub: Option<ros::Subscription>,
+        count: usize,
+        printed: usize,
     },
     /// One-shot commands that finish in startup
     Done,
@@ -73,14 +90,16 @@ impl HuMeter {
             render::println("Usage: hu meter <subcommand> [args]");
             render::println("  hz <topic> [--duration <s>] [--window <n>]");
             render::println("  bw <topic> [--duration <s>]");
-            render::println("  echo <topic> [--count <n>]");
+            render::println("  echo <topic> [--count <n>] [--field <path>]");
             render::println("  delay <topic>");
-            render::println("  list topics|nodes|services");
+            render::println("  list topics|nodes|services [--find <type>]");
             render::println("  info topic|node|service <name>");
-            render::println("  pub <topic> --msg-type <type> --yaml <yaml>");
+            render::println(
+                "  pub <topic> --msg-type <type> --yaml <yaml> [--rate <Hz>] [--times <n>]",
+            );
             render::println("  service <name> <type> <request-json>");
-            render::println("  param list|get|set <node> [<param>] [<value>]");
-            render::println("  action send <name> <type> <goal-json>");
+            render::println("  param list|get|set|delete <node> [<param>] [<value>]");
+            render::println("  action send|echo <name> <type> [<goal-json>]");
             render::exit(1);
             self.mode = Mode::Done;
             return;
@@ -101,7 +120,7 @@ impl HuMeter {
             }
             "pub" => {
                 self.cmd_pub(&args[1..]);
-                self.mode = Mode::Done;
+                // cmd_pub sets mode itself (Done or Pub)
             }
             "service" => {
                 self.cmd_service(&args[1..]);
@@ -113,7 +132,11 @@ impl HuMeter {
             }
             "action" => {
                 self.cmd_action(&args[1..]);
-                self.mode = Mode::Done;
+                // cmd_action sets mode itself for "echo"; for "send" it finishes in startup
+                // Only set Done if mode is still Init (i.e. "send" completed or errored)
+                if matches!(self.mode, Mode::Init) {
+                    self.mode = Mode::Done;
+                }
             }
             other => {
                 render::println(&format!("unknown subcommand: {other}"));
@@ -173,7 +196,7 @@ impl HuMeter {
 
     fn cmd_echo(&mut self, args: &[String]) {
         let Some(topic) = args.first().cloned() else {
-            render::println("Usage: hu meter echo <topic> [--count <n>]");
+            render::println("Usage: hu meter echo <topic> [--count <n>] [--field <path>]");
             render::exit(1);
             self.mode = Mode::Done;
             return;
@@ -181,6 +204,7 @@ impl HuMeter {
         let count = flag_value(args, "--count")
             .and_then(|v| v.parse().ok())
             .unwrap_or(0usize);
+        let field = flag_value(args, "--field");
         let sub = match ros::subscribe(&topic) {
             Ok(s) => s,
             Err(e) => {
@@ -195,6 +219,7 @@ impl HuMeter {
             sub: Some(sub),
             count,
             printed: 0,
+            field,
         };
     }
 
@@ -223,6 +248,7 @@ impl HuMeter {
     fn cmd_list(&self, args: &[String]) {
         let what = args.first().map(|s| s.as_str()).unwrap_or("topics");
         let show_all = args.contains(&"--all".to_string());
+        let type_filter = flag_value(args, "--find");
 
         match what {
             "topics" => {
@@ -231,6 +257,14 @@ impl HuMeter {
                     topics
                 } else {
                     topics.into_iter().filter(|t| !is_hidden(&t.name)).collect()
+                };
+                let topics: Vec<_> = if let Some(ref f) = type_filter {
+                    topics
+                        .into_iter()
+                        .filter(|t| t.type_name.contains(f.as_str()))
+                        .collect()
+                } else {
+                    topics
                 };
                 if self.json {
                     render::println(&format!(
@@ -395,18 +429,26 @@ impl HuMeter {
         }
     }
 
-    fn cmd_pub(&self, args: &[String]) {
+    fn cmd_pub(&mut self, args: &[String]) {
         let Some(topic) = args.first().cloned() else {
-            render::println("Usage: hu meter pub <topic> --msg-type <type> --yaml <yaml>");
+            render::println("Usage: hu meter pub <topic> --msg-type <type> --yaml <yaml> [--rate <Hz>] [--times <n>]");
             render::exit(1);
+            self.mode = Mode::Done;
             return;
         };
         let msg_type = flag_value(args, "--msg-type").unwrap_or_default();
         let yaml = flag_value(args, "--yaml").unwrap_or_else(|| "{}".to_string());
+        let rate: f64 = flag_value(args, "--rate")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0.0);
+        let times: u32 = flag_value(args, "--times")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
 
         if msg_type.is_empty() {
             render::println("--msg-type is required");
             render::exit(1);
+            self.mode = Mode::Done;
             return;
         }
 
@@ -415,6 +457,7 @@ impl HuMeter {
             Err(e) => {
                 render::println(&format!("encode error: {e}"));
                 render::exit(1);
+                self.mode = Mode::Done;
                 return;
             }
         };
@@ -424,6 +467,7 @@ impl HuMeter {
             Err(e) => {
                 render::println(&format!("failed to get default session: {e}"));
                 render::exit(1);
+                self.mode = Mode::Done;
                 return;
             }
         };
@@ -432,19 +476,46 @@ impl HuMeter {
             Err(e) => {
                 render::println(&format!("failed to declare publisher on {topic}: {e}"));
                 render::exit(1);
+                self.mode = Mode::Done;
                 return;
             }
         };
-        if let Err(e) = pub_.publish(&cdr) {
-            render::println(&format!("publish error: {e}"));
-            render::exit(1);
-        } else {
-            if self.json {
-                render::println(&format!("{{\"published\":true,\"topic\":\"{topic}\"}}"));
+
+        // If rate > 0 or times > 1, use tick-based repeated publish
+        if rate > 0.0 || times > 1 {
+            // tick_ms = 1000 ms; interval_ticks = max(1, round(1.0 / rate)) when rate > 0
+            let interval_ticks = if rate > 0.0 {
+                let t = (1.0 / rate).round() as u32;
+                if t == 0 {
+                    1
+                } else {
+                    t
+                }
             } else {
-                render::println(&format!("Published to {topic}"));
+                0 // will publish each tick up to times_remaining
+            };
+            self.mode = Mode::Pub {
+                pub_,
+                cdr,
+                topic,
+                interval_ticks,
+                times_remaining: times,
+                ticks_since_last: interval_ticks, // start ready to publish on first tick
+            };
+        } else {
+            // One-shot publish (original behaviour)
+            if let Err(e) = pub_.publish(&cdr) {
+                render::println(&format!("publish error: {e}"));
+                render::exit(1);
+            } else {
+                if self.json {
+                    render::println(&format!("{{\"published\":true,\"topic\":\"{topic}\"}}"));
+                } else {
+                    render::println(&format!("Published to {topic}"));
+                }
+                render::exit(0);
             }
-            render::exit(0);
+            self.mode = Mode::Done;
         }
     }
 
@@ -601,26 +672,119 @@ impl HuMeter {
                     }
                 }
             }
+            "delete" => {
+                let param_name = match args.get(2) {
+                    Some(n) => n.clone(),
+                    None => {
+                        render::println("ERROR: parameter name required");
+                        render::exit(1);
+                        return;
+                    }
+                };
+                let svc = format!("{node}/delete_parameters");
+                let client = match ros::connect_service(&svc, "rcl_interfaces/srv/DeleteParameters")
+                {
+                    Ok(c) => c,
+                    Err(e) => {
+                        render::println(&format!("ERROR: connect to {svc}: {e}"));
+                        render::exit(1);
+                        return;
+                    }
+                };
+                let req = format!(r#"{{"names":["{param_name}"]}}"#);
+                match client.call(&req, 5000) {
+                    Ok(resp) => {
+                        // resp: {"results":[{"successful":true/false,"reason":"..."}]}
+                        if resp.contains("\"successful\":true") {
+                            if self.json {
+                                render::println(&resp);
+                            } else {
+                                render::println(&format!(
+                                    "Deleted parameter '{param_name}' from {node}"
+                                ));
+                            }
+                            render::exit(0);
+                        } else {
+                            if self.json {
+                                render::println(&resp);
+                            } else {
+                                render::println(&format!(
+                                    "Failed to delete parameter '{param_name}': {resp}"
+                                ));
+                            }
+                            render::exit(1);
+                        }
+                    }
+                    Err(e) => {
+                        render::println(&format!("ERROR: {e}"));
+                        render::exit(1);
+                    }
+                }
+            }
             other => {
                 render::println(&format!("unknown param subcommand: {other}"));
-                render::println("Usage: hu meter param list|get|set <node> [<param>] [<value>]");
+                render::println(
+                    "Usage: hu meter param list|get|set|delete <node> [<param>] [<value>]",
+                );
                 render::exit(1);
             }
         }
     }
 
-    fn cmd_action(&self, args: &[String]) {
+    fn cmd_action(&mut self, args: &[String]) {
         // hu meter action send <name> <type> <goal-json>
+        // hu meter action echo <name> --msg-type <action_type> [--count <n>]
         let subcmd = match args.first() {
             Some(s) => s.as_str(),
             None => {
-                render::println("Usage: hu meter action send <name> <type> <goal-json>");
+                render::println("Usage: hu meter action send|echo <name> <type> [<goal-json>]");
                 render::println("  Example: hu meter action send /fibonacci example_interfaces/action/Fibonacci '{\"order\":5}'");
+                render::println("  Example: hu meter action echo /fibonacci --msg-type example_interfaces/action/Fibonacci");
                 render::exit(1);
                 return;
             }
         };
         match subcmd {
+            "echo" => {
+                // Subscribe to <action_name>/_action/feedback
+                let action_name = match args.get(1) {
+                    Some(n) => n.clone(),
+                    None => {
+                        render::println(
+                            "Usage: hu meter action echo <name> --msg-type <type> [--count <n>]",
+                        );
+                        render::exit(1);
+                        return;
+                    }
+                };
+                let action_type = match flag_value(args, "--msg-type") {
+                    Some(t) => t,
+                    None => {
+                        render::println("ERROR: --msg-type required");
+                        render::exit(1);
+                        return;
+                    }
+                };
+                let count = flag_value(args, "--count")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0usize);
+                let feedback_topic = format!("{action_name}/_action/feedback");
+                // feedback type is <ActionType>_FeedbackMessage
+                let _feedback_type = format!("{action_type}_FeedbackMessage");
+                let sub = match ros::subscribe(&feedback_topic) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        render::println(&format!("Failed to subscribe to {feedback_topic}: {e}"));
+                        render::exit(1);
+                        return;
+                    }
+                };
+                self.mode = Mode::ActionEcho {
+                    sub: Some(sub),
+                    count,
+                    printed: 0,
+                };
+            }
             "send" => {
                 let (action_name, action_type, goal_json) =
                     match (args.get(1), args.get(2), args.get(3)) {
@@ -696,7 +860,7 @@ impl HuMeter {
             }
             other => {
                 render::println(&format!("unknown action subcommand: {other}"));
-                render::println("Usage: hu meter action send <name> <type> <goal-json>");
+                render::println("Usage: hu meter action send|echo <name> <type> [<goal-json>]");
                 render::exit(1);
             }
         }
@@ -752,6 +916,7 @@ impl HuMeter {
                 sub,
                 count,
                 printed,
+                field,
             } => {
                 let Some(s) = sub.as_ref() else {
                     return;
@@ -759,7 +924,12 @@ impl HuMeter {
                 while let Some(json_msg) = s.try_recv() {
                     let t = topic.clone();
                     *printed += 1;
-                    render::println(&format!("[{t}] {json_msg}"));
+                    if let Some(ref fp) = field {
+                        let extracted = extract_field(&json_msg, fp);
+                        render::println(&format!("[{t}] {extracted}"));
+                    } else {
+                        render::println(&format!("[{t}] {json_msg}"));
+                    }
                     if *count > 0 && *printed >= *count {
                         render::exit(0);
                         self.mode = Mode::Done;
@@ -776,6 +946,55 @@ impl HuMeter {
                     let delay_note = extract_delay_note(&json_msg);
                     let t = topic.clone();
                     render::println(&format!("[{t}] {delay_note}"));
+                }
+            }
+            Mode::Pub {
+                pub_,
+                cdr,
+                topic,
+                interval_ticks,
+                times_remaining,
+                ticks_since_last,
+            } => {
+                *ticks_since_last += 1;
+                let ready = if *interval_ticks == 0 {
+                    true // no rate limit: publish each tick
+                } else {
+                    *ticks_since_last >= *interval_ticks
+                };
+                if ready && *times_remaining > 0 {
+                    *ticks_since_last = 0;
+                    if let Err(e) = pub_.publish(cdr) {
+                        render::println(&format!("publish error: {e}"));
+                        render::exit(1);
+                        self.mode = Mode::Done;
+                        return;
+                    }
+                    let t = topic.clone();
+                    render::println(&format!("Published to {t}"));
+                    *times_remaining -= 1;
+                    if *times_remaining == 0 {
+                        render::exit(0);
+                        self.mode = Mode::Done;
+                    }
+                }
+            }
+            Mode::ActionEcho {
+                sub,
+                count,
+                printed,
+            } => {
+                let Some(s) = sub.as_ref() else {
+                    return;
+                };
+                while let Some(json_msg) = s.try_recv() {
+                    *printed += 1;
+                    render::println(&json_msg);
+                    if *count > 0 && *printed >= *count {
+                        render::exit(0);
+                        self.mode = Mode::Done;
+                        return;
+                    }
                 }
             }
             Mode::Done | Mode::Init => {}
@@ -838,6 +1057,40 @@ fn infer_param_value(s: &str) -> (u8, String) {
     (4, format!(r#""string_value":"{escaped}""#))
 }
 
+/// Extract a dot-separated field path from a JSON string.
+/// E.g. "header.stamp.sec" on `{"header":{"stamp":{"sec":42,...},...},...}` → "42".
+/// Falls back to "(field not found)" when the path does not resolve.
+fn extract_field(json: &str, path: &str) -> String {
+    let mut current = json;
+    for segment in path.split('.') {
+        let key = format!("\"{}\":", segment);
+        let Some(pos) = current.find(&key) else {
+            return format!("(field '{segment}' not found in path '{path}')");
+        };
+        // Advance past the key
+        current = current[pos + key.len()..].trim_start();
+        // If the value starts with '{', keep current pointing at the object for next segment
+        // Otherwise the value ends at the next ',' or '}'
+    }
+    // Extract the scalar value: everything up to the first unquoted ',' or '}'
+    let trimmed = current.trim_start();
+    if trimmed.starts_with('"') {
+        // String value — find closing quote
+        let inner = &trimmed[1..];
+        let end = inner.find('"').unwrap_or(inner.len());
+        inner[..end].to_string()
+    } else if trimmed.starts_with('{') || trimmed.starts_with('[') {
+        // Nested object/array — return as-is up to depth 0 (simplified: just the raw head)
+        trimmed.to_string()
+    } else {
+        // Number / bool / null
+        let end = trimmed
+            .find(|c: char| c == ',' || c == '}' || c == ']')
+            .unwrap_or(trimmed.len());
+        trimmed[..end].to_string()
+    }
+}
+
 fn extract_delay_note(json: &str) -> String {
     // Naive: look for "sec" and "nanosec" fields in the JSON string.
     // A real impl would parse the JSON; here we just report the raw message.
@@ -846,15 +1099,20 @@ fn extract_delay_note(json: &str) -> String {
 
 // ─── Plugin entry points ──────────────────────────────────────────────────────
 //
-// WASM components are single-threaded (no threads, no Send/Sync required).
-// Use OnceCell<RefCell<T>> to avoid unsafe static mut while staying no-std-safe.
+// WASM components are single-threaded — there are no threads, so Sync is trivially safe.
+// The wit-bindgen generated resource handles (ros::Subscription, session::RawPublisher, etc.)
+// do not implement Sync, but this is a false negative for single-threaded WASM.
+struct AssertSync<T>(T);
+// SAFETY: WASM components run on a single thread; no concurrent access is possible.
+unsafe impl<T> Sync for AssertSync<T> {}
 
 use std::cell::{OnceCell, RefCell};
 
-static STATE: OnceCell<RefCell<HuMeter>> = OnceCell::new();
+static STATE: AssertSync<OnceCell<RefCell<HuMeter>>> = AssertSync(OnceCell::new());
 
 fn state() -> std::cell::RefMut<'static, HuMeter> {
     STATE
+        .0
         .get_or_init(|| RefCell::new(HuMeter::new()))
         .borrow_mut()
 }
