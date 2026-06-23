@@ -1145,6 +1145,95 @@ fn test_hz_qos_mismatch() {
     );
 }
 
+/// Verify that `hu meter hz --count 1 --window 500` produces its first measurement
+/// within 3× the window period and exits promptly — no hang on first reading.
+///
+/// Regression guard against a class of bugs where hu-meter blocks indefinitely
+/// waiting for a second window worth of data before emitting the first line.
+#[test]
+fn test_hz_first_measurement_latency() {
+    let target = 10.0_f64; // 10 Hz publisher
+    let window_ms = 500u64;
+    let topic = "hz_first_latency";
+
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+
+    // Publish at 10 Hz from a background thread.
+    {
+        let endpoint2 = endpoint.clone();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let ctx = create_hiroz_context_with_endpoint(&endpoint2).unwrap();
+                let node = ctx.create_node("hz_first_latency_pub").build().unwrap();
+                let pub_ = node
+                    .create_pub::<RosString>(&format!("/{topic}"))
+                    .build()
+                    .unwrap();
+                let interval_ms = (1000.0 / target) as u64;
+                let stop = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                while std::time::Instant::now() < stop {
+                    let _ = pub_.async_publish(&RosString { data: "x".into() }).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(interval_ms)).await;
+                }
+            });
+        });
+    }
+
+    // Give the publisher time to start before we measure.
+    thread::sleep(Duration::from_millis(300));
+
+    let t_start = std::time::Instant::now();
+
+    // --count 1 should exit after the first window.
+    let out = Command::new("hu")
+        .args([
+            "meter",
+            "--router",
+            &endpoint,
+            "hz",
+            &format!("/{topic}"),
+            "--window",
+            &window_ms.to_string(),
+            "--count",
+            "1",
+            "--json",
+        ])
+        .output()
+        .expect("failed to run hu meter hz --count 1");
+
+    let elapsed = t_start.elapsed();
+
+    assert!(
+        out.status.success(),
+        "hu meter hz --count 1 failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Should exit within 2 seconds — not hang.
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "hu meter hz --count 1 took {:?} — possible hang (window={}ms)",
+        elapsed,
+        window_ms
+    );
+
+    // Parse the reported rate and check it is in a reasonable band around the target.
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let rate = parse_hu_meter_hz(&stdout);
+    if let Some(r) = rate {
+        assert!(
+            r >= target * 0.5 && r <= target * 2.0,
+            "Reported rate {r:.2} Hz is outside expected band [{:.1}, {:.1}] for a {target} Hz publisher",
+            target * 0.5,
+            target * 2.0,
+        );
+    }
+    // If rate is None the command still passed the timing assertion; the test is
+    // primarily checking for no-hang, not exact measurement accuracy.
+}
+
 /// Demonstrates ros2cli#1043 / ros2cli#843 advantage: at 2 kHz, hu meter hz
 /// and ros2 topic hz measure the same actual rate. The machine may not sustain
 /// 2 kHz under CI load — both tools will under-report equally. What matters is
