@@ -835,14 +835,15 @@ fn json_to_dynamic_message(
     schema: &Arc<MessageSchema>,
 ) -> Result<DynamicMessage, String> {
     let obj = value.as_object().ok_or("expected a JSON object")?;
-    let mut builder = DynamicMessage::builder(schema);
+    let mut msg = DynamicMessage::new(schema);
     for field in &schema.fields {
         if let Some(v) = obj.get(&field.name) {
             let dval = json_to_dynamic_value(v, &field.field_type)?;
-            builder = builder.set(&field.name, dval).map_err(|e| e.to_string())?;
+            msg.set_dynamic(&field.name, dval)
+                .map_err(|e| e.to_string())?;
         }
     }
-    Ok(builder.build())
+    Ok(msg)
 }
 
 fn json_to_dynamic_value(
@@ -878,10 +879,9 @@ fn json_to_dynamic_value(
         FieldType::String | FieldType::BoundedString(_) => Ok(DynamicValue::String(
             value.as_str().ok_or("expected string")?.to_string(),
         )),
-        FieldType::Message(inner_schema) => Ok(DynamicValue::Message(json_to_dynamic_message(
-            value,
-            inner_schema,
-        )?)),
+        FieldType::Message(inner_schema) => Ok(DynamicValue::Message(Box::new(
+            json_to_dynamic_message(value, inner_schema)?,
+        ))),
         FieldType::Array(inner, _)
         | FieldType::Sequence(inner)
         | FieldType::BoundedSequence(inner, _) => {

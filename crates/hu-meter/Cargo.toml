@@ -1,0 +1,11 @@
+[package]
+name = "hu-meter"
+version = "0.1.0"
+edition = "2021"
+description = "hu meter — rate, bandwidth, echo, list, and info for ROS 2 (WASM plugin)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.46"

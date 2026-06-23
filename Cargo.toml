@@ -20,6 +20,7 @@ members = [
   "crates/hiroz-msgs",
   "crates/hiroz-tests",
   "crates/hiroz-union",
+  "crates/hu-meter",
   "crates/hiroz-meter",
   "crates/hiroz-monitor",
   "crates/hiroz-bridge",
