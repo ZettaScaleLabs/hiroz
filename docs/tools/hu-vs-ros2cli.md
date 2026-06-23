@@ -31,7 +31,7 @@
 | Machine-readable output | — (human text only) | — | `--json` on every command |
 | Daemon-free operation | no (requires `_ros2_daemon`) | no | yes |
 | Works without a ROS 2 install | no | no | yes |
-| Extensible via plugins | no | yes (rqt plugins) | yes (`hu-*` binaries on PATH) |
+| Extensible via plugins | no | yes (rqt plugins) | yes (`.wasm` plugins) |
 | Live multi-topic rate dashboard | — | rqt_topic | `hu` (interactive TUI) |
 
 ---
@@ -220,19 +220,15 @@ hu bridge status
 
 `rqt` is extended through Qt plugin descriptors — also a packaging-heavy process.
 
-`hu` dispatches to any binary named `hu-<name>` found on `PATH`. There is no registration step, no packaging requirement, and no shared runtime state between plugins. A debug tool, a recorder, or a fleet diagnostics command are all one executable away:
+`hu` loads `.wasm` plugins from `$HU_PLUGIN_PATH` and `~/.local/share/hu/plugins/`. There is no registration step, no packaging requirement, and no shared runtime state between plugins. A plugin declares its identity and keybindings via a `manifest()` export and receives events through `on-event()`. The host opens any Zenoh sessions the plugin declares in its manifest, so plugins never handle connection setup themselves.
 
 ```bash
-# Any binary named hu-debug becomes `hu debug`
-cp ./my-debug-tool /usr/local/bin/hu-debug
-hu debug --topic /scan
+# Drop a .wasm file and it becomes a plugin
+cp ./my-debug-tool.wasm ~/.local/share/hu/plugins/
+hu plugin list           # shows all .wasm plugins found in search path
 ```
 
-Each plugin inherits the `--router`, `--domain`, and `--json` flags from the `hu` dispatcher through the `HU_ROUTER`, `HU_DOMAIN`, and `HU_JSON` environment variables, so plugins don't need to re-implement connection handling.
-
-```bash
-hu list plugins          # shows all hu-* binaries currently on PATH
-```
+Plugins have access to the live ROS graph, raw CDR subscriptions, publishers, liveliness tokens, queryables, and named Zenoh sessions — all proxied through the host without any per-plugin Zenoh dependency. A bridge plugin that needs two independent sessions (e.g. Humble and Jazzy) declares both in its manifest and the host opens them before the first event fires.
 
 ---
 

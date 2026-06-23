@@ -1,13 +1,16 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
-use hiroz::dynamic::{DynamicMessage, DynamicValue};
-use hiroz_protocol::EndpointKind;
+use hiroz::dynamic::{
+    DynamicMessage, DynamicValue, FieldType, MessageSchema, get_schema,
+    serialization::{deserialize_cdr, serialize_cdr},
+};
+use hiroz_protocol::{EndpointKind, Entity};
 use wasmtime::{
     Engine, Store,
     component::{Component, HasSelf, Linker, Resource, bindgen},
@@ -67,6 +70,35 @@ struct QuerierData {
     ke: String,
 }
 
+/// Per-topic rate/bandwidth tracker for measure-hz and measure-bw.
+/// The background subscriber pushes (arrival_time, byte_count) through a channel.
+struct RateTrackerData {
+    rx: flume::Receiver<(Instant, usize)>,
+    arrivals: VecDeque<(Instant, usize)>,
+    _abort: tokio::task::AbortHandle,
+}
+
+impl RateTrackerData {
+    fn drain_and_trim(&mut self, window_ms: u32) {
+        while let Ok(sample) = self.rx.try_recv() {
+            self.arrivals.push_back(sample);
+        }
+        let cutoff = Instant::now() - Duration::from_millis(window_ms as u64);
+        while self.arrivals.front().is_some_and(|(t, _)| *t < cutoff) {
+            self.arrivals.pop_front();
+        }
+    }
+}
+
+/// Service client for ROS service calls via the ros interface.
+struct ServiceClientData {
+    session: Arc<zenoh::Session>,
+    /// Zenoh key expression targeting the service queryable.
+    ke: String,
+    /// ROS type name of the request type for schema lookup.
+    type_name: String,
+}
+
 // ─── Per-plugin state ────────────────────────────────────────────────────────
 
 pub struct PluginState {
@@ -88,9 +120,15 @@ pub struct PluginState {
     queryables: HashMap<u32, QueryableData>,
     queriers: HashMap<u32, QuerierData>,
     next_raw_rep: u32,
+    // ros rate trackers: topic → tracker
+    rate_trackers: HashMap<String, RateTrackerData>,
+    // ros service clients
+    service_clients: HashMap<u32, ServiceClientData>,
     // render interface
     pub output_lines: Arc<Mutex<Vec<String>>>,
     pub title: Arc<Mutex<String>>,
+    // exit signal from render::exit()
+    pub exit_code: Option<u32>,
 }
 
 impl WasiView for PluginState {
@@ -107,6 +145,40 @@ impl PluginState {
         let r = self.next_raw_rep;
         self.next_raw_rep += 1;
         r
+    }
+
+    fn ensure_rate_tracker(&mut self, topic: &str) -> Result<(), String> {
+        if self.rate_trackers.contains_key(topic) {
+            return Ok(());
+        }
+        let domain_id = self.engine.domain_id;
+        let topic_stripped = topic.trim_start_matches('/').to_string();
+        let ke = format!("{domain_id}/{topic_stripped}/**");
+        let session = self.engine.session.clone();
+        let (tx, rx) = flume::bounded::<(Instant, usize)>(1024);
+        let ke_clone = ke.clone();
+        let handle = tokio::spawn(async move {
+            let sub = match session.declare_subscriber(&ke_clone).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("rate-tracker subscribe failed on {ke_clone}: {e}");
+                    return;
+                }
+            };
+            while let Ok(sample) = sub.recv_async().await {
+                let size = sample.payload().to_bytes().len();
+                let _ = tx.try_send((Instant::now(), size));
+            }
+        });
+        self.rate_trackers.insert(
+            topic.to_string(),
+            RateTrackerData {
+                rx,
+                arrivals: VecDeque::new(),
+                _abort: handle.abort_handle(),
+            },
+        );
+        Ok(())
     }
 
     fn session_for_handle(
@@ -236,18 +308,76 @@ impl hu::plugin::ros::Host for PluginState {
 
     fn connect_service(
         &mut self,
-        _name: String,
-        _type_name: String,
+        name: String,
+        type_name: String,
     ) -> Result<Resource<hu::plugin::ros::ServiceClient>, String> {
-        Err("service calls not yet implemented".to_string())
+        let domain_id = self.engine.domain_id;
+        let svc_stripped = name.trim_start_matches('/').to_string();
+
+        // Look up type hash from the graph; fall back to wildcard.
+        let ke = {
+            let entities = self
+                .engine
+                .graph
+                .lock()
+                .get_entities_by_topic(EndpointKind::Service, &name);
+            if let Some(ent) = entities.first() {
+                if let Entity::Endpoint(ep) = ent.as_ref() {
+                    if let Some(ti) = &ep.type_info {
+                        let type_escaped = ti.name.replace('/', "%");
+                        format!("{domain_id}/{svc_stripped}/{type_escaped}/{}", ti.hash)
+                    } else {
+                        let type_escaped = type_name.replace('/', "%");
+                        format!("{domain_id}/{svc_stripped}/{type_escaped}/**")
+                    }
+                } else {
+                    let type_escaped = type_name.replace('/', "%");
+                    format!("{domain_id}/{svc_stripped}/{type_escaped}/**")
+                }
+            } else {
+                let type_escaped = type_name.replace('/', "%");
+                format!("{domain_id}/{svc_stripped}/{type_escaped}/**")
+            }
+        };
+
+        let session = self.engine.session.clone();
+        let rep = self.alloc_rep();
+        self.service_clients.insert(
+            rep,
+            ServiceClientData {
+                session,
+                ke,
+                type_name,
+            },
+        );
+        Ok(Resource::new_own(rep))
     }
 
-    fn measure_hz(&mut self, _topic: String, _window_ms: u32) -> Result<f64, String> {
-        Ok(0.0)
+    fn measure_hz(&mut self, topic: String, window_ms: u32) -> Result<f64, String> {
+        self.ensure_rate_tracker(&topic)?;
+        let tracker = self.rate_trackers.get_mut(&topic).unwrap();
+        tracker.drain_and_trim(window_ms);
+        let count = tracker.arrivals.len() as f64;
+        let window_s = window_ms as f64 / 1000.0;
+        Ok(count / window_s)
     }
 
-    fn measure_bw(&mut self, _topic: String, _window_ms: u32) -> Result<f64, String> {
-        Ok(0.0)
+    fn measure_bw(&mut self, topic: String, window_ms: u32) -> Result<f64, String> {
+        self.ensure_rate_tracker(&topic)?;
+        let tracker = self.rate_trackers.get_mut(&topic).unwrap();
+        tracker.drain_and_trim(window_ms);
+        let total_bytes: usize = tracker.arrivals.iter().map(|(_, b)| b).sum();
+        let window_s = window_ms as f64 / 1000.0;
+        Ok(total_bytes as f64 / 1024.0 / window_s)
+    }
+
+    fn encode_yaml_to_cdr(&mut self, yaml: String, type_name: String) -> Result<Vec<u8>, String> {
+        let schema = get_schema(&type_name)
+            .ok_or_else(|| format!("schema for '{type_name}' not found in registry"))?;
+        let value: serde_json::Value =
+            serde_json::from_str(&yaml).map_err(|e| format!("failed to parse YAML/JSON: {e}"))?;
+        let msg = json_to_dynamic_message(&value, &schema)?;
+        serialize_cdr(&msg).map_err(|e| e.to_string())
     }
 }
 
@@ -267,14 +397,62 @@ impl hu::plugin::ros::HostSubscription for PluginState {
 impl hu::plugin::ros::HostServiceClient for PluginState {
     fn call(
         &mut self,
-        _res: Resource<hu::plugin::ros::ServiceClient>,
-        _request_json: String,
-        _timeout_ms: u32,
+        res: Resource<hu::plugin::ros::ServiceClient>,
+        request_json: String,
+        timeout_ms: u32,
     ) -> Result<String, String> {
-        Err("service calls not yet implemented".to_string())
+        let rep = res.rep();
+        let Some(data) = self.service_clients.get(&rep) else {
+            return Err("service client not found".to_string());
+        };
+        let session = data.session.clone();
+        let ke = data.ke.clone();
+        let req_type = data.type_name.clone();
+
+        // Encode request JSON → CDR
+        let req_schema =
+            get_schema(&req_type).ok_or_else(|| format!("schema for '{req_type}' not found"))?;
+        let req_value: serde_json::Value = serde_json::from_str(&request_json)
+            .map_err(|e| format!("failed to parse request JSON: {e}"))?;
+        let req_msg = json_to_dynamic_message(&req_value, &req_schema)?;
+        let req_cdr = serialize_cdr(&req_msg).map_err(|e| e.to_string())?;
+
+        // Call via Zenoh get
+        let timeout = Duration::from_millis(timeout_ms as u64);
+        let replies = session
+            .get(&ke)
+            .payload(zenoh::bytes::ZBytes::from(req_cdr))
+            .timeout(timeout)
+            .wait()
+            .map_err(|e| e.to_string())?;
+
+        let reply = replies
+            .recv()
+            .map_err(|_| "no reply within timeout".to_string())?;
+        let sample = reply.result().map_err(|e| e.to_string())?;
+        let resp_cdr = sample.payload().to_bytes().into_owned();
+
+        // Try to decode CDR response; use a response-type schema if available.
+        // By convention the response type is req_type with "_Request" → "_Response".
+        let resp_type = req_type.replace("_Request", "_Response");
+        if let Some(resp_schema) = get_schema(&resp_type) {
+            match deserialize_cdr(&resp_cdr, &resp_schema) {
+                Ok(msg) => return Ok(dyn_msg_to_json(&msg).to_string()),
+                Err(e) => tracing::warn!("failed to decode service response: {e}"),
+            }
+        }
+        // Fall back to hex dump if schema not available
+        Ok(format!(
+            "{{\"raw\":\"{}\"}}",
+            resp_cdr
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        ))
     }
 
-    fn drop(&mut self, _res: Resource<hu::plugin::ros::ServiceClient>) -> wasmtime::Result<()> {
+    fn drop(&mut self, res: Resource<hu::plugin::ros::ServiceClient>) -> wasmtime::Result<()> {
+        self.service_clients.remove(&res.rep());
         Ok(())
     }
 }
@@ -644,6 +822,77 @@ impl hu::plugin::render::Host for PluginState {
     fn emit_json(&mut self, key: String, value: String) {
         self.println(format!("{{\"{key}\":{value}}}"));
     }
+
+    fn exit(&mut self, code: u32) {
+        self.exit_code = Some(code);
+    }
+}
+
+// ─── JSON→CDR helpers ────────────────────────────────────────────────────────
+
+fn json_to_dynamic_message(
+    value: &serde_json::Value,
+    schema: &Arc<MessageSchema>,
+) -> Result<DynamicMessage, String> {
+    let obj = value.as_object().ok_or("expected a JSON object")?;
+    let mut builder = DynamicMessage::builder(schema);
+    for field in &schema.fields {
+        if let Some(v) = obj.get(&field.name) {
+            let dval = json_to_dynamic_value(v, &field.field_type)?;
+            builder = builder.set(&field.name, dval).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(builder.build())
+}
+
+fn json_to_dynamic_value(
+    value: &serde_json::Value,
+    ty: &FieldType,
+) -> Result<DynamicValue, String> {
+    match ty {
+        FieldType::Bool => Ok(DynamicValue::Bool(value.as_bool().ok_or("expected bool")?)),
+        FieldType::Int8 => Ok(DynamicValue::Int8(
+            value.as_i64().ok_or("expected i8")? as i8
+        )),
+        FieldType::Int16 => Ok(DynamicValue::Int16(
+            value.as_i64().ok_or("expected i16")? as i16
+        )),
+        FieldType::Int32 => Ok(DynamicValue::Int32(
+            value.as_i64().ok_or("expected i32")? as i32
+        )),
+        FieldType::Int64 => Ok(DynamicValue::Int64(value.as_i64().ok_or("expected i64")?)),
+        FieldType::Uint8 => Ok(DynamicValue::Uint8(
+            value.as_u64().ok_or("expected u8")? as u8
+        )),
+        FieldType::Uint16 => Ok(DynamicValue::Uint16(
+            value.as_u64().ok_or("expected u16")? as u16
+        )),
+        FieldType::Uint32 => Ok(DynamicValue::Uint32(
+            value.as_u64().ok_or("expected u32")? as u32
+        )),
+        FieldType::Uint64 => Ok(DynamicValue::Uint64(value.as_u64().ok_or("expected u64")?)),
+        FieldType::Float32 => Ok(DynamicValue::Float32(
+            value.as_f64().ok_or("expected f32")? as f32
+        )),
+        FieldType::Float64 => Ok(DynamicValue::Float64(value.as_f64().ok_or("expected f64")?)),
+        FieldType::String | FieldType::BoundedString(_) => Ok(DynamicValue::String(
+            value.as_str().ok_or("expected string")?.to_string(),
+        )),
+        FieldType::Message(inner_schema) => Ok(DynamicValue::Message(json_to_dynamic_message(
+            value,
+            inner_schema,
+        )?)),
+        FieldType::Array(inner, _)
+        | FieldType::Sequence(inner)
+        | FieldType::BoundedSequence(inner, _) => {
+            let arr = value.as_array().ok_or("expected array")?;
+            let items = arr
+                .iter()
+                .map(|v| json_to_dynamic_value(v, inner))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(DynamicValue::Array(items))
+        }
+    }
 }
 
 // ─── CDR→JSON helpers ────────────────────────────────────────────────────────
@@ -698,10 +947,13 @@ pub struct WasmPlugin {
 }
 
 impl WasmPlugin {
-    pub fn dispatch_event(&mut self, event: hu::plugin::types::PluginEvent) {
+    /// Dispatch an event to the plugin. Returns the exit code if the plugin
+    /// called `render::exit()`, or `None` to continue.
+    pub fn dispatch_event(&mut self, event: hu::plugin::types::PluginEvent) -> Option<u32> {
         if let Err(e) = self.bindings.call_on_event(&mut self.store, &event) {
             tracing::warn!("WASM plugin '{}' error on event: {e}", self.manifest.name);
         }
+        self.store.data().exit_code
     }
 }
 
@@ -782,13 +1034,20 @@ fn load_one(
     let title = Arc::new(Mutex::new(String::new()));
 
     let wasi = WasiCtxBuilder::new().inherit_env().build();
+
+    // Register the main hiroz session as "default" so plugins can call
+    // session::get-session("default") without declaring it in their manifest.
+    let default_session = engine_ref.session.clone();
+    let mut initial_sessions: HashMap<String, Arc<zenoh::Session>> = HashMap::new();
+    initial_sessions.insert("default".to_string(), default_session);
+
     let state = PluginState {
         wasi,
         table: wasmtime_wasi::ResourceTable::new(),
         engine: engine_ref,
         subscriptions: HashMap::new(),
         next_sub_rep: 0,
-        sessions: HashMap::new(),
+        sessions: initial_sessions,
         session_handle_names: HashMap::new(),
         raw_subs: HashMap::new(),
         raw_pubs: HashMap::new(),
@@ -797,8 +1056,11 @@ fn load_one(
         queryables: HashMap::new(),
         queriers: HashMap::new(),
         next_raw_rep: 0,
+        rate_trackers: HashMap::new(),
+        service_clients: HashMap::new(),
         output_lines: output_lines.clone(),
         title: title.clone(),
+        exit_code: None,
     };
 
     let mut store = Store::new(wasm_engine, state);

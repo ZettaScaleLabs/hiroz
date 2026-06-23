@@ -1,4 +1,4 @@
-// hu plugin interface v0.2
+// hu plugin interface v0.3
 //
 // Host-proxied model: the host (hu) owns Zenoh sessions. The ros interface
 // proxies one shared session (JSON-decoded, for analytics plugins). The session
@@ -8,7 +8,7 @@
 // The render interface is the only output path; TUI and web hosts interpret it
 // differently so the same .wasm plugin works in both.
 
-package hu:plugin@0.2.0;
+package hu:plugin@0.3.0;
 
 // Shared types used by the plugin world.
 interface types {
@@ -51,6 +51,9 @@ interface types {
     }
 
     variant plugin-event {
+        // Fired once before any other event with CLI args (argv[1..]).
+        // In TUI mode this is fired with an empty list.
+        startup(list<string>),
         // User pressed a registered keybinding; value is the command string.
         key-action(string),
         // Host TUI navigated to a topic.
@@ -112,6 +115,10 @@ interface ros {
 
     // Host-side bandwidth measurement. Returns average KB/s over window-ms.
     measure-bw: func(topic: string, window-ms: u32) -> result<f64, string>;
+
+    // Encode a YAML/JSON string to raw CDR bytes for the given ROS type name.
+    // The type must be registered in the host's schema registry.
+    encode-yaml-to-cdr: func(yaml: string, type-name: string) -> result<list<u8>, string>;
 }
 
 // Raw Zenoh transport primitives — CDR bytes passed through without decoding.
@@ -197,6 +204,9 @@ interface render {
     set-title: func(title: string);
     // Emit a structured key/value pair for richer web rendering (charts, tables).
     emit-json: func(key: string, value: string);
+    // Signal the host that the plugin has finished and the process should exit.
+    // In CLI mode the host exits with this code. In TUI mode the pane is closed.
+    exit: func(code: u32);
 }
 
 // The plugin world: what the host imports and what the plugin exports.

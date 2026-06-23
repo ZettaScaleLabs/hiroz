@@ -360,6 +360,7 @@ async fn handle_key_event(
             if idx < app.wasm_plugins.len() {
                 app.wasm_plugins[idx]
                     .dispatch_event(crate::plugin::wasm::hu::plugin::types::PluginEvent::Tick);
+                // exit_code is ignored in TUI mode — plugin pane stays open
             }
         }
 
