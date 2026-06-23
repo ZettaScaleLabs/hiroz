@@ -20,9 +20,14 @@ members = [
   "crates/hiroz-msgs",
   "crates/hiroz-tests",
   "crates/hiroz-union",
+  "crates/hiroz/examples/protobuf_demo",
+]
+# WASM plugins require --target wasm32-wasip2 and cannot be compiled as part of a
+# native workspace build. Build them explicitly:
+#   cargo build -p hu-meter --target wasm32-wasip2 --manifest-path crates/hiroz-union/plugins/hu-meter/Cargo.toml
+exclude = [
   "crates/hiroz-union/plugins/hu-meter",
   "crates/hiroz-union/plugins/hu-monitor",
-  "crates/hiroz/examples/protobuf_demo",
 ]
 default-members = ["crates/hiroz", "crates/hiroz-codegen"]
 # Note: protobuf_demo is an advanced example demonstrating protobuf serialization
