@@ -1862,3 +1862,178 @@ fn test_hu_meter_action_send_goal() {
         stdout
     );
 }
+
+// ─── typed measurement records (WIT v0.4 hz-measurement / bw-measurement) ────
+
+/// `hu meter hz --json` must emit `rate_hz` and `samples` fields sourced from
+/// the `measure-hz-typed` WIT host function (v0.4 typed record path).
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_hz_json_typed_fields() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("hz_typed_pub").build().unwrap();
+            let pub_ = node
+                .create_pub::<RosString>("/hz_typed_test")
+                .build()
+                .unwrap();
+            for _ in 0..40 {
+                let _ = pub_.async_publish(&RosString { data: "x".into() }).await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        });
+    });
+
+    thread::sleep(Duration::from_millis(400));
+
+    let (stdout_bytes, stderr_bytes) = run_hu_meter_timed(
+        router.endpoint(),
+        &["hz", "/hz_typed_test", "--json", "--duration", "2"],
+        3,
+    );
+    let stdout = String::from_utf8_lossy(&stdout_bytes);
+
+    // Each JSON line emitted by the typed path must have rate_hz and samples.
+    let mut found_typed = false;
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            if v.get("rate_hz").is_some() && v.get("samples").is_some() {
+                found_typed = true;
+                let rate = v["rate_hz"].as_f64().unwrap_or(0.0);
+                assert!(rate > 0.0, "rate_hz should be positive, got {rate}");
+                break;
+            }
+        }
+    }
+    assert!(
+        found_typed,
+        "Expected JSON with rate_hz and samples fields (typed record path) in output:\n{}\nstderr: {}",
+        stdout,
+        String::from_utf8_lossy(&stderr_bytes)
+    );
+}
+
+/// `hu meter bw --json` must emit `rate_kbps` and `samples` fields sourced from
+/// the `measure-bw-typed` WIT host function (v0.4 typed record path).
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_bw_json_typed_fields() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("bw_typed_pub").build().unwrap();
+            let pub_ = node
+                .create_pub::<RosString>("/bw_typed_test")
+                .build()
+                .unwrap();
+            for _ in 0..30 {
+                let _ = pub_
+                    .async_publish(&RosString {
+                        data: "hello world typed".into(),
+                    })
+                    .await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        });
+    });
+
+    thread::sleep(Duration::from_millis(400));
+
+    let (stdout_bytes, stderr_bytes) = run_hu_meter_timed(
+        router.endpoint(),
+        &["bw", "/bw_typed_test", "--json", "--duration", "2"],
+        3,
+    );
+    let stdout = String::from_utf8_lossy(&stdout_bytes);
+
+    let mut found_typed = false;
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            if v.get("rate_kbps").is_some() && v.get("samples").is_some() {
+                found_typed = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        found_typed,
+        "Expected JSON with rate_kbps and samples fields (typed record path) in output:\n{}\nstderr: {}",
+        stdout,
+        String::from_utf8_lossy(&stderr_bytes)
+    );
+}
+
+// ─── hu plugin list ───────────────────────────────────────────────────────────
+
+/// `hu plugin list` must discover the meter plugin when HU_PLUGIN_PATH is set.
+/// Verifies the `hu-` prefix stripping in discover_wasm_plugins() works and
+/// the table output contains "meter".
+#[test]
+#[serial_test::serial]
+fn test_hu_plugin_list_discovers_meter() {
+    let out = Command::new("hu")
+        .args(["plugin", "list"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run hu plugin list");
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "hu plugin list failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        stdout.contains("meter"),
+        "Expected 'meter' in hu plugin list output (HU_PLUGIN_PATH must contain hu-meter.wasm):\n{}",
+        stdout
+    );
+}
+
+/// `hu plugin list --json` must return a JSON array with a meter entry.
+#[test]
+#[serial_test::serial]
+fn test_hu_plugin_list_json() {
+    let out = Command::new("hu")
+        .args(["plugin", "list", "--json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run hu plugin list --json");
+
+    assert!(
+        out.status.success(),
+        "hu plugin list --json failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let arr: serde_json::Value = serde_json::from_str(stdout.trim())
+        .expect("Expected JSON array from hu plugin list --json");
+    assert!(arr.is_array(), "Expected JSON array, got: {stdout}");
+    let names: Vec<_> = arr
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|e| e["name"].as_str())
+        .collect();
+    assert!(
+        names.iter().any(|n| *n == "meter"),
+        "Expected 'meter' in plugin list JSON names: {names:?}"
+    );
+}
