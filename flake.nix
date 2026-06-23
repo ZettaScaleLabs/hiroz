@@ -491,26 +491,17 @@
             };
 
           # CI shell for bridge interop + hz-comparison tests.
-          # Same as ros-bridge-interop but with the pre-built `hu` binary injected
-          # and hu-meter.wasm built at shell-entry time so `hu meter hz` can dispatch
-          # to the WASM plugin (hu uses the WASM plugin system, not a native binary).
+          # Same as ros-bridge-interop but with:
+          # - rustToolchain replaced by rustToolchainWasm (adds wasm32-wasip2 target)
+          # - pre-built `hu` binary injected
+          # The benchmark command must build hu-meter.wasm and set HU_PLUGIN_PATH itself
+          # (nix develop --command does not run shellHook).
           bridge-interop-ci = (self.devShells.${system}.ros-bridge-interop).overrideAttrs (old: {
-            buildInputs = (old.buildInputs or [ ]) ++ [
+            buildInputs = [
               rustToolchainWasm
-              self.packages.${system}.hu
-            ];
-            shellHook = (old.shellHook or "") + ''
-              # Build hu-meter WASM plugin and expose it via HU_PLUGIN_PATH.
-              # hu uses the WASM plugin system: `hu meter` → loads meter.wasm from HU_PLUGIN_PATH.
-              _HU_PLUGIN_DIR="''${CARGO_TARGET_DIR:-target}/hu-plugins"
-              mkdir -p "$_HU_PLUGIN_DIR"
-              if RUSTFLAGS="" cargo build -p hu-meter --target wasm32-wasip2 --release \
-                  --target-dir "''${CARGO_TARGET_DIR:-target}" -j4 2>/dev/null; then
-                ln -sf "''${CARGO_TARGET_DIR:-target}/wasm32-wasip2/release/hu_meter.wasm" \
-                       "$_HU_PLUGIN_DIR/hu-meter.wasm" 2>/dev/null || true
-              fi
-              export HU_PLUGIN_PATH="$_HU_PLUGIN_DIR"
-            '';
+            ]
+            ++ (builtins.filter (p: p != rustToolchain) (old.buildInputs or [ ]))
+            ++ [ self.packages.${system}.hu ];
           });
 
         }
