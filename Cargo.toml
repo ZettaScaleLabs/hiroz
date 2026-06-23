@@ -22,8 +22,6 @@ members = [
   "crates/hiroz-union",
   "crates/hu-meter",
   "crates/hu-monitor",
-  "crates/hiroz-meter",
-  "crates/hiroz-monitor",
   "crates/hiroz-bridge",
   "crates/hiroz/examples/protobuf_demo",
 ]
