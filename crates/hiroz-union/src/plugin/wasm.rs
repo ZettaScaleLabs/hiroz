@@ -852,17 +852,17 @@ fn open_declared_sessions(
         let mut config = zenoh::Config::default();
         config
             .insert_json5("mode", mode_str)
-            .with_context(|| format!("session '{name}': set mode"))?;
+            .map_err(|e| anyhow::anyhow!("session '{name}': set mode: {e}"))?;
         config
             .insert_json5("connect/endpoints", &format!("[\"{endpoint}\"]"))
-            .with_context(|| format!("session '{name}': set endpoint"))?;
+            .map_err(|e| anyhow::anyhow!("session '{name}': set endpoint: {e}"))?;
         config
             .insert_json5("scouting/multicast/enabled", "false")
-            .with_context(|| format!("session '{name}': disable multicast"))?;
+            .map_err(|e| anyhow::anyhow!("session '{name}': disable multicast: {e}"))?;
 
         let session = zenoh::open(config)
             .wait()
-            .with_context(|| format!("opening session '{name}' → {endpoint}"))?;
+            .map_err(|e| anyhow::anyhow!("opening session '{name}' → {endpoint}: {e}"))?;
 
         store
             .data_mut()
