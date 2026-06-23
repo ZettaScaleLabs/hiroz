@@ -22,7 +22,6 @@ members = [
   "crates/hiroz-union",
   "crates/hiroz-union/plugins/hu-meter",
   "crates/hiroz-union/plugins/hu-monitor",
-  "crates/hiroz-bridge",
   "crates/hiroz/examples/protobuf_demo",
 ]
 default-members = ["crates/hiroz", "crates/hiroz-codegen"]

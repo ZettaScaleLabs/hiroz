@@ -53,11 +53,6 @@ hu-meter-tests = [
   "hiroz-msgs/example_interfaces",
   "hiroz-msgs/action_tutorials_interfaces",
 ]
-bridge-interop-tests = [
-  "ros-msgs",
-  "hiroz-msgs/example_interfaces",
-  "hiroz-msgs/action_tutorials_interfaces",
-]
 hz-comparison-tests = ["ros-msgs"]
 hu-monitor-tests = ["ros-msgs", "hiroz-msgs/example_interfaces"]
 
