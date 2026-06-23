@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# Whippet CI command. Excludes ROS-dependent crates when AMENT_PREFIX_PATH is not set
-# (i.e., in pureRust-ci devshell which lacks ROS 2 headers).
+# Temporary: hz saturation benchmark — restore after job completes.
 set -euo pipefail
-
-# rmw-zenoh-rs requires ROS 2 headers for bindgen (rcutils, rmw, etc.).
-# These are not available in pureRust-ci or bridge-interop-ci devshells.
-# Always exclude it here; test it separately with a ROS-capable devshell.
-exec cargo test --no-run --message-format json-render-diagnostics \
-  --workspace --exclude rmw-zenoh-rs
+exec cargo nextest run -p hiroz-tests \
+  --features hz-comparison-tests,jazzy \
+  --test hz_accuracy \
+  test_hz_python_saturation \
+  --no-capture
