@@ -1,6 +1,6 @@
 # hu — The hiroz Unified Tool
 
-`hu` is the command-line companion to the hiroz stack. It replaces `ros2 topic`, `ros2 node`, `ros2 service`, `ros2 action`, and `ros2 param` with a single daemon-free binary that works directly over Zenoh — no DDS, no Python, no background process.
+`hu` is the command-line companion to the hiroz stack. It replaces `ros2 topic`, `ros2 node`, `ros2 service`, `ros2 action`, and `ros2 param` with a daemon-free, plugin-based tool that works directly over Zenoh — no DDS, no Python, no background process. Subcommands like `meter`, `monitor`, and `bridge` are WASM plugins; you can ship your own by dropping a `.wasm` file into `~/.local/share/hu/plugins/`.
 
 ## Quick Start
 
@@ -157,6 +157,14 @@ Observation and diagnostics:
 
 Cross-distro and cross-DDS bridging — see [Cross-Distro Bridge](../user-guide/bridge.md).
 
+### hu plugin
+
+Plugin management:
+
+| Command | Description |
+|---|---|
+| `hu plugin list` | List all loaded `.wasm` plugins with name, version, and description |
+
 ---
 
 ## Multi-topic Rate Dashboard
@@ -180,3 +188,32 @@ hu meter hz /scan --duration 5 --json | jq '.rate_hz'
 hu meter list topics --json | jq '.[].name'
 hu meter info node /talker --json | jq '.publishers[].name'
 ```
+
+---
+
+## Plugin Architecture
+
+`hu` is a plugin host. `meter`, `monitor`, and `bridge` are not built-in subcommands — they are WASM plugins compiled to `wasm32-wasip2` and loaded at startup from `$HU_PLUGIN_PATH` and `~/.local/share/hu/plugins/`. The `hu` binary itself is just the host runtime and TUI shell.
+
+```mermaid
+flowchart TD
+    H["hu binary\n(host runtime + TUI shell)"]
+    H --> M["meter.wasm\nhu meter hz / bw / echo / pub / list / info …"]
+    H --> Mo["monitor.wasm\nhu monitor watch / graph / log / log-level"]
+    H --> B["bridge.wasm\nhu bridge start / status"]
+    H --> C["custom.wasm\nhu &lt;name&gt; &lt;args&gt;"]
+    HU_PLUGIN_PATH["$HU_PLUGIN_PATH\n~/.local/share/hu/plugins/"] --> H
+```
+
+Any team can ship a `hu-<name>.wasm` file and it becomes a `hu <name>` subcommand with no build-system changes, no Python packaging, and no shared runtime state:
+
+```bash
+# Drop a .wasm file and it becomes available immediately
+cp ./my-debug-tool.wasm ~/.local/share/hu/plugins/
+hu plugin list          # shows all loaded plugins with name, version, description
+hu my-debug-tool --help
+```
+
+Plugins are sandboxed: they declare the capabilities they need (subscriptions, raw CDR, additional Zenoh sessions) in a manifest, and the host refuses calls for anything undeclared. Plugins also never manage Zenoh connections directly — the host opens all sessions declared in the plugin's manifest before the first event fires. The same `.wasm` binary runs as a TUI panel and as a CLI subcommand.
+
+See [hu Plugin Authoring Guide](hu-plugins.md) for the WIT interface reference and a worked example.

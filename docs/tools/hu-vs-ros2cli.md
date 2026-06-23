@@ -46,6 +46,16 @@
 
 **At high rates the Python GIL becomes the bottleneck.** The hiroz test suite measures this directly with `test_hz_python_saturation`: a `yield_now` publisher saturates the CPU to produce a burst stream; each tool is pinned to a separate CPU to isolate the measurement.
 
+```mermaid
+xychart-beta
+    title "Rate measurement: 64 kHz burst publisher"
+    x-axis ["Ground truth", "hu meter hz", "ros2 topic hz"]
+    y-axis "Measured rate (Hz)" 0 --> 70000
+    bar [64320, 57920, 1398]
+```
+
+*Measured on the hiroz CI worker (feat/hiroz-union, job 316, debug binary). `test_hz_python_saturation` in `hiroz-tests`.*
+
 | Metric | Measured value |
 |---|---|
 | Ground truth (time-avg) | 64,320 Hz |
@@ -53,37 +63,40 @@
 | `ros2 topic hz` | 1,398 Hz |
 | hu advantage | **41×** |
 
-*Measured on the hiroz CI worker (feat/hiroz-union, job 316, debug binary). `test_hz_python_saturation` in `hiroz-tests`.*
-
-`ros2 topic hz` saturates below 1–2 kHz because `rclpy` deserializes every message inside the Python GIL. `hu meter hz` tracks the arrival stream an order of magnitude closer to the true rate.
-
-At the rates common in robot perception pipelines (image at 30 fps, lidar at 10–20 Hz, IMU at 100–400 Hz) both tools agree closely. The gap becomes significant at high-frequency topics — motor controllers, high-rate IMUs, sensor fusion outputs — where Python deserialization throughput is the ceiling.
-
-`hu meter bw` has the same property: it counts bytes at the Zenoh subscription layer without deserializing.
+`ros2 topic hz` saturates below 1–2 kHz because `rclpy` deserializes every message inside the Python GIL. `hu meter hz` tracks the arrival stream an order of magnitude closer to the true rate. At the rates common in robot perception pipelines (image at 30 fps, lidar at 10–20 Hz, IMU at 100–400 Hz) both tools agree closely; the gap opens above ~500 Hz. `hu meter bw` has the same property: it counts bytes at the Zenoh subscription layer without deserializing.
 
 ---
 
 ## No daemon
 
-`ros2cli` starts a background daemon process (`_ros2_daemon`) on first use and caches graph state there. Several failure modes arise from this architecture:
+`ros2cli` starts a background daemon process (`_ros2_daemon`) on first use and caches graph state there. `hu` has no daemon — every invocation opens a direct Zenoh session, reads the live liveliness index, and exits.
 
-**Stale domain ID.** The daemon snapshots `ROS_DOMAIN_ID` and `RMW_IMPLEMENTATION` at startup. Changing either in a new terminal does not restart the daemon, so subsequent `ros2` commands query the wrong domain silently ([ros2cli#1238](https://github.com/ros2/ros2cli/issues/1238)).
-
-**Silent daemon death.** On networks with strict firewall rules or after long idle periods the daemon exits and all CLI commands return empty results. The only recovery is `pkill -f _ros2_daemon` ([ros2cli#502](https://github.com/ros2/ros2cli/issues/502), [ros2cli#702](https://github.com/ros2/ros2cli/issues/702)).
-
-**Container and WSL2 incompatibility.** The daemon health check fails in certain container runtimes and WSL2 configurations, making `ros2 topic list` return nothing ([ros2cli#934](https://github.com/ros2/ros2cli/issues/934)).
-
-`hu` has no daemon. Every invocation opens a direct Zenoh session to the router, reads the current state from the live liveliness index, and exits. The result is always a snapshot of the current network, not a cached snapshot from daemon startup.
+| Failure mode | Trigger | Symptom | Recovery |
+|---|---|---|---|
+| Stale domain ID ([#1238](https://github.com/ros2/ros2cli/issues/1238)) | Change `ROS_DOMAIN_ID` or `RMW_IMPLEMENTATION` in a new terminal | Daemon silently queries the wrong domain | `pkill -f _ros2_daemon` |
+| Silent daemon death ([#502](https://github.com/ros2/ros2cli/issues/502), [#702](https://github.com/ros2/ros2cli/issues/702)) | Strict firewall rules or long idle period | All `ros2` commands return empty results | `pkill -f _ros2_daemon` then re-run |
+| Container / WSL2 incompatibility ([#934](https://github.com/ros2/ros2cli/issues/934)) | Daemon health check fails in certain runtimes | `ros2 topic list` returns nothing | None — re-enter with a clean environment |
 
 ---
 
 ## DDS Discovery Server incompatibility
 
-When using the Fast-DDS Discovery Server (`FASTRTPS_DEFAULT_PROFILES_FILE` with a `<discovery_server>` profile), `ros2 topic list`, `ros2 node info`, and `ros2 topic echo` all fail silently — they return empty results or hang. The root cause is structural: `ros2cli` uses standard DDS participant discovery, which is incompatible with the topology the Discovery Server imposes ([rmw_fastrtps#499](https://github.com/ros2/rmw_fastrtps/issues/499)). The workaround is to restart the daemon or run each command twice.
+```mermaid
+flowchart LR
+    subgraph DDS["DDS CLI path"]
+        A["ros2 topic list"] --> B["DDS participant discovery"]
+        B --> C["Fast-DDS Discovery Server"]
+        C --> D["❌ Incompatible topology\n(returns empty / hangs)\nrmw_fastrtps#499"]
+    end
+    subgraph ZenohPath["hu path"]
+        E["hu meter list topics"] --> F["Zenoh liveliness index\n(read from router)"]
+        F --> G["✅ Full graph\nregardless of router mode"]
+    end
+```
 
-`hu` does not use DDS at all. It reads the Zenoh liveliness index directly from the router, so there is no DDS-layer concept of "discovery server" to be incompatible with. On a Zenoh-only or `rmw_zenoh_cpp` network, `hu` sees the full graph regardless of how the router is configured.
+When using the Fast-DDS Discovery Server (`FASTRTPS_DEFAULT_PROFILES_FILE` with a `<discovery_server>` profile), `ros2 topic list`, `ros2 node info`, and `ros2 topic echo` all fail silently because `ros2cli` uses standard DDS participant discovery, which is incompatible with the topology the Discovery Server imposes ([rmw_fastrtps#499](https://github.com/ros2/rmw_fastrtps/issues/499)).
 
-This is a narrower advantage than it looks: if your network uses `rmw_fastrtps_cpp` or `rmw_cyclonedds_cpp`, `hu` cannot see those nodes at all (see [When ros2cli is the right choice](#when-ros2cli-is-the-right-choice)). The comparison applies specifically when you are already running `rmw_zenoh_cpp` and also running a Zenoh router in anything other than the default peer-discovery mode.
+`hu` reads the Zenoh liveliness index directly from the router — no DDS layer, no Discovery Server concept. This advantage is scoped: if your network uses `rmw_fastrtps_cpp` or `rmw_cyclonedds_cpp`, `hu` cannot see those nodes at all (see [When ros2cli is the right choice](#when-ros2cli-is-the-right-choice)).
 
 ---
 
@@ -216,11 +229,13 @@ hu bridge status
 
 ## Plugin extensibility
 
-`ros2cli` is extended through Python entry-points. Adding a new verb requires packaging a Python distribution, registering an entry-point in `setup.cfg`, and installing it into the same Python environment as `ros2cli`. This is not easy to do in isolated or hermetic environments.
-
-`rqt` is extended through Qt plugin descriptors — also a packaging-heavy process.
-
-`hu` loads `.wasm` plugins from `$HU_PLUGIN_PATH` and `~/.local/share/hu/plugins/`. There is no registration step, no packaging requirement, and no shared runtime state between plugins. A plugin declares its identity and keybindings via a `manifest()` export and receives events through `on-event()`. The host opens any Zenoh sessions the plugin declares in its manifest, so plugins never handle connection setup themselves.
+| Step | ros2cli | rqt | hu |
+|---|---|---|---|
+| Register a new command | Add Python entry-point in `setup.cfg` | Write Qt plugin descriptor | Drop a `.wasm` file in `~/.local/share/hu/plugins/` |
+| Install | `pip install` into the same Python env as ros2cli | Build and install Qt plugin package | Copy file — no registration step |
+| Isolation | Shared Python runtime | Shared Qt runtime | Fully sandboxed per-plugin WASM instance |
+| Zenoh session setup | N/A | N/A | Host opens sessions declared in plugin's manifest; plugin never handles connection setup |
+| Works in hermetic / offline envs | no — requires pip | no — requires Qt | yes — single binary copy |
 
 ```bash
 # Drop a .wasm file and it becomes a plugin
@@ -228,7 +243,7 @@ cp ./my-debug-tool.wasm ~/.local/share/hu/plugins/
 hu plugin list           # shows all .wasm plugins found in search path
 ```
 
-Plugins have access to the live ROS graph, raw CDR subscriptions, publishers, liveliness tokens, queryables, and named Zenoh sessions — all proxied through the host without any per-plugin Zenoh dependency. A bridge plugin that needs two independent sessions (e.g. Humble and Jazzy) declares both in its manifest and the host opens them before the first event fires.
+Plugins have access to the live ROS graph, raw CDR subscriptions, publishers, liveliness tokens, queryables, and named Zenoh sessions — all proxied through the host. A bridge plugin that needs two independent sessions (e.g. Humble and Jazzy) declares both in its manifest and the host opens them before the first event fires.
 
 ---
 

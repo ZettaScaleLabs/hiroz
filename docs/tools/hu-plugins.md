@@ -92,6 +92,27 @@ cp target/wasm32-wasip2/release/my_hu_plugin.wasm \
 
 Start `hu` and press `5` to open the Plugins panel, or run `hu my-plugin <args>` from the terminal.
 
+## WIT world boundary
+
+The `hu-plugin` WIT world defines a strict boundary between what the host provides and what the plugin must export.
+
+```mermaid
+flowchart LR
+    subgraph Host["Host (hu binary)"]
+        G["graph\nlist-topics / list-nodes / list-services"]
+        R["ros\nsubscribe / measure-hz / measure-bw\nconnect-service / encode-yaml-to-cdr"]
+        RT["raw-transport\nZenoh sessions declared in manifest"]
+        S["session\nnamed Zenoh sessions"]
+        Ren["render\nprintln / set-title / emit-json / exit"]
+    end
+    subgraph Plugin["Plugin (.wasm)"]
+        MF["manifest() → PluginManifest\n(name, version, description, sessions, tick_ms)"]
+        OE["on-event(PluginEvent)\n(startup / tick / key-action / topic-selected)"]
+    end
+    Host -->|imports provided to plugin| Plugin
+    Plugin -->|exports consumed by host| Host
+```
+
 ## WIT interfaces
 
 ### `graph` — ROS graph queries
@@ -136,9 +157,33 @@ variant plugin-event {
 }
 ```
 
-`startup` is always the first event. In CLI mode (`hu <name> <args>`) use it to parse your subcommand and arguments. Call `render::exit(code)` when done; the host will flush output and exit.
+```mermaid
+sequenceDiagram
+    participant Host as hu host
+    participant Plugin as plugin.wasm
 
-Set `tick_ms` in your manifest to control how often `Tick` fires. Use `0` to disable ticks entirely (useful for one-shot CLI commands that exit in `startup`).
+    Host->>Plugin: manifest()
+    Plugin-->>Host: PluginManifest (name, sessions, tick_ms, …)
+    Host->>Host: open Zenoh sessions declared in manifest
+    Host->>Plugin: on-event(startup([args…]))
+    Note over Plugin: parse subcommand / init state
+
+    loop every tick_ms ms
+        Host->>Plugin: on-event(tick)
+        Plugin-->>Host: render::println(…)
+    end
+
+    alt user presses a bound key
+        Host->>Plugin: on-event(key-action("k"))
+    else user selects a topic in another panel
+        Host->>Plugin: on-event(topic-selected("/scan"))
+    end
+
+    Plugin->>Host: render::exit(0)
+    Host->>Host: flush output, exit (CLI mode)
+```
+
+`startup` is always the first event. In CLI mode (`hu <name> <args>`) use it to parse your subcommand and arguments. Call `render::exit(code)` when done; the host will flush output and exit. Set `tick_ms` in your manifest to control how often `Tick` fires. Use `0` to disable ticks entirely (useful for one-shot CLI commands that exit in `startup`).
 
 ## Security note
 
@@ -146,12 +191,17 @@ Plugins can read environment variables from the `hu` process (including `HU_ROUT
 
 ## Plugin discovery
 
-`hu` searches for `.wasm` files in:
+```mermaid
+flowchart TD
+    A["$HU_PLUGIN_PATH dirs\n(colon-separated)"] --> S
+    B["~/.local/share/hu/plugins/"] --> S
+    S["scan for *.wasm files"] --> C["call manifest() on each candidate"]
+    C --> D{manifest() succeeded?}
+    D -->|yes| E["strip hu- prefix from filename\nregister as subcommand"]
+    D -->|no| F["log warning, skip\n(visible in hu plugin list)"]
+```
 
-1. Directories listed in `HU_PLUGIN_PATH` (colon-separated).
-2. `~/.local/share/hu/plugins/`.
-
-Files named `hu-<name>.wasm` are registered as `<name>` (the `hu-` prefix is stripped). All valid WASM components whose `manifest()` export succeeds are loaded. Failures are logged as warnings and skipped — run `hu plugin list` to see which plugins loaded successfully.
+`hu` searches both locations in order. Files named `hu-<name>.wasm` are registered as `<name>` (the `hu-` prefix is stripped). Run `hu plugin list` to see which plugins loaded successfully.
 
 ## Reference implementations
 
