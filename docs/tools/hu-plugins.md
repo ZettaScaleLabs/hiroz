@@ -20,7 +20,7 @@ Set the crate type in `Cargo.toml`:
 crate-type = ["cdylib"]
 
 [dependencies]
-wit-bindgen = "0.42"
+wit-bindgen = "0.46"
 ```
 
 ### 2. Copy the WIT schema
@@ -35,7 +35,7 @@ wit_bindgen::generate!({
     path: "wit/hu-plugin.wit",
 });
 
-use exports::hu::plugin::guest::{Guest, PluginEvent, PluginManifest};
+use hu::plugin::types::{EventKind, Permission};
 use hu::plugin::render;
 
 struct MyPlugin;
@@ -48,9 +48,9 @@ impl Guest for MyPlugin {
             description: "My first hu plugin".to_string(),
             bindings: vec![],
             tick_ms: 1000,
-            // Declare any named Zenoh sessions your plugin needs.
-            // Use an empty list if you only use the graph/ros host interfaces.
             sessions: vec![],
+            subscribed_events: vec![EventKind::Startup, EventKind::Tick],
+            required_permissions: vec![],
         }
     }
 

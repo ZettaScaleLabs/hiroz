@@ -77,11 +77,11 @@ hu meter hz /lidar/scan
 
 `ros2 service call` blocks indefinitely when no server is available — there is no `--timeout` flag and no way to interrupt it cleanly without killing the process ([ros2cli#818](https://github.com/ros2/ros2cli/issues/818)).
 
-`hu meter service call` has a `--timeout <secs>` flag (default: 10s) and returns a clear error:
+`hu meter service` has a `--timeout <ms>` flag (default: 5000 ms) and returns a clear error:
 
 ```bash
-hu meter service call /my_srv --payload "00 00 00 00" --timeout 5
-# Error: Service call timed out after 5s
+hu meter service /my_srv std_msgs/srv/Empty '{}' --timeout 5000
+# Error: Service call timed out after 5000 ms
 ```
 
 ### Fast startup
@@ -136,11 +136,11 @@ Measurement and introspection:
 | `hu meter echo <topic>` | Print arriving messages |
 | `hu meter delay <topic>` | End-to-end latency |
 | `hu meter pub <topic>` | Publish a message |
-| `hu meter list topics\|nodes\|services\|actions` | Enumerate graph entities |
+| `hu meter list topics\|nodes\|services` | Enumerate graph entities |
 | `hu meter info topic\|node\|service <name>` | Full entity introspection |
-| `hu meter service call <name>` | Call a service |
-| `hu meter param get\|set\|list <node>` | Read/write node parameters |
-| `hu meter action list\|info\|send-goal <name>` | Action introspection and goal dispatch |
+| `hu meter service <name> <type> <request-json>` | Call a service |
+| `hu meter param list\|get\|set\|delete <node>` | Read/write/delete node parameters |
+| `hu meter action send\|echo <name> <type> [<goal-json>]` | Send a goal or echo action feedback |
 
 ### hu monitor
 
@@ -150,8 +150,8 @@ Observation and diagnostics:
 |---|---|
 | `hu monitor watch` | Stream live graph change events |
 | `hu monitor graph` | Snapshot the current graph (with optional `--watch` refresh) |
-| `hu monitor log` | Tail `/rosout` with level and node filters |
-| `hu monitor log-level get\|set <node>` | Read or change a node's logger level |
+| `hu monitor log [--count <n>]` | Tail `/rosout` |
+| `hu monitor log-level <node> [<level>]` | Read or change a node's logger level |
 
 ### hu bridge
 
@@ -163,7 +163,8 @@ Plugin management:
 
 | Command | Description |
 |---|---|
-| `hu plugin list` | List all loaded `.wasm` plugins with name, version, and description |
+| `hu plugin list` | List all loaded `.wasm` plugins with name and path |
+| `hu plugin validate <path>` | Validate a `.wasm` file against the `hu-plugin` ABI |
 
 ---
 
@@ -210,7 +211,7 @@ Any team can ship a `hu-<name>.wasm` file and it becomes a `hu <name>` subcomman
 ```bash
 # Drop a .wasm file and it becomes available immediately
 cp ./my-debug-tool.wasm ~/.local/share/hu/plugins/
-hu plugin list          # shows all loaded plugins with name, version, description
+hu plugin list          # shows all loaded plugins with name and path
 hu my-debug-tool --help
 ```
 

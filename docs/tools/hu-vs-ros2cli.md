@@ -15,15 +15,15 @@
 | Publish messages | `ros2 topic pub` | — | `hu meter pub` |
 | List topics / nodes / services / actions | four separate commands | rqt_graph | `hu meter list` |
 | Entity info | four separate commands | rqt_graph | `hu meter info` |
-| Call a service | `ros2 service call` | — | `hu meter service call` |
+| Call a service | `ros2 service call` | — | `hu meter service <name> <type> <request-json>` |
 | Action introspection | `ros2 action` | — | `hu meter action` |
 | Parameters | `ros2 param` | rqt_reconfigure | `hu meter param` |
 | **Observation** | | | |
 | Live graph change events (streaming) | — | — | `hu monitor watch` |
 | Graph snapshot | multiple commands | rqt_graph | `hu monitor graph` |
 | Log stream | `ros2 topic echo /rosout` | rqt_console | `hu monitor log` |
-| Log level get | `ros2 node get-logger-levels` (Jazzy+) | rqt_logger_level | `hu monitor log-level get` |
-| Log level set | `ros2 node set-logger-levels` (Jazzy+) | rqt_logger_level | `hu monitor log-level set` |
+| Log level get | `ros2 node get-logger-levels` (Jazzy+) | rqt_logger_level | `hu monitor log-level <node>` |
+| Log level set | `ros2 node set-logger-levels` (Jazzy+) | rqt_logger_level | `hu monitor log-level <node> <level>` |
 | **Bridging** | | | |
 | Cross-distro bridge (Humble ↔ Jazzy) | — | — | `hu bridge start` |
 | Bridge status | — | — | `hu bridge status` |
@@ -130,13 +130,13 @@ hu monitor watch --json >> /var/log/ros-graph-events.jsonl
 `hu monitor watch` subscribes to Zenoh liveliness tokens, which are the mechanism hiroz and `rmw_zenoh_cpp` use to announce entity existence. It emits a JSON event the moment a node, topic, service, or action appears or disappears — with sub-millisecond latency after the transport propagates the change.
 
 ```bash
-hu monitor watch --json
+hu monitor watch
 ```
 
-```json
-{"event":"appeared","kind":"node","name":"/camera_driver","timestamp":"2026-06-21T05:12:34.001Z"}
-{"event":"appeared","kind":"topic","name":"/camera/image_raw","type":"sensor_msgs/msg/Image","timestamp":"2026-06-21T05:12:34.003Z"}
-{"event":"disappeared","kind":"node","name":"/camera_driver","timestamp":"2026-06-21T05:13:01.887Z"}
+```text
+node appeared:    /camera_driver
+topic appeared:   /camera/image_raw
+node removed:     /camera_driver
 ```
 
 Use cases that are impossible or expensive with ros2cli polling:
@@ -159,24 +159,17 @@ The standard way to read ROS 2 logs from the CLI is `ros2 topic echo /rosout`, w
 - There is no node filter; watching logs from a single node requires post-processing.
 - The output is not structured — timestamps are split across `sec` and `nanosec` fields.
 
-`hu monitor log` decodes `/rosout` at the CDR layer and presents a clean, filtered stream:
+`hu monitor log` decodes `/rosout` at the CDR layer and presents a clean stream:
 
 ```bash
-# Show only WARN and above from any node
-hu monitor log --level WARN
+# Tail all log messages
+hu monitor log
 
-# Show all levels but only from the planner node
-hu monitor log --node /planner
-
-# Structured JSON for log aggregation
-hu monitor log --json
+# Stop after 50 messages
+hu monitor log --count 50
 ```
 
-```json
-{"stamp":"2026-06-21T05:14:02.331Z","level":"WARN","node":"/planner","msg":"Path replanning triggered: obstacle detected"}
-```
-
-`rqt_console` provides a GUI log viewer with level and node filters. `hu monitor log` covers the same functionality from a terminal with JSON output for scripting.
+`rqt_console` provides a GUI log viewer with level and node filters. `hu monitor log` covers basic log streaming from a terminal with optional count limiting.
 
 ---
 
@@ -184,19 +177,18 @@ hu monitor log --json
 
 | Operation | ros2cli | rqt | `hu` |
 |---|---|---|---|
-| Get all logger levels for a node | `ros2 node get-logger-levels /node` (Jazzy+) | rqt_logger_level | `hu monitor log-level get /node` |
-| Set a logger level | `ros2 node set-logger-levels /node name level` (Jazzy+) | rqt_logger_level | `hu monitor log-level set /node name level` |
+| Get all logger levels for a node | `ros2 node get-logger-levels /node` (Jazzy+) | rqt_logger_level | `hu monitor log-level <node>` |
+| Set a logger level | `ros2 node set-logger-levels /node name level` (Jazzy+) | rqt_logger_level | `hu monitor log-level <node> <level>` |
 | Works on Humble | no (`get/set-logger-levels` added in Jazzy) | yes | yes |
-| JSON output | no | no | `--json` |
 
 `hu monitor log-level` works on Humble nodes because it calls the `GetLoggerLevels` / `SetLoggerLevels` services directly via Zenoh, without relying on a ros2cli verb that was only added in Jazzy.
 
 ```bash
 # Set the planner's root logger to DEBUG
-hu monitor log-level set /planner /planner DEBUG
+hu monitor log-level /planner DEBUG
 
 # Read back all active loggers
-hu monitor log-level get /planner --json | jq '.[].name'
+hu monitor log-level /planner
 ```
 
 ---
@@ -321,7 +313,7 @@ hu monitor graph
 ```bash
 # Call a service
 ros2 service call /add_two_ints example_interfaces/srv/AddTwoInts '{a: 3, b: 7}'
-hu meter service call /add_two_ints --yaml '{a: 3, b: 7}' --msg-type example_interfaces/srv/AddTwoInts_Request
+hu meter service /add_two_ints example_interfaces/srv/AddTwoInts '{"a":3,"b":7}'
 
 # Get a parameter
 ros2 param get /talker use_sim_time
@@ -339,14 +331,11 @@ hu meter param set /talker use_sim_time true
 ros2 topic echo /rosout
 hu monitor log
 
-# Stream with level filter
-hu monitor log --level WARN
-
 # Get logger levels (ros2cli Jazzy+ only; hu works on Humble too)
 ros2 node get-logger-levels /planner
-hu monitor log-level get /planner
+hu monitor log-level /planner
 
 # Set a logger level
 ros2 node set-logger-levels /planner /planner DEBUG
-hu monitor log-level set /planner /planner DEBUG
+hu monitor log-level /planner DEBUG
 ```

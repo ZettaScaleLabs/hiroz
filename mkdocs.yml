@@ -108,7 +108,7 @@ nav:
       - Why hu?: tools/why-hu.md
       - hu (unified tool): tools/hu.md
       - hu vs. ros2cli / rqt: tools/hu-vs-ros2cli.md
-      - hiroz-console: tools/console.md
+      - hiroz-console (legacy): tools/console.md
   - Language Bindings:
       - Python:
           - Quick Start: bindings/python-quick-start.md
