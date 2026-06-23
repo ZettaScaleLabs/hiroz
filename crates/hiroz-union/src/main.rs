@@ -38,9 +38,7 @@ impl From<Backend> for core::engine::Backend {
 #[command(
     name = "hu",
     about = "Plugin platform and TUI for the hiroz ROS 2 ecosystem",
-    disable_help_subcommand = true,
-    // Allow unknown subcommands so `hu bridge start` dispatches to hu-bridge
-    allow_external_subcommands = true,
+    disable_help_subcommand = true
 )]
 struct Cli {
     /// Zenoh router address
@@ -80,15 +78,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// List installed hu-* plugins
+    /// List installed WASM plugins
     #[command(name = "plugin")]
     Plugin {
         #[command(subcommand)]
         action: PluginAction,
     },
-    /// Dispatch to an installed plugin (or use `hu <plugin> [args]` directly)
-    #[command(external_subcommand)]
-    External(Vec<String>),
 }
 
 #[derive(Subcommand)]
@@ -116,12 +111,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }) => {
             return run_plugin_list(cli.json);
         }
-        Some(Commands::External(args)) => {
-            let plugin_name = &args[0];
-            let plugin_args = args[1..].to_vec();
-            let status = plugin::dispatch(plugin_name, &plugin_args, &router, domain)?;
-            std::process::exit(status.code().unwrap_or(1));
-        }
         None => {}
     }
 
@@ -148,34 +137,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 fn run_plugin_list(json: bool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let plugins = plugin::discover_plugins();
+    let plugins = plugin::wasm::discover_wasm_plugins();
     if json {
         let entries: Vec<_> = plugins
             .iter()
             .map(|(name, path)| {
-                let manifest = plugin::query_manifest(path);
                 serde_json::json!({
                     "name": name,
                     "path": path.to_string_lossy(),
-                    "manifest": manifest,
+                    "kind": "wasm",
                 })
             })
             .collect();
         println!("{}", serde_json::to_string_pretty(&entries)?);
     } else {
         if plugins.is_empty() {
-            println!("No hu-* plugins found on PATH.");
+            println!("No WASM plugins found in $HU_PLUGIN_PATH or ~/.local/share/hu/plugins/.");
             return Ok(());
         }
         println!("{:<20} PATH", "PLUGIN");
         println!("{}", "-".repeat(60));
         for (name, path) in &plugins {
-            let manifest = plugin::query_manifest(path);
-            let desc = manifest
-                .as_ref()
-                .map(|m| m.description.as_str())
-                .unwrap_or("(no manifest)");
-            println!("{:<20} {:<35} {}", name, path.to_string_lossy(), desc);
+            println!("{:<20} {}", name, path.to_string_lossy());
         }
     }
     Ok(())

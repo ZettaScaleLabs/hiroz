@@ -13,36 +13,82 @@ use wasmtime::{
     component::{Component, HasSelf, Linker, Resource, bindgen},
 };
 use wasmtime_wasi::{WasiCtxBuilder, WasiCtxView, WasiView};
+use zenoh::Wait;
 
 use crate::core::engine::CoreEngine;
 
-// Generate host/plugin bindings from the WIT schema.
 bindgen!({
     world: "hu-plugin",
     path: "wit/hu-plugin.wit",
 });
 
-// ─── Subscription tracking ────────────────────────────────────────────────────
+// ─── Subscription tracking (ros interface) ────────────────────────────────────
 
 struct SubscriptionData {
     #[allow(dead_code)]
     topic: String,
-    /// Messages decoded to JSON.  Populated by a background tokio task.
     rx: flume::Receiver<String>,
-    /// Keep the tokio task alive as long as the subscription exists.
     _abort: tokio::task::AbortHandle,
 }
 
-// ─── Per-plugin state stored in the wasmtime Store ───────────────────────────
+// ─── Raw transport resource state ────────────────────────────────────────────
+
+struct RawSubData {
+    rx: flume::Receiver<Vec<u8>>,
+    _abort: tokio::task::AbortHandle,
+}
+
+/// Publisher stored as (session, key_expr) to avoid zenoh lifetime issues.
+struct RawPubData {
+    session: Arc<zenoh::Session>,
+    ke: String,
+}
+
+/// Liveliness token: a task holds the token; aborting the task undeclares it.
+struct LivelinessTokenData {
+    _abort: tokio::task::AbortHandle,
+}
+
+struct LivelinessSubData {
+    rx: flume::Receiver<(String, bool)>,
+    _abort: tokio::task::AbortHandle,
+}
+
+/// Queryable: pending map shared between the background task and the host impl.
+struct QueryableData {
+    rx: flume::Receiver<(u64, Vec<u8>)>,
+    pending: Arc<Mutex<HashMap<u64, zenoh::query::Query>>>,
+    _abort: tokio::task::AbortHandle,
+}
+
+/// Querier stored as (session, key_expr); every call uses session.get().
+struct QuerierData {
+    session: Arc<zenoh::Session>,
+    ke: String,
+}
+
+// ─── Per-plugin state ────────────────────────────────────────────────────────
 
 pub struct PluginState {
     wasi: wasmtime_wasi::WasiCtx,
     table: wasmtime_wasi::ResourceTable,
     engine: Arc<CoreEngine>,
-    /// Active subscriptions keyed by a per-plugin u32 rep.
+    // ros interface — JSON-decoded subscriptions
     subscriptions: HashMap<u32, SubscriptionData>,
     next_sub_rep: u32,
-    /// Output lines emitted via render::println.
+    // session interface — named sessions declared in manifest
+    sessions: HashMap<String, Arc<zenoh::Session>>,
+    // session-handle resources: rep → session name
+    session_handle_names: HashMap<u32, String>,
+    // raw-transport resources
+    raw_subs: HashMap<u32, RawSubData>,
+    raw_pubs: HashMap<u32, RawPubData>,
+    lv_tokens: HashMap<u32, LivelinessTokenData>,
+    lv_subs: HashMap<u32, LivelinessSubData>,
+    queryables: HashMap<u32, QueryableData>,
+    queriers: HashMap<u32, QuerierData>,
+    next_raw_rep: u32,
+    // render interface
     pub output_lines: Arc<Mutex<Vec<String>>>,
     pub title: Arc<Mutex<String>>,
 }
@@ -56,9 +102,33 @@ impl WasiView for PluginState {
     }
 }
 
-// ─── Host implementation of the WIT interfaces ───────────────────────────────
+impl PluginState {
+    fn alloc_rep(&mut self) -> u32 {
+        let r = self.next_raw_rep;
+        self.next_raw_rep += 1;
+        r
+    }
+
+    fn session_for_handle(
+        &self,
+        res: &Resource<hu::plugin::session::SessionHandle>,
+    ) -> Result<Arc<zenoh::Session>, String> {
+        let name = self
+            .session_handle_names
+            .get(&res.rep())
+            .ok_or_else(|| "session handle not found".to_string())?;
+        self.sessions
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("session '{name}' not open"))
+    }
+}
+
+// ─── types host impl ─────────────────────────────────────────────────────────
 
 impl hu::plugin::types::Host for PluginState {}
+
+// ─── graph host impl ─────────────────────────────────────────────────────────
 
 impl hu::plugin::graph::Host for PluginState {
     fn list_topics(&mut self) -> Vec<hu::plugin::graph::TopicInfo> {
@@ -85,7 +155,6 @@ impl hu::plugin::graph::Host for PluginState {
 
     fn list_nodes(&mut self) -> Vec<hu::plugin::graph::NodeInfo> {
         let graph = self.engine.graph.lock();
-        // get_node_names() returns (name, namespace) — swap for NodeInfo field order.
         graph
             .get_node_names()
             .into_iter()
@@ -109,6 +178,8 @@ impl hu::plugin::graph::Host for PluginState {
             .collect()
     }
 }
+
+// ─── ros host impl ───────────────────────────────────────────────────────────
 
 impl hu::plugin::ros::Host for PluginState {
     fn subscribe(
@@ -136,7 +207,6 @@ impl hu::plugin::ros::Host for PluginState {
                     return;
                 }
             };
-            // Forward decoded messages as JSON until the receiving end drops.
             loop {
                 match sub.try_recv() {
                     Some(Ok(msg)) => {
@@ -161,7 +231,6 @@ impl hu::plugin::ros::Host for PluginState {
                 _abort: handle.abort_handle(),
             },
         );
-
         Ok(Resource::new_own(rep))
     }
 
@@ -170,25 +239,22 @@ impl hu::plugin::ros::Host for PluginState {
         _name: String,
         _type_name: String,
     ) -> Result<Resource<hu::plugin::ros::ServiceClient>, String> {
-        Err("service calls not yet implemented in v0.1".to_string())
+        Err("service calls not yet implemented".to_string())
     }
 
     fn measure_hz(&mut self, _topic: String, _window_ms: u32) -> Result<f64, String> {
-        // v0.1 stub: real hz measurement via MetricsCollector comes in a later task.
         Ok(0.0)
     }
 
     fn measure_bw(&mut self, _topic: String, _window_ms: u32) -> Result<f64, String> {
-        // v0.1 stub: real bw measurement via MetricsCollector comes in a later task.
         Ok(0.0)
     }
 }
 
 impl hu::plugin::ros::HostSubscription for PluginState {
     fn try_recv(&mut self, res: Resource<hu::plugin::ros::Subscription>) -> Option<String> {
-        let rep = res.rep();
         self.subscriptions
-            .get(&rep)
+            .get(&res.rep())
             .and_then(|sub| sub.rx.try_recv().ok())
     }
 
@@ -205,7 +271,7 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         _request_json: String,
         _timeout_ms: u32,
     ) -> Result<String, String> {
-        Err("service calls not yet implemented in v0.1".to_string())
+        Err("service calls not yet implemented".to_string())
     }
 
     fn drop(&mut self, _res: Resource<hu::plugin::ros::ServiceClient>) -> wasmtime::Result<()> {
@@ -213,11 +279,374 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
     }
 }
 
+// ─── raw-transport host impl ─────────────────────────────────────────────────
+
+impl hu::plugin::raw_transport::Host for PluginState {}
+
+impl hu::plugin::raw_transport::HostRawSubscription for PluginState {
+    fn try_recv(
+        &mut self,
+        res: Resource<hu::plugin::raw_transport::RawSubscription>,
+    ) -> Option<Vec<u8>> {
+        self.raw_subs
+            .get(&res.rep())
+            .and_then(|s| s.rx.try_recv().ok())
+    }
+
+    fn drop(
+        &mut self,
+        res: Resource<hu::plugin::raw_transport::RawSubscription>,
+    ) -> wasmtime::Result<()> {
+        self.raw_subs.remove(&res.rep());
+        Ok(())
+    }
+}
+
+impl hu::plugin::raw_transport::HostRawPublisher for PluginState {
+    fn publish(
+        &mut self,
+        res: Resource<hu::plugin::raw_transport::RawPublisher>,
+        payload: Vec<u8>,
+    ) -> Result<(), String> {
+        let rep = res.rep();
+        let Some(data) = self.raw_pubs.get(&rep) else {
+            return Err("publisher not found".to_string());
+        };
+        let session = data.session.clone();
+        let ke = data.ke.clone();
+        session
+            .put(&ke, zenoh::bytes::ZBytes::from(payload))
+            .wait()
+            .map_err(|e| e.to_string())
+    }
+
+    fn drop(
+        &mut self,
+        res: Resource<hu::plugin::raw_transport::RawPublisher>,
+    ) -> wasmtime::Result<()> {
+        self.raw_pubs.remove(&res.rep());
+        Ok(())
+    }
+}
+
+impl hu::plugin::raw_transport::HostLivelinessToken for PluginState {
+    fn drop(
+        &mut self,
+        res: Resource<hu::plugin::raw_transport::LivelinessToken>,
+    ) -> wasmtime::Result<()> {
+        self.lv_tokens.remove(&res.rep()); // drops _abort → undeclares token
+        Ok(())
+    }
+}
+
+impl hu::plugin::raw_transport::HostLivelinessSub for PluginState {
+    fn try_recv(
+        &mut self,
+        res: Resource<hu::plugin::raw_transport::LivelinessSub>,
+    ) -> Option<(String, bool)> {
+        self.lv_subs
+            .get(&res.rep())
+            .and_then(|s| s.rx.try_recv().ok())
+    }
+
+    fn drop(
+        &mut self,
+        res: Resource<hu::plugin::raw_transport::LivelinessSub>,
+    ) -> wasmtime::Result<()> {
+        self.lv_subs.remove(&res.rep());
+        Ok(())
+    }
+}
+
+impl hu::plugin::raw_transport::HostQueryable for PluginState {
+    fn try_recv_query(
+        &mut self,
+        res: Resource<hu::plugin::raw_transport::Queryable>,
+    ) -> Option<(u64, Vec<u8>)> {
+        self.queryables
+            .get(&res.rep())
+            .and_then(|q| q.rx.try_recv().ok())
+    }
+
+    fn reply(
+        &mut self,
+        res: Resource<hu::plugin::raw_transport::Queryable>,
+        query_id: u64,
+        payload: Vec<u8>,
+    ) -> Result<(), String> {
+        let rep = res.rep();
+        let Some(qdata) = self.queryables.get(&rep) else {
+            return Err("queryable not found".to_string());
+        };
+        let query = qdata
+            .pending
+            .lock()
+            .unwrap()
+            .remove(&query_id)
+            .ok_or_else(|| format!("query {query_id} not found or already replied"))?;
+        query
+            .reply(
+                query.key_expr().clone(),
+                zenoh::bytes::ZBytes::from(payload),
+            )
+            .wait()
+            .map_err(|e| e.to_string())
+    }
+
+    fn drop(
+        &mut self,
+        res: Resource<hu::plugin::raw_transport::Queryable>,
+    ) -> wasmtime::Result<()> {
+        self.queryables.remove(&res.rep());
+        Ok(())
+    }
+}
+
+impl hu::plugin::raw_transport::HostQuerier for PluginState {
+    fn call(
+        &mut self,
+        res: Resource<hu::plugin::raw_transport::Querier>,
+        payload: Vec<u8>,
+        timeout_ms: u32,
+    ) -> Result<Vec<u8>, String> {
+        let rep = res.rep();
+        let Some(qdata) = self.queriers.get(&rep) else {
+            return Err("querier not found".to_string());
+        };
+        let session = qdata.session.clone();
+        let ke = qdata.ke.clone();
+        let timeout = Duration::from_millis(timeout_ms as u64);
+        let replies = session
+            .get(&ke)
+            .payload(zenoh::bytes::ZBytes::from(payload))
+            .timeout(timeout)
+            .wait()
+            .map_err(|e| e.to_string())?;
+        match replies.recv() {
+            Ok(reply) => match reply.result() {
+                Ok(sample) => Ok(sample.payload().to_bytes().into_owned()),
+                Err(e) => Err(e.to_string()),
+            },
+            Err(_) => Err("no reply received within timeout".to_string()),
+        }
+    }
+
+    fn drop(&mut self, res: Resource<hu::plugin::raw_transport::Querier>) -> wasmtime::Result<()> {
+        self.queriers.remove(&res.rep());
+        Ok(())
+    }
+}
+
+// ─── session host impl ───────────────────────────────────────────────────────
+
+impl hu::plugin::session::Host for PluginState {
+    fn get_session(
+        &mut self,
+        name: String,
+    ) -> Result<Resource<hu::plugin::session::SessionHandle>, String> {
+        if !self.sessions.contains_key(&name) {
+            return Err(format!(
+                "session '{name}' not declared in manifest or failed to open"
+            ));
+        }
+        let rep = self.alloc_rep();
+        self.session_handle_names.insert(rep, name);
+        Ok(Resource::new_own(rep))
+    }
+}
+
+impl hu::plugin::session::HostSessionHandle for PluginState {
+    fn raw_subscribe(
+        &mut self,
+        res: Resource<hu::plugin::session::SessionHandle>,
+        ke: String,
+    ) -> Result<Resource<hu::plugin::raw_transport::RawSubscription>, String> {
+        let session = self.session_for_handle(&res)?;
+        let (tx, rx) = flume::bounded::<Vec<u8>>(256);
+        let ke_clone = ke.clone();
+        let handle = tokio::spawn(async move {
+            let sub = match session.declare_subscriber(&ke_clone).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("raw-subscribe failed on {ke_clone}: {e}");
+                    return;
+                }
+            };
+            loop {
+                match sub.recv_async().await {
+                    Ok(sample) => {
+                        let bytes = sample.payload().to_bytes().into_owned();
+                        if tx.send_async(bytes).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        let rep = self.alloc_rep();
+        self.raw_subs.insert(
+            rep,
+            RawSubData {
+                rx,
+                _abort: handle.abort_handle(),
+            },
+        );
+        Ok(Resource::new_own(rep))
+    }
+
+    fn raw_publisher(
+        &mut self,
+        res: Resource<hu::plugin::session::SessionHandle>,
+        ke: String,
+    ) -> Result<Resource<hu::plugin::raw_transport::RawPublisher>, String> {
+        let session = self.session_for_handle(&res)?;
+        let rep = self.alloc_rep();
+        self.raw_pubs.insert(rep, RawPubData { session, ke });
+        Ok(Resource::new_own(rep))
+    }
+
+    fn declare_liveliness(
+        &mut self,
+        res: Resource<hu::plugin::session::SessionHandle>,
+        ke: String,
+    ) -> Result<Resource<hu::plugin::raw_transport::LivelinessToken>, String> {
+        let session = self.session_for_handle(&res)?;
+        let handle = tokio::spawn(async move {
+            // Task holds the token. Aborting it undeclares it.
+            let _token = match session.liveliness().declare_token(&ke).await {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!("declare-liveliness failed on {ke}: {e}");
+                    return;
+                }
+            };
+            // Hold token until task is aborted.
+            tokio::time::sleep(Duration::MAX).await;
+        });
+        let rep = self.alloc_rep();
+        self.lv_tokens.insert(
+            rep,
+            LivelinessTokenData {
+                _abort: handle.abort_handle(),
+            },
+        );
+        Ok(Resource::new_own(rep))
+    }
+
+    fn subscribe_liveliness(
+        &mut self,
+        res: Resource<hu::plugin::session::SessionHandle>,
+        ke: String,
+    ) -> Result<Resource<hu::plugin::raw_transport::LivelinessSub>, String> {
+        let session = self.session_for_handle(&res)?;
+        let (tx, rx) = flume::bounded::<(String, bool)>(256);
+        let ke_clone = ke.clone();
+        let handle = tokio::spawn(async move {
+            let sub = match session.liveliness().declare_subscriber(&ke_clone).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("liveliness-sub failed on {ke_clone}: {e}");
+                    return;
+                }
+            };
+            loop {
+                match sub.recv_async().await {
+                    Ok(sample) => {
+                        let key = sample.key_expr().to_string();
+                        let appeared = sample.kind() == zenoh::sample::SampleKind::Put;
+                        if tx.send_async((key, appeared)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        let rep = self.alloc_rep();
+        self.lv_subs.insert(
+            rep,
+            LivelinessSubData {
+                rx,
+                _abort: handle.abort_handle(),
+            },
+        );
+        Ok(Resource::new_own(rep))
+    }
+
+    fn declare_queryable(
+        &mut self,
+        res: Resource<hu::plugin::session::SessionHandle>,
+        ke: String,
+    ) -> Result<Resource<hu::plugin::raw_transport::Queryable>, String> {
+        let session = self.session_for_handle(&res)?;
+        let (tx, rx) = flume::bounded::<(u64, Vec<u8>)>(64);
+        let pending: Arc<Mutex<HashMap<u64, zenoh::query::Query>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let pending_task = pending.clone();
+        let ke_clone = ke.clone();
+        let handle = tokio::spawn(async move {
+            let queryable = match session.declare_queryable(&ke_clone).await {
+                Ok(q) => q,
+                Err(e) => {
+                    tracing::warn!("declare-queryable failed on {ke_clone}: {e}");
+                    return;
+                }
+            };
+            let mut next_qid: u64 = 0;
+            loop {
+                match queryable.recv_async().await {
+                    Ok(query) => {
+                        let id = next_qid;
+                        next_qid += 1;
+                        let payload = query
+                            .payload()
+                            .map(|p| p.to_bytes().into_owned())
+                            .unwrap_or_default();
+                        pending_task.lock().unwrap().insert(id, query);
+                        if tx.send_async((id, payload)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        let rep = self.alloc_rep();
+        self.queryables.insert(
+            rep,
+            QueryableData {
+                rx,
+                pending,
+                _abort: handle.abort_handle(),
+            },
+        );
+        Ok(Resource::new_own(rep))
+    }
+
+    fn open_querier(
+        &mut self,
+        res: Resource<hu::plugin::session::SessionHandle>,
+        ke: String,
+    ) -> Result<Resource<hu::plugin::raw_transport::Querier>, String> {
+        let session = self.session_for_handle(&res)?;
+        let rep = self.alloc_rep();
+        self.queriers.insert(rep, QuerierData { session, ke });
+        Ok(Resource::new_own(rep))
+    }
+
+    fn drop(&mut self, res: Resource<hu::plugin::session::SessionHandle>) -> wasmtime::Result<()> {
+        self.session_handle_names.remove(&res.rep());
+        Ok(())
+    }
+}
+
+// ─── render host impl ────────────────────────────────────────────────────────
+
 impl hu::plugin::render::Host for PluginState {
     fn println(&mut self, text: String) {
         let mut lines = self.output_lines.lock().unwrap();
         lines.push(text);
-        // Keep ring buffer bounded.
         if lines.len() > 1000 {
             lines.drain(0..500);
         }
@@ -228,8 +657,7 @@ impl hu::plugin::render::Host for PluginState {
     }
 
     fn emit_json(&mut self, key: String, value: String) {
-        let line = format!("{{\"{}\":{}}}", key, value);
-        self.println(line);
+        self.println(format!("{{\"{key}\":{value}}}"));
     }
 }
 
@@ -329,6 +757,30 @@ pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Vec<WasmPlugin> {
     plugins
 }
 
+/// Discover `.wasm` plugin files without loading them. Used by `hu plugin list`.
+pub fn discover_wasm_plugins() -> Vec<(String, PathBuf)> {
+    let mut result = Vec::new();
+    for dir in plugin_search_dirs() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("wasm") {
+                continue;
+            }
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            result.push((name, path));
+        }
+    }
+    result.sort_by(|a, b| a.0.cmp(&b.0));
+    result
+}
+
 fn load_one(
     wasm_engine: &Engine,
     path: &PathBuf,
@@ -345,13 +797,21 @@ fn load_one(
     let title = Arc::new(Mutex::new(String::new()));
 
     let wasi = WasiCtxBuilder::new().inherit_env().build();
-
     let state = PluginState {
         wasi,
         table: wasmtime_wasi::ResourceTable::new(),
         engine: engine_ref,
         subscriptions: HashMap::new(),
         next_sub_rep: 0,
+        sessions: HashMap::new(),
+        session_handle_names: HashMap::new(),
+        raw_subs: HashMap::new(),
+        raw_pubs: HashMap::new(),
+        lv_tokens: HashMap::new(),
+        lv_subs: HashMap::new(),
+        queryables: HashMap::new(),
+        queriers: HashMap::new(),
+        next_raw_rep: 0,
         output_lines: output_lines.clone(),
         title: title.clone(),
     };
@@ -362,6 +822,8 @@ fn load_one(
     let manifest = bindings
         .call_manifest(&mut store)
         .context("calling manifest()")?;
+
+    open_declared_sessions(&mut store, &manifest)?;
 
     *title.lock().unwrap() = manifest.name.clone();
 
@@ -374,18 +836,53 @@ fn load_one(
     })
 }
 
+/// Open all sessions declared in the manifest and store them in PluginState.
+fn open_declared_sessions(
+    store: &mut Store<PluginState>,
+    manifest: &hu::plugin::types::PluginManifest,
+) -> Result<()> {
+    for req in &manifest.sessions {
+        let name = req.name.clone();
+        let endpoint = req.endpoint.clone();
+        let mode_str = match req.mode {
+            hu::plugin::types::SessionMode::Client => "\"client\"",
+            hu::plugin::types::SessionMode::Peer => "\"peer\"",
+        };
+
+        let mut config = zenoh::Config::default();
+        config
+            .insert_json5("mode", mode_str)
+            .with_context(|| format!("session '{name}': set mode"))?;
+        config
+            .insert_json5("connect/endpoints", &format!("[\"{endpoint}\"]"))
+            .with_context(|| format!("session '{name}': set endpoint"))?;
+        config
+            .insert_json5("scouting/multicast/enabled", "false")
+            .with_context(|| format!("session '{name}': disable multicast"))?;
+
+        let session = zenoh::open(config)
+            .wait()
+            .with_context(|| format!("opening session '{name}' → {endpoint}"))?;
+
+        store
+            .data_mut()
+            .sessions
+            .insert(name.clone(), Arc::new(session));
+
+        tracing::info!("WASM plugin session '{}' → {} opened", name, endpoint);
+    }
+    Ok(())
+}
+
 fn plugin_search_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-
     if let Ok(paths) = std::env::var("HU_PLUGIN_PATH") {
         for p in std::env::split_paths(&paths) {
             dirs.push(p);
         }
     }
-
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join(".local/share/hu/plugins"));
     }
-
     dirs
 }

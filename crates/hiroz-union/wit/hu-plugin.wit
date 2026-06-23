@@ -1,11 +1,14 @@
-// hu plugin interface v0.1
+// hu plugin interface v0.2
 //
-// Host-proxied model: the host (hu) owns the Zenoh session. Plugins never
-// handle raw CDR bytes — the host decodes to JSON before delivery.
-// The render interface is the only output path; TUI and web hosts interpret
-// it differently so the same .wasm plugin works in both.
+// Host-proxied model: the host (hu) owns Zenoh sessions. The ros interface
+// proxies one shared session (JSON-decoded, for analytics plugins). The session
+// interface provides named multi-session handles with raw CDR passthrough, for
+// plugins that need independent session configs (e.g. cross-distro bridges).
+//
+// The render interface is the only output path; TUI and web hosts interpret it
+// differently so the same .wasm plugin works in both.
 
-package hu:plugin@0.1.0;
+package hu:plugin@0.2.0;
 
 // Shared types used by the plugin world.
 interface types {
@@ -18,6 +21,23 @@ interface types {
         command: string,
     }
 
+    enum session-mode {
+        client,
+        peer,
+    }
+
+    // A Zenoh session the plugin needs the host to open.
+    // Declared in plugin-manifest.sessions; the host opens them before
+    // the first on-event call.
+    record session-requirement {
+        // Logical name used to retrieve the handle via session::get-session.
+        name: string,
+        // Zenoh endpoint, e.g. "tcp/192.168.1.10:7447".
+        endpoint: string,
+        // Transport mode. Use client to avoid P2P peer-gossip issues.
+        mode: session-mode,
+    }
+
     record plugin-manifest {
         name:        string,
         version:     string,
@@ -26,6 +46,8 @@ interface types {
         bindings:    list<keybinding>,
         // Tick interval in milliseconds (0 = no ticks).
         tick-ms:     u32,
+        // Named sessions this plugin needs. Host opens them before first on-event.
+        sessions:    list<session-requirement>,
     }
 
     variant plugin-event {
@@ -41,8 +63,6 @@ interface types {
 // Read-only snapshot of the live ROS graph.
 // The host serves this from the liveliness index without any Zenoh round-trip.
 interface graph {
-    use types.{plugin-manifest};
-
     record topic-info {
         name:        string,
         type-name:   string,
@@ -66,9 +86,9 @@ interface graph {
 
 // ROS communication — host decodes CDR to JSON before delivery.
 // Plugins never see raw CDR bytes; no per-plugin message codegen needed.
+// Use the session interface instead when you need raw CDR or multiple sessions.
 interface ros {
-    // Active subscription to a topic.
-    // Drop to unsubscribe.
+    // Active subscription to a topic. Drop to unsubscribe.
     resource subscription {
         // Returns next decoded JSON message or none if the queue is empty.
         try-recv: func() -> option<string>;
@@ -84,16 +104,86 @@ interface ros {
     // Subscribe to a topic; returns a subscription handle or an error.
     subscribe: func(topic: string) -> result<subscription, string>;
 
-    // Connect to a named service; type-name e.g.
-    // "example_interfaces/srv/AddTwoInts".
+    // Connect to a named service.
     connect-service: func(name: string, type-name: string) -> result<service-client, string>;
 
-    // Host-side rate measurement — avoids passing raw timestamps across the
-    // boundary for hz tracking. Returns average Hz over the last window-ms.
+    // Host-side rate measurement. Returns average Hz over the last window-ms.
     measure-hz: func(topic: string, window-ms: u32) -> result<f64, string>;
 
     // Host-side bandwidth measurement. Returns average KB/s over window-ms.
     measure-bw: func(topic: string, window-ms: u32) -> result<f64, string>;
+}
+
+// Raw Zenoh transport primitives — CDR bytes passed through without decoding.
+// Used by plugins that bridge between sessions and must not alter payloads.
+interface raw-transport {
+    // Raw subscriber on a key expression. Drop to undeclare.
+    resource raw-subscription {
+        // Returns next raw CDR payload or none if the queue is empty.
+        try-recv: func() -> option<list<u8>>;
+    }
+
+    // Raw publisher on a key expression.
+    resource raw-publisher {
+        publish: func(payload: list<u8>) -> result<_, string>;
+    }
+
+    // Liveliness token on a key expression. Drop to withdraw.
+    resource liveliness-token {}
+
+    // Liveliness subscriber. Drop to undeclare.
+    resource liveliness-sub {
+        // Returns (key-expression, appeared) or none if no event is queued.
+        try-recv: func() -> option<tuple<string, bool>>;
+    }
+
+    // Queryable (service server side). Drop to undeclare.
+    resource queryable {
+        // Returns (query-id, payload) or none.
+        try-recv-query: func() -> option<tuple<u64, list<u8>>>;
+        // Reply to a pending query.
+        reply: func(query-id: u64, payload: list<u8>) -> result<_, string>;
+    }
+
+    // Querier (service client side). Drop to undeclare.
+    resource querier {
+        // Send a request and block until a reply arrives or timeout expires.
+        call: func(payload: list<u8>, timeout-ms: u32) -> result<list<u8>, string>;
+    }
+}
+
+// Multi-session interface. Sessions are declared in the manifest and opened by
+// the host before the first on-event call. Plugins retrieve them by name.
+interface session {
+    use raw-transport.{
+        raw-subscription,
+        raw-publisher,
+        liveliness-token,
+        liveliness-sub,
+        queryable,
+        querier,
+    };
+
+    // Handle to a named Zenoh session opened by the host.
+    resource session-handle {
+        // Subscribe to raw CDR messages on a key expression.
+        raw-subscribe: func(ke: string) -> result<raw-subscription, string>;
+        // Declare a raw publisher on a key expression.
+        raw-publisher: func(ke: string) -> result<raw-publisher, string>;
+        // Declare a liveliness token on a key expression.
+        declare-liveliness: func(ke: string) -> result<liveliness-token, string>;
+        // Subscribe to liveliness events matching a key expression.
+        subscribe-liveliness: func(ke: string) -> result<liveliness-sub, string>;
+        // Declare a queryable (service server side) on a key expression.
+        declare-queryable: func(ke: string) -> result<queryable, string>;
+        // Open a querier (service client side) targeting a key expression.
+        open-querier: func(ke: string) -> result<querier, string>;
+    }
+
+    // Retrieve a pre-opened session by its declared name.
+    // Returns an error if the name was not declared in the manifest or the
+    // host failed to open it.
+    get-session: func(name: string) -> result<session-handle, string>;
 }
 
 // Output interface — host interprets for its rendering target.
@@ -115,6 +205,8 @@ world hu-plugin {
 
     import graph;
     import ros;
+    import raw-transport;
+    import session;
     import render;
 
     // Called once at load time to discover the plugin's identity and keybindings.
