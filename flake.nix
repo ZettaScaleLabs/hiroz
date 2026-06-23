@@ -497,10 +497,10 @@
           # The benchmark command must build hu-meter.wasm and set HU_PLUGIN_PATH itself
           # (nix develop --command does not run shellHook).
           bridge-interop-ci = (self.devShells.${system}.ros-bridge-interop).overrideAttrs (old: {
-            buildInputs = [
+            nativeBuildInputs = [
               rustToolchainWasm
             ]
-            ++ (builtins.filter (p: p != rustToolchain) (old.buildInputs or [ ]))
+            ++ (builtins.filter (p: p != rustToolchain) (old.nativeBuildInputs or [ ]))
             ++ [ self.packages.${system}.hu ];
           });
 
