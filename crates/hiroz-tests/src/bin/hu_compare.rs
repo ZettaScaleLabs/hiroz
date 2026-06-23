@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use clap::Parser;
+use hiroz::Builder;
 use hiroz::prelude::ZContextBuilder;
 use hiroz_msgs::std_msgs::String as RosString;
 use serde_json::json;
