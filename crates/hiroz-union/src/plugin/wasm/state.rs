@@ -15,7 +15,7 @@ use hu::plugin::types::Permission;
 
 // ─── Subscription tracking (ros interface) ────────────────────────────────────
 
-pub(super) struct SubscriptionData {
+pub(crate) struct SubscriptionData {
     #[allow(dead_code)]
     pub topic: String,
     pub rx: flume::Receiver<String>,
@@ -24,38 +24,38 @@ pub(super) struct SubscriptionData {
 
 // ─── Raw transport resource state ────────────────────────────────────────────
 
-pub(super) struct RawSubData {
+pub(crate) struct RawSubData {
     pub rx: flume::Receiver<Vec<u8>>,
     pub _abort: tokio::task::AbortHandle,
 }
 
-pub(super) struct RawPubData {
+pub(crate) struct RawPubData {
     pub session: Arc<zenoh::Session>,
     pub ke: String,
 }
 
-pub(super) struct LivelinessTokenData {
+pub(crate) struct LivelinessTokenData {
     pub _abort: tokio::task::AbortHandle,
 }
 
-pub(super) struct LivelinessSubData {
+pub(crate) struct LivelinessSubData {
     pub rx: flume::Receiver<(String, bool)>,
     pub _abort: tokio::task::AbortHandle,
 }
 
-pub(super) struct QueryableData {
+pub(crate) struct QueryableData {
     pub rx: flume::Receiver<(u64, Vec<u8>)>,
     pub pending: Arc<Mutex<HashMap<u64, zenoh::query::Query>>>,
     pub _abort: tokio::task::AbortHandle,
 }
 
-pub(super) struct QuerierData {
+pub(crate) struct QuerierData {
     pub session: Arc<zenoh::Session>,
     pub ke: String,
 }
 
 /// Per-topic rate/bandwidth tracker for measure-hz and measure-bw.
-pub(super) struct RateTrackerData {
+pub(crate) struct RateTrackerData {
     pub rx: flume::Receiver<(Instant, usize)>,
     pub arrivals: VecDeque<(Instant, usize)>,
     pub _abort: tokio::task::AbortHandle,
@@ -73,7 +73,7 @@ impl RateTrackerData {
     }
 }
 
-pub(super) struct ServiceClientData {
+pub(crate) struct ServiceClientData {
     pub session: Arc<zenoh::Session>,
     pub ke: String,
     pub type_name: String,

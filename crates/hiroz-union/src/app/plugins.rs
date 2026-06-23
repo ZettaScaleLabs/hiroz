@@ -41,16 +41,6 @@ impl PluginManager {
     }
 
     #[cfg(feature = "wasm-plugins")]
-    pub fn selected(&self) -> Option<&WasmPlugin> {
-        self.plugins.get(self.selected_index)
-    }
-
-    #[cfg(not(feature = "wasm-plugins"))]
-    pub fn selected(&self) -> Option<()> {
-        None
-    }
-
-    #[cfg(feature = "wasm-plugins")]
     pub fn dispatch_tick(&mut self, plugin_idx: usize) {
         if let Some(plugin) = self.plugins.get_mut(plugin_idx) {
             plugin.dispatch_event(hu::plugin::types::PluginEvent::Tick);

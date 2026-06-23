@@ -21,7 +21,7 @@ use std::{
 
 use ratatui::widgets::ScrollbarState;
 
-use crate::core::engine::{Backend, CoreEngine};
+use crate::core::engine::CoreEngine;
 use monitor::TopicMonitor;
 use plugins::PluginManager;
 use recorder::Recorder;
@@ -32,11 +32,9 @@ pub struct App {
     pub core: Arc<CoreEngine>,
 
     // Core dependencies
-    pub session: Arc<zenoh::Session>,
     pub connection_status: ConnectionStatus,
     pub config: Config,
     pub recorder: Recorder,
-    pub backend: Backend,
 
     // Panel state
     pub current_panel: Panel,
@@ -99,11 +97,9 @@ impl App {
 
         Ok(Self {
             core: core.clone(),
-            session: core.session.clone(),
             connection_status: ConnectionStatus::Connected,
             config: config.clone(),
             recorder,
-            backend: core.backend,
             current_panel: Panel::Topics,
             selected_index: 0,
             focus_pane: FocusPane::List,

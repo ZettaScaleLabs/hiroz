@@ -160,10 +160,6 @@ impl TopicMonitor {
             .retain(|_, cache| now.duration_since(cache.last_updated) < self.rate_cache_ttl);
     }
 
-    pub fn cached_rate(&self, topic: &str) -> Option<f64> {
-        self.rate_cache.get(topic).map(|c| c.rate)
-    }
-
     pub fn set_rate_cache(&mut self, topic: &str, rate: f64) {
         self.rate_cache.insert(
             topic.to_string(),

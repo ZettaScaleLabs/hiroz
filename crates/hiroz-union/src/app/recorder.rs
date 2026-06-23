@@ -134,10 +134,6 @@ impl Recorder {
     pub fn is_active(&self) -> bool {
         self.active
     }
-
-    pub fn recording_id(&self) -> Option<i64> {
-        self.recording_id
-    }
 }
 
 #[cfg(test)]
@@ -152,7 +148,6 @@ mod tests {
         assert!(r.is_active());
         r.stop().unwrap();
         assert!(!r.is_active());
-        assert!(r.recording_id().is_none());
     }
 
     #[test]

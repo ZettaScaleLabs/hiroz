@@ -67,9 +67,9 @@ impl WasmPlugin {
 
 // ─── Loader ──────────────────────────────────────────────────────────────────
 
-pub fn load_plugins(
-    engine_ref: Arc<CoreEngine>,
-) -> Result<(Vec<WasmPlugin>, Vec<(String, String)>)> {
+type LoadResult = (Vec<WasmPlugin>, Vec<(String, String)>);
+
+pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Result<LoadResult> {
     let search_dirs = plugin_search_dirs();
     let mut engine_config = wasmtime::Config::default();
     engine_config.epoch_interruption(true);

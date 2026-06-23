@@ -330,10 +330,9 @@ async fn run_tui_loop(
 
         if event::poll(Duration::from_millis(POLL_TIMEOUT_MS))?
             && let Event::Key(key) = event::read()?
+            && app::input::handle_key(app, key).await?
         {
-            if app::input::handle_key(app, key).await? {
-                return Ok(());
-            }
+            return Ok(());
         }
     }
 }
