@@ -20,8 +20,8 @@ members = [
   "crates/hiroz-msgs",
   "crates/hiroz-tests",
   "crates/hiroz-union",
-  "crates/hu-meter",
-  "crates/hu-monitor",
+  "crates/hiroz-union/plugins/hu-meter",
+  "crates/hiroz-union/plugins/hu-monitor",
   "crates/hiroz-bridge",
   "crates/hiroz/examples/protobuf_demo",
 ]
