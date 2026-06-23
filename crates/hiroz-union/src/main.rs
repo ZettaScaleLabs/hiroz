@@ -182,7 +182,7 @@ fn filter_hu_flags(args: Vec<String>, named_flags: &[&str]) -> Vec<String> {
     let mut out = Vec::new();
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
-        if named_flags.iter().any(|f| *f == a.as_str()) {
+        if named_flags.contains(&a.as_str()) {
             it.next(); // consume the value
         } else if named_flags.iter().any(|f| a.starts_with(&format!("{f}="))) {
             // skip --flag=value form
