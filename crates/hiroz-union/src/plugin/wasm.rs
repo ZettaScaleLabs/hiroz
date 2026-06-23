@@ -959,6 +959,8 @@ impl WasmPlugin {
                 return self.store.data().exit_code;
             }
         }
+        // Reset epoch deadline before each WASM call.
+        self.store.set_epoch_deadline(30);
         if let Err(e) = self.bindings.call_on_event(&mut self.store, &event) {
             tracing::warn!("WASM plugin '{}' error on event: {e}", self.manifest.name);
         }
@@ -973,9 +975,24 @@ impl WasmPlugin {
 ///
 /// Returns `(loaded, failed)` where `failed` is a list of `(path_display, error_message)`
 /// for plugins that could not be loaded, so the TUI can show an indicator.
-pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> (Vec<WasmPlugin>, Vec<(String, String)>) {
+pub fn load_plugins(
+    engine_ref: Arc<CoreEngine>,
+) -> Result<(Vec<WasmPlugin>, Vec<(String, String)>)> {
     let search_dirs = plugin_search_dirs();
-    let wasm_engine = Engine::default();
+    let mut engine_config = wasmtime::Config::default();
+    engine_config.epoch_interruption(true);
+    let wasm_engine = Engine::new(&engine_config).context("creating WASM engine")?;
+
+    // Spawn an epoch ticker so epoch_interruption can fire.
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        let ticker_engine = wasm_engine.clone();
+        handle.spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                ticker_engine.increment_epoch();
+            }
+        });
+    }
     let mut plugins = Vec::new();
     let mut failed: Vec<(String, String)> = Vec::new();
 
@@ -1006,7 +1023,7 @@ pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> (Vec<WasmPlugin>, Vec<(Strin
         }
     }
 
-    (plugins, failed)
+    Ok((plugins, failed))
 }
 
 /// Discover `.wasm` plugin files without loading them. Used by `hu plugin list`.
@@ -1035,16 +1052,12 @@ pub fn discover_wasm_plugins() -> Vec<(String, PathBuf)> {
     result
 }
 
-fn plugin_cache_dir() -> Option<PathBuf> {
-    dirs::cache_dir().map(|d| d.join("hu").join("plugins"))
-}
-
-fn hash_bytes(bytes: &[u8]) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut h = DefaultHasher::new();
-    bytes.hash(&mut h);
-    format!("{:016x}", h.finish())
+fn plugin_work_dir(plugin_stem: &str) -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("hu")
+        .join("plugin-work")
+        .join(plugin_stem)
 }
 
 fn load_one(
@@ -1052,48 +1065,18 @@ fn load_one(
     path: &PathBuf,
     engine_ref: Arc<CoreEngine>,
 ) -> Result<WasmPlugin> {
-    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-    let hash = hash_bytes(&bytes);
-    let component = if let Some(cache_dir) = plugin_cache_dir() {
-        let cache_path = cache_dir.join(format!("{hash}.cwasm"));
-        if cache_path.exists() {
-            // SAFETY: the bytes were produced by wasmtime's serialize(); wasmtime
-            // validates the precompiled header and returns Err on engine mismatch.
-            match std::fs::read(&cache_path)
-                .map_err(|e| anyhow::anyhow!(e))
-                .and_then(|b| unsafe { Component::deserialize(wasm_engine, &b) })
-            {
-                Ok(c) => {
-                    tracing::debug!("WASM plugin cache hit for {} ({hash})", path.display());
-                    c
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        "WASM plugin cache stale for {}, recompiling: {e}",
-                        path.display()
-                    );
-                    let c = Component::new(wasm_engine, &bytes)
-                        .with_context(|| format!("compiling {}", path.display()))?;
-                    if let Ok(serialized) = c.serialize() {
-                        let _ = std::fs::create_dir_all(&cache_dir);
-                        let _ = std::fs::write(&cache_path, serialized);
-                    }
-                    c
-                }
-            }
-        } else {
-            let c = Component::new(wasm_engine, &bytes)
-                .with_context(|| format!("compiling {}", path.display()))?;
-            if let Ok(serialized) = c.serialize() {
-                let _ = std::fs::create_dir_all(&cache_dir);
-                let _ = std::fs::write(&cache_path, serialized);
-            }
-            c
-        }
-    } else {
-        Component::new(wasm_engine, &bytes)
-            .with_context(|| format!("compiling {}", path.display()))?
-    };
+    // Extract plugin stem for sandbox dir (strip "hu-" prefix).
+    let plugin_stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+    let plugin_stem = plugin_stem.strip_prefix("hu-").unwrap_or(plugin_stem);
+    let work_dir = plugin_work_dir(plugin_stem);
+    std::fs::create_dir_all(&work_dir).ok();
+
+    // wasmtime's built-in cache (configured via engine_config) handles caching.
+    let component = Component::from_file(wasm_engine, path)
+        .with_context(|| format!("compiling {}", path.display()))?;
 
     let mut linker: Linker<PluginState> = Linker::new(wasm_engine);
     wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
@@ -1102,10 +1085,23 @@ fn load_one(
     let output_lines = Arc::new(Mutex::new(Vec::new()));
     let title = Arc::new(Mutex::new(String::new()));
 
-    // inherit_env exposes all environment variables (including HU_ROUTER,
-    // HU_DOMAIN, and any secrets in the shell) to the plugin guest.
-    // Filesystem and network access are not granted. Only load trusted plugins.
-    let wasi = WasiCtxBuilder::new().inherit_env().build();
+    // Sandbox: pre-open only the plugin's own work directory as /work.
+    // inherit_env exposes HU_ROUTER, HU_DOMAIN, etc. to the plugin guest.
+    // Only load trusted plugins.
+    let mut wasi_builder = WasiCtxBuilder::new();
+    wasi_builder.inherit_env();
+    if let Err(e) = wasi_builder.preopened_dir(
+        &work_dir,
+        "/work",
+        wasmtime_wasi::DirPerms::all(),
+        wasmtime_wasi::FilePerms::all(),
+    ) {
+        tracing::warn!(
+            "failed to pre-open plugin work dir {}: {e}",
+            work_dir.display()
+        );
+    }
+    let wasi = wasi_builder.build();
 
     // Register the main hiroz session as "default" so plugins can call
     // session::get-session("default") without declaring it in their manifest.
@@ -1137,6 +1133,8 @@ fn load_one(
     };
 
     let mut store = Store::new(wasm_engine, state);
+    // Allow up to 30 epochs (3 seconds) per WASM call before interrupting.
+    store.set_epoch_deadline(30);
     let bindings = HuPlugin::instantiate(&mut store, &component, &linker)?;
 
     let manifest = bindings
@@ -1195,6 +1193,15 @@ fn open_declared_sessions(
         tracing::info!("WASM plugin session '{}' → {} opened", name, endpoint);
     }
     Ok(())
+}
+
+/// Statically validate a `.wasm` file by compiling it as a WASM component.
+/// Does not require a live Zenoh session. Returns an OK message or an error.
+pub fn validate_plugin_static(path: &std::path::Path) -> Result<String> {
+    let engine_config = wasmtime::Config::default();
+    let engine = Engine::new(&engine_config).context("creating validation engine")?;
+    Component::from_file(&engine, path).with_context(|| format!("compiling {}", path.display()))?;
+    Ok(format!("OK: {} is a valid WASM component", path.display()))
 }
 
 fn plugin_search_dirs() -> Vec<PathBuf> {

@@ -91,6 +91,11 @@ enum Commands {
 enum PluginAction {
     /// List all installed hu-* plugins
     List,
+    /// Validate a .wasm plugin file and report its manifest
+    Validate {
+        /// Path to the .wasm plugin file
+        path: String,
+    },
 }
 
 #[tokio::main]
@@ -137,6 +142,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             action: PluginAction::List,
         }) => {
             return run_plugin_list(cli.json);
+        }
+        Some(Commands::Plugin {
+            action: PluginAction::Validate { path },
+        }) => {
+            return run_plugin_validate(&path, cli.json);
         }
         None => {}
     }
@@ -235,6 +245,51 @@ fn run_plugin_list(json: bool) -> Result<(), Box<dyn std::error::Error + Send + 
     }
 }
 
+fn run_plugin_validate(
+    path: &str,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    #[cfg(not(feature = "wasm-plugins"))]
+    {
+        let _ = (path, json);
+        eprintln!("WASM plugin support not compiled in.");
+        std::process::exit(1);
+    }
+    #[cfg(feature = "wasm-plugins")]
+    {
+        let p = std::path::Path::new(path);
+        if !p.exists() {
+            eprintln!("error: file not found: {}", p.display());
+            std::process::exit(1);
+        }
+        if p.extension().and_then(|e| e.to_str()) != Some("wasm") {
+            eprintln!("warning: file does not have .wasm extension");
+        }
+        match plugin::wasm::validate_plugin_static(p) {
+            Ok(msg) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"status": "ok", "path": path, "message": msg})
+                    );
+                } else {
+                    println!("{msg}");
+                    println!("(Use --router to connect and read the full plugin manifest)");
+                }
+                Ok(())
+            }
+            Err(e) => {
+                if json {
+                    println!("{}", serde_json::json!({"error": e.to_string()}));
+                } else {
+                    eprintln!("error: {e}");
+                }
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
 async fn run_tui_mode(
     core: Arc<CoreEngine>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -247,7 +302,7 @@ async fn run_tui_mode(
     let mut app = App::new(core.clone()).await?;
     #[cfg(feature = "wasm-plugins")]
     {
-        let (plugins, failed) = plugin::wasm::load_plugins(core);
+        let (plugins, failed) = plugin::wasm::load_plugins(core)?;
         app.wasm_plugins = plugins;
         app.failed_plugins = failed;
     }
