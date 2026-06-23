@@ -27,34 +27,12 @@ use hiroz_msgs::{
     std_msgs::{Header, String as RosString},
 };
 
-fn hu_bin() -> String {
-    std::env::var("CARGO_BIN_EXE_hu").unwrap_or_else(|_| {
-        let target_dir = std::env::var("CARGO_TARGET_DIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| {
-                let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-                manifest.parent().unwrap().parent().unwrap().join("target")
-            });
-        let profile = if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "release"
-        };
-        target_dir
-            .join(profile)
-            .join("hu")
-            .to_str()
-            .unwrap()
-            .to_string()
-    })
-}
-
 /// Run `hu meter <args>` with a specific router endpoint.
 ///
 /// Requires HU_PLUGIN_PATH to contain the compiled hu-meter.wasm.
 /// Build it first: cargo build -p hu-meter --target wasm32-wasip2
 fn run_hu_meter(router: &str, args: &[&str]) -> Output {
-    Command::new(hu_bin())
+    Command::new("hu")
         .arg("meter")
         .arg("--router")
         .arg(router)
@@ -890,7 +868,7 @@ fn test_hu_meter_echo_raw() {
 
 /// Spawn hu-meter, let it run for `secs` seconds, kill it, and return accumulated output.
 fn run_hu_meter_timed(router: &str, args: &[&str], secs: u64) -> (Vec<u8>, Vec<u8>) {
-    let mut child = Command::new(hu_bin())
+    let mut child = Command::new("hu")
         .arg("meter")
         .arg("--router")
         .arg(router)

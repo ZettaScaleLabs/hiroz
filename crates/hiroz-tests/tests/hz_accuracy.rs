@@ -27,28 +27,6 @@ use hiroz::Builder;
 use hiroz::prelude::{QosProfile, QosReliability};
 use hiroz_msgs::std_msgs::String as RosString;
 
-fn hu_bin() -> String {
-    std::env::var("CARGO_BIN_EXE_hu").unwrap_or_else(|_| {
-        let target_dir = std::env::var("CARGO_TARGET_DIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| {
-                let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-                manifest.parent().unwrap().parent().unwrap().join("target")
-            });
-        let profile = if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "release"
-        };
-        target_dir
-            .join(profile)
-            .join("hu")
-            .to_str()
-            .unwrap()
-            .to_string()
-    })
-}
-
 /// Parse `rate_hz` from `hu meter hz --json` output (last complete JSON line).
 fn parse_hu_meter_hz(stdout: &str) -> Option<f64> {
     stdout
@@ -110,7 +88,7 @@ fn run_hz_comparison(publish_hz: f64, duration_secs: f64, topic: &str) -> (f64, 
     thread::sleep(Duration::from_millis(500));
 
     // --- hu meter hz ---
-    let hu_out = Command::new(hu_bin())
+    let hu_out = Command::new("hu")
         .args([
             "meter",
             "--router",
@@ -218,8 +196,9 @@ fn test_large_payload_hz() {
     thread::sleep(Duration::from_millis(500));
 
     // Spawn hu-meter hz — self-terminates after --duration.
-    let hu_child = Command::new(hu_meter_bin())
+    let hu_child = Command::new("hu")
         .args([
+            "meter",
             "--router",
             &endpoint,
             "hz",
@@ -382,8 +361,9 @@ fn test_hz_accuracy_shm() {
     thread::sleep(Duration::from_millis(500));
 
     // hu-meter with --shm flag — receives zero-copy from the SHM publisher.
-    let hu_child = Command::new(hu_meter_bin())
+    let hu_child = Command::new("hu")
         .args([
+            "meter",
             "--router",
             &endpoint,
             "--shm",
@@ -595,8 +575,9 @@ fn test_hz_multi_publisher_aggregation() {
     thread::sleep(Duration::from_millis(1000));
 
     // Spawn both tools concurrently — they observe the same message stream.
-    let hu_child = Command::new(hu_meter_bin())
+    let hu_child = Command::new("hu")
         .args([
+            "meter",
             "--router",
             &endpoint,
             "hz",
@@ -763,8 +744,9 @@ fn test_hz_python_saturation() {
 
     // Spawn both measurement tools at the same instant, each pinned to its own CPU.
     let hu_child = Command::new("taskset")
-        .args(["-c", "2", &hu_meter_bin()])
+        .args(["-c", "2", "hu"])
         .args([
+            "meter",
             "--router",
             &endpoint,
             "hz",
@@ -923,8 +905,9 @@ fn test_hz_camera_1080p_30fps() {
 
     thread::sleep(Duration::from_millis(500));
 
-    let hu_child = Command::new(hu_meter_bin())
+    let hu_child = Command::new("hu")
         .args([
+            "meter",
             "--router",
             &endpoint,
             "hz",
@@ -1067,8 +1050,9 @@ fn test_hz_qos_mismatch() {
 
     thread::sleep(Duration::from_millis(500));
 
-    let hu_child = Command::new(hu_meter_bin())
+    let hu_child = Command::new("hu")
         .args([
+            "meter",
             "--router",
             &endpoint,
             "hz",
