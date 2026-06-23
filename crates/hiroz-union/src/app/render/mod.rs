@@ -63,7 +63,7 @@ impl App {
             ConnectionStatus::Disconnected => "Zenoh router: disconnected".to_string(),
         };
         let title = Paragraph::new(format!(
-            " hiroz-console | Domain: {} | {} ",
+            " hu | Domain: {} | {} ",
             self.core.domain_id, connection_info
         ))
         .block(

@@ -9,7 +9,7 @@ Pre-built artifacts are available on the [Releases page](https://github.com/Zett
 
 | Artifact | Use case | Install |
 |---|---|---|
-| `hiroz-console` binary | Monitor any ROS 2 / hiroz system | [Console docs](../tools/console.md#installation) |
+| `hu` binary | Monitor and introspect any ROS 2 / hiroz system | [hu docs](../tools/hu.md#installation) |
 | `hiroz_py` Python wheel | Python pub/sub & services | [Python quick start](../bindings/python-quick-start.md) |
 | `libhiroz` Go library | Go pub/sub & services | [Go quick start](../bindings/go-quick-start.md) |
 

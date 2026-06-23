@@ -85,7 +85,7 @@ impl TestRouter {
     /// Start a new Zenoh router session on a free OS-assigned port.
     ///
     /// Uses bind(:0) to avoid PID-derived port collisions when multiple test
-    /// binaries run in parallel (e.g. hiroz-tests and hiroz-console).
+    /// binaries run in parallel (e.g. hiroz-tests and hiroz-union).
     pub fn new() -> Self {
         for attempt in 0..5u32 {
             let port = {

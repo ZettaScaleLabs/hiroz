@@ -125,13 +125,7 @@ impl App {
     }
 
     fn load_config() -> Config {
-        // Legacy hiroz-console.json is accepted as a deprecated fallback.
-        let config_paths = [
-            "hu.json",
-            ".hu.json",
-            "hiroz-console.json",
-            ".hiroz-console.json",
-        ];
+        let config_paths = ["hu.json", ".hu.json"];
 
         for path in &config_paths {
             if let Ok(content) = fs::read_to_string(path)
