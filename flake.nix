@@ -494,7 +494,10 @@
           # Same as ros-bridge-interop but with the pre-built `hu` binary injected
           # so hz-comparison tests can call `hu meter hz` without a separate build step.
           bridge-interop-ci = (self.devShells.${system}.ros-bridge-interop).overrideAttrs (old: {
-            buildInputs = (old.buildInputs or [ ]) ++ [ self.packages.${system}.hu ];
+            buildInputs = (old.buildInputs or [ ]) ++ [
+              self.packages.${system}.hu
+              self.packages.${system}.hu-meter
+            ];
           });
 
         }
@@ -530,6 +533,26 @@
             cargoInstallFlags = [
               "--bin"
               "hu"
+            ];
+            doCheck = false;
+            RUSTFLAGS = "";
+          };
+          hu-meter = pkgs.rustPlatform.buildRustPackage {
+            pname = "hu-meter";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+            nativeBuildInputs = [
+              pkgs.pkg-config
+              pkgs.protobuf
+            ];
+            cargoBuildFlags = [
+              "-p"
+              "hiroz-meter"
+            ];
+            cargoInstallFlags = [
+              "--bin"
+              "hu-meter"
             ];
             doCheck = false;
             RUSTFLAGS = "";
