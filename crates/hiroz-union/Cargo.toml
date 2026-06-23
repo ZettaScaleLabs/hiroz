@@ -30,6 +30,7 @@ chrono = { version = "0.4", features = ["serde"] }
 anyhow = { workspace = true }
 wasmtime = { version = "38", features = ["component-model"], optional = true }
 wasmtime-wasi = { version = "38", optional = true }
+axum = { version = "0.8", optional = true }
 dirs = "5"
 
 [dev-dependencies]
@@ -41,5 +42,6 @@ serde_json = "1.0"
 [features]
 default = ["wasm-plugins"]
 wasm-plugins = ["dep:wasmtime", "dep:wasmtime-wasi"]
+web-plugins = ["wasm-plugins", "dep:axum"]
 ros-interop = []
 humble = []

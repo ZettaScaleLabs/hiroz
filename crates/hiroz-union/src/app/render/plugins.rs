@@ -28,11 +28,11 @@ impl App {
 
         #[cfg(feature = "wasm-plugins")]
         for (i, plugin) in self.plugin_mgr.plugins.iter().enumerate() {
-            let title = plugin.title.lock().clone();
+            let title = plugin.title().lock().clone();
             let display = if title.is_empty() {
-                plugin.manifest.name.clone()
+                plugin.manifest().name.clone()
             } else {
-                format!("{} — {}", plugin.manifest.name, title)
+                format!("{} — {}", plugin.manifest().name, title)
             };
             let style = if i == self.plugin_mgr.selected_index {
                 Style::default()
@@ -117,9 +117,13 @@ impl App {
             }
 
             let plugin = &self.plugin_mgr.plugins[self.plugin_mgr.selected_index];
-            let lines: Vec<String> = plugin.output_lines.lock().clone();
+            let lines: Vec<String> = plugin.output_lines().lock().clone();
             let text = lines.join("\n");
-            let title = format!(" {} v{} ", plugin.manifest.name, plugin.manifest.version);
+            let title = format!(
+                " {} v{} ",
+                plugin.manifest().name,
+                plugin.manifest().version
+            );
 
             let visible_lines = area.height.saturating_sub(2) as usize;
             let total_lines = lines.len();

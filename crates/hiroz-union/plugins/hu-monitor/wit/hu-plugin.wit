@@ -1,23 +1,22 @@
-// hu plugin interface v0.3
+// hu plugin interface v0.4
 //
 // Host-proxied model: the host (hu) owns Zenoh sessions. The ros interface
-// proxies one shared session (JSON-decoded, for analytics plugins). The session
-// interface provides named multi-session handles with raw CDR passthrough, for
-// plugins that need independent session configs (e.g. cross-distro bridges).
+// proxies one shared session (JSON-decoded for dynamic messages; typed records
+// for measurements). The session interface provides named multi-session handles
+// with raw CDR passthrough for bridge plugins.
 //
-// The render interface is the only output path; TUI and web hosts interpret it
-// differently so the same .wasm plugin works in both.
+// Three worlds:
+//   hu-cli-plugin  — one-shot / streaming CLI tools (hz, bw, echo, bridge)
+//   hu-tui-plugin  — tick-driven TUI panes with keybindings and topic navigation
+//   hu-web-plugin  — HTTP request/response handlers for the web UI server
+//   hu-plugin      — legacy alias for hu-tui-plugin (v0.3 compatibility)
 
-package hu:plugin@0.3.0;
+package hu:plugin@0.4.0;
 
-// Shared types used by the plugin world.
 interface types {
     record keybinding {
-        // Key name understood by the TUI, e.g. "h", "Ctrl+e".
         key: string,
-        // Description shown in the TUI help overlay.
         description: string,
-        // Opaque command string passed back as key-action event.
         command: string,
     }
 
@@ -26,24 +25,10 @@ interface types {
         peer,
     }
 
-    // A Zenoh session the plugin needs the host to open.
-    // Declared in plugin-manifest.sessions; the host opens them before
-    // the first on-event call.
     record session-requirement {
-        // Logical name used to retrieve the handle via session::get-session.
         name: string,
-        // Zenoh endpoint, e.g. "tcp/192.168.1.10:7447".
         endpoint: string,
-        // Transport mode. Use client to avoid P2P peer-gossip issues.
         mode: session-mode,
-    }
-
-    enum event-kind {
-        startup,
-        tick,
-        key-action,
-        topic-selected,
-        interrupt,
     }
 
     enum permission {
@@ -55,54 +40,68 @@ interface types {
         open-session,
     }
 
-    record plugin-manifest {
-        name:        string,
-        version:     string,
-        description: string,
-        // Keybindings active when this plugin's pane has focus.
-        bindings:    list<keybinding>,
-        // Tick interval in milliseconds (0 = no ticks).
-        tick-ms:     u32,
-        // Named sessions this plugin needs. Host opens them before first on-event.
-        sessions:    list<session-requirement>,
-        // Empty list = receive all events (backward-compat).
-        subscribed-events: list<event-kind>,
-        // Capabilities this plugin needs. Host refuses calls for undeclared capabilities.
-        required-permissions: list<permission>,
+    enum event-kind {
+        startup,
+        tick,
+        key-action,
+        topic-selected,
+        interrupt,
     }
 
-    variant plugin-event {
-        // Fired once before any other event with CLI args (argv[1..]).
-        // In TUI mode this is fired with an empty list.
+    // Events delivered to CLI plugins. No TUI-specific variants.
+    variant cli-event {
         startup(list<string>),
-        // User pressed a registered keybinding; value is the command string.
-        key-action(string),
-        // Host TUI navigated to a topic.
-        topic-selected(string),
-        // Periodic tick at the interval declared in the manifest.
         tick,
-        // Sent on SIGINT so CLI plugins can flush and exit cleanly.
         interrupt,
+    }
+
+    // Events delivered to TUI plugins. Superset of cli-event.
+    variant tui-event {
+        startup(list<string>),
+        key-action(string),
+        topic-selected(string),
+        tick,
+        interrupt,
+    }
+
+    // v0.3 alias — kept so existing binaries that declare plugin-event in their
+    // manifest type still link against a v0.3 host. New plugins use tui-event.
+    variant plugin-event {
+        startup(list<string>),
+        key-action(string),
+        topic-selected(string),
+        tick,
+        interrupt,
+    }
+
+    record plugin-manifest {
+        name: string,
+        version: string,
+        description: string,
+        bindings: list<keybinding>,
+        tick-ms: u32,
+        sessions: list<session-requirement>,
+        // Empty = receive all events (backward compat).
+        subscribed-events: list<event-kind>,
+        required-permissions: list<permission>,
     }
 }
 
-// Read-only snapshot of the live ROS graph.
-// The host serves this from the liveliness index without any Zenoh round-trip.
 interface graph {
     record topic-info {
-        name:        string,
-        type-name:   string,
-        publishers:  u32,
+        name: string,
+        type-name: string,
+        publishers: u32,
         subscribers: u32,
     }
     record node-info {
         namespace: string,
-        name:      string,
+        name: string,
     }
     record service-info {
-        name:      string,
+        name: string,
         type-name: string,
-        servers:   u32,
+        servers: u32,
     }
 
     list-topics:   func() -> list<topic-info>;
@@ -110,80 +109,67 @@ interface graph {
     list-services: func() -> list<service-info>;
 }
 
-// ROS communication — host decodes CDR to JSON before delivery.
-// Plugins never see raw CDR bytes; no per-plugin message codegen needed.
-// Use the session interface instead when you need raw CDR or multiple sessions.
 interface ros {
-    // Active subscription to a topic. Drop to unsubscribe.
     resource subscription {
-        // Returns next decoded JSON message or none if the queue is empty.
         try-recv: func() -> option<string>;
     }
 
-    // Service client for request/response calls.
     resource service-client {
-        // Send a JSON-encoded request and block until a response arrives
-        // or the timeout expires.
         call: func(request-json: string, timeout-ms: u32) -> result<string, string>;
     }
 
-    // Subscribe to a topic; returns a subscription handle or an error.
-    subscribe: func(topic: string) -> result<subscription, string>;
+    // Typed measurement records — avoid JSON round-trip for the common analytics path.
+    record hz-measurement {
+        topic: string,
+        rate-hz: f64,
+        sample-count: u32,
+    }
 
-    // Connect to a named service.
+    record bw-measurement {
+        topic: string,
+        rate-kbps: f64,
+        sample-count: u32,
+    }
+
+    subscribe: func(topic: string) -> result<subscription, string>;
     connect-service: func(name: string, type-name: string) -> result<service-client, string>;
 
-    // Host-side rate measurement. Returns average Hz over the last window-ms.
+    // Scalar variants kept for backward compatibility.
     measure-hz: func(topic: string, window-ms: u32) -> result<f64, string>;
-
-    // Host-side bandwidth measurement. Returns average KB/s over window-ms.
     measure-bw: func(topic: string, window-ms: u32) -> result<f64, string>;
 
-    // Encode a YAML/JSON string to raw CDR bytes for the given ROS type name.
-    // The type must be registered in the host's schema registry.
+    // Typed variants — preferred for new plugins.
+    measure-hz-typed: func(topic: string, window-ms: u32) -> result<hz-measurement, string>;
+    measure-bw-typed: func(topic: string, window-ms: u32) -> result<bw-measurement, string>;
+
     encode-yaml-to-cdr: func(yaml: string, type-name: string) -> result<list<u8>, string>;
 }
 
-// Raw Zenoh transport primitives — CDR bytes passed through without decoding.
-// Used by plugins that bridge between sessions and must not alter payloads.
 interface raw-transport {
-    // Raw subscriber on a key expression. Drop to undeclare.
     resource raw-subscription {
-        // Returns next raw CDR payload or none if the queue is empty.
         try-recv: func() -> option<list<u8>>;
     }
 
-    // Raw publisher on a key expression.
     resource raw-publisher {
         publish: func(payload: list<u8>) -> result<_, string>;
     }
 
-    // Liveliness token on a key expression. Drop to withdraw.
     resource liveliness-token {}
 
-    // Liveliness subscriber. Drop to undeclare.
     resource liveliness-sub {
-        // Returns (key-expression, appeared) or none if no event is queued.
         try-recv: func() -> option<tuple<string, bool>>;
     }
 
-    // Queryable (service server side). Drop to undeclare.
     resource queryable {
-        // Returns (query-id, payload) or none.
         try-recv-query: func() -> option<tuple<u64, list<u8>>>;
-        // Reply to a pending query.
         reply: func(query-id: u64, payload: list<u8>) -> result<_, string>;
     }
 
-    // Querier (service client side). Drop to undeclare.
     resource querier {
-        // Send a request and block until a reply arrives or timeout expires.
         call: func(payload: list<u8>, timeout-ms: u32) -> result<list<u8>, string>;
     }
 }
 
-// Multi-session interface. Sessions are declared in the manifest and opened by
-// the host before the first on-event call. Plugins retrieve them by name.
 interface session {
     use raw-transport.{
         raw-subscription,
@@ -194,56 +180,47 @@ interface session {
         querier,
     };
 
-    // Handle to a named Zenoh session opened by the host.
     resource session-handle {
-        // Subscribe to raw CDR messages on a key expression.
         raw-subscribe: func(ke: string) -> result<raw-subscription, string>;
-        // Declare a raw publisher on a key expression.
         raw-publisher: func(ke: string) -> result<raw-publisher, string>;
-        // Declare a liveliness token on a key expression.
         declare-liveliness: func(ke: string) -> result<liveliness-token, string>;
-        // Subscribe to liveliness events matching a key expression.
         subscribe-liveliness: func(ke: string) -> result<liveliness-sub, string>;
-        // Declare a queryable (service server side) on a key expression.
         declare-queryable: func(ke: string) -> result<queryable, string>;
-        // Open a querier (service client side) targeting a key expression.
         open-querier: func(ke: string) -> result<querier, string>;
     }
 
-    // Retrieve a pre-opened session by its declared name.
-    // Returns an error if the name was not declared in the manifest or the
-    // host failed to open it.
     get-session: func(name: string) -> result<session-handle, string>;
 }
 
-// Output interface — host interprets for its rendering target.
-// TUI host: println → ratatui line in the plugin pane.
-// Web host: println → WebSocket JSON event to the frontend.
-// The same .wasm binary works in both hosts unchanged.
 interface render {
-    // Print a line of text.
     println: func(text: string);
-    // Set the plugin pane title shown in the TUI tab bar.
     set-title: func(title: string);
-    // Emit a structured key/value pair for richer web rendering (charts, tables).
     emit-json: func(key: string, value: string);
-    // Signal the host that the plugin has finished and the process should exit.
-    // In CLI mode the host exits with this code. In TUI mode the pane is closed.
     exit: func(code: u32);
+}
+
+// HTTP record types for web plugins.
+interface web-types {
+    record http-request {
+        method: string,
+        path: string,
+        query: string,
+        body: list<u8>,
+    }
+
+    record http-response {
+        status: u16,
+        content-type: string,
+        body: list<u8>,
+    }
 }
 
 // ─── Worlds ──────────────────────────────────────────────────────────────────
 
-// CLI plugin world: one-shot or tick-driven tools (hz, bw, echo, bridge, …).
-// Plugins target this world when they run from the terminal and do not need
-// TUI keybindings or topic-navigation events.
-//
-// Binary-compatible with hu-tui-plugin: both export on-event with the same
-// plugin-event type so the host can load either kind with a single bindgen.
-// The interrupt variant in plugin-event replaces the old KeyAction("interrupt")
-// hack used by the CLI executor for SIGINT notification.
+// CLI plugin: one-shot or tick-driven terminal tool.
+// Receives cli-event (no key-action / topic-selected dead arms).
 world hu-cli-plugin {
-    use types.{plugin-manifest, plugin-event};
+    use types.{plugin-manifest, cli-event};
 
     import graph;
     import ros;
@@ -252,13 +229,13 @@ world hu-cli-plugin {
     import render;
 
     export manifest: func() -> plugin-manifest;
-    export on-event: func(event: plugin-event);
+    export on-event: func(event: cli-event);
 }
 
-// TUI plugin world: full event set including keybindings and topic navigation.
-// Used by plugins that render inside the hu TUI pane system.
+// TUI plugin: tick-driven pane with keybindings and topic navigation.
+// Receives tui-event (full set including key-action and topic-selected).
 world hu-tui-plugin {
-    use types.{plugin-manifest, plugin-event};
+    use types.{plugin-manifest, tui-event};
 
     import graph;
     import ros;
@@ -267,11 +244,23 @@ world hu-tui-plugin {
     import render;
 
     export manifest: func() -> plugin-manifest;
-    export on-event: func(event: plugin-event);
+    export on-event: func(event: tui-event);
 }
 
-// Legacy alias — kept for backward compatibility with plugins compiled before
-// the world split. Equivalent to hu-tui-plugin.
+// Web plugin: HTTP request/response handler.
+// The hu HTTP server routes incoming requests to this export.
+world hu-web-plugin {
+    use types.{plugin-manifest};
+    use web-types.{http-request, http-response};
+
+    import graph;
+    import ros;
+
+    export manifest: func() -> plugin-manifest;
+    export handle: func(req: http-request) -> http-response;
+}
+
+// Legacy alias for hu-tui-plugin. Keeps v0.3 plugins loadable.
 world hu-plugin {
     use types.{plugin-manifest, plugin-event};
 

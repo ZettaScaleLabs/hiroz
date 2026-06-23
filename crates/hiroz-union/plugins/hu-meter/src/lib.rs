@@ -3,6 +3,7 @@ wit_bindgen::generate!({
     path: "wit/hu-plugin.wit",
 });
 
+
 use hu::plugin::session::RawPublisher;
 use hu::plugin::types::{EventKind, Permission};
 use hu::plugin::{graph, render, ros};
@@ -873,13 +874,18 @@ impl HuMeter {
         match &mut self.mode {
             Mode::Hz { topic, sub } => {
                 let window_ms = 1000u32;
-                match ros::measure_hz(topic, window_ms) {
-                    Ok(hz) => {
-                        let t = topic.clone();
+                match ros::measure_hz_typed(topic, window_ms) {
+                    Ok(m) => {
                         if self.json {
-                            render::println(&format!("{{\"topic\":\"{t}\",\"rate_hz\":{hz:.3}}}"));
+                            render::println(&format!(
+                                "{{\"topic\":\"{}\",\"rate_hz\":{:.3},\"samples\":{}}}",
+                                m.topic, m.rate_hz, m.sample_count
+                            ));
                         } else {
-                            render::println(&format!("{t}: {hz:.3} Hz"));
+                            render::println(&format!(
+                                "{}: {:.3} Hz  ({} samples)",
+                                m.topic, m.rate_hz, m.sample_count
+                            ));
                         }
                     }
                     Err(e) => render::println(&format!("measure-hz error: {e}")),
@@ -892,15 +898,18 @@ impl HuMeter {
             }
             Mode::Bw { topic, sub } => {
                 let window_ms = 1000u32;
-                match ros::measure_bw(topic, window_ms) {
-                    Ok(kbps) => {
-                        let t = topic.clone();
+                match ros::measure_bw_typed(topic, window_ms) {
+                    Ok(m) => {
                         if self.json {
                             render::println(&format!(
-                                "{{\"topic\":\"{t}\",\"bandwidth_kbps\":{kbps:.3}}}"
+                                "{{\"topic\":\"{}\",\"rate_kbps\":{:.3},\"samples\":{}}}",
+                                m.topic, m.rate_kbps, m.sample_count
                             ));
                         } else {
-                            render::println(&format!("{t}: {kbps:.3} KB/s"));
+                            render::println(&format!(
+                                "{}: {:.3} KB/s  ({} samples)",
+                                m.topic, m.rate_kbps, m.sample_count
+                            ));
                         }
                     }
                     Err(e) => render::println(&format!("measure-bw error: {e}")),
@@ -1128,7 +1137,7 @@ impl Guest for Plugin {
             bindings: vec![],
             tick_ms: 1000,
             sessions: vec![],
-            subscribed_events: vec![EventKind::Startup, EventKind::Tick, EventKind::KeyAction],
+            subscribed_events: vec![EventKind::Startup, EventKind::Tick],
             required_permissions: vec![
                 Permission::SubscribeTopic,
                 Permission::PublishTopic,
@@ -1139,12 +1148,11 @@ impl Guest for Plugin {
         }
     }
 
-    fn on_event(event: PluginEvent) {
+    fn on_event(event: CliEvent) {
         match event {
-            PluginEvent::Startup(args) => state().startup(args),
-            PluginEvent::Tick => state().on_tick(),
-            PluginEvent::Interrupt => render::exit(130),
-            PluginEvent::KeyAction(_) | PluginEvent::TopicSelected(_) => {}
+            CliEvent::Startup(args) => state().startup(args),
+            CliEvent::Tick => state().on_tick(),
+            CliEvent::Interrupt => render::exit(130),
         }
     }
 }

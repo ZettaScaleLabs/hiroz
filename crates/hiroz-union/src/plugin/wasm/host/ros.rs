@@ -146,6 +146,42 @@ impl hu::plugin::ros::Host for PluginState {
         let msg = json_to_dynamic_message(&value, &schema)?;
         serialize_cdr(&msg).map_err(|e| e.to_string())
     }
+
+    fn measure_hz_typed(
+        &mut self,
+        topic: String,
+        window_ms: u32,
+    ) -> Result<hu::plugin::ros::HzMeasurement, String> {
+        self.require_perm(hu::plugin::types::Permission::MeasureMetrics)?;
+        self.ensure_rate_tracker(&topic)?;
+        let tracker = self.rate_trackers.get_mut(&topic).unwrap();
+        tracker.drain_and_trim(window_ms);
+        let count = tracker.arrivals.len() as f64;
+        let window_s = window_ms as f64 / 1000.0;
+        Ok(hu::plugin::ros::HzMeasurement {
+            topic,
+            rate_hz: count / window_s,
+            sample_count: tracker.arrivals.len() as u32,
+        })
+    }
+
+    fn measure_bw_typed(
+        &mut self,
+        topic: String,
+        window_ms: u32,
+    ) -> Result<hu::plugin::ros::BwMeasurement, String> {
+        self.require_perm(hu::plugin::types::Permission::MeasureMetrics)?;
+        self.ensure_rate_tracker(&topic)?;
+        let tracker = self.rate_trackers.get_mut(&topic).unwrap();
+        tracker.drain_and_trim(window_ms);
+        let total_bytes: usize = tracker.arrivals.iter().map(|(_, b)| b).sum();
+        let window_s = window_ms as f64 / 1000.0;
+        Ok(hu::plugin::ros::BwMeasurement {
+            topic,
+            rate_kbps: total_bytes as f64 / 1024.0 / window_s,
+            sample_count: tracker.arrivals.len() as u32,
+        })
+    }
 }
 
 impl hu::plugin::ros::HostSubscription for PluginState {

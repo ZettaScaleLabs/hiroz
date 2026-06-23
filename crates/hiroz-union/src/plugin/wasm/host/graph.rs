@@ -3,7 +3,7 @@
 use hiroz_protocol::EndpointKind;
 
 use super::super::state::PluginState;
-use super::hu;
+use super::{hu, web_bindgen};
 
 impl hu::plugin::graph::Host for PluginState {
     fn list_topics(&mut self) -> Vec<hu::plugin::graph::TopicInfo> {
@@ -53,3 +53,6 @@ impl hu::plugin::graph::Host for PluginState {
             .collect()
     }
 }
+
+// web-types has only records — generated Host trait is empty.
+impl web_bindgen::hu::plugin::web_types::Host for PluginState {}

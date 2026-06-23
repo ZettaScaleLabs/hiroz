@@ -364,17 +364,16 @@ impl Guest for Plugin {
             bindings: vec![],
             tick_ms: 1000,
             sessions: vec![],
-            subscribed_events: vec![EventKind::Startup, EventKind::Tick, EventKind::KeyAction],
+            subscribed_events: vec![EventKind::Startup, EventKind::Tick],
             required_permissions: vec![Permission::SubscribeTopic, Permission::CallService],
         }
     }
 
-    fn on_event(event: PluginEvent) {
+    fn on_event(event: CliEvent) {
         match event {
-            PluginEvent::Startup(args) => state().startup(args),
-            PluginEvent::Tick => state().tick(),
-            PluginEvent::Interrupt => render::exit(130),
-            PluginEvent::KeyAction(_) | PluginEvent::TopicSelected(_) => {}
+            CliEvent::Startup(args) => state().startup(args),
+            CliEvent::Tick => state().tick(),
+            CliEvent::Interrupt => render::exit(130),
         }
     }
 }

@@ -1,7 +1,7 @@
 //! WASM plugin manager — loads, selects, and dispatches to hu-* plugins.
 
 #[cfg(feature = "wasm-plugins")]
-use crate::plugin::wasm::{WasmPlugin, hu};
+use crate::plugin::wasm::{TuiEvent, WasmPlugin};
 
 pub struct PluginManager {
     #[cfg(feature = "wasm-plugins")]
@@ -43,7 +43,7 @@ impl PluginManager {
     #[cfg(feature = "wasm-plugins")]
     pub fn dispatch_tick(&mut self, plugin_idx: usize) {
         if let Some(plugin) = self.plugins.get_mut(plugin_idx) {
-            plugin.dispatch_event(hu::plugin::types::PluginEvent::Tick);
+            plugin.dispatch_tui_event(TuiEvent::Tick);
         }
     }
 

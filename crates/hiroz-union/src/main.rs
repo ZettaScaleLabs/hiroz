@@ -4,6 +4,7 @@ mod app;
 mod core;
 mod export;
 mod modes;
+
 #[cfg(feature = "wasm-plugins")]
 mod plugin;
 
@@ -70,6 +71,10 @@ struct Cli {
     /// Topics to echo (subscribe and display messages)
     #[arg(long = "echo", value_name = "TOPIC", global = true)]
     echo_topics: Vec<String>,
+
+    /// Start the web plugin server on the given port (default: 8080)
+    #[arg(long, value_name = "PORT", global = true)]
+    web: Option<Option<u16>>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -158,7 +163,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         return export_and_exit(&core, &export_path).await;
     }
 
-    if cli.headless {
+    if let Some(port_opt) = cli.web {
+        let port = port_opt.unwrap_or(8080);
+        modes::web::run_web_mode(core, port).await?;
+    } else if cli.headless {
         modes::headless::run_headless_mode(&core, cli.json, cli.echo_topics).await?;
     } else {
         run_tui_mode(core).await?;
