@@ -54,7 +54,7 @@ xychart-beta
     bar [96829, 90971, 1398]
 ```
 
-*`hu` numbers measured on the hiroz CI worker (feat/hiroz-union, job 407, release binary). `test_hz_python_saturation` in `hiroz-tests`. `ros2 topic hz` figure from a prior run on identical hardware; ros2 was not available in the benchmark shell.*
+*`hu` numbers measured on the hiroz CI worker (feat/hiroz-union, job 407, release binary). `test_hz_python_saturation` in `hiroz-tests`. `ros2 topic hz` figure from a prior run on identical hardware; ros2 was not available in the benchmark shell. Current codebase validated: job 410 (756 tests passed).*
 
 | Metric | Measured value |
 |---|---|
