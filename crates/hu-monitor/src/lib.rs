@@ -3,7 +3,6 @@ wit_bindgen::generate!({
     path: "wit/hu-plugin.wit",
 });
 
-use exports::hu::plugin::types::{Guest, PluginEvent, PluginManifest};
 use hu::plugin::{graph, render, ros};
 
 // ─── Plugin state ─────────────────────────────────────────────────────────────

@@ -3,7 +3,6 @@ wit_bindgen::generate!({
     path: "wit/hu-plugin.wit",
 });
 
-use exports::hu::plugin::types::{Guest, PluginEvent, PluginManifest};
 use hu::plugin::{graph, render, ros};
 
 // ─── Plugin state ─────────────────────────────────────────────────────────────
@@ -434,7 +433,7 @@ impl HuMeter {
                 return;
             }
         };
-        if let Err(e) = pub_.publish(cdr) {
+        if let Err(e) = pub_.publish(&cdr) {
             render::println(&format!("publish error: {e}"));
             render::exit(1);
         } else {
