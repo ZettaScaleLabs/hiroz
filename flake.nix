@@ -491,17 +491,16 @@
             };
 
           # CI shell for bridge interop + hz-comparison tests.
-          # Same as ros-bridge-interop but with:
-          # - rustToolchain replaced by rustToolchainWasm (adds wasm32-wasip2 target)
-          # - pre-built `hu` binary injected
-          # The benchmark command must build hu-meter.wasm and set HU_PLUGIN_PATH itself
-          # (nix develop --command does not run shellHook).
+          # Same as ros-bridge-interop but with rustToolchain replaced by
+          # rustToolchainWasm (adds wasm32-wasip2 target for building WASM plugins).
+          # `hu` is NOT injected as a nix package here — buildRustPackage runs in a
+          # nix sandbox without the wasm32 sysroot and fails when the workspace had
+          # WASM plugin members. Build `hu` and WASM plugins inline in the CI command.
           bridge-interop-ci = (self.devShells.${system}.ros-bridge-interop).overrideAttrs (old: {
             nativeBuildInputs = [
               rustToolchainWasm
             ]
-            ++ (builtins.filter (p: p != rustToolchain) (old.nativeBuildInputs or [ ]))
-            ++ [ self.packages.${system}.hu ];
+            ++ (builtins.filter (p: p != rustToolchain) (old.nativeBuildInputs or [ ]));
           });
 
         }
