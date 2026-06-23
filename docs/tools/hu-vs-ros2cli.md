@@ -48,20 +48,20 @@
 
 ```mermaid
 xychart-beta
-    title "Rate measurement: 64 kHz burst publisher"
+    title "Rate measurement: ~97 kHz burst publisher"
     x-axis ["Ground truth", "hu meter hz", "ros2 topic hz"]
-    y-axis "Measured rate (Hz)" 0 --> 70000
-    bar [64320, 57920, 1398]
+    y-axis "Measured rate (Hz)" 0 --> 100000
+    bar [96829, 90971, 1398]
 ```
 
-*Measured on the hiroz CI worker (feat/hiroz-union, job 316, debug binary). `test_hz_python_saturation` in `hiroz-tests`.*
+*`hu` numbers measured on the hiroz CI worker (feat/hiroz-union, job 407, release binary). `test_hz_python_saturation` in `hiroz-tests`. `ros2 topic hz` figure from a prior run on identical hardware; ros2 was not available in the benchmark shell.*
 
 | Metric | Measured value |
 |---|---|
-| Ground truth (time-avg) | 64,320 Hz |
-| `hu meter hz` (sliding window) | 57,920 Hz |
-| `ros2 topic hz` | 1,398 Hz |
-| hu advantage | **41×** |
+| Ground truth (time-avg) | 96,829 Hz |
+| `hu meter hz` (sliding window) | 90,971 Hz |
+| `ros2 topic hz` | ~1,400 Hz |
+| hu advantage | **≥ 65×** |
 
 `ros2 topic hz` saturates below 1–2 kHz because `rclpy` deserializes every message inside the Python GIL. `hu meter hz` tracks the arrival stream an order of magnitude closer to the true rate. At the rates common in robot perception pipelines (image at 30 fps, lidar at 10–20 Hz, IMU at 100–400 Hz) both tools agree closely; the gap opens above ~500 Hz. `hu meter bw` has the same property: it counts bytes at the Zenoh subscription layer without deserializing.
 
