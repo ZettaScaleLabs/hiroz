@@ -74,8 +74,12 @@ impl HuMeter {
             render::println("  bw <topic> [--duration <s>]");
             render::println("  echo <topic> [--count <n>]");
             render::println("  delay <topic>");
-            render::println("  list topics|nodes|services|actions");
+            render::println("  list topics|nodes|services");
             render::println("  info topic|node|service <name>");
+            render::println("  pub <topic> --msg-type <type> --yaml <yaml>");
+            render::println("  service <name> <type> <request-json>");
+            render::println("  param list|get|set <node> [<param>] [<value>]");
+            render::println("  action send <name> <type> <goal-json>");
             render::exit(1);
             self.mode = Mode::Done;
             return;
@@ -103,18 +107,15 @@ impl HuMeter {
                 self.mode = Mode::Done;
             }
             "service" => {
-                render::println("service subcommand: not yet implemented in WASM plugin");
-                render::exit(1);
+                self.cmd_service(&args[1..]);
                 self.mode = Mode::Done;
             }
             "param" => {
-                render::println("param subcommand: not yet implemented in WASM plugin");
-                render::exit(1);
+                self.cmd_param(&args[1..]);
                 self.mode = Mode::Done;
             }
             "action" => {
-                render::println("action subcommand: not yet implemented in WASM plugin");
-                render::exit(1);
+                self.cmd_action(&args[1..]);
                 self.mode = Mode::Done;
             }
             other => {
@@ -450,6 +451,260 @@ impl HuMeter {
         }
     }
 
+    fn cmd_service(&self, args: &[String]) {
+        // hu meter service <name> <type> <request-json>
+        let (name, type_name, request_json) = match (args.first(), args.get(1), args.get(2)) {
+            (Some(n), Some(t), Some(r)) => (n.clone(), t.clone(), r.clone()),
+            _ => {
+                render::println("Usage: hu meter service <name> <type> <request-json>");
+                render::println("  Example: hu meter service /add_two_ints example_interfaces/srv/AddTwoInts '{\"a\":1,\"b\":2}'");
+                render::exit(1);
+                return;
+            }
+        };
+        let timeout_ms: u32 = flag_value(args, "--timeout")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(5000);
+        let client = match ros::connect_service(&name, &type_name) {
+            Ok(c) => c,
+            Err(e) => {
+                render::println(&format!("ERROR: connect to {name}: {e}"));
+                render::exit(1);
+                return;
+            }
+        };
+        match client.call(&request_json, timeout_ms) {
+            Ok(resp) => {
+                render::println(&resp);
+                render::exit(0);
+            }
+            Err(e) => {
+                render::println(&format!("ERROR: call failed: {e}"));
+                render::exit(1);
+            }
+        }
+    }
+
+    fn cmd_param(&self, args: &[String]) {
+        // hu meter param list <node>
+        // hu meter param get  <node> <name>
+        // hu meter param set  <node> <name> <value>
+        let subcmd = match args.first() {
+            Some(s) => s.as_str(),
+            None => {
+                render::println("Usage: hu meter param list|get|set <node> [<param>] [<value>]");
+                render::exit(1);
+                return;
+            }
+        };
+        let node = match args.get(1) {
+            Some(n) => n.clone(),
+            None => {
+                render::println("ERROR: node name required");
+                render::exit(1);
+                return;
+            }
+        };
+        match subcmd {
+            "list" => {
+                let svc = format!("{node}/list_parameters");
+                let client = match ros::connect_service(&svc, "rcl_interfaces/srv/ListParameters") {
+                    Ok(c) => c,
+                    Err(e) => {
+                        render::println(&format!("ERROR: connect to {svc}: {e}"));
+                        render::exit(1);
+                        return;
+                    }
+                };
+                match client.call(r#"{"prefixes":[],"depth":0}"#, 5000) {
+                    Ok(resp) => {
+                        if self.json {
+                            render::println(&resp);
+                        } else {
+                            // resp is JSON like {"result":{"names":["..."],"prefixes":[]}}
+                            render::println(&resp);
+                        }
+                        render::exit(0);
+                    }
+                    Err(e) => {
+                        render::println(&format!("ERROR: {e}"));
+                        render::exit(1);
+                    }
+                }
+            }
+            "get" => {
+                let param_name = match args.get(2) {
+                    Some(n) => n.clone(),
+                    None => {
+                        render::println("ERROR: parameter name required");
+                        render::exit(1);
+                        return;
+                    }
+                };
+                let svc = format!("{node}/get_parameters");
+                let client = match ros::connect_service(&svc, "rcl_interfaces/srv/GetParameters") {
+                    Ok(c) => c,
+                    Err(e) => {
+                        render::println(&format!("ERROR: connect to {svc}: {e}"));
+                        render::exit(1);
+                        return;
+                    }
+                };
+                let req = format!(r#"{{"names":["{param_name}"]}}"#);
+                match client.call(&req, 5000) {
+                    Ok(resp) => {
+                        render::println(&resp);
+                        render::exit(0);
+                    }
+                    Err(e) => {
+                        render::println(&format!("ERROR: {e}"));
+                        render::exit(1);
+                    }
+                }
+            }
+            "set" => {
+                let param_name = match args.get(2) {
+                    Some(n) => n.clone(),
+                    None => {
+                        render::println("ERROR: parameter name required");
+                        render::exit(1);
+                        return;
+                    }
+                };
+                let value_str = match args.get(3) {
+                    Some(v) => v.clone(),
+                    None => {
+                        render::println("ERROR: value required");
+                        render::exit(1);
+                        return;
+                    }
+                };
+                // Auto-detect type: bool → 1, integer → 2, float → 3, string → 4
+                let (type_id, value_json) = infer_param_value(&value_str);
+                let svc = format!("{node}/set_parameters");
+                let client = match ros::connect_service(&svc, "rcl_interfaces/srv/SetParameters") {
+                    Ok(c) => c,
+                    Err(e) => {
+                        render::println(&format!("ERROR: connect to {svc}: {e}"));
+                        render::exit(1);
+                        return;
+                    }
+                };
+                let req = format!(
+                    r#"{{"parameters":[{{"name":"{param_name}","value":{{"type":{type_id},{value_json}}}}}]}}"#
+                );
+                match client.call(&req, 5000) {
+                    Ok(resp) => {
+                        render::println(&resp);
+                        render::exit(0);
+                    }
+                    Err(e) => {
+                        render::println(&format!("ERROR: {e}"));
+                        render::exit(1);
+                    }
+                }
+            }
+            other => {
+                render::println(&format!("unknown param subcommand: {other}"));
+                render::println("Usage: hu meter param list|get|set <node> [<param>] [<value>]");
+                render::exit(1);
+            }
+        }
+    }
+
+    fn cmd_action(&self, args: &[String]) {
+        // hu meter action send <name> <type> <goal-json>
+        let subcmd = match args.first() {
+            Some(s) => s.as_str(),
+            None => {
+                render::println("Usage: hu meter action send <name> <type> <goal-json>");
+                render::println("  Example: hu meter action send /fibonacci example_interfaces/action/Fibonacci '{\"order\":5}'");
+                render::exit(1);
+                return;
+            }
+        };
+        match subcmd {
+            "send" => {
+                let (action_name, action_type, goal_json) =
+                    match (args.get(1), args.get(2), args.get(3)) {
+                        (Some(n), Some(t), Some(g)) => (n.clone(), t.clone(), g.clone()),
+                        _ => {
+                            render::println(
+                                "Usage: hu meter action send <name> <type> <goal-json>",
+                            );
+                            render::exit(1);
+                            return;
+                        }
+                    };
+                let timeout_ms: u32 = flag_value(args, "--timeout")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(30000);
+
+                // ROS 2 action send_goal is a service at <action_name>/_action/send_goal
+                // with type <ActionType>_SendGoal. The request wraps goal with a 16-byte UUID.
+                let send_goal_svc = format!("{action_name}/_action/send_goal");
+                let send_goal_type = format!("{action_type}_SendGoal");
+                // Use a fixed deterministic UUID (all zeros except last byte = 1)
+                let uuid_arr = "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]";
+                let send_req = format!(r#"{{"goal_id":{{"uuid":{uuid_arr}}},"goal":{goal_json}}}"#);
+                let client = match ros::connect_service(&send_goal_svc, &send_goal_type) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        render::println(&format!("ERROR: connect to {send_goal_svc}: {e}"));
+                        render::exit(1);
+                        return;
+                    }
+                };
+                let accepted = match client.call(&send_req, 5000) {
+                    Ok(resp) => {
+                        render::println(&format!("Goal response: {resp}"));
+                        // Parse "accepted" field if present
+                        resp.contains("\"accepted\":true")
+                    }
+                    Err(e) => {
+                        render::println(&format!("ERROR: send_goal failed: {e}"));
+                        render::exit(1);
+                        return;
+                    }
+                };
+
+                if !accepted {
+                    render::println("Goal was rejected by the action server");
+                    render::exit(1);
+                    return;
+                }
+
+                // Poll for result via <action_name>/_action/get_result
+                let get_result_svc = format!("{action_name}/_action/get_result");
+                let get_result_type = format!("{action_type}_GetResult");
+                let result_req = format!(r#"{{"goal_id":{{"uuid":{uuid_arr}}}}}"#);
+                let result_client = match ros::connect_service(&get_result_svc, &get_result_type) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        render::println(&format!("ERROR: connect to {get_result_svc}: {e}"));
+                        render::exit(1);
+                        return;
+                    }
+                };
+                match result_client.call(&result_req, timeout_ms) {
+                    Ok(resp) => {
+                        render::println(&format!("Result: {resp}"));
+                        render::exit(0);
+                    }
+                    Err(e) => {
+                        render::println(&format!("ERROR: get_result failed: {e}"));
+                        render::exit(1);
+                    }
+                }
+            }
+            other => {
+                render::println(&format!("unknown action subcommand: {other}"));
+                render::println("Usage: hu meter action send <name> <type> <goal-json>");
+                render::exit(1);
+            }
+        }
+    }
+
     fn on_tick(&mut self) {
         self.ticks += 1;
         let done = self.duration_ticks > 0 && self.ticks >= self.duration_ticks;
@@ -565,6 +820,24 @@ fn parse_topic_duration_window(args: &[String]) -> (Option<String>, u32, usize) 
 
 fn is_hidden(name: &str) -> bool {
     name.split('/').any(|seg| seg.starts_with('_'))
+}
+
+/// Infer a rcl_interfaces ParameterValue type_id and JSON field for `param set`.
+/// Returns (type_id, field_json) where field_json is e.g. `"bool_value":true`.
+fn infer_param_value(s: &str) -> (u8, String) {
+    if s == "true" || s == "True" {
+        return (1, r#""bool_value":true"#.to_string());
+    }
+    if s == "false" || s == "False" {
+        return (1, r#""bool_value":false"#.to_string());
+    }
+    if let Ok(i) = s.parse::<i64>() {
+        return (2, format!(r#""integer_value":{i}"#));
+    }
+    if let Ok(f) = s.parse::<f64>() {
+        return (3, format!(r#""double_value":{f}"#));
+    }
+    (4, format!(r#""string_value":"{s}""#))
 }
 
 fn extract_delay_note(json: &str) -> String {

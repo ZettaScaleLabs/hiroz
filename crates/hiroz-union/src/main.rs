@@ -4,6 +4,7 @@ mod app;
 mod core;
 mod export;
 mod modes;
+#[cfg(feature = "wasm-plugins")]
 mod plugin;
 
 use core::engine::CoreEngine;
@@ -97,6 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Pre-clap check: if argv[1] is a WASM plugin name, route to CLI mode
     // before clap sees it (clap would reject it as an unknown subcommand).
     let raw_args: Vec<String> = std::env::args().collect();
+    #[cfg(feature = "wasm-plugins")]
     if let Some(candidate) = raw_args.get(1).filter(|a| !a.starts_with('-')) {
         let available = plugin::wasm::discover_wasm_plugins();
         if available.iter().any(|(n, _)| n == candidate.as_str()) {
@@ -194,31 +196,43 @@ fn filter_hu_flags(args: Vec<String>, named_flags: &[&str]) -> Vec<String> {
 }
 
 fn run_plugin_list(json: bool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let plugins = plugin::wasm::discover_wasm_plugins();
-    if json {
-        let entries: Vec<_> = plugins
-            .iter()
-            .map(|(name, path)| {
-                serde_json::json!({
-                    "name": name,
-                    "path": path.to_string_lossy(),
-                    "kind": "wasm",
-                })
-            })
-            .collect();
-        println!("{}", serde_json::to_string_pretty(&entries)?);
-    } else {
-        if plugins.is_empty() {
-            println!("No WASM plugins found in $HU_PLUGIN_PATH or ~/.local/share/hu/plugins/.");
-            return Ok(());
+    #[cfg(not(feature = "wasm-plugins"))]
+    {
+        if json {
+            println!("[]");
+        } else {
+            println!("WASM plugin support not compiled in (feature wasm-plugins is disabled).");
         }
-        println!("{:<20} PATH", "PLUGIN");
-        println!("{}", "-".repeat(60));
-        for (name, path) in &plugins {
-            println!("{:<20} {}", name, path.to_string_lossy());
-        }
+        return Ok(());
     }
-    Ok(())
+    #[cfg(feature = "wasm-plugins")]
+    {
+        let plugins = plugin::wasm::discover_wasm_plugins();
+        if json {
+            let entries: Vec<_> = plugins
+                .iter()
+                .map(|(name, path)| {
+                    serde_json::json!({
+                        "name": name,
+                        "path": path.to_string_lossy(),
+                        "kind": "wasm",
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&entries)?);
+        } else {
+            if plugins.is_empty() {
+                println!("No WASM plugins found in $HU_PLUGIN_PATH or ~/.local/share/hu/plugins/.");
+                return Ok(());
+            }
+            println!("{:<20} PATH", "PLUGIN");
+            println!("{}", "-".repeat(60));
+            for (name, path) in &plugins {
+                println!("{:<20} {}", name, path.to_string_lossy());
+            }
+        }
+        Ok(())
+    }
 }
 
 async fn run_tui_mode(
@@ -231,7 +245,12 @@ async fn run_tui_mode(
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(core.clone()).await?;
-    app.wasm_plugins = plugin::wasm::load_plugins(core);
+    #[cfg(feature = "wasm-plugins")]
+    {
+        let (plugins, failed) = plugin::wasm::load_plugins(core);
+        app.wasm_plugins = plugins;
+        app.failed_plugins = failed;
+    }
     let result = run_tui_loop(&mut terminal, &mut app).await;
 
     disable_raw_mode()?;
@@ -413,11 +432,14 @@ async fn handle_key_event(
             app.plugin_selected_index = 0;
         }
         KeyCode::Char('t') if app.current_panel == Panel::Plugins => {
-            let idx = app.plugin_selected_index;
-            if idx < app.wasm_plugins.len() {
-                app.wasm_plugins[idx]
-                    .dispatch_event(crate::plugin::wasm::hu::plugin::types::PluginEvent::Tick);
-                // exit_code is ignored in TUI mode — plugin pane stays open
+            #[cfg(feature = "wasm-plugins")]
+            {
+                let idx = app.plugin_selected_index;
+                if idx < app.wasm_plugins.len() {
+                    app.wasm_plugins[idx]
+                        .dispatch_event(crate::plugin::wasm::hu::plugin::types::PluginEvent::Tick);
+                    // exit_code is ignored in TUI mode — plugin pane stays open
+                }
             }
         }
 

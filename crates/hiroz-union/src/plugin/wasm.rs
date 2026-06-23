@@ -922,10 +922,14 @@ impl WasmPlugin {
 
 /// Load all `.wasm` plugins found in `$HU_PLUGIN_PATH` and
 /// `~/.local/share/hu/plugins/`.
-pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Vec<WasmPlugin> {
+///
+/// Returns `(loaded, failed)` where `failed` is a list of `(path_display, error_message)`
+/// for plugins that could not be loaded, so the TUI can show an indicator.
+pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> (Vec<WasmPlugin>, Vec<(String, String)>) {
     let search_dirs = plugin_search_dirs();
     let wasm_engine = Engine::default();
     let mut plugins = Vec::new();
+    let mut failed: Vec<(String, String)> = Vec::new();
 
     for dir in &search_dirs {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -946,13 +950,15 @@ pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Vec<WasmPlugin> {
                     plugins.push(plugin);
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to load WASM plugin {}: {e}", path.display());
+                    let path_str = path.display().to_string();
+                    tracing::warn!("Failed to load WASM plugin {path_str}: {e}");
+                    failed.push((path_str, e.to_string()));
                 }
             }
         }
     }
 
-    plugins
+    (plugins, failed)
 }
 
 /// Discover `.wasm` plugin files without loading them. Used by `hu plugin list`.

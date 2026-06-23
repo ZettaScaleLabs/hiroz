@@ -15,7 +15,7 @@ pub async fn run_cli_plugin(
     plugin_name: &str,
     args: Vec<String>,
 ) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
-    let mut plugins = load_plugins(core);
+    let (mut plugins, _) = load_plugins(core);
     let plugin = plugins
         .iter_mut()
         .find(|p| p.manifest.name == plugin_name)

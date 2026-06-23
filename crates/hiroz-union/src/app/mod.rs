@@ -22,6 +22,7 @@ use ratatui::widgets::ScrollbarState;
 use rusqlite::Connection;
 
 use crate::core::engine::{Backend, CoreEngine};
+#[cfg(feature = "wasm-plugins")]
 use crate::plugin::wasm::WasmPlugin;
 
 pub use state::*;
@@ -90,7 +91,10 @@ pub struct App {
     pub recording_id: Option<i64>,
 
     // WASM plugin state
+    #[cfg(feature = "wasm-plugins")]
     pub wasm_plugins: Vec<WasmPlugin>,
+    /// Names of plugins that failed to load, with error messages.
+    pub failed_plugins: Vec<(String, String)>,
     pub plugin_selected_index: usize,
 }
 
@@ -187,7 +191,9 @@ impl App {
             measure_selected_index: 0,
             recording_active: false,
             recording_id: None,
+            #[cfg(feature = "wasm-plugins")]
             wasm_plugins: Vec::new(),
+            failed_plugins: Vec::new(),
             plugin_selected_index: 0,
         })
     }
@@ -218,6 +224,13 @@ impl App {
         }
     }
 
+    pub fn plugin_count(&self) -> usize {
+        #[cfg(feature = "wasm-plugins")]
+        return self.wasm_plugins.len();
+        #[cfg(not(feature = "wasm-plugins"))]
+        return 0;
+    }
+
     pub fn update_graph_cache(&mut self) {
         let graph = self.core.graph.lock();
         self.cached_topics = graph.get_topic_names_and_types();
@@ -235,7 +248,7 @@ impl App {
                 }
             }
             Panel::Plugins => {
-                let max = self.wasm_plugins.len();
+                let max = self.plugin_count();
                 if max > 0 && self.plugin_selected_index < max - 1 {
                     self.plugin_selected_index += 1;
                 }
@@ -649,7 +662,7 @@ impl App {
                 }
             }
             Panel::Plugins => {
-                if self.wasm_plugins.is_empty() {
+                if self.plugin_count() == 0 && self.failed_plugins.is_empty() {
                     "No WASM plugins found. Set HU_PLUGIN_PATH to a dir with .wasm files | ?:help q:quit".to_string()
                 } else {
                     "j/k:select t:tick plugin | 1-5:panels ?:help q:quit".to_string()

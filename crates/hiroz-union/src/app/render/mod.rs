@@ -269,7 +269,7 @@ impl App {
                     (items, total)
                 }
                 Panel::Plugins => {
-                    let total = self.wasm_plugins.len();
+                    let total = self.plugin_count() + self.failed_plugins.len();
                     let items = self.render_plugin_list_items();
                     (items, total)
                 }
