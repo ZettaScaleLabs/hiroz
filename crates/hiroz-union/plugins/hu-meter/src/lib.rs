@@ -3,6 +3,7 @@ wit_bindgen::generate!({
     path: "wit/hu-plugin.wit",
 });
 
+use hu::plugin::types::{EventKind, Permission};
 use hu::plugin::{graph, render, ros};
 
 // ─── Plugin state ─────────────────────────────────────────────────────────────
@@ -872,6 +873,14 @@ impl Guest for Plugin {
             bindings: vec![],
             tick_ms: 1000,
             sessions: vec![],
+            subscribed_events: vec![EventKind::Startup, EventKind::Tick, EventKind::KeyAction],
+            required_permissions: vec![
+                Permission::SubscribeTopic,
+                Permission::PublishTopic,
+                Permission::CallService,
+                Permission::MeasureMetrics,
+                Permission::OpenSession,
+            ],
         }
     }
 

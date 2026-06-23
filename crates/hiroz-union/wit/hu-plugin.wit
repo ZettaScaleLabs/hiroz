@@ -38,6 +38,22 @@ interface types {
         mode: session-mode,
     }
 
+    enum event-kind {
+        startup,
+        tick,
+        key-action,
+        topic-selected,
+    }
+
+    enum permission {
+        subscribe-topic,
+        publish-topic,
+        call-service,
+        measure-metrics,
+        access-raw-cdr,
+        open-session,
+    }
+
     record plugin-manifest {
         name:        string,
         version:     string,
@@ -48,6 +64,10 @@ interface types {
         tick-ms:     u32,
         // Named sessions this plugin needs. Host opens them before first on-event.
         sessions:    list<session-requirement>,
+        // Empty list = receive all events (backward-compat).
+        subscribed-events: list<event-kind>,
+        // Capabilities this plugin needs. Host refuses calls for undeclared capabilities.
+        required-permissions: list<permission>,
     }
 
     variant plugin-event {

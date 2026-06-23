@@ -6,6 +6,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use hu::plugin::types::{EventKind, Permission};
+
 use crate::core::message_formatter::dynamic_message_to_json;
 use anyhow::{Context, Result};
 use hiroz::dynamic::{
@@ -132,6 +134,8 @@ pub struct PluginState {
     pub title: Arc<Mutex<String>>,
     // exit signal from render::exit()
     pub exit_code: Option<u32>,
+    // permissions declared in manifest
+    pub permissions: Vec<Permission>,
 }
 
 impl WasiView for PluginState {
@@ -182,6 +186,17 @@ impl PluginState {
             },
         );
         Ok(())
+    }
+
+    fn require_perm(&self, p: Permission) -> Result<(), String> {
+        if self.permissions.contains(&p) {
+            Ok(())
+        } else {
+            Err(format!(
+                "permission denied: {:?} not declared in plugin manifest",
+                p
+            ))
+        }
     }
 
     fn session_for_handle(
@@ -261,6 +276,7 @@ impl hu::plugin::ros::Host for PluginState {
         &mut self,
         topic: String,
     ) -> Result<Resource<hu::plugin::ros::Subscription>, String> {
+        self.require_perm(Permission::SubscribeTopic)?;
         let rep = self.next_sub_rep;
         self.next_sub_rep += 1;
 
@@ -314,6 +330,7 @@ impl hu::plugin::ros::Host for PluginState {
         name: String,
         type_name: String,
     ) -> Result<Resource<hu::plugin::ros::ServiceClient>, String> {
+        self.require_perm(Permission::CallService)?;
         let domain_id = self.engine.domain_id;
         let svc_stripped = name.trim_start_matches('/').to_string();
 
@@ -357,6 +374,7 @@ impl hu::plugin::ros::Host for PluginState {
     }
 
     fn measure_hz(&mut self, topic: String, window_ms: u32) -> Result<f64, String> {
+        self.require_perm(Permission::MeasureMetrics)?;
         self.ensure_rate_tracker(&topic)?;
         let tracker = self.rate_trackers.get_mut(&topic).unwrap();
         tracker.drain_and_trim(window_ms);
@@ -366,6 +384,7 @@ impl hu::plugin::ros::Host for PluginState {
     }
 
     fn measure_bw(&mut self, topic: String, window_ms: u32) -> Result<f64, String> {
+        self.require_perm(Permission::MeasureMetrics)?;
         self.ensure_rate_tracker(&topic)?;
         let tracker = self.rate_trackers.get_mut(&topic).unwrap();
         tracker.drain_and_trim(window_ms);
@@ -375,6 +394,7 @@ impl hu::plugin::ros::Host for PluginState {
     }
 
     fn encode_yaml_to_cdr(&mut self, yaml: String, type_name: String) -> Result<Vec<u8>, String> {
+        self.require_perm(Permission::PublishTopic)?;
         let schema = get_schema(&type_name)
             .ok_or_else(|| format!("schema for '{type_name}' not found in registry"))?;
         let value: serde_json::Value =
@@ -624,6 +644,7 @@ impl hu::plugin::session::Host for PluginState {
         &mut self,
         name: String,
     ) -> Result<Resource<hu::plugin::session::SessionHandle>, String> {
+        self.require_perm(Permission::OpenSession)?;
         if !self.sessions.contains_key(&name) {
             return Err(format!(
                 "session '{name}' not declared in manifest or failed to open"
@@ -641,6 +662,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
         res: Resource<hu::plugin::session::SessionHandle>,
         ke: String,
     ) -> Result<Resource<hu::plugin::raw_transport::RawSubscription>, String> {
+        self.require_perm(Permission::AccessRawCdr)?;
         let session = self.session_for_handle(&res)?;
         let (tx, rx) = flume::bounded::<Vec<u8>>(256);
         let ke_clone = ke.clone();
@@ -675,6 +697,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
         res: Resource<hu::plugin::session::SessionHandle>,
         ke: String,
     ) -> Result<Resource<hu::plugin::raw_transport::RawPublisher>, String> {
+        self.require_perm(Permission::AccessRawCdr)?;
         let session = self.session_for_handle(&res)?;
         let rep = self.alloc_rep();
         self.raw_pubs.insert(rep, RawPubData { session, ke });
@@ -686,6 +709,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
         res: Resource<hu::plugin::session::SessionHandle>,
         ke: String,
     ) -> Result<Resource<hu::plugin::raw_transport::LivelinessToken>, String> {
+        self.require_perm(Permission::AccessRawCdr)?;
         let session = self.session_for_handle(&res)?;
         let handle = tokio::spawn(async move {
             // Task holds the token. Aborting it undeclares it.
@@ -714,6 +738,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
         res: Resource<hu::plugin::session::SessionHandle>,
         ke: String,
     ) -> Result<Resource<hu::plugin::raw_transport::LivelinessSub>, String> {
+        self.require_perm(Permission::AccessRawCdr)?;
         let session = self.session_for_handle(&res)?;
         let (tx, rx) = flume::bounded::<(String, bool)>(256);
         let ke_clone = ke.clone();
@@ -749,6 +774,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
         res: Resource<hu::plugin::session::SessionHandle>,
         ke: String,
     ) -> Result<Resource<hu::plugin::raw_transport::Queryable>, String> {
+        self.require_perm(Permission::AccessRawCdr)?;
         let session = self.session_for_handle(&res)?;
         let (tx, rx) = flume::bounded::<(u64, Vec<u8>)>(64);
         let pending: Arc<Mutex<HashMap<u64, zenoh::query::Query>>> =
@@ -794,6 +820,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
         res: Resource<hu::plugin::session::SessionHandle>,
         ke: String,
     ) -> Result<Resource<hu::plugin::raw_transport::Querier>, String> {
+        self.require_perm(Permission::AccessRawCdr)?;
         let session = self.session_for_handle(&res)?;
         let rep = self.alloc_rep();
         self.queriers.insert(rep, QuerierData { session, ke });
@@ -911,6 +938,27 @@ impl WasmPlugin {
     /// Dispatch an event to the plugin. Returns the exit code if the plugin
     /// called `render::exit()`, or `None` to continue.
     pub fn dispatch_event(&mut self, event: hu::plugin::types::PluginEvent) -> Option<u32> {
+        // Filter events if the plugin declared a subscription list.
+        if !self.manifest.subscribed_events.is_empty() {
+            let kind = match &event {
+                hu::plugin::types::PluginEvent::Startup(_) => EventKind::Startup,
+                hu::plugin::types::PluginEvent::Tick => EventKind::Tick,
+                hu::plugin::types::PluginEvent::KeyAction(_) => EventKind::KeyAction,
+                hu::plugin::types::PluginEvent::TopicSelected(_) => EventKind::TopicSelected,
+            };
+            let subscribed = self.manifest.subscribed_events.iter().any(|k| {
+                matches!(
+                    (k, &kind),
+                    (EventKind::Startup, EventKind::Startup)
+                        | (EventKind::Tick, EventKind::Tick)
+                        | (EventKind::KeyAction, EventKind::KeyAction)
+                        | (EventKind::TopicSelected, EventKind::TopicSelected)
+                )
+            });
+            if !subscribed {
+                return self.store.data().exit_code;
+            }
+        }
         if let Err(e) = self.bindings.call_on_event(&mut self.store, &event) {
             tracing::warn!("WASM plugin '{}' error on event: {e}", self.manifest.name);
         }
@@ -987,13 +1035,65 @@ pub fn discover_wasm_plugins() -> Vec<(String, PathBuf)> {
     result
 }
 
+fn plugin_cache_dir() -> Option<PathBuf> {
+    dirs::cache_dir().map(|d| d.join("hu").join("plugins"))
+}
+
+fn hash_bytes(bytes: &[u8]) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    bytes.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
 fn load_one(
     wasm_engine: &Engine,
     path: &PathBuf,
     engine_ref: Arc<CoreEngine>,
 ) -> Result<WasmPlugin> {
-    let component = Component::from_file(wasm_engine, path)
-        .with_context(|| format!("compiling {}", path.display()))?;
+    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let hash = hash_bytes(&bytes);
+    let component = if let Some(cache_dir) = plugin_cache_dir() {
+        let cache_path = cache_dir.join(format!("{hash}.cwasm"));
+        if cache_path.exists() {
+            // SAFETY: the bytes were produced by wasmtime's serialize(); wasmtime
+            // validates the precompiled header and returns Err on engine mismatch.
+            match std::fs::read(&cache_path)
+                .map_err(|e| anyhow::anyhow!(e))
+                .and_then(|b| unsafe { Component::deserialize(wasm_engine, &b) })
+            {
+                Ok(c) => {
+                    tracing::debug!("WASM plugin cache hit for {} ({hash})", path.display());
+                    c
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        "WASM plugin cache stale for {}, recompiling: {e}",
+                        path.display()
+                    );
+                    let c = Component::new(wasm_engine, &bytes)
+                        .with_context(|| format!("compiling {}", path.display()))?;
+                    if let Ok(serialized) = c.serialize() {
+                        let _ = std::fs::create_dir_all(&cache_dir);
+                        let _ = std::fs::write(&cache_path, serialized);
+                    }
+                    c
+                }
+            }
+        } else {
+            let c = Component::new(wasm_engine, &bytes)
+                .with_context(|| format!("compiling {}", path.display()))?;
+            if let Ok(serialized) = c.serialize() {
+                let _ = std::fs::create_dir_all(&cache_dir);
+                let _ = std::fs::write(&cache_path, serialized);
+            }
+            c
+        }
+    } else {
+        Component::new(wasm_engine, &bytes)
+            .with_context(|| format!("compiling {}", path.display()))?
+    };
 
     let mut linker: Linker<PluginState> = Linker::new(wasm_engine);
     wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
@@ -1033,6 +1133,7 @@ fn load_one(
         output_lines: output_lines.clone(),
         title: title.clone(),
         exit_code: None,
+        permissions: vec![],
     };
 
     let mut store = Store::new(wasm_engine, state);
@@ -1041,6 +1142,9 @@ fn load_one(
     let manifest = bindings
         .call_manifest(&mut store)
         .context("calling manifest()")?;
+
+    // Initialize permissions from manifest.
+    store.data_mut().permissions = manifest.required_permissions.clone();
 
     open_declared_sessions(&mut store, &manifest)?;
 
