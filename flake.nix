@@ -490,8 +490,12 @@
               };
             };
 
-          # CI shell for bridge interop + hz-comparison tests (same as ros-bridge-interop).
-          bridge-interop-ci = self.devShells.${system}.ros-bridge-interop;
+          # CI shell for bridge interop + hz-comparison tests.
+          # Same as ros-bridge-interop but with the pre-built `hu` binary injected
+          # so hz-comparison tests can call `hu meter hz` without a separate build step.
+          bridge-interop-ci = (self.devShells.${system}.ros-bridge-interop).overrideAttrs (old: {
+            buildInputs = (old.buildInputs or [ ]) ++ [ self.packages.${system}.hu ];
+          });
 
         }
         # Add per-distro dev shells (ros-jazzy, ros-rolling, ...)
@@ -508,6 +512,32 @@
             value = allDistroShells.${distro}.ci;
           }) availableDistros
         ));
+
+        packages = rec {
+          hu = pkgs.rustPlatform.buildRustPackage {
+            pname = "hu";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+            nativeBuildInputs = [
+              pkgs.pkg-config
+              pkgs.protobuf
+            ];
+            cargoBuildFlags = [
+              "-p"
+              "hiroz-union"
+              "--features"
+              "jazzy"
+            ];
+            cargoInstallFlags = [
+              "--bin"
+              "hu"
+            ];
+            doCheck = false;
+            RUSTFLAGS = "";
+          };
+          default = hu;
+        };
 
         formatter = pkgs.nixfmt-rfc-style;
       }
