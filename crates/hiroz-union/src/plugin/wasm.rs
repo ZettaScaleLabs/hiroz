@@ -1,10 +1,12 @@
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
-    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
+use crate::core::message_formatter::dynamic_message_to_json;
 use anyhow::{Context, Result};
 use hiroz::dynamic::{
     DynamicMessage, DynamicValue, FieldType, MessageSchema, get_schema,
@@ -28,6 +30,7 @@ bindgen!({
 // ─── Subscription tracking (ros interface) ────────────────────────────────────
 
 struct SubscriptionData {
+    // Retained for future debug logging / plugin introspection; not read today.
     #[allow(dead_code)]
     topic: String,
     rx: flume::Receiver<String>,
@@ -282,7 +285,7 @@ impl hu::plugin::ros::Host for PluginState {
             loop {
                 match sub.try_recv() {
                     Some(Ok(msg)) => {
-                        let json = dyn_msg_to_json(&msg).to_string();
+                        let json = dynamic_message_to_json(&msg).to_string();
                         if tx.send_async(json).await.is_err() {
                             break;
                         }
@@ -437,7 +440,7 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         let resp_type = req_type.replace("_Request", "_Response");
         if let Some(resp_schema) = get_schema(&resp_type) {
             match deserialize_cdr(&resp_cdr, &resp_schema) {
-                Ok(msg) => return Ok(dyn_msg_to_json(&msg).to_string()),
+                Ok(msg) => return Ok(dynamic_message_to_json(&msg).to_string()),
                 Err(e) => tracing::warn!("failed to decode service response: {e}"),
             }
         }
@@ -559,7 +562,6 @@ impl hu::plugin::raw_transport::HostQueryable for PluginState {
         let query = qdata
             .pending
             .lock()
-            .unwrap()
             .remove(&query_id)
             .ok_or_else(|| format!("query {query_id} not found or already replied"))?;
         query
@@ -769,7 +771,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
                     .payload()
                     .map(|p| p.to_bytes().into_owned())
                     .unwrap_or_default();
-                pending_task.lock().unwrap().insert(id, query);
+                pending_task.lock().insert(id, query);
                 if tx.send_async((id, payload)).await.is_err() {
                     break;
                 }
@@ -808,7 +810,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
 
 impl hu::plugin::render::Host for PluginState {
     fn println(&mut self, text: String) {
-        let mut lines = self.output_lines.lock().unwrap();
+        let mut lines = self.output_lines.lock();
         lines.push(text);
         if lines.len() > 1000 {
             lines.drain(0..500);
@@ -816,7 +818,7 @@ impl hu::plugin::render::Host for PluginState {
     }
 
     fn set_title(&mut self, title: String) {
-        *self.title.lock().unwrap() = title;
+        *self.title.lock() = title;
     }
 
     fn emit_json(&mut self, key: String, value: String) {
@@ -895,47 +897,6 @@ fn json_to_dynamic_value(
     }
 }
 
-// ─── CDR→JSON helpers ────────────────────────────────────────────────────────
-
-fn dyn_msg_to_json(msg: &DynamicMessage) -> serde_json::Value {
-    let mut map = serde_json::Map::new();
-    for (name, value) in msg.iter() {
-        map.insert(name.to_string(), dyn_value_to_json(value));
-    }
-    serde_json::Value::Object(map)
-}
-
-fn dyn_value_to_json(value: &DynamicValue) -> serde_json::Value {
-    match value {
-        DynamicValue::Bool(b) => serde_json::Value::Bool(*b),
-        DynamicValue::Int8(i) => (*i as i64).into(),
-        DynamicValue::Int16(i) => (*i as i64).into(),
-        DynamicValue::Int32(i) => (*i as i64).into(),
-        DynamicValue::Int64(i) => (*i).into(),
-        DynamicValue::Uint8(u) => (*u as u64).into(),
-        DynamicValue::Uint16(u) => (*u as u64).into(),
-        DynamicValue::Uint32(u) => (*u as u64).into(),
-        DynamicValue::Uint64(u) => (*u).into(),
-        DynamicValue::Float32(f) => serde_json::Number::from_f64(*f as f64)
-            .map(serde_json::Value::Number)
-            .unwrap_or(serde_json::Value::Null),
-        DynamicValue::Float64(f) => serde_json::Number::from_f64(*f)
-            .map(serde_json::Value::Number)
-            .unwrap_or(serde_json::Value::Null),
-        DynamicValue::String(s) => serde_json::Value::String(s.clone()),
-        DynamicValue::Bytes(b) => serde_json::Value::String(
-            b.iter()
-                .map(|x| format!("{:02x}", x))
-                .collect::<Vec<_>>()
-                .join(" "),
-        ),
-        DynamicValue::Message(inner) => dyn_msg_to_json(inner),
-        DynamicValue::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(dyn_value_to_json).collect())
-        }
-    }
-}
-
 // ─── Loaded plugin handle ─────────────────────────────────────────────────────
 
 pub struct WasmPlugin {
@@ -1006,11 +967,13 @@ pub fn discover_wasm_plugins() -> Vec<(String, PathBuf)> {
             if path.extension().and_then(|e| e.to_str()) != Some("wasm") {
                 continue;
             }
-            let name = path
+            let stem = path
                 .file_stem()
                 .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string();
+                .unwrap_or("unknown");
+            // Strip the conventional "hu-" prefix so `hu-meter.wasm` registers
+            // as "meter" and `hu meter <args>` dispatches correctly.
+            let name = stem.strip_prefix("hu-").unwrap_or(stem).to_string();
             result.push((name, path));
         }
     }
@@ -1033,6 +996,9 @@ fn load_one(
     let output_lines = Arc::new(Mutex::new(Vec::new()));
     let title = Arc::new(Mutex::new(String::new()));
 
+    // inherit_env exposes all environment variables (including HU_ROUTER,
+    // HU_DOMAIN, and any secrets in the shell) to the plugin guest.
+    // Filesystem and network access are not granted. Only load trusted plugins.
     let wasi = WasiCtxBuilder::new().inherit_env().build();
 
     // Register the main hiroz session as "default" so plugins can call
@@ -1072,7 +1038,7 @@ fn load_one(
 
     open_declared_sessions(&mut store, &manifest)?;
 
-    *title.lock().unwrap() = manifest.name.clone();
+    *title.lock() = manifest.name.clone();
 
     Ok(WasmPlugin {
         manifest,

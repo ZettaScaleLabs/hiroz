@@ -39,11 +39,12 @@ pub fn dynamic_value_to_json(value: &DynamicValue) -> serde_json::Value {
             .unwrap_or(serde_json::Value::Null),
         DynamicValue::String(s) => serde_json::Value::String(s.clone()),
         DynamicValue::Bytes(b) => {
-            // Encode bytes as array of numbers for JSON compatibility
-            serde_json::Value::Array(
+            // Encode bytes as space-separated hex string (e.g. "de ad be ef")
+            serde_json::Value::String(
                 b.iter()
-                    .map(|&byte| serde_json::Value::Number(byte.into()))
-                    .collect(),
+                    .map(|x| format!("{x:02x}"))
+                    .collect::<Vec<_>>()
+                    .join(" "),
             )
         }
         DynamicValue::Message(msg) => dynamic_message_to_json(msg),

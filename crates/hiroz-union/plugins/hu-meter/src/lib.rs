@@ -85,7 +85,11 @@ impl HuMeter {
             "hz" => self.cmd_hz(&args[1..]),
             "bw" => self.cmd_bw(&args[1..]),
             "echo" => self.cmd_echo(&args[1..]),
-            "delay" => self.cmd_delay(&args[1..]),
+            "delay" => {
+                render::println("delay subcommand: not yet implemented in WASM plugin");
+                render::exit(1);
+                self.mode = Mode::Done;
+            }
             "list" => {
                 self.cmd_list(&args[1..]);
                 self.mode = Mode::Done;
@@ -570,16 +574,18 @@ fn extract_delay_note(json: &str) -> String {
 }
 
 // ─── Plugin entry points ──────────────────────────────────────────────────────
+//
+// WASM components are single-threaded (no threads, no Send/Sync required).
+// Use OnceCell<RefCell<T>> to avoid unsafe static mut while staying no-std-safe.
 
-static mut STATE: Option<HuMeter> = None;
+use std::cell::{OnceCell, RefCell};
 
-fn state() -> &'static mut HuMeter {
-    unsafe {
-        if STATE.is_none() {
-            STATE = Some(HuMeter::new());
-        }
-        STATE.as_mut().unwrap()
-    }
+static STATE: OnceCell<RefCell<HuMeter>> = OnceCell::new();
+
+fn state() -> std::cell::RefMut<'static, HuMeter> {
+    STATE
+        .get_or_init(|| RefCell::new(HuMeter::new()))
+        .borrow_mut()
 }
 
 struct Plugin;

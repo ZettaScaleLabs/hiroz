@@ -61,7 +61,7 @@ pub async fn run_cli_plugin(
 }
 
 fn flush_output(plugin: &mut wasm::WasmPlugin) {
-    let mut lines = plugin.output_lines.lock().unwrap();
+    let mut lines = plugin.output_lines.lock();
     for line in lines.drain(..) {
         println!("{line}");
     }

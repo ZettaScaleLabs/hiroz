@@ -333,17 +333,19 @@ fn log_level_to_int(level: &str) -> u32 {
     }
 }
 
-// ─── Static state for WASM (no std::thread) ──────────────────────────────────
+// ─── Plugin entry points ──────────────────────────────────────────────────────
+//
+// WASM components are single-threaded (no threads, no Send/Sync required).
+// Use OnceCell<RefCell<T>> to avoid unsafe static mut while staying no-std-safe.
 
-static mut STATE: Option<HuMonitor> = None;
+use std::cell::{OnceCell, RefCell};
 
-fn state() -> &'static mut HuMonitor {
-    unsafe {
-        if STATE.is_none() {
-            STATE = Some(HuMonitor::new());
-        }
-        STATE.as_mut().unwrap()
-    }
+static STATE: OnceCell<RefCell<HuMonitor>> = OnceCell::new();
+
+fn state() -> std::cell::RefMut<'static, HuMonitor> {
+    STATE
+        .get_or_init(|| RefCell::new(HuMonitor::new()))
+        .borrow_mut()
 }
 
 struct Plugin;

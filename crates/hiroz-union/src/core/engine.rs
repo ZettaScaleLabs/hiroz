@@ -27,6 +27,7 @@ pub struct CoreEngine {
     pub router_addr: String,
     pub backend: Backend,
     pub is_connected: Arc<AtomicBool>,
+    // Held to keep liveliness tokens alive for the lifetime of CoreEngine.
     #[allow(dead_code)]
     pub context: Arc<ZContext>,
     pub node: Arc<ZNode>,

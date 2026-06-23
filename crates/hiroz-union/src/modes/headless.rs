@@ -166,7 +166,7 @@ fn print_initial_state(core: &CoreEngine) {
 
     println!("Discovered Topics:");
     for (topic, type_name) in &topics {
-        println!("  📡 {} ({})", topic, type_name);
+        println!("  topic: {} ({})", topic, type_name);
     }
     if topics.is_empty() {
         println!("  (none)");
@@ -174,7 +174,7 @@ fn print_initial_state(core: &CoreEngine) {
 
     println!("Discovered Services:");
     for (service, type_name) in &services {
-        println!("  🔌 {} ({})", service, type_name);
+        println!("  service: {} ({})", service, type_name);
     }
     if services.is_empty() {
         println!("  (none)");
@@ -182,7 +182,7 @@ fn print_initial_state(core: &CoreEngine) {
 
     println!("Discovered Nodes:");
     for (name, namespace) in &nodes {
-        println!("  🤖 {}/{}", namespace, name);
+        println!("  node: {}/{}", namespace, name);
     }
     if nodes.is_empty() {
         println!("  (none)");

@@ -49,6 +49,12 @@
             "rust-analyzer"
             "llvm-tools-preview"
           ];
+        };
+
+        # CI-only toolchain — adds the wasm32-wasip2 sysroot for building WASM
+        # plugins. Kept separate so everyday `nix develop` shells don't pay the
+        # WASM sysroot download cost (~100-500 MB).
+        rustToolchainWasm = rustToolchain.override {
           targets = [ "wasm32-wasip2" ];
         };
 
@@ -434,10 +440,18 @@
             '';
           };
 
-          # CI without ROS
+          # CI without ROS — includes wasm32-wasip2 sysroot for WASM plugin builds.
+          # Uses rustToolchainWasm so the WASM target is only fetched in CI, not
+          # in the default developer shell.
           pureRust-ci = mkDevShell {
             name = "hiroz-ci-pure-rust";
-            packages = commonBuildInputs ++ pythonTools ++ docTools ++ testTools;
+            packages =
+              # Replace the default rustToolchain with the WASM-capable variant.
+              [ rustToolchainWasm ]
+              ++ (builtins.filter (p: p != rustToolchain) commonBuildInputs)
+              ++ pythonTools
+              ++ docTools
+              ++ testTools;
             extraShellHook = '''';
           };
 

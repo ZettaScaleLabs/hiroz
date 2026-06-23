@@ -23,7 +23,7 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, plugin)| {
-                let title = plugin.title.lock().unwrap().clone();
+                let title = plugin.title.lock().clone();
                 let display = if title.is_empty() {
                     plugin.manifest.name.clone()
                 } else {
@@ -61,7 +61,7 @@ impl App {
         }
 
         let plugin = &self.wasm_plugins[self.plugin_selected_index];
-        let lines: Vec<String> = plugin.output_lines.lock().unwrap().clone();
+        let lines: Vec<String> = plugin.output_lines.lock().clone();
         let text = lines.join("\n");
         let title = format!(" {} v{} ", plugin.manifest.name, plugin.manifest.version);
 
