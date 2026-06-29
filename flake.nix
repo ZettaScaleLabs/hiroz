@@ -328,7 +328,17 @@
               pythonVersion = pythonVer;
               rosDistro = rosDistro;
               extraShellHook = ''
-                ${pre-commit-check.shellHook}
+                _common_dir="$(git rev-parse --git-common-dir 2>/dev/null || echo "")"
+                if [ -n "''${_common_dir}" ] && [[ "''${_common_dir}" != /* ]]; then
+                  _common_dir="$PWD/''${_common_dir}"
+                fi
+                _repo_root="$(dirname "''${_common_dir}")"
+                if [ -d "''${_repo_root}/crates/hiroz" ]; then
+                  ${pre-commit-check.shellHook}
+                else
+                  echo "hiroz: skipping pre-commit install (not in hiroz repo, git common dir: ''${_common_dir})"
+                fi
+                unset _common_dir _repo_root
               '';
               banner = ''
                 echo "🦀 hiroz development environment (with ROS)"
@@ -394,7 +404,17 @@
             ++ testTools
             ++ pre-commit-check.enabledPackages;
             extraShellHook = ''
-              ${pre-commit-check.shellHook}
+              _common_dir="$(git rev-parse --git-common-dir 2>/dev/null || echo "")"
+              if [ -n "''${_common_dir}" ] && [[ "''${_common_dir}" != /* ]]; then
+                _common_dir="$PWD/''${_common_dir}"
+              fi
+              _repo_root="$(dirname "''${_common_dir}")"
+              if [ -d "''${_repo_root}/crates/hiroz" ]; then
+                ${pre-commit-check.shellHook}
+              else
+                echo "hiroz: skipping pre-commit install (not in hiroz repo, git common dir: ''${_common_dir})"
+              fi
+              unset _common_dir _repo_root
             '';
             banner = ''
               echo "🦀 hiroz development environment (pure Rust)"
