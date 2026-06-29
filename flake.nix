@@ -328,7 +328,13 @@
               pythonVersion = pythonVer;
               rosDistro = rosDistro;
               extraShellHook = ''
-                ${pre-commit-check.shellHook}
+                _git_root="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
+                if [ -d "''${_git_root}/crates/hiroz-core" ]; then
+                  ${pre-commit-check.shellHook}
+                else
+                  echo "hiroz: skipping pre-commit install (not in hiroz repo root, git root: ''${_git_root})"
+                fi
+                unset _git_root
               '';
               banner = ''
                 echo "🦀 hiroz development environment (with ROS)"
@@ -394,7 +400,13 @@
             ++ testTools
             ++ pre-commit-check.enabledPackages;
             extraShellHook = ''
-              ${pre-commit-check.shellHook}
+              _git_root="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
+              if [ -d "''${_git_root}/crates/hiroz-core" ]; then
+                ${pre-commit-check.shellHook}
+              else
+                echo "hiroz: skipping pre-commit install (not in hiroz repo root, git root: ''${_git_root})"
+              fi
+              unset _git_root
             '';
             banner = ''
               echo "🦀 hiroz development environment (pure Rust)"
