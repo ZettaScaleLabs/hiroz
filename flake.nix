@@ -327,19 +327,7 @@
               rosEnvPath = rosEnv.dev;
               pythonVersion = pythonVer;
               rosDistro = rosDistro;
-              extraShellHook = ''
-                _common_dir="$(git rev-parse --git-common-dir 2>/dev/null || echo "")"
-                if [ -n "''${_common_dir}" ] && [[ "''${_common_dir}" != /* ]]; then
-                  _common_dir="$PWD/''${_common_dir}"
-                fi
-                _repo_root="$(dirname "''${_common_dir}")"
-                if [ -d "''${_repo_root}/crates/hiroz" ]; then
-                  ${pre-commit-check.shellHook}
-                else
-                  echo "hiroz: skipping pre-commit install (not in hiroz repo, git common dir: ''${_common_dir})"
-                fi
-                unset _common_dir _repo_root
-              '';
+              extraShellHook = preCommitGuard;
               banner = ''
                 echo "🦀 hiroz development environment (with ROS)"
                 echo "ROS 2 Distribution: ${rosDistro}"
@@ -379,6 +367,23 @@
             mkdocsPkg
             ;
         };
+
+        # Guard: only install pre-commit hooks when nix develop is invoked from
+        # inside the hiroz repo (main checkout or any worktree). Uses
+        # --git-common-dir instead of --show-toplevel so worktrees work correctly.
+        preCommitGuard = ''
+          _common_dir="$(git rev-parse --git-common-dir 2>/dev/null || echo "")"
+          if [ -n "''${_common_dir}" ] && [[ "''${_common_dir}" != /* ]]; then
+            _common_dir="$PWD/''${_common_dir}"
+          fi
+          _repo_root="$(dirname "''${_common_dir}")"
+          if [ -d "''${_repo_root}/crates/hiroz" ]; then
+            ${pre-commit-check.shellHook}
+          else
+            echo "hiroz: skipping pre-commit install (not in hiroz repo, git common dir: ''${_common_dir})"
+          fi
+          unset _common_dir _repo_root
+        '';
       in
       {
         # Pre-commit checks
@@ -403,19 +408,7 @@
             ++ docTools
             ++ testTools
             ++ pre-commit-check.enabledPackages;
-            extraShellHook = ''
-              _common_dir="$(git rev-parse --git-common-dir 2>/dev/null || echo "")"
-              if [ -n "''${_common_dir}" ] && [[ "''${_common_dir}" != /* ]]; then
-                _common_dir="$PWD/''${_common_dir}"
-              fi
-              _repo_root="$(dirname "''${_common_dir}")"
-              if [ -d "''${_repo_root}/crates/hiroz" ]; then
-                ${pre-commit-check.shellHook}
-              else
-                echo "hiroz: skipping pre-commit install (not in hiroz repo, git common dir: ''${_common_dir})"
-              fi
-              unset _common_dir _repo_root
-            '';
+            extraShellHook = preCommitGuard;
             banner = ''
               echo "🦀 hiroz development environment (pure Rust)"
               echo "Rust: $(rustc --version)"
