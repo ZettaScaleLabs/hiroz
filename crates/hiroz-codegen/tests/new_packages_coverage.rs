@@ -36,12 +36,16 @@ const NEW_PACKAGES: &[&str] = &[
 ];
 
 /// Dependencies of the new packages that must be present in the resolver context.
+/// service_msgs and type_description_interfaces are needed by the Jazzy resolver
+/// (is_humble=false) for service hash computation.
 const DEP_PACKAGES: &[&str] = &[
     "builtin_interfaces",
     "std_msgs",
     "geometry_msgs",
     "sensor_msgs",
     "rcl_interfaces",
+    "service_msgs",
+    "type_description_interfaces",
 ];
 
 // ============================================================================
