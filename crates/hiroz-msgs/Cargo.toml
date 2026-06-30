@@ -78,7 +78,6 @@ all_msgs = [
   "example_interfaces",
   "action_tutorials_interfaces",
   "rcl_interfaces",
-  "test_msgs",
   "tf2_msgs",
   "visualization_msgs",
   "rosgraph_msgs",
