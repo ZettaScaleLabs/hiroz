@@ -27,6 +27,7 @@ def check-bundled-msgs [] {
     run-cmd "cargo check -p hiroz-msgs"
     run-cmd "cargo check -p hiroz-msgs --features bundled_msgs"
     run-cmd "cargo check -p hiroz-msgs --features common_interfaces"
+    run-cmd "cargo check -p hiroz-msgs --features all_msgs"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features std_msgs"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features geometry_msgs"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features sensor_msgs"
