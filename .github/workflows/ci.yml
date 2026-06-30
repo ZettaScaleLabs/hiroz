@@ -285,10 +285,11 @@ jobs:
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
+        continue-on-error: true
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   no-ros-checks:
     name: ROS-independent Checks (${{ matrix.os }})
@@ -503,6 +504,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ matrix.distro }}-python
+
+      - name: Clean pyo3 build artifacts
+        run: find target -name 'build-script-build' -path '*pyo3-build-config*' -delete 2>/dev/null || true
 
       - name: Cache generated Python types
         uses: actions/cache@v4
