@@ -106,7 +106,8 @@ fn collect_all_paths() -> Vec<PathBuf> {
 }
 
 fn resolve_new_packages(is_humble: bool) {
-    let paths: Vec<&std::path::Path> = collect_all_paths().iter().map(|p| p.as_path()).collect();
+    let owned = collect_all_paths();
+    let paths: Vec<&std::path::Path> = owned.iter().map(|p| p.as_path()).collect();
 
     let (msgs, srvs, actions) = discover_all(&paths).expect("discover_all failed for new packages");
 
@@ -138,8 +139,8 @@ fn new_packages_resolve_humble_mode() {
 
 #[test]
 fn all_new_package_types_have_valid_hashes() {
-    let paths: Vec<PathBuf> = collect_all_paths();
-    let path_refs: Vec<&std::path::Path> = paths.iter().map(|p| p.as_path()).collect();
+    let owned = collect_all_paths();
+    let path_refs: Vec<&std::path::Path> = owned.iter().map(|p| p.as_path()).collect();
 
     let (msgs, srvs, actions) = discover_all(&path_refs).expect("discover_all failed");
 
