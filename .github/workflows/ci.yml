@@ -470,6 +470,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          large-packages: true
+          tool-cache: false
+          android: false
+          dotnet: false
+          haskell: false
+          docker-images: false
+          swap-storage: false
+
       - name: Install Nix
         uses: cachix/install-nix-action@v31
         with:
@@ -572,6 +583,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          large-packages: true
+          tool-cache: false
+          android: false
+          dotnet: false
+          haskell: false
+          docker-images: false
+          swap-storage: false
 
       - name: Install Nix
         uses: cachix/install-nix-action@v31
