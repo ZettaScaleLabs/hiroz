@@ -191,21 +191,30 @@ fn all_new_package_types_have_valid_hashes() {
                 action
                     .result
                     .as_ref()
-                    .map(|r| r.type_hash.to_rihs_string())
-                    .unwrap_or_default(),
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "{}/{}: result must be Some after parser fix",
+                            action.parsed.package, action.parsed.name
+                        )
+                    })
+                    .type_hash
+                    .to_rihs_string(),
             ),
             (
                 "feedback",
                 action
                     .feedback
                     .as_ref()
-                    .map(|f| f.type_hash.to_rihs_string())
-                    .unwrap_or_default(),
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "{}/{}: feedback must be Some after parser fix",
+                            action.parsed.package, action.parsed.name
+                        )
+                    })
+                    .type_hash
+                    .to_rihs_string(),
             ),
         ] {
-            if h.is_empty() {
-                continue;
-            }
             assert!(
                 h.starts_with("RIHS01_") && h.len() == 71,
                 "{}/{} {label}: malformed action hash: {h}",
