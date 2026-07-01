@@ -7,7 +7,7 @@ use crate::types::{ArrayType, FieldType, ResolvedMessage, ResolvedService};
 use anyhow::Result;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -18,18 +18,21 @@ pub fn generate_python_bindings(
     python_output_dir: &Path,
     rust_output_path: &Path,
 ) -> Result<()> {
-    // Group messages by package
-    let mut packages: HashMap<String, Vec<&ResolvedMessage>> = HashMap::new();
+    // Group messages by package (BTreeMap for deterministic iteration order)
+    let mut packages: BTreeMap<String, Vec<&ResolvedMessage>> = BTreeMap::new();
     for msg in messages {
         packages
             .entry(msg.parsed.package.clone())
             .or_default()
             .push(msg);
     }
+    for msgs in packages.values_mut() {
+        msgs.sort_by(|a, b| a.parsed.name.cmp(&b.parsed.name));
+    }
 
     // Group service Request/Response by package, and track service type hashes
-    let mut service_messages: HashMap<String, Vec<&ResolvedMessage>> = HashMap::new();
-    let mut service_hashes: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut service_messages: BTreeMap<String, Vec<&ResolvedMessage>> = BTreeMap::new();
+    let mut service_hashes: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     for srv in services {
         let svc_hash = srv.type_hash.to_rihs_string();
 
@@ -112,7 +115,7 @@ fn generate_python_package_with_services(
     package_name: &str,
     messages: &[&ResolvedMessage],
     service_messages: &[&ResolvedMessage],
-    service_hashes: &HashMap<String, String>,
+    service_hashes: &BTreeMap<String, String>,
 ) -> Result<String> {
     let mut code = format!(
         "\"\"\"Auto-generated ROS 2 message types for {}.\"\"\"\n\
@@ -311,11 +314,11 @@ fn generate_message_functions(msg: &ResolvedMessage) -> TokenStream {
 
 /// Generate COMPLETE Rust module with PyO3 bindings
 fn generate_complete_rust_module(
-    packages: &HashMap<String, Vec<&ResolvedMessage>>,
+    packages: &BTreeMap<String, Vec<&ResolvedMessage>>,
     services: &[ResolvedService],
 ) -> Result<TokenStream> {
     // Build lookup map for all messages
-    let mut all_messages: HashMap<String, &ResolvedMessage> = HashMap::new();
+    let mut all_messages: BTreeMap<String, &ResolvedMessage> = BTreeMap::new();
     for package_msgs in packages.values() {
         for msg in package_msgs {
             let key = format!("{}/{}", msg.parsed.package, msg.parsed.name);
@@ -353,12 +356,15 @@ fn generate_complete_rust_module(
     }
 
     // Generate service package modules
-    let mut service_packages: HashMap<String, Vec<&ResolvedService>> = HashMap::new();
+    let mut service_packages: BTreeMap<String, Vec<&ResolvedService>> = BTreeMap::new();
     for srv in services {
         service_packages
             .entry(srv.parsed.package.clone())
             .or_default()
             .push(srv);
+    }
+    for srvs in service_packages.values_mut() {
+        srvs.sort_by(|a, b| a.parsed.name.cmp(&b.parsed.name));
     }
 
     let mut service_modules = Vec::new();
@@ -442,7 +448,7 @@ fn generate_complete_rust_module(
 
 /// Generate registry registration code
 fn generate_registry_registrations(
-    packages: &HashMap<String, Vec<&ResolvedMessage>>,
+    packages: &BTreeMap<String, Vec<&ResolvedMessage>>,
     services: &[ResolvedService],
 ) -> TokenStream {
     let mut registrations = Vec::new();
@@ -514,9 +520,9 @@ fn generate_registry_registrations(
 
 /// Generate helper functions module
 fn generate_helper_functions(
-    packages: &HashMap<String, Vec<&ResolvedMessage>>,
+    packages: &BTreeMap<String, Vec<&ResolvedMessage>>,
     services: &[ResolvedService],
-    _all_messages: &HashMap<String, &ResolvedMessage>,
+    _all_messages: &BTreeMap<String, &ResolvedMessage>,
 ) -> TokenStream {
     // Collect all registered type names
     let mut type_names: Vec<String> = Vec::new();
@@ -629,7 +635,7 @@ fn generate_helper_functions(
 
 /// Generate serialize_to_zbuf function
 fn generate_serialize_to_zbuf(
-    packages: &HashMap<String, Vec<&ResolvedMessage>>,
+    packages: &BTreeMap<String, Vec<&ResolvedMessage>>,
     services: &[ResolvedService],
 ) -> TokenStream {
     let mut match_arms = Vec::new();
@@ -690,7 +696,7 @@ fn generate_serialize_to_zbuf(
     }
 }
 
-fn generate_python_init(packages: &HashMap<String, Vec<&ResolvedMessage>>) -> Result<String> {
+fn generate_python_init(packages: &BTreeMap<String, Vec<&ResolvedMessage>>) -> Result<String> {
     let mut code =
         "\"\"\"Auto-generated ROS 2 message types package.\"\"\"\n\n# Import all message types\n"
             .to_string();
