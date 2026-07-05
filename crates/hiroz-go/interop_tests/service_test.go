@@ -5,6 +5,7 @@ package interop_tests
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
@@ -260,6 +261,67 @@ func TestGoServiceServerToGoClient(t *testing.T) {
 		}
 	}
 
+}
+
+// TestGoServiceClientTimeout verifies that a service call which never gets a
+// reply surfaces a distinct ErrorCodeServiceTimeout, not a generic failure.
+//
+// This is the end-to-end regression for issue #220: the FFI
+// `hiroz_service_client_call` previously returned a generic -1 on timeout, so
+// the Go binding's ErrorCodeServiceTimeout branch was dead code — a caller
+// could not tell a timeout apart from any other call failure.
+//
+// Test flow:
+// - Start a Zenoh router (no service server is ever created)
+// - Create a Go service client for a service that has no server
+// - Call it with a short timeout
+// - Assert the returned error wraps ErrorCodeServiceTimeout
+func TestGoServiceClientTimeout(t *testing.T) {
+	router := startZenohRouter(t)
+
+	hirozCtx, err := hiroz.NewContext().
+		WithConnectEndpoints(router.Endpoint()).DisableMulticastScouting().
+		Build()
+	if err != nil {
+		t.Fatalf("Failed to create context: %v", err)
+	}
+	defer hirozCtx.Close()
+
+	node, err := hirozCtx.CreateNode("go_timeout_client").Build()
+	if err != nil {
+		t.Fatalf("Failed to create node: %v", err)
+	}
+	defer node.Close()
+
+	svc := &example_interfaces.AddTwoInts{}
+	client, err := node.CreateServiceClient("no_such_server").Build(svc)
+	if err != nil {
+		t.Fatalf("Failed to create service client: %v", err)
+	}
+	defer client.Close()
+
+	// No server exists on this key, so the call must time out.
+	req := &example_interfaces.AddTwoIntsRequest{A: 1, B: 2}
+	var resp example_interfaces.AddTwoIntsResponse
+	err = hiroz.CallTypedWithTimeout(client, req, &resp, 300*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected a timeout error, got nil")
+	}
+
+	var herr hiroz.HirozError
+	if !errors.As(err, &herr) {
+		t.Fatalf("expected a HirozError, got %T: %v", err, err)
+	}
+	if herr.Code() != hiroz.ErrorCodeServiceTimeout {
+		t.Errorf("expected ErrorCodeServiceTimeout (%d), got %d: %v",
+			hiroz.ErrorCodeServiceTimeout, herr.Code(), err)
+	}
+	if !herr.Timeout() {
+		t.Errorf("expected Timeout() == true, got false: %v", err)
+	}
+	if !errors.Is(err, hiroz.ErrTimeout) {
+		t.Errorf("expected errors.Is(err, ErrTimeout) == true: %v", err)
+	}
 }
 
 // TestServiceWithCustomTypes tests service with custom message types.

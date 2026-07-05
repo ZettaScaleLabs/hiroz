@@ -327,10 +327,12 @@ impl PyZClientGoalHandle {
         let result = py.allow_threads(move || {
             rt.block_on(async move {
                 if let Some(t) = timeout.map(Duration::from_secs_f64) {
-                    match tokio::time::timeout(t, handle.result()).await {
-                        Ok(Ok(msg)) => Ok(Some(msg.0)),
-                        Ok(Err(e)) => Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string())),
-                        Err(_) => Ok(None), // timeout
+                    // Use the core `result_with_timeout` primitive rather than
+                    // reinventing the timeout wrapper in the binding.
+                    match handle.result_with_timeout(t).await {
+                        Ok(msg) => Ok(Some(msg.0)),
+                        Err(e) if hiroz::error::is_timeout(&*e) => Ok(None), // timeout
+                        Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string())),
                     }
                 } else {
                     handle

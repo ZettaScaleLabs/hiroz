@@ -21,6 +21,7 @@ clap = { workspace = true, features = ["derive"] }
 flume = { workspace = true }
 serde = { workspace = true, features = ["serde_derive"] }
 tracing = { workspace = true }
+thiserror = { workspace = true }
 zenoh = { workspace = true, default-features = false, features = [
   "transport_tcp",
   "unstable",

@@ -226,9 +226,13 @@ where
         // On timeout the call future is dropped. The Zenoh querier callback is still
         // running briefly; it will hit the `None` sender branch and log a warning.
         // This is expected and harmless.
+        //
+        // The error carries a structured [`crate::error::Error::Timeout`] so callers
+        // (and language bindings) can detect the timeout via
+        // [`crate::error::is_timeout`] instead of sniffing the message string.
         tokio::time::timeout(timeout, self.call(msg))
             .await
-            .map_err(|_| zenoh::Error::from(format!("Service call timed out after {timeout:?}")))?
+            .map_err(|_| crate::error::Error::timeout(timeout))?
     }
 }
 

@@ -60,7 +60,16 @@ impl RawServiceClient {
     }
 
     /// Send a request and wait for the response with a timeout.
-    pub fn call_raw(&self, request: &[u8], timeout: Duration) -> Result<Vec<u8>, String> {
+    ///
+    /// On timeout this returns [`crate::error::Error::Timeout`] so callers (in
+    /// particular the C FFI entry points) can map it to a distinct
+    /// [`ErrorCode::ServiceTimeout`](crate::ffi::ErrorCode::ServiceTimeout)
+    /// instead of a generic failure code.
+    pub fn call_raw(
+        &self,
+        request: &[u8],
+        timeout: Duration,
+    ) -> Result<Vec<u8>, crate::error::Error> {
         let tx = self.tx.clone();
         let attachment = self.new_attachment();
 
@@ -77,12 +86,14 @@ impl RawServiceClient {
                 }
             })
             .wait()
-            .map_err(|e| format!("Failed to send query: {}", e))?;
+            .map_err(|e| crate::error::Error::Other(format!("Failed to send query: {}", e)))?;
 
-        let sample = self
-            .rx
-            .recv_timeout(timeout)
-            .map_err(|e| format!("Timeout waiting for response: {}", e))?;
+        let sample = self.rx.recv_timeout(timeout).map_err(|e| match e {
+            flume::RecvTimeoutError::Timeout => crate::error::Error::Timeout(timeout),
+            flume::RecvTimeoutError::Disconnected => {
+                crate::error::Error::Other(format!("Reply channel disconnected: {}", e))
+            }
+        })?;
 
         Ok(sample.payload().to_bytes().to_vec())
     }
@@ -236,9 +247,13 @@ pub unsafe extern "C" fn hiroz_service_client_call(
                 *response_data = Box::into_raw(boxed) as *mut u8;
                 ErrorCode::Success as i32
             }
+            Err(crate::error::Error::Timeout(elapsed)) => {
+                tracing::warn!("hiroz: Service call timed out after {:?}", elapsed);
+                ErrorCode::ServiceTimeout as i32
+            }
             Err(e) => {
                 tracing::warn!("hiroz: Service call failed: {}", e);
-                -1
+                ErrorCode::ServiceCallFailed as i32
             }
         }
     }

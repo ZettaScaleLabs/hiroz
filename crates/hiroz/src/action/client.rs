@@ -625,4 +625,30 @@ impl<A: ZAction> GoalHandle<A, goal_state::Active> {
 
         res
     }
+
+    /// Consumes the Active handle and waits for the result, failing if it does
+    /// not arrive before `timeout` elapses.
+    ///
+    /// This is the bounded counterpart to [`result`](Self::result). On timeout
+    /// it returns a structured [`crate::error::Error::Timeout`], detectable via
+    /// [`crate::error::is_timeout`], so language bindings do not each have to
+    /// reinvent their own `tokio::time::timeout` wrapper around `result()`.
+    ///
+    /// The goal is always removed from the board (even on timeout), matching
+    /// the cleanup behaviour of [`result`](Self::result).
+    ///
+    /// # Returns
+    ///
+    /// The result of the action once it completes, or a timeout error.
+    pub async fn result_with_timeout(self, timeout: std::time::Duration) -> Result<A::Result> {
+        let res = match tokio::time::timeout(timeout, self.client.get_result(self.id)).await {
+            Ok(res) => res,
+            Err(_) => Err(crate::error::Error::timeout(timeout)),
+        };
+
+        // Cleanup Board (Crucial for Memory Safety)
+        self.client.goal_board.active_goals.remove(&self.id);
+
+        res
+    }
 }

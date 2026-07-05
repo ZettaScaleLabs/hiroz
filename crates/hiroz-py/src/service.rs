@@ -40,7 +40,13 @@ impl PyZClient {
 
         let cdr_bytes = py
             .allow_threads(|| self.inner.call_serialized(&cdr_bytes, timeout_duration))
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            .map_err(|e| {
+                if hiroz::error::is_timeout(e.root_cause()) {
+                    crate::error::TimeoutError::new_err(e.to_string())
+                } else {
+                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+                }
+            })?;
         hiroz_msgs::deserialize_from_cdr(&self.response_type_name, py, &cdr_bytes)
     }
 

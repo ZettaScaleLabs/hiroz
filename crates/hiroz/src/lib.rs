@@ -55,6 +55,8 @@ pub mod dynamic;
 pub mod encoding;
 /// Entity identity types (`TypeHash`, `TypeInfo`).
 pub mod entity;
+/// Structured error types (e.g. the timeout variant) shared across the API.
+pub mod error;
 /// Graph events emitted by the Zenoh network graph.
 pub mod event;
 #[cfg(feature = "ffi")]

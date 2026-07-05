@@ -126,7 +126,16 @@ impl RawClient for GenericClientWrapper {
             self.inner
                 .call_with_timeout(&request, timeout)
                 .await
-                .map_err(|e| anyhow::anyhow!("Failed to call service: {}", e))
+                .map_err(|e| {
+                    // Preserve the structured timeout so the Python layer can raise
+                    // `TimeoutError` instead of a generic exception. Any other error
+                    // keeps its message.
+                    if hiroz::error::is_timeout(&*e) {
+                        anyhow::Error::new(hiroz::error::Error::Timeout(timeout))
+                    } else {
+                        anyhow::anyhow!("Failed to call service: {}", e)
+                    }
+                })
         };
 
         let response = match tokio::runtime::Handle::try_current() {
