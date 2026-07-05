@@ -131,7 +131,7 @@ if not ac.wait_for_server(timeout=5.0):
 handle = ac.send_goal(Fibonacci.Goal(order=10))           # blocks until accepted
 while (fb := handle.recv_feedback(timeout=0.5)) is not None:
     print(fb)
-result = handle.get_result(timeout=10.0)                  # None on timeout
+result = handle.get_result(timeout=10.0)                  # raises hiroz_py.TimeoutError on timeout
 ```
 
 If you don't have a generated grouping class, pass the three classes positionally (back-compat):
@@ -278,7 +278,7 @@ Notes:
 
 - `hiroz_py.TimeoutError` is **not** Python's builtin `TimeoutError`; it subclasses `HirozError`. Update any `except RuntimeError:` blocks migrated from older hiroz-py code to `except hiroz_py.HirozError:`.
 - A service call with **no server present at all** fails fast with a plain `HirozError` (not a timeout) — guard with `wait_for_service()` first. Timeout classification requires a server that matched but did not respond in time.
-- `recv(...)`, `get_result(...)`, and `recv_goal(...)` return **`None`** on timeout rather than raising — that is their documented contract, even for the action client's `get_result`, which does not raise `TimeoutError` the way the service client's `call` does.
+- `recv(...)` and `recv_goal(...)` return **`None`** on timeout rather than raising — that is their documented contract. `get_result(...)` is the exception: it raises `hiroz_py.TimeoutError` on timeout, matching `ZClient.call`.
 
 ## What's Not There Yet
 

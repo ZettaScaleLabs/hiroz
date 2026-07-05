@@ -337,40 +337,42 @@ impl PyZClientGoalHandle {
 
     /// Wait for and return the final result, optionally with a timeout (seconds).
     ///
-    /// Consumes the goal handle internally. Returns None on timeout.
+    /// Consumes the goal handle internally. Raises `hiroz_py.TimeoutError` on
+    /// timeout (mirrors `ZClient.call`'s timeout semantics — see P5).
     /// Raises RuntimeError if called more than once.
     #[pyo3(signature = (timeout=None))]
-    fn get_result(&self, py: Python, timeout: Option<f64>) -> PyResult<Option<PyObject>> {
+    fn get_result(&self, py: Python, timeout: Option<f64>) -> PyResult<PyObject> {
         let handle =
             self.handle.lock().unwrap().take().ok_or_else(|| {
                 pyo3::exceptions::PyRuntimeError::new_err("Result already retrieved")
             })?;
 
         let rt = get_tokio_rt();
-        let result = py.allow_threads(move || {
+        let bytes = py.allow_threads(move || {
             rt.block_on(async move {
                 if let Some(t) = timeout.map(Duration::from_secs_f64) {
                     // Use the core `result_with_timeout` primitive rather than
                     // reinventing the timeout wrapper in the binding.
                     match handle.result_with_timeout(t).await {
-                        Ok(msg) => Ok(Some(msg.0)),
-                        Err(e) if hiroz::error::is_timeout(&*e) => Ok(None), // timeout
+                        Ok(msg) => Ok(msg.0),
+                        Err(e) if hiroz::error::is_timeout(&*e) => Err(
+                            crate::error::TimeoutError::new_err(format!(
+                                "Action result not received within {t:?}"
+                            )),
+                        ),
                         Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string())),
                     }
                 } else {
                     handle
                         .result()
                         .await
-                        .map(|msg| Some(msg.0))
+                        .map(|msg| msg.0)
                         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
                 }
             })
         })?;
 
-        match result {
-            Some(bytes) => Ok(Some(msgspec_decode(py, &bytes, &self.result_type)?)),
-            None => Ok(None),
-        }
+        msgspec_decode(py, &bytes, &self.result_type)
     }
 
     /// Request cancellation of this goal.

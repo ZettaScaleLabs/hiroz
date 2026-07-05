@@ -186,7 +186,7 @@ except hiroz_py.HirozError as e:
 ```
 
 !!! note
-    This applies to `ZClient.call`. `ActionGoalHandle.get_result(timeout=...)` keeps its original contract of returning `None` on timeout rather than raising — check the return value when using actions with a timeout.
+    `ActionGoalHandle.get_result(timeout=...)` also raises `hiroz_py.TimeoutError` on timeout, matching `ZClient.call`.
 
 ### Push-Mode (Callback) Servers
 
@@ -289,7 +289,7 @@ Each must have a `__msgtype__` class attribute:
 0. `client.wait_for_server(timeout)` — poll discovery until a matching action server appears (see [Waiting for Discovery](#waiting-for-discovery))
 1. `client.send_goal(goal)` → `ActionGoalHandle` — blocks until accepted (raises on rejection)
 2. `handle.recv_feedback(timeout)` — receive next feedback; returns `None` when channel closes
-3. `handle.get_result(timeout)` — block until terminal state; returns `None` on timeout
+3. `handle.get_result(timeout)` — block until terminal state; raises `hiroz_py.TimeoutError` on timeout
 4. `handle.cancel()` — request cancellation (the server decides when to honour it)
 
 ### Goal Status
