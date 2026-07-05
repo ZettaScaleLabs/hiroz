@@ -227,12 +227,9 @@ def test_p5_call_timeout_raises_timeout_error(ctx):
         client.call(req, timeout=0.5)
 
 
-def test_p5_action_result_timeout_returns_none(ctx):
-    """P5 gap: unlike the service `call()` path, `get_result(timeout=...)`
-    does not raise `hiroz_py.TimeoutError` on timeout -- it returns `None`
-    (see action.rs's `get_result` docstring). Documented here so the
-    behavioral difference is pinned by a test rather than silently assumed.
-    """
+def test_p5_action_result_timeout_raises_timeout_error(ctx):
+    """get_result(timeout=...) now raises hiroz_py.TimeoutError, matching
+    ZClient.call's timeout semantics (previously it returned None)."""
     node = ctx.create_node("p5_action_client").build()
     client = node.create_action_client("/p5_never_completes", CountTo)
     server = node.create_action_server("/p5_never_completes", CountTo)
@@ -247,7 +244,8 @@ def test_p5_action_result_timeout_returns_none(ctx):
     assert client.wait_for_server(timeout=5.0)
 
     handle = client.send_goal(CountGoal(target=1))
-    assert handle.get_result(timeout=0.5) is None
+    with pytest.raises(hiroz_py.TimeoutError):
+        handle.get_result(timeout=0.5)
 
 
 # --- P1 + P4 + P6: end-to-end service with wait_for_service and callback mode ---
