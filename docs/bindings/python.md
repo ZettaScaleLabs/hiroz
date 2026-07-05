@@ -122,6 +122,104 @@ Here's a complete publisher and subscriber example from [`crates/hiroz-py/exampl
 | **Client** | Sends service requests | `node.create_client(service, type)` |
 | **Server** | Handles service requests | `node.create_server(service, type)` |
 
+!!! tip
+    `create_subscription` and `create_service` are aliases for `create_subscriber` and `create_server` respectively, for readers coming from `rclpy`. Both forms are equivalent — pick whichever reads more naturally for your team.
+
+## rclpy Alignment
+
+hiroz-py's API is close to `rclpy` by design, with a few ergonomic additions that remove common migration friction:
+
+### Waiting for Discovery
+
+Instead of a fixed `time.sleep(...)` before the first call, poll the discovery graph directly:
+
+```python
+client = node.create_client("/add_two_ints", AddTwoInts)
+if not client.wait_for_service(timeout=5.0):
+    raise RuntimeError("service never appeared")
+
+pub = node.create_publisher("/chatter", std_msgs.String)
+pub.wait_for_subscription(count=1, timeout=5.0)
+
+action_client = node.create_action_client("/navigate", NavigateToPose)
+action_client.wait_for_server(timeout=5.0)
+```
+
+All three return `True` once the match is found, `False` if `timeout` elapses first.
+
+### Swapped-Argument Detection
+
+`create_publisher`/`create_subscriber` raise a clear `TypeError` if called in the historical `rclpy` argument order (`(msg_type, topic)` instead of hiroz's `(topic, msg_type)`):
+
+```python
+node.create_publisher(std_msgs.String, "/chatter")
+# TypeError: arguments appear swapped: expected (topic: str, msg_type), got (msg_type, topic)
+```
+
+Use keyword arguments to sidestep ordering entirely: `node.create_publisher(topic="/chatter", msg_type=std_msgs.String)`.
+
+### Grouped Request/Response and Goal/Result/Feedback Types
+
+Generated service and action types include an rclpy-style grouping class alongside the individual message classes:
+
+```python
+from hiroz_py import example_interfaces
+
+client = node.create_client("/add_two_ints", example_interfaces.AddTwoInts)
+req = example_interfaces.AddTwoInts.Request(a=1, b=2)
+resp = client.call(req, timeout=5.0)
+```
+
+`AddTwoInts.Request` / `AddTwoInts.Response` are the same classes as the standalone `AddTwoIntsRequest` / `AddTwoIntsResponse` — the grouping class is just a namespacing convenience. The same pattern applies to actions: `Fibonacci.Goal`, `Fibonacci.Result`, `Fibonacci.Feedback`. Both `create_client`/`create_server` and `create_action_client`/`create_action_server` accept either the grouping class or the bare per-message classes.
+
+### Exceptions
+
+Blocking calls that can time out raise `hiroz_py.TimeoutError` (a subclass of `hiroz_py.HirozError`) rather than a bare `RuntimeError`, so timeout handling can be caught specifically:
+
+```python
+try:
+    resp = client.call(req, timeout=1.0)
+except hiroz_py.TimeoutError:
+    print("no response within 1s")
+except hiroz_py.HirozError as e:
+    print("call failed:", e)
+```
+
+!!! note
+    This applies to `ZClient.call`. `ActionGoalHandle.get_result(timeout=...)` keeps its original contract of returning `None` on timeout rather than raising — check the return value when using actions with a timeout.
+
+### Push-Mode (Callback) Servers
+
+`create_server`/`create_service` accept an optional `callback` to run a background dispatch thread, instead of the pull-mode `take_request()` loop:
+
+```python
+def handle_add(req):
+    return AddTwoInts.Response(sum=req.a + req.b)
+
+server = node.create_server("/add_two_ints", AddTwoInts, callback=handle_add)
+```
+
+If the callback raises, the exception is caught, logged to stderr, and recorded on `server.last_error` (a string, or `None` if no error has occurred):
+
+```python
+if server.last_error is not None:
+    print("callback failed:", server.last_error)
+```
+
+### QoS Shorthand
+
+`QosProfile` fields accept the `rclpy`-style policy enums (`ReliabilityPolicy`, `DurabilityPolicy`, `HistoryPolicy`, `LivelinessPolicy`), and `qos=` parameters on `create_publisher`/`create_subscriber` accept a plain `int` as shorthand for `QosProfile(depth=<int>)`:
+
+```python
+pub = node.create_publisher("/chatter", std_msgs.String, qos=10)  # depth=10 shorthand
+
+qos = hiroz_py.QosProfile(
+    reliability=hiroz_py.ReliabilityPolicy.BEST_EFFORT,
+    history=hiroz_py.HistoryPolicy.KEEP_LAST,
+    depth=5,
+)
+pub = node.create_publisher("/chatter", std_msgs.String, qos=qos)
+```
 
 ## Service Patterns
 
@@ -140,7 +238,7 @@ Examples from [`crates/hiroz-py/examples/service_demo.py`](https://github.com/Ze
 ```
 
 !!! tip
-    Service servers use a pull model: `take_request()` blocks until a request arrives. This gives you explicit control over when to process requests.
+    Service servers use a pull model by default: `take_request()` blocks until a request arrives, giving you explicit control over when to process requests. Pass `callback=` to `create_server` for a push-mode server instead — see [Push-Mode (Callback) Servers](#push-mode-callback-servers) above.
 
 ## Action Patterns
 
@@ -188,6 +286,7 @@ Each must have a `__msgtype__` class attribute:
 
 #### Client Lifecycle
 
+0. `client.wait_for_server(timeout)` — poll discovery until a matching action server appears (see [Waiting for Discovery](#waiting-for-discovery))
 1. `client.send_goal(goal)` → `ActionGoalHandle` — blocks until accepted (raises on rejection)
 2. `handle.recv_feedback(timeout)` — receive next feedback; returns `None` when channel closes
 3. `handle.get_result(timeout)` — block until terminal state; returns `None` on timeout
@@ -367,6 +466,7 @@ cargo test --features python-interop -p hiroz-tests --test python_interop -- --t
 
 ## Resources
 
+- **[Migrating from rclpy](./python-migration.md)** - Cheatsheet, API mapping, and checklist for porting rclpy nodes
 - **[Code Generation Internals](./python-codegen.md)** - How hiroz generates Python bindings
 - **[Pub/Sub](../core-concepts/pubsub.md)** - Deep dive into pub-sub patterns
 - **[Services](../core-concepts/services.md)** - Request-response communication
