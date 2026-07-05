@@ -90,7 +90,6 @@ struct CallbackServerState {
     stop: Arc<AtomicBool>,
     handle: Option<std::thread::JoinHandle<()>>,
     _server: Arc<dyn RawServer>,
-    last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl Drop for CallbackServerState {
@@ -160,7 +159,6 @@ impl PyZServer {
                 stop,
                 handle: Some(handle),
                 _server: server,
-                last_error: Arc::clone(&last_error),
             }),
             last_error,
         }
