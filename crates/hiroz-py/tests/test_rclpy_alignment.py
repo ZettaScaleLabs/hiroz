@@ -1,12 +1,62 @@
 #!/usr/bin/env python3
 """Tests for the rclpy-alignment features (P1-P8)."""
 
+import threading
 import time
+from typing import ClassVar
 
+import msgspec
 import pytest
 
 import hiroz_py
 from hiroz_py import example_interfaces, std_msgs
+
+
+# --- shared inline action types (mirrors test_action.py) ---
+
+
+class CountGoal(msgspec.Struct):
+    __msgtype__: ClassVar[str] = "rclpy_alignment/msg/CountGoal"
+    target: int = 3
+    step_delay: float = 0.05
+
+
+class CountResult(msgspec.Struct):
+    __msgtype__: ClassVar[str] = "rclpy_alignment/msg/CountResult"
+    final_count: int = 0
+
+
+class CountFeedback(msgspec.Struct):
+    __msgtype__: ClassVar[str] = "rclpy_alignment/msg/CountFeedback"
+    current: int = 0
+
+
+class CountTo:
+    __actiontype__: ClassVar[str] = "rclpy_alignment/action/CountTo"
+    Goal = CountGoal
+    Result = CountResult
+    Feedback = CountFeedback
+
+
+def run_action_server_once(server):
+    """Drive the action server for a single goal in a background thread."""
+
+    def _run():
+        req = server.recv_goal(timeout=5.0)
+        if req is None:
+            return
+        executing = req.accept_and_execute()
+        goal = executing.goal()
+        count = 0
+        while count < goal.target:
+            time.sleep(goal.step_delay)
+            count += 1
+            executing.publish_feedback(CountFeedback(current=count))
+        executing.succeed(CountResult(final_count=count))
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return t
 
 
 @pytest.fixture(scope="module")
@@ -81,6 +131,37 @@ def test_p3_create_service_alias():
     assert hiroz_py.ZNode.create_service is hiroz_py.ZNode.create_server
 
 
+def test_p3_create_subscription_alias_end_to_end(ctx):
+    node = ctx.create_node("p3_sub_alias").build()
+    pub = node.create_publisher("/p3_sub_topic", std_msgs.String)
+    received = []
+    node.create_subscription("/p3_sub_topic", std_msgs.String, callback=received.append)
+
+    assert pub.wait_for_subscription(count=1, timeout=5.0)
+    pub.publish(std_msgs.String(data="via-alias"))
+    deadline = time.time() + 3.0
+    while not received and time.time() < deadline:
+        time.sleep(0.05)
+    assert received and received[0].data == "via-alias"
+
+
+def test_p3_create_service_alias_end_to_end(ctx):
+    node = ctx.create_node("p3_srv_alias").build()
+
+    def handle(req):
+        return example_interfaces.AddTwoInts.Response(sum=req.a + req.b)
+
+    server = node.create_service(
+        "/p3_add", example_interfaces.AddTwoInts, callback=handle
+    )
+    client = node.create_client("/p3_add", example_interfaces.AddTwoInts)
+    assert client.wait_for_service(timeout=5.0)
+
+    resp = client.call(example_interfaces.AddTwoInts.Request(a=10, b=32), timeout=5.0)
+    assert resp.sum == 42
+    assert server is not None
+
+
 # --- P4: service grouping class ---
 
 
@@ -122,6 +203,51 @@ def test_p5_call_failure_is_hiroz_error(ctx):
     req = example_interfaces.AddTwoInts.Request(a=1, b=2)
     with pytest.raises(hiroz_py.HirozError):
         client.call(req, timeout=1.0)
+
+
+def test_p5_call_timeout_raises_timeout_error(ctx):
+    # A matched-but-unresponsive server (as opposed to no server at all) is
+    # required to exercise the actual "timed out" path -- with zero matching
+    # queryables the call fails immediately with a different (non-timeout)
+    # message (see test_p5_call_failure_is_hiroz_error above).
+    node = ctx.create_node("p5_timeout_server").build()
+    server = node.create_server("/p5_never_answers", example_interfaces.AddTwoInts)
+    assert server is not None
+
+    def _never_respond():
+        server.take_request()  # receive but never send_response
+
+    threading.Thread(target=_never_respond, daemon=True).start()
+
+    client = node.create_client("/p5_never_answers", example_interfaces.AddTwoInts)
+    assert client.wait_for_service(timeout=5.0)
+
+    req = example_interfaces.AddTwoInts.Request(a=1, b=2)
+    with pytest.raises(hiroz_py.TimeoutError):
+        client.call(req, timeout=0.5)
+
+
+def test_p5_action_result_timeout_returns_none(ctx):
+    """P5 gap: unlike the service `call()` path, `get_result(timeout=...)`
+    does not raise `hiroz_py.TimeoutError` on timeout -- it returns `None`
+    (see action.rs's `get_result` docstring). Documented here so the
+    behavioral difference is pinned by a test rather than silently assumed.
+    """
+    node = ctx.create_node("p5_action_client").build()
+    client = node.create_action_client("/p5_never_completes", CountTo)
+    server = node.create_action_server("/p5_never_completes", CountTo)
+
+    def _never_finish():
+        req = server.recv_goal(timeout=5.0)
+        if req is not None:
+            req.accept_and_execute()
+            # Deliberately never call succeed/abort/canceled.
+
+    threading.Thread(target=_never_finish, daemon=True).start()
+    assert client.wait_for_server(timeout=5.0)
+
+    handle = client.send_goal(CountGoal(target=1))
+    assert handle.get_result(timeout=0.5) is None
 
 
 # --- P1 + P4 + P6: end-to-end service with wait_for_service and callback mode ---
@@ -219,34 +345,52 @@ def test_p1_wait_for_subscription(ctx):
     assert received == ["hello"]
 
 
-# --- P7: action grouping class detection (inline, Python-to-Python) ---
+# --- P1: wait_for_server (action) ---
 
 
-def test_p7_action_grouping_class(ctx):
-    import msgspec
-    from typing import ClassVar
+def test_p1_wait_for_server(ctx):
+    node = ctx.create_node("p1_wait_for_server").build()
+    server = node.create_action_server(
+        "/p1_action_wfs", CountGoal, CountResult, CountFeedback
+    )
+    client = node.create_action_client(
+        "/p1_action_wfs", CountGoal, CountResult, CountFeedback
+    )
+    assert client.wait_for_server(timeout=5.0), "action server should be discoverable"
+    assert server is not None
 
-    class CountToGoal(msgspec.Struct):
-        __msgtype__: ClassVar[str] = "p7_demo/msg/CountToGoal"
-        target: int = 0
 
-    class CountToResult(msgspec.Struct):
-        __msgtype__: ClassVar[str] = "p7_demo/msg/CountToResult"
-        final_count: int = 0
+def test_p1_wait_for_server_timeout_returns_false(ctx):
+    node = ctx.create_node("p1_wait_for_server_to").build()
+    client = node.create_action_client(
+        "/p1_action_never", CountGoal, CountResult, CountFeedback
+    )
+    t0 = time.time()
+    assert client.wait_for_server(timeout=0.5) is False
+    assert time.time() - t0 >= 0.4
 
-    class CountToFeedback(msgspec.Struct):
-        __msgtype__: ClassVar[str] = "p7_demo/msg/CountToFeedback"
-        current: int = 0
 
-    class CountTo:
-        __actiontype__: ClassVar[str] = "p7_demo/action/CountTo"
-        Goal = CountToGoal
-        Result = CountToResult
-        Feedback = CountToFeedback
+# --- P7: action grouping class, exercised through an actual goal send ---
 
+
+def test_p7_action_grouping_class_construction(ctx):
     node = ctx.create_node("p7_action").build()
     # Single grouping class instead of three positional types.
     client = node.create_action_client("/p7_count", CountTo)
     assert client is not None
     server = node.create_action_server("/p7_count", CountTo)
     assert server is not None
+
+
+def test_p7_action_grouping_class_end_to_end(ctx):
+    node = ctx.create_node("p7_e2e").build()
+    server = node.create_action_server("/p7_e2e_count", CountTo)
+    client = node.create_action_client("/p7_e2e_count", CountTo)
+
+    assert client.wait_for_server(timeout=5.0)
+    run_action_server_once(server)
+
+    handle = client.send_goal(CountTo.Goal(target=3, step_delay=0.05))
+    result = handle.get_result(timeout=5.0)
+    assert result is not None
+    assert result.final_count == 3
