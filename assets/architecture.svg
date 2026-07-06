@@ -1,18 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 720" width="1100" height="720" role="img" aria-label="Hiroz Architecture — Three Integration Paths">
   <defs>
-    <style>
-      @keyframes float {
-        0%, 100% { transform: translateY(0px); }
-        50%       { transform: translateY(-15px); }
-      }
-      .s1 { animation: float 6s ease-in-out 0s   infinite; transform-box: fill-box; transform-origin: center; }
-      .s2 { animation: float 6s ease-in-out -2s  infinite; transform-box: fill-box; transform-origin: center; }
-      .s3 { animation: float 6s ease-in-out 0s   infinite; transform-box: fill-box; transform-origin: center; }
-      @media (prefers-reduced-motion: reduce) {
-        .s1, .s2, .s3 { animation: none; }
-      }
-    </style>
-
     <linearGradient id="g-bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%"   stop-color="#1a1a2e"/>
       <stop offset="100%" stop-color="#16213e"/>
@@ -76,7 +63,7 @@
        ═══════════════════════════════════════════ -->
 
   <!-- ─── Stack 1: C++ Bindings  (x=40, cx=190) ─── -->
-  <g class="s1">
+  <g>
     <!-- ROS 2 Apps — slot 5 (top) -->
     <rect x="40" y="48"  width="300" height="110" rx="14" fill="url(#g-ros2)"       filter="url(#shadow)" stroke="white" stroke-opacity="0.1" stroke-width="2"/>
     <rect x="40" y="48"  width="300" height="110" rx="14" fill="url(#g-inset)"/>
@@ -104,7 +91,7 @@
   </g>
 
   <!-- ─── Stack 2: Direct hiroz  (x=400, cx=550) ─── -->
-  <g class="s2">
+  <g>
     <!-- Title block (no background box) — floats above hiroz-apps -->
     <text x="550" y="122" font-family="Arial,sans-serif" font-size="22" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="central" filter="url(#tglow)">Zenoh-Powered ROS 2:</text>
     <text x="550" y="154" font-family="Arial,sans-serif" font-size="20" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="central" opacity="0.9">Three Integration Paths</text>
@@ -128,7 +115,7 @@
   </g>
 
   <!-- ─── Stack 3: Rust Native  (x=760, cx=910) ─── -->
-  <g class="s3">
+  <g>
     <!-- ROS 2 Apps — slot 5 -->
     <rect x="760" y="48"  width="300" height="110" rx="14" fill="url(#g-ros2)"       filter="url(#shadow)" stroke="white" stroke-opacity="0.1" stroke-width="2"/>
     <rect x="760" y="48"  width="300" height="110" rx="14" fill="url(#g-inset)"/>
