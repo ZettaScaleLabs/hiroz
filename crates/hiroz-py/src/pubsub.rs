@@ -120,7 +120,7 @@ impl PyZSubscriber {
             Err(e) => {
                 // A recv timeout is expected and maps to `None`. Detect it via the
                 // structured `is_timeout` path rather than matching the error string.
-                if hiroz::error::is_timeout(e.root_cause()) {
+                if hiroz::error::is_timeout(&*e) {
                     Ok(None)
                 } else {
                     Err(e.into_pyerr())
@@ -172,7 +172,7 @@ impl PyZSubscriber {
             Err(e) => {
                 // A recv timeout is expected and maps to `None`. Detect it via the
                 // structured `is_timeout` path rather than matching the error string.
-                if hiroz::error::is_timeout(e.root_cause()) {
+                if hiroz::error::is_timeout(&*e) {
                     Ok(None)
                 } else {
                     Err(e.into_pyerr())
@@ -225,7 +225,7 @@ impl PyZSubscriber {
             Err(e) => {
                 // A recv timeout is expected and maps to `None`. Detect it via the
                 // structured `is_timeout` path rather than matching the error string.
-                if hiroz::error::is_timeout(e.root_cause()) {
+                if hiroz::error::is_timeout(&*e) {
                     Ok(None)
                 } else {
                     Err(e.into_pyerr())
