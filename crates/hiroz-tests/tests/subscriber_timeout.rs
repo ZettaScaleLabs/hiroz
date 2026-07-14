@@ -5,6 +5,11 @@
 //! [`hiroz::error::Error::Timeout`], detectable via [`hiroz::error::is_timeout`],
 //! rather than a stringly-typed error that bindings have to sniff.
 
+// Uses generated message types (`hiroz-msgs`), an optional dep linked only via
+// the `ros-msgs` feature. The `-F rmw`-only clippy pass does not enable it, so
+// gate the whole file like the sibling interop tests (e.g. cache.rs).
+#![cfg(feature = "ros-msgs")]
+
 mod common;
 
 use std::time::Duration;
