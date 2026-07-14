@@ -562,7 +562,7 @@ impl App {
     pub fn update_multi_metrics(&mut self) {
         let mut metrics = self.topic_metrics.lock();
 
-        for (_topic, tm) in metrics.iter_mut() {
+        for tm in metrics.values_mut() {
             // Raw per-second values
             let instant_rate = tm.msg_count as f64;
             let instant_bw = tm.byte_count as f64 / BYTES_PER_KB;
