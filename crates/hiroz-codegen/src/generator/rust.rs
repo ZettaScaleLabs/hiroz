@@ -155,7 +155,7 @@ fn generate_cdr_impls(
     let name = format_ident!("{}", msg.parsed.name);
     let fields = &msg.parsed.fields;
     let pkg = &msg.parsed.package;
-    let is_plain = plain_types.contains(&format!("{}::{}", pkg, &msg.parsed.name));
+    let is_plain = plain_types.contains(&format!("{}::{}", pkg, msg.parsed.name));
 
     // ── CdrSerialize ──────────────────────────────────────────────────────────
     let ser_fields: Vec<TokenStream> = fields
