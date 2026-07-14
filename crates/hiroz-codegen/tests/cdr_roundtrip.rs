@@ -129,7 +129,7 @@ fn roundtrip_arrays_values() {
     let msg = Arrays {
         bool_values: [true, false, true],
         byte_values: [1, 2, 3],
-        char_values: [b'a', b'b', b'c'],
+        char_values: *b"abc",
         float32_values: [1.0, 2.0, 3.0],
         float64_values: [1.0, -2.0, 3.5],
         int8_values: [-1, 0, 1],
@@ -193,7 +193,7 @@ fn roundtrip_bounded_sequences_values() {
     let msg = BoundedSequences {
         bool_values: vec![true, false],
         byte_values: vec![1, 2, 3],
-        char_values: vec![b'x'],
+        char_values: b"x".to_vec(),
         float32_values: vec![1.0, 2.0],
         float64_values: vec![-1.5],
         int8_values: vec![-128, 127],

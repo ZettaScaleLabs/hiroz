@@ -81,10 +81,7 @@ struct Example {
 
 #[test]
 fn test_serializer_basic() {
-    let o = Example {
-        a: 1,
-        b: [b'a', b'b', b'c', b'd'],
-    };
+    let o = Example { a: 1, b: *b"abcd" };
 
     let expected: Vec<u8> = vec![0x01, 0x00, 0x00, 0x00, 0x61, 0x62, 0x63, 0x64];
 
