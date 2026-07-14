@@ -118,12 +118,9 @@ impl PyZSubscriber {
                 Ok(Some(result?))
             }
             Err(e) => {
-                // Check if it's a timeout error
-                let err_str = e.to_string();
-                if err_str.contains("timeout")
-                    || err_str.contains("Timeout")
-                    || err_str.contains("timed out")
-                {
+                // A recv timeout is expected and maps to `None`. Detect it via the
+                // structured `is_timeout` path rather than matching the error string.
+                if hiroz::error::is_timeout(e.root_cause()) {
                     Ok(None)
                 } else {
                     Err(e.into_pyerr())
@@ -173,12 +170,9 @@ impl PyZSubscriber {
         match result {
             Ok(data) => Ok(Some(PyBytes::new_bound(py, &data).into())),
             Err(e) => {
-                // Check if it's a timeout error
-                let err_str = e.to_string();
-                if err_str.contains("timeout")
-                    || err_str.contains("Timeout")
-                    || err_str.contains("timed out")
-                {
+                // A recv timeout is expected and maps to `None`. Detect it via the
+                // structured `is_timeout` path rather than matching the error string.
+                if hiroz::error::is_timeout(e.root_cause()) {
                     Ok(None)
                 } else {
                     Err(e.into_pyerr())
@@ -229,11 +223,9 @@ impl PyZSubscriber {
                 Ok(Some(Py::new(py, view)?.into_any()))
             }
             Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("timeout")
-                    || err_str.contains("Timeout")
-                    || err_str.contains("timed out")
-                {
+                // A recv timeout is expected and maps to `None`. Detect it via the
+                // structured `is_timeout` path rather than matching the error string.
+                if hiroz::error::is_timeout(e.root_cause()) {
                     Ok(None)
                 } else {
                     Err(e.into_pyerr())

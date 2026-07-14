@@ -1018,7 +1018,7 @@ where
         })?;
         queue
             .recv_timeout(timeout)
-            .ok_or_else(|| zenoh::Error::from("Receive timed out"))
+            .ok_or_else(|| crate::error::Error::timeout(timeout))
     }
 
     pub fn events_mgr(&self) -> &Arc<Mutex<EventsManager>> {
@@ -1113,7 +1113,7 @@ where
         })?;
         let sample = queue
             .recv_timeout(timeout)
-            .ok_or_else(|| zenoh::Error::from("Receive timed out"))?;
+            .ok_or_else(|| crate::error::Error::timeout(timeout))?;
         let payload = sample.payload().to_bytes();
         S::deserialize(&payload).map_err(|e| zenoh::Error::from(e.to_string()))
     }
@@ -1180,7 +1180,7 @@ impl ZSub<crate::dynamic::DynamicMessage, Sample, crate::dynamic::DynamicSerdeCd
 
         let sample = queue
             .recv_timeout(timeout)
-            .ok_or_else(|| zenoh::Error::from("Receive timed out"))?;
+            .ok_or_else(|| crate::error::Error::timeout(timeout))?;
         let payload = sample.payload().to_bytes();
 
         crate::dynamic::DynamicSerdeCdrSerdes::deserialize((&payload, schema))

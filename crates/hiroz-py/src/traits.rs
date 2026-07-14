@@ -62,9 +62,12 @@ impl RawSubscriber for GenericSubWrapper {
             let queue = self.inner.queue.as_ref().ok_or_else(|| {
                 anyhow::anyhow!("Subscriber was built with callback, no queue available")
             })?;
+            // Map a queue timeout to the structured `Error::Timeout` so the
+            // Python layer can detect it via `hiroz::error::is_timeout` instead
+            // of sniffing the error message string.
             queue
                 .recv_timeout(t)
-                .ok_or_else(|| anyhow::anyhow!("Receive timeout"))
+                .ok_or_else(|| anyhow::Error::new(hiroz::error::Error::Timeout(t)))
         } else {
             self.inner.recv_serialized().map_err(|e| anyhow::anyhow!(e))
         }
