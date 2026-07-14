@@ -6,8 +6,7 @@ use hiroz::{
     dynamic::{FieldType, MessageSchemaTypeDescription},
 };
 use serde::{Deserialize, Serialize};
-use zenoh::Wait;
-use zenoh::config::WhatAmI;
+use zenoh::{Wait, config::WhatAmI};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, hiroz::MessageTypeInfo)]
 #[ros_msg(type_name = "custom_msgs/msg/Position2D")]
