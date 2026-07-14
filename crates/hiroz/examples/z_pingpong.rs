@@ -107,7 +107,7 @@ pub fn run_ping(ctx: hiroz::context::ZContext, args: &Args) -> Result<()> {
 
     println!(
         "Freq: {} Hz, Payload: {} bytes, Samples: {}",
-        &args.frequency, &args.payload, &args.sample
+        args.frequency, args.payload, args.sample
     );
 
     #[cfg(not(test))]
