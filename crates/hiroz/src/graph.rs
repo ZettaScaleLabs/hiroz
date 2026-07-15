@@ -689,9 +689,21 @@ impl Graph {
         // Query existing liveliness tokens from all connected sessions
         // This is crucial for cross-context discovery where entities from other sessions
         // were created before this session started
+        //
+        // IMPORTANT: use a large-capacity FIFO handler here. `liveliness().get()` replays
+        // every currently-live token matching the pattern *synchronously*, on this calling
+        // thread, before this call returns control to the `while let Ok(reply) = replies.recv()`
+        // loop below. Each matching token becomes a `Reply` pushed onto the handler's bounded
+        // channel (zenoh's default capacity is 256, see zenoh::api::session::API_DATA_RECEPTION_CHANNEL_SIZE).
+        // In a system with many active peers/nodes, the number of live tokens can exceed that
+        // default capacity; the synchronous replay then blocks trying to push onto a channel
+        // that nothing is draining yet (draining only starts after this call returns) — a
+        // deterministic self-deadlock, not a race, once token count > channel capacity. Using
+        // an oversized capacity here avoids it without needing an upstream zenoh change.
         let replies = session
             .liveliness()
             .get(&c_liveliness_pattern)
+            .with(zenoh::handlers::FifoChannel::new(65536))
             .timeout(std::time::Duration::from_secs(3))
             .wait()?;
 
