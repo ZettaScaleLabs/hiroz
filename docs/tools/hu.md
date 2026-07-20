@@ -1,0 +1,277 @@
+# hu — The hiroz Unified Tool
+
+`hu` is the command-line companion to the hiroz stack. It replaces `ros2 topic`, `ros2 node`, `ros2 service`, `ros2 action`, and `ros2 param` with a daemon-free, plugin-based tool that works directly over Zenoh — no DDS, no Python, no background process. Subcommands like `meter`, `monitor`, and `bridge` are WASM plugins; you can ship your own by dropping a `.wasm` file into `~/.local/share/hu/plugins/`.
+
+## Quick Start
+
+```bash
+# Connect to a local router and list all topics
+hu meter list topics
+
+# Measure publish rate
+hu meter hz /camera/image_raw
+
+# Show node introspection
+hu meter info node /my_robot
+
+# Monitor the live graph
+hu monitor watch
+```
+
+By default `hu` connects to `tcp/127.0.0.1:7447` and uses domain ID `0`. Override with flags or environment variables:
+
+```bash
+hu --router tcp/192.168.1.10:7447 --domain 5 meter list topics
+```
+
+Or set them once for the session:
+
+```bash
+export HU_ROUTER=tcp/192.168.1.10:7447
+export HU_DOMAIN=5
+hu meter hz /lidar/scan
+```
+
+---
+
+## Why hu instead of ros2cli?
+
+`ros2cli` is the standard ROS 2 command-line tool. It works, but it carries a set of well-known pain points that `hu` was built to eliminate.
+
+### No daemon
+
+`ros2cli` spawns a background daemon process (`_ros2_daemon`) on first use and caches graph state there. This causes several failure modes that users hit regularly:
+
+- **Stale domain ID**: the daemon snapshots your environment at startup. If you change `ROS_DOMAIN_ID` or `RMW_IMPLEMENTATION` in a new terminal, the daemon silently queries the wrong domain ([ros2cli#1238](https://github.com/ros2/ros2cli/issues/1238)).
+- **Daemon crashes**: on enterprise networks with strict firewall rules, the daemon dies silently after 1–3 hours and all CLI commands return empty results until you kill it manually ([ros2cli#502](https://github.com/ros2/ros2cli/issues/502)).
+- **WSL2 / container incompatibility**: the daemon health check fails in certain WSL2 configurations, making `ros2 topic list` unusable ([ros2cli#934](https://github.com/ros2/ros2cli/issues/934)).
+- **Manual recovery**: the only fix is `pkill -f _ros2_daemon` then re-running your command ([ros2cli#702](https://github.com/ros2/ros2cli/issues/702)).
+
+`hu` has no daemon. Every invocation connects directly to the Zenoh router, reads the current graph state, and exits. It always reflects the real current state.
+
+### Accurate rate measurement
+
+`ros2 topic hz` deserializes every message in Python before counting it. At high publish rates or with large messages (cameras, lidar, point clouds), deserialization can't keep up and the reported rate is lower than the real rate:
+
+- A 30 fps camera reports 15–22 fps ([ros2cli#871](https://github.com/ros2/ros2cli/issues/871))
+- At ~2 kHz the reported rate saturates — Python simply cannot process arrivals fast enough ([ros2cli#1043](https://github.com/ros2/ros2cli/issues/1043))
+- Large messages (5 MB+) compound the problem regardless of `PYTHONOPTIMIZE` ([ros2cli#843](https://github.com/ros2/ros2cli/issues/843))
+
+`hu meter hz` subscribes at the raw Zenoh byte level — no deserialization, no Python overhead. It counts message arrivals with nanosecond timestamps and reports the actual rate.
+
+```bash
+# ros2 topic hz /camera/image_raw  → "average rate: 17.3"  (real: 30 fps)
+# hu meter hz /camera/image_raw    → "rate: 30.001 Hz"
+```
+
+### QoS visibility
+
+`ros2 topic echo` silently drops messages when the subscriber's QoS is incompatible with the publisher's — there is no warning ([ros2cli#593](https://github.com/ros2/ros2cli/issues/593)). You see no output and assume the topic is empty.
+
+`hu meter echo` uses hiroz's QoS event system and prints a warning when a mismatch is detected:
+
+```text
+[warn] QoS incompatible: publisher on /scan uses BEST_EFFORT, subscriber expects RELIABLE
+```
+
+### Service call timeout
+
+`ros2 service call` blocks indefinitely when no server is available — there is no `--timeout` flag and no way to interrupt it cleanly without killing the process ([ros2cli#818](https://github.com/ros2/ros2cli/issues/818)).
+
+`hu meter service` has a `--timeout <ms>` flag (default: 5000 ms) and returns a clear error:
+
+```bash
+hu meter service /my_srv std_msgs/srv/Empty '{}' --timeout 5000
+# Error: Service call timed out after 5000 ms
+```
+
+### Fast startup
+
+`ros2 --help` takes 7+ seconds on Raspberry Pi 2 due to Python import overhead ([ros2cli#424](https://github.com/ros2/ros2cli/issues/424)). `hu --help` is a compiled binary — startup is under 10 ms on any hardware.
+
+### Topic publish with nested messages
+
+`ros2 topic pub` populates message fields from YAML, but it has no type information at encoding time. Nested array fields and non-primitive array elements fail silently or error out ([ros2cli#59](https://github.com/ros2/ros2cli/issues/59), [ros2cli#191](https://github.com/ros2/ros2cli/issues/191)).
+
+`hu meter pub` accepts `--yaml` with `--msg-type` and encodes directly to CDR using the known message layout:
+
+```bash
+hu meter pub /cmd_vel \
+  --msg-type geometry_msgs/msg/Vector3 \
+  --yaml '{x: 0.5, y: 0.0, z: 0.0}'
+```
+
+For std_msgs primitive types, all fields are supported:
+
+```bash
+hu meter pub /enable --msg-type std_msgs/msg/Bool --yaml '{data: true}'
+hu meter pub /count  --msg-type std_msgs/msg/Int32 --yaml '{data: 42}'
+```
+
+---
+
+## Summary
+
+| Pain point | ros2cli | hu |
+|---|---|---|
+| Daemon crashes / stale state | ❌ common | ✅ no daemon |
+| Rate measurement accuracy | ❌ Python deserialization bottleneck | ✅ raw Zenoh bytes |
+| QoS mismatch warning | ❌ silent drop | ✅ explicit warning |
+| Service call timeout | ❌ hangs forever | ✅ `--timeout` flag |
+| Startup time (embedded HW) | ❌ 7+ seconds | ✅ <10 ms |
+| Nested YAML in topic pub | ❌ fails silently | ✅ CDR-aware encoding |
+| Works without ROS 2 install | ❌ requires full ROS 2 | ✅ only needs a Zenoh router |
+
+---
+
+## Subcommands
+
+### hu meter
+
+Measurement and introspection:
+
+| Command | Description |
+|---|---|
+| `hu meter hz <topic>` | Publish rate (sliding window) |
+| `hu meter bw <topic>` | Bandwidth in bytes/sec |
+| `hu meter echo <topic>` | Print arriving messages |
+| `hu meter delay <topic>` | End-to-end latency |
+| `hu meter pub <topic>` | Publish a message |
+| `hu meter list topics\|nodes\|services` | Enumerate graph entities |
+| `hu meter info topic\|node\|service <name>` | Full entity introspection |
+| `hu meter service <name> <type> <request-json>` | Call a service |
+| `hu meter param list\|get\|set\|delete <node>` | Read/write/delete node parameters |
+| `hu meter action send\|echo <name> <type> [<goal-json>]` | Send a goal or echo action feedback |
+
+### hu monitor
+
+Observation and diagnostics:
+
+| Command | Description |
+|---|---|
+| `hu monitor watch` | Stream live graph change events |
+| `hu monitor graph` | Snapshot the current graph (with optional `--watch` refresh) |
+| `hu monitor log [--count <n>]` | Tail `/rosout` |
+| `hu monitor log-level <node> [<level>]` | Read or change a node's logger level |
+
+### hu bridge
+
+Cross-distro and cross-DDS bridging — see [Cross-Distro Bridge](../user-guide/bridge.md).
+
+### hu plugin
+
+Plugin management:
+
+| Command | Description |
+|---|---|
+| `hu plugin list` | List all loaded `.wasm` plugins with name and path |
+| `hu plugin validate <path>` | Validate a `.wasm` file against the `hu-plugin` ABI |
+
+---
+
+## Multi-topic Rate Dashboard
+
+For continuous monitoring of multiple topics at once, use the `hu` TUI. It shows a live rate table for all active topics, updated every second, without spawning one process per topic:
+
+```bash
+hu
+```
+
+This is the primary advantage over `ros2 topic hz`, which requires a separate terminal per topic.
+
+---
+
+## JSON Output
+
+Every `hu meter` subcommand accepts `--json` for scripting:
+
+```bash
+hu meter hz /scan --duration 5 --json | jq '.rate_hz'
+hu meter list topics --json | jq '.[].name'
+hu meter info node /talker --json | jq '.publishers[].name'
+```
+
+---
+
+## Headless Mode
+
+`--headless` streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal:
+
+```bash
+hu --headless
+# node appeared:  /camera_driver
+# topic appeared: /camera/image_raw
+```
+
+Add `--json` for structured output:
+
+```bash
+hu --headless --json
+# {"type":"initial_state","nodes":[...],"topics":[...]}
+# {"type":"node_appeared","name":"/camera_driver"}
+# {"type":"topic_appeared","name":"/camera/image_raw","type_name":"sensor_msgs/msg/Image"}
+```
+
+Add `--echo <TOPIC>` to also subscribe to a topic and interleave decoded messages. `--echo` can be repeated for multiple topics:
+
+```bash
+hu --headless --json --echo /scan --echo /cmd_vel
+```
+
+---
+
+## Web Mode
+
+`--web [PORT]` starts an HTTP server (default port 8080) that dispatches requests to `hu-web-plugin` WASM plugins. Requires `hu` built with the `web-plugins` feature:
+
+```bash
+hu --web          # listen on 0.0.0.0:8080
+hu --web 9090     # listen on 0.0.0.0:9090
+```
+
+Each web plugin is reachable at `/plugins/<name>/` and `/plugins/<name>/*path`. The plugin handles the full HTTP request/response cycle (see [hu Plugin Authoring Guide](hu-plugins.md)).
+
+---
+
+## Additional Flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--router <endpoint>` | `tcp/127.0.0.1:7447` | Zenoh router endpoint (also `HU_ROUTER`) |
+| `--domain <id>` | `0` | ROS 2 domain ID (also `HU_DOMAIN`) |
+| `--backend` | TUI | Force a specific backend (`tui`, `headless`, `web`) |
+| `--headless` | — | Run in headless (no TUI) event-streaming mode |
+| `--json` | — | Structured JSON output (headless mode only) |
+| `--echo <TOPIC>` | — | Subscribe to topic and stream messages (headless, repeatable) |
+| `--web [PORT]` | — | Run web plugin server (requires `web-plugins` feature) |
+| `--export <path>` | — | Write a graph snapshot to a file and exit |
+| `--debug` | — | Enable verbose debug logging to stderr |
+
+---
+
+## Plugin Architecture
+
+`hu` is a plugin host. `meter`, `monitor`, and `bridge` are not built-in subcommands — they are WASM plugins compiled to `wasm32-wasip2` and loaded at startup from `$HU_PLUGIN_PATH` and `~/.local/share/hu/plugins/`. The `hu` binary itself is just the host runtime and TUI shell.
+
+```mermaid
+flowchart TD
+    H["hu binary\n(host runtime + TUI shell)"]
+    H --> M["meter.wasm\nhu meter hz / bw / echo / pub / list / info …"]
+    H --> Mo["monitor.wasm\nhu monitor watch / graph / log / log-level"]
+    H --> B["bridge.wasm\nhu bridge start / status"]
+    H --> C["custom.wasm\nhu &lt;name&gt; &lt;args&gt;"]
+    HU_PLUGIN_PATH["$HU_PLUGIN_PATH\n~/.local/share/hu/plugins/"] --> H
+```
+
+Any team can ship a `hu-<name>.wasm` file and it becomes a `hu <name>` subcommand with no build-system changes, no Python packaging, and no shared runtime state:
+
+```bash
+# Drop a .wasm file and it becomes available immediately
+cp ./my-debug-tool.wasm ~/.local/share/hu/plugins/
+hu plugin list          # shows all loaded plugins with name and path
+hu my-debug-tool --help
+```
+
+Plugins are sandboxed: they declare the capabilities they need (subscriptions, raw CDR, additional Zenoh sessions) in a manifest, and the host refuses calls for anything undeclared. Plugins also never manage Zenoh connections directly — the host opens all sessions declared in the plugin's manifest before the first event fires. The same `.wasm` binary runs as a TUI panel and as a CLI subcommand.
+
+See [hu Plugin Authoring Guide](hu-plugins.md) for the WIT interface reference and a worked example.

@@ -364,3 +364,110 @@ async fn test_action_feedback_ordering() {
 
     server_handle.abort();
 }
+
+// ---------------------------------------------------------------------------
+// Test 5: ros2 action list sees a hiroz action server
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_action_ros2_list() {
+    use std::process::Command;
+
+    if !check_ros2_available() {
+        println!("ros2 CLI not available — skipping test_action_ros2_list");
+        return;
+    }
+
+    zenoh::init_log_from_env_or("error");
+    let router = TestRouter::new();
+
+    let server_endpoint = router.endpoint().to_string();
+    let server_handle = tokio::spawn(async move {
+        let ctx = create_hiroz_context_with_endpoint(&server_endpoint).expect("server context");
+        let node = ctx.create_node("fib_server_list").build().expect("node");
+        let _server = node
+            .create_action_server::<Fibonacci>("fibonacci_list_test")
+            .build()
+            .expect("server")
+            .with_handler(|executing: ExecutingGoal<Fibonacci>| async move {
+                executing
+                    .succeed(FibonacciResult { sequence: vec![0] })
+                    .unwrap();
+            });
+        tokio::time::sleep(Duration::from_secs(20)).await;
+    });
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let output = Command::new("ros2")
+        .args(["action", "list"])
+        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        .output()
+        .expect("failed to run ros2 action list");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("fibonacci_list_test"),
+        "Expected /fibonacci_list_test in ros2 action list output: {}",
+        stdout
+    );
+
+    server_handle.abort();
+}
+
+// ---------------------------------------------------------------------------
+// Test 6: ros2 action info sees a hiroz action server
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_action_ros2_info() {
+    use std::process::Command;
+
+    if !check_ros2_available() {
+        println!("ros2 CLI not available — skipping test_action_ros2_info");
+        return;
+    }
+
+    zenoh::init_log_from_env_or("error");
+    let router = TestRouter::new();
+
+    let server_endpoint = router.endpoint().to_string();
+    let server_handle = tokio::spawn(async move {
+        let ctx = create_hiroz_context_with_endpoint(&server_endpoint).expect("server context");
+        let node = ctx.create_node("fib_server_info").build().expect("node");
+        let _server = node
+            .create_action_server::<Fibonacci>("fibonacci_info_test")
+            .build()
+            .expect("server")
+            .with_handler(|executing: ExecutingGoal<Fibonacci>| async move {
+                executing
+                    .succeed(FibonacciResult { sequence: vec![0] })
+                    .unwrap();
+            });
+        tokio::time::sleep(Duration::from_secs(20)).await;
+    });
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let output = Command::new("ros2")
+        .args(["action", "info", "/fibonacci_info_test"])
+        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        .output()
+        .expect("failed to run ros2 action info");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("fibonacci_info_test"),
+        "Expected fibonacci_info_test in ros2 action info output: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("Action servers: 1") || stdout.contains("servers: 1"),
+        "Expected 1 action server in ros2 action info output: {}",
+        stdout
+    );
+
+    server_handle.abort();
+}
