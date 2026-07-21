@@ -154,10 +154,6 @@ Observation and diagnostics:
 | `hu monitor log [--count <n>]` | Tail `/rosout` |
 | `hu monitor log-level <node> [<level>]` | Read or change a node's logger level |
 
-### hu bridge
-
-Cross-distro and cross-DDS bridging — see [Cross-Distro Bridge](../user-guide/bridge.md).
-
 ### hu plugin
 
 Plugin management:
@@ -251,16 +247,15 @@ Each web plugin is reachable at `/plugins/<name>/` and `/plugins/<name>/*path`. 
 
 ## Plugin Architecture
 
-`hu` is a plugin host. `meter`, `monitor`, and `bridge` are not built-in subcommands — they are WASM plugins compiled to `wasm32-wasip2` and loaded at startup from `$HU_PLUGIN_PATH` and `~/.local/share/hu/plugins/`. The `hu` binary itself is just the host runtime and TUI shell.
+`hu` is a plugin host. `meter` and `monitor` are not built-in subcommands — they are WASM plugins compiled to `wasm32-wasip2` and loaded at startup from `$HU_PLUGIN_PATH` and `~/.local/share/hu/plugins/`. The `hu` binary itself is just the host runtime and TUI shell.
 
 ```mermaid
 flowchart TD
-    H["hu binary\n(host runtime + TUI shell)"]
-    H --> M["meter.wasm\nhu meter hz / bw / echo / pub / list / info …"]
-    H --> Mo["monitor.wasm\nhu monitor watch / graph / log / log-level"]
-    H --> B["bridge.wasm\nhu bridge start / status"]
-    H --> C["custom.wasm\nhu &lt;name&gt; &lt;args&gt;"]
-    HU_PLUGIN_PATH["$HU_PLUGIN_PATH\n~/.local/share/hu/plugins/"] --> H
+    H["hu binary<br>(host runtime + TUI shell)"]
+    H --> M["meter.wasm<br>hu meter hz / bw / echo / pub / list / info …"]
+    H --> Mo["monitor.wasm<br>hu monitor watch / graph / log / log-level"]
+    H --> C["custom.wasm<br>hu &lt;name&gt; &lt;args&gt;"]
+    HU_PLUGIN_PATH["$HU_PLUGIN_PATH<br>~/.local/share/hu/plugins/"] --> H
 ```
 
 Any team can ship a `hu-<name>.wasm` file and it becomes a `hu <name>` subcommand with no build-system changes, no Python packaging, and no shared runtime state:

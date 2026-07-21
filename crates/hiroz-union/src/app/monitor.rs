@@ -97,7 +97,7 @@ impl TopicMonitor {
 
     pub fn update(&mut self) {
         let mut metrics = self.topic_metrics.lock();
-        for (_topic, tm) in metrics.iter_mut() {
+        for tm in metrics.values_mut() {
             let elapsed = tm.counter_reset_at.elapsed().as_secs_f64().max(1e-6);
             let instant_rate = tm.msg_count as f64 / elapsed;
             let instant_bw = tm.byte_count as f64 / BYTES_PER_KB / elapsed;

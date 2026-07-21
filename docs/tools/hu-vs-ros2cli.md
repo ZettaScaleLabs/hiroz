@@ -24,9 +24,6 @@
 | Log stream | `ros2 topic echo /rosout` | rqt_console | `hu monitor log` |
 | Log level get | `ros2 node get-logger-levels` (Jazzy+) | rqt_logger_level | `hu monitor log-level <node>` |
 | Log level set | `ros2 node set-logger-levels` (Jazzy+) | rqt_logger_level | `hu monitor log-level <node> <level>` |
-| **Bridging** | | | |
-| Cross-distro bridge (Humble ↔ Jazzy) | — | — | `hu bridge start` |
-| Bridge status | — | — | `hu bridge status` |
 | **General** | | | |
 | Machine-readable output | — (human text only) | — | `--json` on every command |
 | Daemon-free operation | no (requires `_ros2_daemon`) | no | yes |
@@ -86,11 +83,11 @@ flowchart LR
     subgraph DDS["DDS CLI path"]
         A["ros2 topic list"] --> B["DDS participant discovery"]
         B --> C["Fast-DDS Discovery Server"]
-        C --> D["❌ Incompatible topology\n(returns empty / hangs)\nrmw_fastrtps#499"]
+        C --> D["❌ Incompatible topology<br>(returns empty / hangs)<br>rmw_fastrtps#499"]
     end
     subgraph ZenohPath["hu path"]
-        E["hu meter list topics"] --> F["Zenoh liveliness index\n(read from router)"]
-        F --> G["✅ Full graph\nregardless of router mode"]
+        E["hu meter list topics"] --> F["Zenoh liveliness index<br>(read from router)"]
+        F --> G["✅ Full graph<br>regardless of router mode"]
     end
 ```
 
@@ -189,32 +186,6 @@ hu monitor log-level /planner DEBUG
 
 # Read back all active loggers
 hu monitor log-level /planner
-```
-
----
-
-## Cross-distro bridge: `hu bridge`
-
-There is no ros2cli or rqt tool for bridging between ROS 2 distributions. If your fleet runs a mix of Humble and Jazzy nodes — common during multi-year fleet deployments, CI integration testing, or incremental upgrades — they cannot communicate out of the box because Humble uses `TypeHashNotSupported` in its Zenoh key expressions while Jazzy uses a `RIHS01_` type hash. The key expressions don't match, so discovery fails silently.
-
-`hu bridge start` runs a Zenoh-level bridge between two routers (or two endpoints on the same router). It rewrites the type hash segment in key expressions so that Humble and Jazzy nodes see each other's publishers, subscribers, and services as if they were on the same distro.
-
-```bash
-# Bridge Humble (port 7447) and Jazzy (port 7448)
-hu bridge start --distro humble:jazzy \
-  --source-endpoint tcp/127.0.0.1:7447 \
-  --target-endpoint tcp/127.0.0.1:7448
-```
-
-From the perspective of nodes on either side:
-
-- A Jazzy subscriber on `/chatter` receives messages from a Humble publisher without any configuration change on either node.
-- A Jazzy hiroz service client calling `/add_two_ints` reaches a Humble C++ service server transparently.
-- The bridge is bidirectional: Humble clients can reach Jazzy servers equally.
-
-```bash
-# Check what the bridge is currently forwarding
-hu bridge status
 ```
 
 ---

@@ -124,15 +124,15 @@ Start `hu` and press `5` to open the Plugins panel (TUI plugins), or run `hu my-
 ```mermaid
 flowchart LR
     subgraph Host["Host (hu binary)"]
-        G["graph\nlist-topics / list-nodes / list-services"]
-        R["ros\nsubscribe / measure-hz / measure-hz-typed\nconnect-service / encode-yaml-to-cdr"]
-        RT["raw-transport\nZenoh sessions declared in manifest"]
-        S["session\nnamed Zenoh sessions"]
-        Ren["render\nprintln / set-title / emit-json / exit"]
+        G["graph<br>list-topics / list-nodes / list-services"]
+        R["ros<br>subscribe / measure-hz / measure-hz-typed<br>connect-service / encode-yaml-to-cdr"]
+        RT["raw-transport<br>Zenoh sessions declared in manifest"]
+        S["session<br>named Zenoh sessions"]
+        Ren["render<br>println / set-title / emit-json / exit"]
     end
     subgraph Plugin["Plugin (.wasm)"]
         MF["manifest() → PluginManifest"]
-        OE["on-event(CliEvent | TuiEvent)\nor handle(HttpRequest) → HttpResponse"]
+        OE["on-event(CliEvent | TuiEvent)<br>or handle(HttpRequest) → HttpResponse"]
     end
     Host -->|imports provided to plugin| Plugin
     Plugin -->|exports consumed by host| Host
@@ -247,12 +247,12 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A["$HU_PLUGIN_PATH dirs\n(colon-separated)"] --> S
+    A["$HU_PLUGIN_PATH dirs<br>(colon-separated)"] --> S
     B["~/.local/share/hu/plugins/"] --> S
     S["scan for *.wasm files"] --> C["call manifest() on each candidate"]
     C --> D{manifest() succeeded?}
-    D -->|yes| E["strip hu- prefix from filename\nregister as subcommand"]
-    D -->|no| F["log warning, skip\n(visible in hu plugin list)"]
+    D -->|yes| E["strip hu- prefix from filename<br>register as subcommand"]
+    D -->|no| F["log warning, skip<br>(visible in hu plugin list)"]
 ```
 
 `hu` searches both locations in order. Files named `hu-<name>.wasm` register as `<name>`. Run `hu plugin list` to see which plugins loaded successfully.

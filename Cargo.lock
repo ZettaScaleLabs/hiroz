@@ -1820,6 +1820,7 @@ dependencies = [
  "sha2",
  "slab",
  "strum 0.27.2",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-util",
  "tracing",
@@ -1837,7 +1838,7 @@ dependencies = [
  "byteorder",
  "proptest",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "zenoh-buffers",
 ]
 
@@ -1933,7 +1934,6 @@ dependencies = [
 name = "hiroz-tests"
 version = "0.1.0"
 dependencies = [
- "clap",
  "hiroz",
  "hiroz-cdr",
  "hiroz-msgs",
