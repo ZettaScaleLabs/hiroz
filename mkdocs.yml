@@ -114,6 +114,7 @@ nav:
       - Go:
           - Quick Start: bindings/go-quick-start.md
           - Bindings: bindings/go.md
+          - Interop Tests: user-guide/go_interop_tests.md
   - Advanced Topics:
       - Shared Memory (SHM): experimental/shm.md
   - Reference:
