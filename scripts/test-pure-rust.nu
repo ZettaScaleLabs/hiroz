@@ -38,8 +38,10 @@ def check-console [] {
     log-step "Check hiroz-union"
     run-cmd "cargo check -p hiroz-union"
     run-cmd "cargo clippy -p hiroz-union -- -D warnings"
-    log-step "Build the reference WASM plugin (wasm32-wasip2)"
-    # Standalone workspace, mirroring what a third-party plugin author would have.
+    log-step "Build WASM plugins (wasm32-wasip2)"
+    # hu-meter and hu-monitor share a workspace — single dep resolution pass.
+    run-cmd "cargo build --manifest-path crates/hiroz-union/plugins/Cargo.toml --target wasm32-wasip2 --workspace"
+    # hu-plugin-template stays standalone to mirror a third-party plugin author's setup.
     run-cmd "cargo build --manifest-path crates/hiroz-union/plugins/hu-plugin-template/Cargo.toml --target wasm32-wasip2"
 }
 
