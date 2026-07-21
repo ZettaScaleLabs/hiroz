@@ -5,16 +5,13 @@
 
 use lib/common.nu *
 
-# Cap cargo parallelism to prevent OOM on the CI worker.
-$env.CARGO_BUILD_JOBS = "4"
-
 # ============================================================================
 # Test Functions
 # ============================================================================
 
 def clippy-workspace [] {
     log-step "Clippy (default workspace)"
-    run-cmd "cargo clippy -j4 --all-targets -- -D warnings"
+    run-cmd "cargo clippy --all-targets -- -D warnings"
 }
 
 def run-tests [] {
@@ -22,35 +19,33 @@ def run-tests [] {
     $env.RUSTFLAGS = "-D warnings"
 
     log-step "Run tests"
-    run-cmd "cargo nextest run --workspace --no-fail-fast --exclude rmw-zenoh-rs -j4"
+    run-cmd "cargo nextest run --no-fail-fast"
 }
 
 def check-bundled-msgs [] {
     log-step "Check hiroz-msgs with bundled messages"
-    run-cmd "cargo check -j4 -p hiroz-msgs"
-    run-cmd "cargo check -j4 -p hiroz-msgs --features bundled_msgs"
-    run-cmd "cargo check -j4 -p hiroz-msgs --features common_interfaces"
-    run-cmd "cargo check -j4 -p hiroz-msgs --features all_msgs"
-    run-cmd "cargo check -j4 -p hiroz-msgs --no-default-features --features std_msgs"
-    run-cmd "cargo check -j4 -p hiroz-msgs --no-default-features --features geometry_msgs"
-    run-cmd "cargo check -j4 -p hiroz-msgs --no-default-features --features sensor_msgs"
-    run-cmd "cargo check -j4 -p hiroz-msgs --no-default-features --features nav_msgs"
+    run-cmd "cargo check -p hiroz-msgs"
+    run-cmd "cargo check -p hiroz-msgs --features bundled_msgs"
+    run-cmd "cargo check -p hiroz-msgs --features common_interfaces"
+    run-cmd "cargo check -p hiroz-msgs --features all_msgs"
+    run-cmd "cargo check -p hiroz-msgs --no-default-features --features std_msgs"
+    run-cmd "cargo check -p hiroz-msgs --no-default-features --features geometry_msgs"
+    run-cmd "cargo check -p hiroz-msgs --no-default-features --features sensor_msgs"
+    run-cmd "cargo check -p hiroz-msgs --no-default-features --features nav_msgs"
 }
 
 def check-console [] {
-    log-step "Check hiroz-union plugins"
-    run-cmd "cargo check -j4 -p hiroz-union"
-    run-cmd "cargo clippy -j4 -p hiroz-union -- -D warnings"
-    log-step "Build WASM plugins (wasm32-wasip2)"
-    # hu-meter and hu-monitor share a workspace — single dep resolution pass.
-    run-cmd "cargo build -j4 --manifest-path crates/hiroz-union/plugins/Cargo.toml --target wasm32-wasip2 --workspace"
-    # hu-plugin-template stays standalone to mirror a third-party plugin author's setup.
-    run-cmd "cargo build -j2 --manifest-path crates/hiroz-union/plugins/hu-plugin-template/Cargo.toml --target wasm32-wasip2"
+    log-step "Check hiroz-union"
+    run-cmd "cargo check -p hiroz-union"
+    run-cmd "cargo clippy -p hiroz-union -- -D warnings"
+    log-step "Build the reference WASM plugin (wasm32-wasip2)"
+    # Standalone workspace, mirroring what a third-party plugin author would have.
+    run-cmd "cargo build --manifest-path crates/hiroz-union/plugins/hu-plugin-template/Cargo.toml --target wasm32-wasip2"
 }
 
 def clippy-hiroz-py [] {
     log-step "Clippy (hiroz-py)"
-    run-cmd "cargo clippy -j4 -p hiroz-py --all-targets -- -D warnings"
+    run-cmd "cargo clippy -p hiroz-py --all-targets -- -D warnings"
 }
 
 def clippy-tests [] {
@@ -60,16 +55,16 @@ def clippy-tests [] {
 
 def check-examples [] {
     log-step "Check all examples (cargo check --examples)"
-    run-cmd "cargo check -j4 --examples"
+    run-cmd "cargo check --examples"
 }
 
 def check-distro-features [] {
     log-step "Check distro feature flags"
-    run-cmd "cargo check -j4 -p hiroz --no-default-features --features humble"
-    run-cmd "cargo check -j4 -p hiroz --no-default-features --features jazzy"
-    run-cmd "cargo check -j4 -p hiroz --no-default-features --features rolling"
-    run-cmd "cargo check -j4 -p hiroz --no-default-features --features kilted"
-    run-cmd "cargo check -j4 -p hiroz --no-default-features --features lyrical"
+    run-cmd "cargo check -p hiroz --no-default-features --features humble"
+    run-cmd "cargo check -p hiroz --no-default-features --features jazzy"
+    run-cmd "cargo check -p hiroz --no-default-features --features rolling"
+    run-cmd "cargo check -p hiroz --no-default-features --features kilted"
+    run-cmd "cargo check -p hiroz --no-default-features --features lyrical"
 }
 
 def test-shm [] {

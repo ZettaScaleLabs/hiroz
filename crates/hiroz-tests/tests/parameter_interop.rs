@@ -66,10 +66,10 @@ fn test_ros2_param_list_on_hiroz_node() {
         panic!("ros2 CLI not available");
     }
 
-    let daemon = RmwZenohDaemon::new();
-    let rmw_env = daemon.rmw_zenoh_env();
+    let router = TestRouter::new();
+    let rmw_env = router.rmw_zenoh_env();
 
-    let endpoint = daemon.endpoint().to_string();
+    let endpoint = router.endpoint().to_string();
     let _server = thread::spawn(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).expect("ctx");
         let node = ctx.create_node("param_list_node").build().expect("node");
@@ -125,10 +125,10 @@ fn test_ros2_param_get_set_on_hiroz_node() {
         panic!("ros2 CLI not available");
     }
 
-    let daemon = RmwZenohDaemon::new();
-    let rmw_env = daemon.rmw_zenoh_env();
+    let router = TestRouter::new();
+    let rmw_env = router.rmw_zenoh_env();
 
-    let endpoint = daemon.endpoint().to_string();
+    let endpoint = router.endpoint().to_string();
     let _server = thread::spawn(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).expect("ctx");
         let node = ctx.create_node("param_getset_node").build().expect("node");
@@ -229,14 +229,19 @@ fn test_hiroz_reads_rclcpp_node_params() {
         );
     }
 
-    let daemon = RmwZenohDaemon::new();
-    let rmw_env = daemon.rmw_zenoh_env();
+    let router = TestRouter::new();
+    let rmw_env = router.rmw_zenoh_env();
 
-    // Start a plain rclcpp talker node (declares 'use_sim_time' by default).
-    // Do not remap __node: the remapping syntax causes an exit-code-2 failure
-    // on this ROS 2 distro. Use the default /talker node name instead.
+    // Start an rclcpp talker node (it declares the 'use_sim_time' parameter by default)
     let server = Command::new("ros2")
-        .args(["run", "demo_nodes_cpp", "talker"])
+        .args([
+            "run",
+            "demo_nodes_cpp",
+            "talker",
+            "--ros-args",
+            "-r",
+            "__node:=rclcpp_param_node",
+        ])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", &rmw_env)
         .stdout(std::process::Stdio::piped())
@@ -244,15 +249,15 @@ fn test_hiroz_reads_rclcpp_node_params() {
         .spawn()
         .expect("Failed to start rclcpp node");
 
-    let _guard = ProcessGuard::new(server, "talker");
+    let _guard = ProcessGuard::new(server, "rclcpp_param_node");
 
-    wait_for_node("/talker", &rmw_env, Duration::from_secs(15));
+    wait_for_node("rclcpp_param_node", &rmw_env, Duration::from_secs(15));
 
     let output = ros2_cmd(&rmw_env)
         .args([
             "param",
             "list",
-            "/talker",
+            "/rclcpp_param_node",
             "--spin-time",
             SPIN_TIME,
             "--no-daemon",

@@ -503,7 +503,7 @@
               };
             };
 
-          # CI shell for bridge interop + hz-comparison tests.
+          # CI shell for bridge interop tests.
           # Same as ros-bridge-interop but with rustToolchain replaced by
           # rustToolchainWasm (adds wasm32-wasip2 target for building WASM plugins).
           # `hu` is NOT injected as a nix package here — buildRustPackage runs in a

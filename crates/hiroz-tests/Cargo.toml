@@ -26,11 +26,9 @@ tracing-subscriber = { version = "0.3", features = [
 ] } # For RUST_LOG in tests
 nix = { version = "0.29", features = [
   "signal",
-  "sched",
-] } # For graceful process shutdown and CPU affinity
+] } # For graceful process shutdown
 prost = { workspace = true } # For protobuf service tests
 serde = { workspace = true } # For CDR serialization in dds_interop tests
-serde_json = "1.0" # For hu-meter-tests JSON output parsing
 
 [features]
 default = []
@@ -48,13 +46,6 @@ ros-interop = [
   "hiroz-msgs/action_tutorials_interfaces",
 ]
 python-interop = ["ros-msgs"]
-hu-meter-tests = [
-  "ros-msgs",
-  "hiroz-msgs/example_interfaces",
-  "hiroz-msgs/action_tutorials_interfaces",
-]
-hz-comparison-tests = ["ros-msgs"]
-hu-monitor-tests = ["ros-msgs", "hiroz-msgs/example_interfaces"]
 
 # ROS 2 distro compatibility - propagate to hiroz and hiroz-msgs
 humble = ["hiroz/humble", "hiroz-msgs/humble"]

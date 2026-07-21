@@ -1,6 +1,0 @@
-[workspace]
-members = ["hu-meter", "hu-monitor"]
-resolver = "2"
-
-[workspace.dependencies]
-wit-bindgen = "0.46"

@@ -109,7 +109,7 @@ No `cargo-component` or other tooling required — plain `cargo build` with the 
 
 ### 5. Install
 
-Name the file `<subcommand>.wasm` — `hu` strips any `hu-` prefix when discovering plugins, so `hu-meter.wasm` registers as `meter` and is invoked by `hu meter <args>`.
+Name the file `<subcommand>.wasm` — `hu` strips any `hu-` prefix when discovering plugins, so `hu-mytool.wasm` registers as `mytool` and is invoked by `hu mytool <args>`.
 
 ```sh
 mkdir -p ~/.local/share/hu/plugins
@@ -312,4 +312,4 @@ Plugins can read environment variables from the `hu` process (`HU_ROUTER`, `HU_D
 
 ## Reference implementations
 
-See `crates/hiroz-union/plugins/hu-plugin-template/` for the minimal runnable version of the quick-start example above. It is compiled in CI against the `wasm32-wasip2` target so it stays in sync with the WIT interface. `crates/hiroz-union/plugins/hu-meter/` and `crates/hiroz-union/plugins/hu-monitor/` are full CLI plugins with subcommand dispatch and periodic output.
+See `crates/hiroz-union/plugins/hu-plugin-template/` for the minimal runnable version of the quick-start example above. It is compiled in CI against the `wasm32-wasip2` target so it stays in sync with the WIT interface.
