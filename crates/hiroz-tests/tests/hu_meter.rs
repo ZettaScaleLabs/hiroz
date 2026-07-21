@@ -16,8 +16,7 @@ use std::{
 };
 
 use common::*;
-use hiroz::Builder;
-use hiroz::action::server::ExecutingGoal;
+use hiroz::{Builder, action::server::ExecutingGoal};
 #[cfg(not(any(feature = "kilted", feature = "lyrical")))]
 use hiroz_msgs::action_tutorials_interfaces::{FibonacciGoal, FibonacciResult, action::Fibonacci};
 #[cfg(any(feature = "kilted", feature = "lyrical"))]
@@ -1764,7 +1763,9 @@ fn spawn_fibonacci_action_server(router: &TestRouter) {
                             let next = seq[i - 1] + seq[i - 2];
                             seq.push(next);
                         }
-                        Ok(FibonacciResult { sequence: seq })
+                        executing
+                            .succeed(FibonacciResult { sequence: seq })
+                            .unwrap();
                     });
                 tokio::time::sleep(Duration::from_secs(30)).await;
             });
