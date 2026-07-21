@@ -95,6 +95,10 @@ impl TestRouter {
     /// Binds a TCP listener to `127.0.0.1:0`, reads back the assigned port,
     /// then drops the listener before handing the port to Zenoh. This avoids
     /// PID-derived port collisions when multiple test binaries run in parallel.
+    ///
+    /// `common/mod.rs` is compiled separately into every test binary, so this is
+    /// dead code in binaries that only use `RmwZenohDaemon` (e.g. parameter_interop).
+    #[allow(dead_code)]
     pub fn new() -> Self {
         // Ask the OS for a free port, release it, then let Zenoh bind it.
         // There is an inherent TOCTOU race between dropping the listener and
