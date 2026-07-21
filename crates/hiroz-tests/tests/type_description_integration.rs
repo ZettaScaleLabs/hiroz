@@ -638,13 +638,10 @@ fn test_multiple_publishers_schema_discovery() {
             let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
 
             while received.len() < 5 && tokio::time::Instant::now() < deadline {
-                match subscriber.recv_timeout(Duration::from_millis(500)) {
-                    Ok(msg) => {
-                        let data: String = msg.get("data").expect("Failed to get data");
-                        println!("Received: {}", data);
-                        received.push(data);
-                    }
-                    Err(_) => {}
+                if let Ok(msg) = subscriber.recv_timeout(Duration::from_millis(500)) {
+                    let data: String = msg.get("data").expect("Failed to get data");
+                    println!("Received: {}", data);
+                    received.push(data);
                 }
             }
 
