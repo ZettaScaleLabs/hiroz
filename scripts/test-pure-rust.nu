@@ -45,6 +45,11 @@ def clippy-hiroz-py [] {
     run-cmd "cargo clippy -p hiroz-py --all-targets -- -D warnings"
 }
 
+def clippy-tests [] {
+    log-step "Clippy (hiroz-tests, interop features)"
+    run-cmd "cargo clippy -p hiroz-tests --all-targets --features ros-interop,jazzy -- -D warnings"
+}
+
 def check-examples [] {
     log-step "Check all examples (cargo check --examples)"
     run-cmd "cargo check --examples"
@@ -83,6 +88,7 @@ def get-test-map [] {
         check-examples: { check-examples }
         check-distro-features: { check-distro-features }
         clippy-hiroz-py: { clippy-hiroz-py }
+        clippy-tests: { clippy-tests }
         test-shm: { test-shm }
     }
 }
@@ -96,6 +102,7 @@ def get-test-pipeline [] {
         "check-examples"
         "check-distro-features"
         "clippy-hiroz-py"
+        "clippy-tests"
         "test-shm"
     ]
 }

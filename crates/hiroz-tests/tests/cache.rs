@@ -67,7 +67,7 @@ fn cache_zenoh_stamp_inserts() {
 
     // Allow delivery.
     thread::sleep(Duration::from_millis(200));
-    assert!(cache.len() > 0, "expected messages in cache");
+    assert!(!cache.is_empty(), "expected messages in cache");
     assert!(cache.len() <= 5);
 }
 
@@ -716,7 +716,7 @@ fn cache_drop_deregisters_subscriber() {
         .expect("cache2");
     publish_n(&endpoint, "/cache_drop", &[make_msg("new")]);
     thread::sleep(Duration::from_millis(200));
-    assert!(cache2.len() > 0, "new cache should receive messages");
+    assert!(!cache2.is_empty(), "new cache should receive messages");
     // The "after1"/"after2" messages were published while no subscriber existed;
     // they should not be present in cache2 (volatile QoS — no late-join).
     // cache2 only has messages published after it was built.

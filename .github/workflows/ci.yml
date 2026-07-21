@@ -412,6 +412,14 @@ jobs:
           nu scripts/test-pure-rust.nu clippy-hiroz-py
         shell: bash
 
+      - name: Clippy (hiroz-tests, interop features)
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            source /tmp/nix-dev-env.sh
+          fi
+          nu scripts/test-pure-rust.nu clippy-tests
+        shell: bash
+
   go-tests:
     name: Go Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

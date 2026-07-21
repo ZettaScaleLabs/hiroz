@@ -44,7 +44,7 @@ fn make_ctx(endpoint: &str) -> hiroz::context::ZContext {
 #[tokio::test(flavor = "multi_thread")]
 async fn z_cache_cache_role_zenoh_stamp() {
     let router = TestRouter::new();
-    let ctx = make_ctx(&router.endpoint());
+    let ctx = make_ctx(router.endpoint());
     z_cache_zenoh_stamp::run(ctx, "/smoke/cache_zenoh".into(), 20, 500, 1)
         .await
         .expect("run returned Err");
@@ -54,7 +54,7 @@ async fn z_cache_cache_role_zenoh_stamp() {
 #[tokio::test(flavor = "multi_thread")]
 async fn z_cache_cache_role_app_stamp() {
     let router = TestRouter::new();
-    let ctx = make_ctx(&router.endpoint());
+    let ctx = make_ctx(router.endpoint());
     z_cache_app_stamp::run(ctx, "/smoke/cache_app".into(), 20, 1)
         .await
         .expect("run returned Err");
@@ -64,7 +64,7 @@ async fn z_cache_cache_role_app_stamp() {
 #[tokio::test(flavor = "multi_thread")]
 async fn z_cache_talker_role() {
     let router = TestRouter::new();
-    let ctx = make_ctx(&router.endpoint());
+    let ctx = make_ctx(router.endpoint());
     z_cache_talker::run(ctx, "/smoke/talker".into(), 3)
         .await
         .expect("run returned Err");

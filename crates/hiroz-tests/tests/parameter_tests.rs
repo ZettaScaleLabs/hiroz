@@ -558,9 +558,11 @@ mod service_tests {
                 .build()
                 .expect("set client");
 
-            let mut wire_value = rcl_interfaces::ParameterValue::default();
-            wire_value.r#type = 2;
-            wire_value.integer_value = 42;
+            let wire_value = rcl_interfaces::ParameterValue {
+                r#type: 2,
+                integer_value: 42,
+                ..Default::default()
+            };
 
             let set_resp: SetParametersResponse = set_client
                 .call_with_timeout(
@@ -641,9 +643,9 @@ mod service_tests {
             let ctx = create_hiroz_context_with_endpoint(&endpoint).expect("ctx");
             let node = ctx.create_node("rollback_server").build().expect("node");
 
-            for (name, val) in &[("a", 1i64), ("b", 2i64)] {
-                let desc = ParameterDescriptor::new(*name, ParameterType::Integer);
-                node.declare_parameter(*name, ParameterValue::Integer(*val), desc)
+            for (name, val) in [("a", 1i64), ("b", 2i64)] {
+                let desc = ParameterDescriptor::new(name, ParameterType::Integer);
+                node.declare_parameter(name, ParameterValue::Integer(val), desc)
                     .expect("declare");
             }
 
@@ -667,9 +669,11 @@ mod service_tests {
             tokio::time::sleep(Duration::from_millis(500)).await;
 
             let make_int = |name: &str, v: i64| {
-                let mut wire = rcl_interfaces::ParameterValue::default();
-                wire.r#type = 2;
-                wire.integer_value = v;
+                let wire = rcl_interfaces::ParameterValue {
+                    r#type: 2,
+                    integer_value: v,
+                    ..Default::default()
+                };
                 rcl_interfaces::Parameter {
                     name: name.to_string(),
                     value: wire,
@@ -736,9 +740,9 @@ mod service_tests {
             let ctx = create_hiroz_context_with_endpoint(&endpoint).expect("ctx");
             let node = ctx.create_node("atomic_server").build().expect("node");
 
-            for (name, val) in &[("a", 1i64), ("b", 2i64)] {
-                let desc = ParameterDescriptor::new(*name, ParameterType::Integer);
-                node.declare_parameter(*name, ParameterValue::Integer(*val), desc)
+            for (name, val) in [("a", 1i64), ("b", 2i64)] {
+                let desc = ParameterDescriptor::new(name, ParameterType::Integer);
+                node.declare_parameter(name, ParameterValue::Integer(val), desc)
                     .expect("declare");
             }
 
@@ -761,9 +765,11 @@ mod service_tests {
                 .expect("atomic client");
 
             let make_int = |name: &str, v: i64| {
-                let mut wire = rcl_interfaces::ParameterValue::default();
-                wire.r#type = 2;
-                wire.integer_value = v;
+                let wire = rcl_interfaces::ParameterValue {
+                    r#type: 2,
+                    integer_value: v,
+                    ..Default::default()
+                };
                 rcl_interfaces::Parameter {
                     name: name.to_string(),
                     value: wire,
