@@ -45,7 +45,7 @@ pub enum WasmPlugin {
         store: Store<PluginState>,
         bindings: cli_bindgen::HuCliPlugin,
     },
-    /// Plugin compiled against `hu-tui-plugin` world (v0.4).
+    /// Plugin compiled against `hu-tui-plugin` world (v0.1).
     Tui {
         manifest: hu::plugin::types::PluginManifest,
         output_lines: Arc<Mutex<Vec<String>>>,
@@ -398,7 +398,7 @@ fn load_one(
         return Ok(plugin);
     }
 
-    // Probe TUI world (v0.4 hu-tui-plugin).
+    // Probe TUI world (v0.1 hu-tui-plugin).
     if let Ok(plugin) = try_load_tui(wasm_engine, &component, &work_dir, engine_ref.clone()) {
         return Ok(plugin);
     }

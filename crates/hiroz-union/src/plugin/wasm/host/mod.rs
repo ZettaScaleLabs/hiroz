@@ -11,7 +11,7 @@ use wasmtime::component::bindgen;
 // (v0.3) components. All Host trait impls on PluginState live here.
 bindgen!({
     world: "hu-plugin",
-    path: "wit/v0.4/hu-plugin.wit",
+    path: "wit/v0.1/hu-plugin.wit",
 });
 
 /// CLI-world bindings.  `with` directives reuse the interface types and Host
@@ -20,7 +20,7 @@ pub mod cli_bindgen {
     use wasmtime::component::bindgen;
     bindgen!({
         world: "hu-cli-plugin",
-        path: "wit/v0.4/hu-plugin.wit",
+        path: "wit/v0.1/hu-plugin.wit",
         with: {
             "hu:plugin/types":         super::hu::plugin::types,
             "hu:plugin/graph":         super::hu::plugin::graph,
@@ -38,7 +38,7 @@ pub mod tui_bindgen {
     use wasmtime::component::bindgen;
     bindgen!({
         world: "hu-tui-plugin",
-        path: "wit/v0.4/hu-plugin.wit",
+        path: "wit/v0.1/hu-plugin.wit",
         with: {
             "hu:plugin/types":         super::hu::plugin::types,
             "hu:plugin/graph":         super::hu::plugin::graph,
@@ -55,7 +55,7 @@ pub mod web_bindgen {
     use wasmtime::component::bindgen;
     bindgen!({
         world: "hu-web-plugin",
-        path: "wit/v0.4/hu-plugin.wit",
+        path: "wit/v0.1/hu-plugin.wit",
         with: {
             "hu:plugin/types": super::hu::plugin::types,
             "hu:plugin/graph": super::hu::plugin::graph,

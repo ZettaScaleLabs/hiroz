@@ -1,4 +1,4 @@
-// hu plugin interface v0.4
+// hu plugin interface v0.1
 //
 // Host-proxied model: the host (hu) owns Zenoh sessions. The ros interface
 // proxies one shared session (JSON-decoded for dynamic messages; typed records
@@ -11,7 +11,7 @@
 //   hu-web-plugin  — HTTP request/response handlers for the web UI server
 //   hu-plugin      — legacy alias for hu-tui-plugin (v0.3 compatibility)
 
-package hu:plugin@0.4.0;
+package hu:plugin@0.1.0;
 
 interface types {
     record keybinding {

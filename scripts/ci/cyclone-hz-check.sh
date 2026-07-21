@@ -29,7 +29,7 @@ if ! command -v ros2 &>/dev/null; then
 fi
 
 # Detect via LD_LIBRARY_PATH — ros2 pkg list is unreliable with buildEnv-merged ament indexes.
-# The jazzy nix-ros-overlay pin on whippet may not include rmw_cyclonedds_cpp; skip cleanly.
+# The jazzy nix-ros-overlay pin used by some CI environments may not include rmw_cyclonedds_cpp; skip cleanly.
 # Uses a subshell with set +e to avoid pipefail/errexit interactions with glob misses.
 CYCLONE_LIB=$(
     set +e

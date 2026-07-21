@@ -46,7 +46,7 @@ wit-bindgen = "0.46"
 
 ### 2. Copy the WIT schema
 
-Copy `hu-plugin.wit` from `crates/hiroz-union/wit/v0.4/` into your crate's `wit/` directory. The file declares package `hu:plugin@0.4.0` — do not modify it.
+Copy `hu-plugin.wit` from `crates/hiroz-union/wit/v0.1/` into your crate's `wit/` directory. The file declares package `hu:plugin@0.1.0` — do not modify it.
 
 ### 3. Implement the world
 
