@@ -18,9 +18,9 @@ use std::{
 use common::*;
 use hiroz::{Builder, action::server::ExecutingGoal};
 #[cfg(not(any(feature = "kilted", feature = "lyrical")))]
-use hiroz_msgs::action_tutorials_interfaces::{FibonacciGoal, FibonacciResult, action::Fibonacci};
+use hiroz_msgs::action_tutorials_interfaces::{FibonacciResult, action::Fibonacci};
 #[cfg(any(feature = "kilted", feature = "lyrical"))]
-use hiroz_msgs::example_interfaces::{FibonacciGoal, FibonacciResult, action::Fibonacci};
+use hiroz_msgs::example_interfaces::{FibonacciResult, action::Fibonacci};
 use hiroz_msgs::{
     example_interfaces::{AddTwoIntsResponse, srv::AddTwoInts},
     std_msgs::{Header, String as RosString},
@@ -1905,13 +1905,14 @@ fn test_hu_meter_hz_json_typed_fields() {
         if line.is_empty() {
             continue;
         }
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-            if v.get("rate_hz").is_some() && v.get("samples").is_some() {
-                found_typed = true;
-                let rate = v["rate_hz"].as_f64().unwrap_or(0.0);
-                assert!(rate > 0.0, "rate_hz should be positive, got {rate}");
-                break;
-            }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line)
+            && v.get("rate_hz").is_some()
+            && v.get("samples").is_some()
+        {
+            found_typed = true;
+            let rate = v["rate_hz"].as_f64().unwrap_or(0.0);
+            assert!(rate > 0.0, "rate_hz should be positive, got {rate}");
+            break;
         }
     }
     assert!(
@@ -1964,11 +1965,12 @@ fn test_hu_meter_bw_json_typed_fields() {
         if line.is_empty() {
             continue;
         }
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-            if v.get("rate_kbps").is_some() && v.get("samples").is_some() {
-                found_typed = true;
-                break;
-            }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line)
+            && v.get("rate_kbps").is_some()
+            && v.get("samples").is_some()
+        {
+            found_typed = true;
+            break;
         }
     }
     assert!(
@@ -2034,7 +2036,7 @@ fn test_hu_plugin_list_json() {
         .filter_map(|e| e["name"].as_str())
         .collect();
     assert!(
-        names.iter().any(|n| *n == "meter"),
+        names.contains(&"meter"),
         "Expected 'meter' in plugin list JSON names: {names:?}"
     );
 }

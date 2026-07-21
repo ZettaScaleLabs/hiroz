@@ -52,7 +52,10 @@ def clippy-hiroz-py [] {
 
 def clippy-tests [] {
     log-step "Clippy (hiroz-tests, interop features)"
-    run-cmd "cargo clippy -p hiroz-tests --all-targets --features ros-interop,jazzy -- -D warnings"
+    # Every feature gate that hides a test file must appear here, or that file is
+    # compiled by the test jobs but never linted. hu-meter-tests / hu-monitor-tests
+    # gate the plugin suites; without them ~2.3k lines go unchecked.
+    run-cmd "cargo clippy -p hiroz-tests --all-targets --features ros-interop,hu-meter-tests,hu-monitor-tests,jazzy -- -D warnings"
 }
 
 def check-examples [] {
