@@ -7,3 +7,16 @@ slow-timeout = { period = "30s", terminate-after = 2 }
 [profile.interop]
 slow-timeout = { period = "60s", terminate-after = 2 }
 test-threads = 8
+
+# nextest runs each test in its own process, so serial_test's in-process
+# static Mutex cannot serialize tests across process boundaries -- it is a
+# no-op under nextest. Use nextest's own test-groups instead to limit the 6
+# tests that spawn a real `ros2 run demo_nodes_cpp ...` subprocess to one at
+# a time, since concurrent RCL/rclcpp subprocess spawns cause them to all hit
+# the hard 60s kill simultaneously (observed on both CI and whippet).
+[test-groups]
+rcl-interop = { max-threads = 1 }
+
+[[profile.interop.overrides]]
+filter = 'test(/test_(rcl_talker_to_hiroz_listener|hiroz_talker_to_rcl_listener|rcl_add_two_ints_server_to_hiroz_client|hiroz_add_two_ints_server_to_rcl_client|rcl_fibonacci_action_server_to_hiroz_client|hiroz_fibonacci_action_server_to_rcl_client)$/)'
+test-group = 'rcl-interop'

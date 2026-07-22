@@ -83,10 +83,11 @@ fn test_hiroz_talker_to_hiroz_listener() {
 // but observed CI failures show all of the RCL-spawning tests hitting
 // nextest's hard 60s kill *simultaneously* when several run concurrently --
 // the runner can't keep up with that many RCL subprocesses starting at once.
-// serial_test::serial with a shared group name limits these 6 to one at a
-// time relative to each other, without slowing down the rest of the suite.
+// nextest runs each test in its own process, so serial_test's in-process
+// static Mutex is a no-op here; the `rcl-interop` test-group in
+// .config/nextest.toml limits these 6 to one at a time relative to each
+// other, without slowing down the rest of the suite.
 #[test]
-#[serial_test::serial(rcl_interop)]
 fn test_rcl_talker_to_hiroz_listener() {
     if !check_ros2_available() {
         panic!("ros2 CLI not available - ensure ROS 2 is installed");
@@ -161,7 +162,6 @@ fn test_rcl_talker_to_hiroz_listener() {
 }
 
 #[test]
-#[serial_test::serial(rcl_interop)]
 fn test_hiroz_talker_to_rcl_listener() {
     if !check_ros2_available() {
         panic!("ros2 CLI not available - ensure ROS 2 is installed");
@@ -270,7 +270,6 @@ fn test_hiroz_add_two_ints_server_to_hiroz_client() {
 }
 
 #[test]
-#[serial_test::serial(rcl_interop)]
 fn test_rcl_add_two_ints_server_to_hiroz_client() {
     if !check_ros2_available() {
         panic!("ros2 CLI not available - ensure ROS 2 is installed");
@@ -332,7 +331,6 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
 }
 
 #[test]
-#[serial_test::serial(rcl_interop)]
 fn test_hiroz_add_two_ints_server_to_rcl_client() {
     if !check_ros2_available() {
         panic!("ros2 CLI not available - ensure ROS 2 is installed");
@@ -381,7 +379,6 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
 }
 
 #[test]
-#[serial_test::serial(rcl_interop)]
 fn test_rcl_fibonacci_action_server_to_hiroz_client() {
     if !check_ros2_available() {
         panic!("ros2 CLI not available - ensure ROS 2 is installed");
@@ -449,7 +446,6 @@ fn test_rcl_fibonacci_action_server_to_hiroz_client() {
 }
 
 #[test]
-#[serial_test::serial(rcl_interop)]
 fn test_hiroz_fibonacci_action_server_to_rcl_client() {
     if !check_ros2_available() {
         panic!("ros2 CLI not available - ensure ROS 2 is installed");
