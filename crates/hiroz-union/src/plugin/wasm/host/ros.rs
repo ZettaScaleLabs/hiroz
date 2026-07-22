@@ -277,10 +277,17 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         let session = data.session.clone();
         let ke = data.ke.clone();
 
+        // See the identical comment in `call` -- the queryable requires an
+        // RMW-style attachment or it never replies.
+        let gid: hiroz::GidArray = session.zid().to_le_bytes();
+        let sn = self.alloc_rep() as i64;
+        let attachment = hiroz::attachment::Attachment::new(sn, gid);
+
         let timeout = Duration::from_millis(timeout_ms as u64);
         let replies = session
             .get(&ke)
             .payload(zenoh::bytes::ZBytes::from(payload))
+            .attachment(attachment)
             .timeout(timeout)
             .wait()
             .map_err(|e| e.to_string())?;
