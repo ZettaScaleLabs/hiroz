@@ -1155,21 +1155,35 @@ impl ZNode {
                     DynamicError::SchemaNotFound(format!("Failed to qualify service name: {error}"))
                 })?;
 
-        let entities = self
-            .graph
-            .get_entities_by_topic(EndpointKind::Service, &qualified_service);
-        let node = entities
-            .iter()
-            .find_map(|entity| match entity.as_ref() {
-                Entity::Endpoint(endpoint) => endpoint.node.as_ref(),
+        // The service server's liveliness token may not have reached this
+        // node's graph yet (graph population is async, independent of the
+        // caller's own setup). Poll briefly rather than failing on the first
+        // miss -- same tolerance connect_service's key-expression resolution
+        // gets implicitly via its wildcard fallback, which this lookup has no
+        // equivalent for since it needs a concrete node identity to query.
+        let poll_interval = Duration::from_millis(100);
+        let deadline = std::time::Instant::now() + timeout;
+        let node = loop {
+            let entities = self
+                .graph
+                .get_entities_by_topic(EndpointKind::Service, &qualified_service);
+            let found = entities.iter().find_map(|entity| match entity.as_ref() {
+                Entity::Endpoint(endpoint) => endpoint.node.clone(),
                 _ => None,
-            })
-            .ok_or_else(|| {
-                DynamicError::SchemaNotFound(format!(
-                    "No service server found for: {}",
-                    qualified_service
-                ))
-            })?;
+            });
+            match found {
+                Some(node) => break node,
+                None if std::time::Instant::now() < deadline => {
+                    tokio::time::sleep(poll_interval).await;
+                }
+                None => {
+                    return Err(DynamicError::SchemaNotFound(format!(
+                        "No service server found for: {}",
+                        qualified_service
+                    )));
+                }
+            }
+        };
 
         let candidate = |type_name: &str| crate::dynamic::discovery::TopicSchemaCandidate {
             node_name: node.name.clone(),
