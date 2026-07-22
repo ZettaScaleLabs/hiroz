@@ -82,6 +82,30 @@ jobs:
           restore-keys: |
             apt-lists-${{ matrix.distro }}-
 
+      # GitHub-hosted runners run on Azure, but these ROS base images ship
+      # sources.list pointed at the generic archive.ubuntu.com/
+      # security.ubuntu.com endpoints, which have been observed as slow as
+      # ~75-900 B/s from these runners (vs. a normal few hundred kB/s) --
+      # apparently a mirror-selection/routing issue, not a bandwidth cap,
+      # since packages.ros.org in the same apt-get update is fast. Azure
+      # publishes a same-datacenter mirror that's dramatically faster from
+      # here. Handles both the legacy one-line sources.list format and the
+      # newer deb822 *.sources format (present on newer Ubuntu releases).
+      - name: Point apt at the Azure Ubuntu mirror
+        run: |
+          if [ -f /etc/apt/sources.list ]; then
+            sed -i \
+              -e 's|http://archive\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
+              -e 's|http://security\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
+              /etc/apt/sources.list
+          fi
+          if compgen -G "/etc/apt/sources.list.d/*.sources" > /dev/null; then
+            sed -i \
+              -e 's|http://archive\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
+              -e 's|http://security\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
+              /etc/apt/sources.list.d/*.sources
+          fi
+
       - name: Install system dependencies
         run: |
           # jq is installed here (not left to taiki-e/install-action's own
