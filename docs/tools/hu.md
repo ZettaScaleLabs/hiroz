@@ -206,7 +206,7 @@ Measurement and introspection:
 | `hu meter pub <topic>` | Publish a message |
 | `hu meter list topics\|nodes\|services` | Enumerate graph entities |
 | `hu meter info topic\|node\|service <name>` | Full entity introspection |
-| `hu meter service <name> <type> <request-json>` | Call a service |
+| `hu meter service call <name> --yaml <yaml> --msg-type <type> [--timeout <s>]` | Call a service |
 | `hu meter param list\|get\|dump\|describe\|set\|delete\|load <node> [...]` | Read/write/delete node parameters, or bulk-load from a ROS-style YAML params file (`load <node> <yaml-file>`). `load` is host-handled: `hu` reads and parses the YAML on the host (WASM plugins have no filesystem access) and hands the plugin pre-flattened parameter data. |
 | `hu meter action send\|echo <name> <type> [<goal-json>]` | Send a goal or echo action feedback |
 

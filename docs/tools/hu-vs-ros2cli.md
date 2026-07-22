@@ -15,7 +15,7 @@
 | Publish messages | `ros2 topic pub` | — | `hu meter pub` |
 | List topics / nodes / services / actions | four separate commands | rqt_graph | `hu meter list` |
 | Entity info | four separate commands | rqt_graph | `hu meter info` |
-| Call a service | `ros2 service call` | — | `hu meter service <name> <type> <request-json>` |
+| Call a service | `ros2 service call` | — | `hu meter service call <name> --yaml <yaml> --msg-type <type>` |
 | Action introspection | `ros2 action` | — | `hu meter action` |
 | Parameters | `ros2 param` | rqt_reconfigure | `hu meter param` |
 | **Observation** | | | |
@@ -284,7 +284,7 @@ hu monitor graph
 ```bash
 # Call a service
 ros2 service call /add_two_ints example_interfaces/srv/AddTwoInts '{a: 3, b: 7}'
-hu meter service /add_two_ints example_interfaces/srv/AddTwoInts '{"a":3,"b":7}'
+hu meter service call /add_two_ints --yaml '{a: 3, b: 7}' --msg-type example_interfaces/srv/AddTwoInts_Request
 
 # Get a parameter
 ros2 param get /talker use_sim_time
