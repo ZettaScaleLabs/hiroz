@@ -139,7 +139,11 @@ fn test_hu_meter_echo_count_3() {
     thread::spawn(move || {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("echo_test_pub").build().unwrap();
+            let node = ctx
+                .create_node("echo_test_pub")
+                .with_type_description_service()
+                .build()
+                .unwrap();
             let pub_ = node.create_pub::<RosString>("/echo_test").build().unwrap();
             // Give echo time to subscribe
             tokio::time::sleep(Duration::from_millis(800)).await;
@@ -298,7 +302,11 @@ fn test_hu_meter_info_node_full() {
     thread::spawn(move || {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("info_node_target").build().unwrap();
+            let node = ctx
+                .create_node("info_node_target")
+                .with_type_description_service()
+                .build()
+                .unwrap();
             let _pub = node
                 .create_pub::<RosString>("/pub_from_info_node")
                 .build()
@@ -394,7 +402,11 @@ fn test_hu_meter_service_call_add_two_ints() {
     let endpoint = router.endpoint().to_string();
     thread::spawn(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-        let node = ctx.create_node("svc_call_server").build().unwrap();
+        let node = ctx
+            .create_node("svc_call_server")
+            .with_type_description_service()
+            .build()
+            .unwrap();
         let mut server = node
             .create_service::<AddTwoInts>("/svc_call_test")
             .build()
@@ -478,7 +490,11 @@ fn test_hu_meter_service_call_yaml() {
     let endpoint = router.endpoint().to_string();
     thread::spawn(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-        let node = ctx.create_node("svc_yaml_server").build().unwrap();
+        let node = ctx
+            .create_node("svc_yaml_server")
+            .with_type_description_service()
+            .build()
+            .unwrap();
         let mut server = node
             .create_service::<AddTwoInts>("/svc_yaml_test")
             .build()
@@ -533,7 +549,11 @@ fn test_hu_meter_service_call_no_args() {
     let endpoint = router.endpoint().to_string();
     thread::spawn(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-        let node = ctx.create_node("svc_noargs_server").build().unwrap();
+        let node = ctx
+            .create_node("svc_noargs_server")
+            .with_type_description_service()
+            .build()
+            .unwrap();
         let mut server = node
             .create_service::<AddTwoInts>("/svc_noargs_test")
             .build()
@@ -570,7 +590,11 @@ fn test_hu_meter_service_call_repeated() {
     let endpoint = router.endpoint().to_string();
     thread::spawn(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-        let node = ctx.create_node("svc_repeat_server").build().unwrap();
+        let node = ctx
+            .create_node("svc_repeat_server")
+            .with_type_description_service()
+            .build()
+            .unwrap();
         let mut server = node
             .create_service::<AddTwoInts>("/svc_repeat_test")
             .build()
@@ -629,7 +653,11 @@ fn test_hu_meter_echo_once() {
     thread::spawn(move || {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("echo_once_pub").build().unwrap();
+            let node = ctx
+                .create_node("echo_once_pub")
+                .with_type_description_service()
+                .build()
+                .unwrap();
             let pub_ = node
                 .create_pub::<RosString>("/echo_once_test")
                 .build()
@@ -821,7 +849,11 @@ fn test_hu_meter_echo_raw() {
     thread::spawn(move || {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("echo_raw_pub").build().unwrap();
+            let node = ctx
+                .create_node("echo_raw_pub")
+                .with_type_description_service()
+                .build()
+                .unwrap();
             let pub_ = node
                 .create_pub::<RosString>("/echo_raw_test")
                 .build()
@@ -893,7 +925,11 @@ fn test_hu_meter_delay_basic() {
     thread::spawn(move || {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("delay_pub").build().unwrap();
+            let node = ctx
+                .create_node("delay_pub")
+                .with_type_description_service()
+                .build()
+                .unwrap();
             let pub_ = node.create_pub::<Header>("/delay_test").build().unwrap();
             // Give delay subscriber time to connect
             tokio::time::sleep(Duration::from_millis(500)).await;
@@ -936,7 +972,11 @@ fn test_hu_meter_param_list() {
     thread::spawn(move || {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("param_list_node2").build().unwrap();
+            let node = ctx
+                .create_node("param_list_node2")
+                .with_type_description_service()
+                .build()
+                .unwrap();
             use hiroz::parameter::{ParameterDescriptor, ParameterType, ParameterValue};
             node.declare_parameter(
                 "test_count",
@@ -977,7 +1017,11 @@ fn test_hu_meter_param_get() {
     thread::spawn(move || {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("param_get_node").build().unwrap();
+            let node = ctx
+                .create_node("param_get_node")
+                .with_type_description_service()
+                .build()
+                .unwrap();
             use hiroz::parameter::{ParameterDescriptor, ParameterType, ParameterValue};
             node.declare_parameter(
                 "my_value",
@@ -1019,7 +1063,11 @@ fn test_hu_meter_param_set_roundtrip() {
     thread::spawn(move || {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("param_set_node").build().unwrap();
+            let node = ctx
+                .create_node("param_set_node")
+                .with_type_description_service()
+                .build()
+                .unwrap();
             use hiroz::parameter::{ParameterDescriptor, ParameterType, ParameterValue};
             node.declare_parameter(
                 "counter",
@@ -1072,7 +1120,11 @@ fn spawn_param_node(endpoint: String, node_name: &'static str, params: Vec<(&'st
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             use hiroz::parameter::{ParameterDescriptor, ParameterType, ParameterValue};
             let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node(node_name).build().unwrap();
+            let node = ctx
+                .create_node(node_name)
+                .with_type_description_service()
+                .build()
+                .unwrap();
             for (name, val) in params {
                 node.declare_parameter(
                     name,
@@ -1752,7 +1804,11 @@ fn spawn_fibonacci_action_server(router: &TestRouter) {
             .unwrap()
             .block_on(async move {
                 let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-                let node = ctx.create_node("fib_hu_meter_server").build().unwrap();
+                let node = ctx
+                    .create_node("fib_hu_meter_server")
+                    .with_type_description_service()
+                    .build()
+                    .unwrap();
                 let _server = node
                     .create_action_server::<Fibonacci>("/fibonacci_hu_test")
                     .build()
@@ -1878,7 +1934,11 @@ fn test_hu_meter_hz_json_typed_fields() {
     thread::spawn(move || {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("hz_typed_pub").build().unwrap();
+            let node = ctx
+                .create_node("hz_typed_pub")
+                .with_type_description_service()
+                .build()
+                .unwrap();
             let pub_ = node
                 .create_pub::<RosString>("/hz_typed_test")
                 .build()
