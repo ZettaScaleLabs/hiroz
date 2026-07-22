@@ -79,11 +79,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix (Linux)
@@ -176,11 +176,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix (Linux)
@@ -234,11 +234,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix
@@ -311,11 +311,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix (Linux)
@@ -435,11 +435,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix
@@ -534,11 +534,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix
@@ -651,11 +651,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix
