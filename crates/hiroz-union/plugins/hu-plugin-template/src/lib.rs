@@ -9,7 +9,7 @@ wit_bindgen::generate!({
     path: "wit/hu-plugin.wit",
 });
 
-use hu::plugin::types::{EventKind, Permission};
+use hu::plugin::types::EventKind;
 use hu::plugin::render;
 
 struct MyPlugin;
