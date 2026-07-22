@@ -10,7 +10,7 @@ pub mod host;
 pub mod state;
 
 pub(crate) use host::hu;
-pub use host::hu::plugin::types::{CliEvent, Permission, PluginManifest, TuiEvent};
+pub use host::hu::plugin::types::{CliEvent, PluginManifest, TuiEvent};
 #[cfg(feature = "web-plugins")]
 pub use host::web_bindgen::hu::plugin::web_types::{HttpRequest, HttpResponse};
 
