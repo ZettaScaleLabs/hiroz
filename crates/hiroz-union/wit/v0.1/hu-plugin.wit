@@ -214,6 +214,7 @@ interface session {
 
 interface render {
     println: func(text: string);
+    eprintln: func(text: string);
     set-title: func(title: string);
     emit-json: func(key: string, value: string);
     exit: func(code: u32);

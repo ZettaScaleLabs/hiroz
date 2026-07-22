@@ -140,7 +140,7 @@ impl HuMeter {
                 }
             }
             other => {
-                render::println(&format!("unknown subcommand: {other}"));
+                render::eprintln(&format!("unknown subcommand: {other}"));
                 render::exit(1);
                 self.mode = Mode::Done;
             }
@@ -159,7 +159,7 @@ impl HuMeter {
         let sub = match ros::subscribe(&topic) {
             Ok(s) => s,
             Err(e) => {
-                render::println(&format!("Failed to subscribe to {topic}: {e}"));
+                render::eprintln(&format!("Failed to subscribe to {topic}: {e}"));
                 render::exit(1);
                 self.mode = Mode::Done;
                 return;
@@ -183,7 +183,7 @@ impl HuMeter {
         let sub = match ros::subscribe(&topic) {
             Ok(s) => s,
             Err(e) => {
-                render::println(&format!("Failed to subscribe to {topic}: {e}"));
+                render::eprintln(&format!("Failed to subscribe to {topic}: {e}"));
                 render::exit(1);
                 self.mode = Mode::Done;
                 return;
@@ -219,7 +219,7 @@ impl HuMeter {
         let sub = match ros::subscribe(&topic) {
             Ok(s) => s,
             Err(e) => {
-                render::println(&format!("Failed to subscribe to {topic}: {e}"));
+                render::eprintln(&format!("Failed to subscribe to {topic}: {e}"));
                 render::exit(1);
                 self.mode = Mode::Done;
                 return;
@@ -244,7 +244,7 @@ impl HuMeter {
         let sub = match ros::subscribe(&topic) {
             Ok(s) => s,
             Err(e) => {
-                render::println(&format!("Failed to subscribe to {topic}: {e}"));
+                render::eprintln(&format!("Failed to subscribe to {topic}: {e}"));
                 render::exit(1);
                 self.mode = Mode::Done;
                 return;
@@ -388,7 +388,7 @@ impl HuMeter {
                 render::exit(0);
             }
             other => {
-                render::println(&format!("unknown list target: {other}"));
+                render::eprintln(&format!("unknown list target: {other}"));
                 render::println("Usage: hu meter list topics|nodes|services");
                 render::exit(1);
             }
@@ -403,7 +403,7 @@ impl HuMeter {
             "topic" => {
                 let topics = graph::list_topics();
                 let Some(topic) = topics.into_iter().find(|t| t.name == name) else {
-                    render::println(&format!("topic not found: {name}"));
+                    render::eprintln(&format!("topic not found: {name}"));
                     render::exit(1);
                     return;
                 };
@@ -431,7 +431,7 @@ impl HuMeter {
                         full == name
                     }
                 }) else {
-                    render::println(&format!("node not found: {name}"));
+                    render::eprintln(&format!("node not found: {name}"));
                     render::exit(1);
                     return;
                 };
@@ -472,7 +472,7 @@ impl HuMeter {
             "service" => {
                 let services = graph::list_services();
                 let Some(svc) = services.into_iter().find(|s| s.name == name) else {
-                    render::println(&format!("service not found: {name}"));
+                    render::eprintln(&format!("service not found: {name}"));
                     render::exit(1);
                     return;
                 };
@@ -488,7 +488,7 @@ impl HuMeter {
                 render::exit(0);
             }
             other => {
-                render::println(&format!("unknown info kind: {other}"));
+                render::eprintln(&format!("unknown info kind: {other}"));
                 render::println("Usage: hu meter info topic|node|service <name>");
                 render::exit(1);
             }
@@ -512,7 +512,7 @@ impl HuMeter {
             .unwrap_or(1);
 
         if msg_type.is_empty() {
-            render::println("--msg-type is required");
+            render::eprintln("--msg-type is required");
             render::exit(1);
             self.mode = Mode::Done;
             return;
@@ -531,7 +531,7 @@ impl HuMeter {
         let sess = match hu::plugin::session::get_session("default") {
             Ok(s) => s,
             Err(e) => {
-                render::println(&format!("failed to get default session: {e}"));
+                render::eprintln(&format!("failed to get default session: {e}"));
                 render::exit(1);
                 self.mode = Mode::Done;
                 return;
@@ -540,7 +540,7 @@ impl HuMeter {
         let pub_ = match sess.raw_publisher(&topic) {
             Ok(p) => p,
             Err(e) => {
-                render::println(&format!("failed to declare publisher on {topic}: {e}"));
+                render::eprintln(&format!("failed to declare publisher on {topic}: {e}"));
                 render::exit(1);
                 self.mode = Mode::Done;
                 return;
@@ -643,7 +643,7 @@ impl HuMeter {
                 };
                 let Some(svc) = graph::list_services().into_iter().find(|s| &s.name == name)
                 else {
-                    render::println(&format!("service not found: {name}"));
+                    render::eprintln(&format!("service not found: {name}"));
                     render::exit(1);
                     return;
                 };
@@ -662,12 +662,18 @@ impl HuMeter {
                     .and_then(|v| v.parse().ok())
                     .map(|s: u32| s.saturating_mul(1000))
                     .unwrap_or(5000);
-                let msg_type = flag_value(args, "--msg-type").unwrap_or_default();
+                let msg_type = flag_value(args, "--msg-type").unwrap_or_else(|| {
+                    graph::list_services()
+                        .into_iter()
+                        .find(|s| &s.name == name)
+                        .map(|s| s.type_name)
+                        .unwrap_or_default()
+                });
 
                 let client = match ros::connect_service(name, &msg_type) {
                     Ok(c) => c,
                     Err(e) => {
-                        render::println(&format!("ERROR: connect to {name}: {e}"));
+                        render::eprintln(&format!("ERROR: connect to {name}: {e}"));
                         render::exit(1);
                         return;
                     }
@@ -677,7 +683,7 @@ impl HuMeter {
                     let payload = match parse_hex_bytes(&hex_payload) {
                         Ok(b) => b,
                         Err(e) => {
-                            render::println(&format!("ERROR: bad --payload: {e}"));
+                            render::eprintln(&format!("ERROR: bad --payload: {e}"));
                             render::exit(1);
                             return;
                         }
@@ -692,7 +698,7 @@ impl HuMeter {
                             render::exit(0);
                         }
                         Err(e) => {
-                            render::println(&format!("ERROR: call failed: {e}"));
+                            render::eprintln(&format!("ERROR: call failed: {e}"));
                             render::exit(1);
                         }
                     }
@@ -706,13 +712,13 @@ impl HuMeter {
                         render::exit(0);
                     }
                     Err(e) => {
-                        render::println(&format!("ERROR: call failed: {e}"));
+                        render::eprintln(&format!("ERROR: call failed: {e}"));
                         render::exit(1);
                     }
                 }
             }
             other => {
-                render::println(&format!("unknown service subcommand: {other}"));
+                render::eprintln(&format!("unknown service subcommand: {other}"));
                 render::println("Usage: hu meter service list|find|type|call <name> [args]");
                 render::exit(1);
             }
@@ -745,7 +751,7 @@ impl HuMeter {
                 let names = match list_param_names(&node) {
                     Ok(n) => n,
                     Err(e) => {
-                        render::println(&format!("ERROR: {e}"));
+                        render::eprintln(&format!("ERROR: {e}"));
                         render::exit(1);
                         return;
                     }
@@ -803,7 +809,7 @@ impl HuMeter {
                         render::exit(0);
                     }
                     Err(e) => {
-                        render::println(&format!("ERROR: {e}"));
+                        render::eprintln(&format!("ERROR: {e}"));
                         render::exit(1);
                     }
                 }
@@ -812,7 +818,7 @@ impl HuMeter {
                 let names = match list_param_names(&node) {
                     Ok(n) => n,
                     Err(e) => {
-                        render::println(&format!("ERROR: {e}"));
+                        render::eprintln(&format!("ERROR: {e}"));
                         render::exit(1);
                         return;
                     }
@@ -823,7 +829,7 @@ impl HuMeter {
                     match get_param_values(&node, &names) {
                         Ok(v) => v,
                         Err(e) => {
-                            render::println(&format!("ERROR: {e}"));
+                            render::eprintln(&format!("ERROR: {e}"));
                             render::exit(1);
                             return;
                         }
@@ -856,7 +862,7 @@ impl HuMeter {
                         render::exit(0);
                     }
                     Err(e) => {
-                        render::println(&format!("ERROR: {e}"));
+                        render::eprintln(&format!("ERROR: {e}"));
                         render::exit(1);
                     }
                 }
@@ -884,7 +890,7 @@ impl HuMeter {
                 let client = match ros::connect_service(&svc, "rcl_interfaces/srv/SetParameters") {
                     Ok(c) => c,
                     Err(e) => {
-                        render::println(&format!("ERROR: connect to {svc}: {e}"));
+                        render::eprintln(&format!("ERROR: connect to {svc}: {e}"));
                         render::exit(1);
                         return;
                     }
@@ -898,7 +904,7 @@ impl HuMeter {
                         render::exit(0);
                     }
                     Err(e) => {
-                        render::println(&format!("ERROR: {e}"));
+                        render::eprintln(&format!("ERROR: {e}"));
                         render::exit(1);
                     }
                 }
@@ -917,7 +923,7 @@ impl HuMeter {
                 {
                     Ok(c) => c,
                     Err(e) => {
-                        render::println(&format!("ERROR: connect to {svc}: {e}"));
+                        render::eprintln(&format!("ERROR: connect to {svc}: {e}"));
                         render::exit(1);
                         return;
                     }
@@ -947,7 +953,7 @@ impl HuMeter {
                         }
                     }
                     Err(e) => {
-                        render::println(&format!("ERROR: {e}"));
+                        render::eprintln(&format!("ERROR: {e}"));
                         render::exit(1);
                     }
                 }
@@ -963,7 +969,7 @@ impl HuMeter {
                 render::exit(1);
             }
             other => {
-                render::println(&format!("unknown param subcommand: {other}"));
+                render::eprintln(&format!("unknown param subcommand: {other}"));
                 render::println(
                     "Usage: hu meter param list|get|set|delete|dump|describe <node> [<param>] [<value>]",
                 );
@@ -1017,7 +1023,7 @@ impl HuMeter {
                     .into_iter()
                     .find(|s| &s.name == &send_goal_svc)
                 else {
-                    render::println(&format!("action not found: {name}"));
+                    render::eprintln(&format!("action not found: {name}"));
                     render::exit(1);
                     return;
                 };
@@ -1050,7 +1056,7 @@ impl HuMeter {
                 let payload = match parse_hex_bytes(&hex_payload) {
                     Ok(b) => b,
                     Err(e) => {
-                        render::println(&format!("ERROR: bad --payload: {e}"));
+                        render::eprintln(&format!("ERROR: bad --payload: {e}"));
                         render::exit(1);
                         return;
                     }
@@ -1060,10 +1066,15 @@ impl HuMeter {
                     .map(|s: u32| s.saturating_mul(1000))
                     .unwrap_or(30000);
                 let send_goal_svc = format!("{name}/_action/send_goal");
-                let client = match ros::connect_service(&send_goal_svc, "") {
+                let send_goal_type = graph::list_services()
+                    .into_iter()
+                    .find(|s| s.name == send_goal_svc)
+                    .map(|s| s.type_name)
+                    .unwrap_or_default();
+                let client = match ros::connect_service(&send_goal_svc, &send_goal_type) {
                     Ok(c) => c,
                     Err(e) => {
-                        render::println(&format!("ERROR: connect to {send_goal_svc}: {e}"));
+                        render::eprintln(&format!("ERROR: connect to {send_goal_svc}: {e}"));
                         render::exit(1);
                         return;
                     }
@@ -1078,7 +1089,7 @@ impl HuMeter {
                         render::exit(0);
                     }
                     Err(e) => {
-                        render::println(&format!("ERROR: send-goal failed: {e}"));
+                        render::eprintln(&format!("ERROR: send-goal failed: {e}"));
                         render::exit(1);
                     }
                 }
@@ -1112,7 +1123,7 @@ impl HuMeter {
                 let sub = match ros::subscribe(&feedback_topic) {
                     Ok(s) => s,
                     Err(e) => {
-                        render::println(&format!("Failed to subscribe to {feedback_topic}: {e}"));
+                        render::eprintln(&format!("Failed to subscribe to {feedback_topic}: {e}"));
                         render::exit(1);
                         return;
                     }
@@ -1149,7 +1160,7 @@ impl HuMeter {
                 let client = match ros::connect_service(&send_goal_svc, &send_goal_type) {
                     Ok(c) => c,
                     Err(e) => {
-                        render::println(&format!("ERROR: connect to {send_goal_svc}: {e}"));
+                        render::eprintln(&format!("ERROR: connect to {send_goal_svc}: {e}"));
                         render::exit(1);
                         return;
                     }
@@ -1161,7 +1172,7 @@ impl HuMeter {
                         resp.contains("\"accepted\":true")
                     }
                     Err(e) => {
-                        render::println(&format!("ERROR: send_goal failed: {e}"));
+                        render::eprintln(&format!("ERROR: send_goal failed: {e}"));
                         render::exit(1);
                         return;
                     }
@@ -1180,7 +1191,7 @@ impl HuMeter {
                 let result_client = match ros::connect_service(&get_result_svc, &get_result_type) {
                     Ok(c) => c,
                     Err(e) => {
-                        render::println(&format!("ERROR: connect to {get_result_svc}: {e}"));
+                        render::eprintln(&format!("ERROR: connect to {get_result_svc}: {e}"));
                         render::exit(1);
                         return;
                     }
@@ -1191,13 +1202,13 @@ impl HuMeter {
                         render::exit(0);
                     }
                     Err(e) => {
-                        render::println(&format!("ERROR: get_result failed: {e}"));
+                        render::eprintln(&format!("ERROR: get_result failed: {e}"));
                         render::exit(1);
                     }
                 }
             }
             other => {
-                render::println(&format!("unknown action subcommand: {other}"));
+                render::eprintln(&format!("unknown action subcommand: {other}"));
                 render::println("Usage: hu meter action send|echo <name> <type> [<goal-json>]");
                 render::exit(1);
             }

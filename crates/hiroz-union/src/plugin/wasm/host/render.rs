@@ -8,6 +8,10 @@ impl hu::plugin::render::Host for PluginState {
         self.output_lines.lock().push(text);
     }
 
+    fn eprintln(&mut self, text: String) {
+        eprintln!("{text}");
+    }
+
     fn set_title(&mut self, title: String) {
         *self.title.lock() = title;
     }

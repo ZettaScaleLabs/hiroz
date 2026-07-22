@@ -1726,7 +1726,7 @@ fn test_hu_meter_info_unknown_topic() {
     // No nodes at all — topic does not exist in the graph.
     let out = run_hu_meter(
         router.endpoint(),
-        &["info", "topic-type", "/nonexistent_topic_xyzzy"],
+        &["info", "topic", "/nonexistent_topic_xyzzy"],
     );
     assert!(
         !out.status.success(),
