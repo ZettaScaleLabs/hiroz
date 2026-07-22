@@ -39,9 +39,9 @@ def run-ros-interop [] {
 
     let distro = get-distro
     let cmd = if $distro == "humble" {
-        "cargo nextest run -p hiroz-tests --no-default-features --features ros-interop,humble"
+        "cargo nextest run -p hiroz-tests --profile interop --no-default-features --features ros-interop,humble"
     } else {
-        $"cargo nextest run -p hiroz-tests --features ros-interop,($distro)"
+        $"cargo nextest run -p hiroz-tests --profile interop --features ros-interop,($distro)"
     }
 
     # Pre-build with the same features nextest will use, so the build cache is
