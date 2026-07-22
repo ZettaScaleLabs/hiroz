@@ -81,8 +81,18 @@ def get-test-map [] {
 
 def get-test-pipeline [] {
     [
-        "clippy-rmw"
+        # run-ros-interop first, not clippy-rmw: the interop tests spawn RCL
+        # subprocesses under tight discovery/startup timing, and clippy-rmw's
+        # full-workspace build (now heavier since it includes hiroz-union and
+        # its wasmtime dependency tree) was observed to leave the runner
+        # CPU-starved for 25s+ afterward -- long enough to fail interop even
+        # with generous retry budgets. Clippy has no such timing sensitivity,
+        # so run it after instead. run-ros-interop already prebuilds with its
+        # own exact feature set (see its own comment), so this reordering
+        # doesn't reintroduce the stale-fingerprint race it was written to
+        # avoid.
         "run-ros-interop"
+        "clippy-rmw"
     ]
 }
 
