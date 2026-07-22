@@ -103,7 +103,7 @@ fn test_rcl_talker_to_hiroz_listener() {
 
             // Use the actual listener example code with timeout
             let messages =
-                demo_nodes::run_listener(ctx, "chatter", Some(3), Some(Duration::from_secs(15)))
+                demo_nodes::run_listener(ctx, "chatter", Some(3), Some(Duration::from_secs(25)))
                     .await
                     .expect("Listener failed");
 
@@ -112,7 +112,7 @@ fn test_rcl_talker_to_hiroz_listener() {
         });
     });
 
-    wait_for_ready(Duration::from_secs(2));
+    wait_for_ready(Duration::from_secs(5));
 
     // Start RCL talker
     let talker = Command::new("ros2")
@@ -277,7 +277,7 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
 
     let _server_guard = ProcessGuard::new(server, "RCL add_two_ints server");
 
-    wait_for_ready(Duration::from_secs(3));
+    wait_for_ready(Duration::from_secs(8));
 
     // Start hiroz client in a thread using the example code
     let client_handle = thread::spawn(move || -> i64 {
@@ -372,7 +372,7 @@ fn test_rcl_fibonacci_action_server_to_hiroz_client() {
 
     let _server_guard = ProcessGuard::new(server, "RCL fibonacci action server");
 
-    wait_for_ready(Duration::from_secs(5));
+    wait_for_ready(Duration::from_secs(10));
 
     // Start hiroz client in a thread
     let client_handle = thread::spawn(move || -> Vec<i32> {

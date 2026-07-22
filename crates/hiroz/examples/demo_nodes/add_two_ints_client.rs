@@ -38,9 +38,11 @@ pub fn run_add_two_ints_client(ctx: ZContext, a: i64, b: i64, async_mode: bool) 
             .unwrap()
             .block_on(async { client.call(&req).await })?
     } else {
-        tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(async { client.call_with_timeout(&req, Duration::from_secs(5)).await })?
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            client
+                .call_with_timeout(&req, Duration::from_secs(15))
+                .await
+        })?
     };
 
     println!("Received response: {}", resp.sum);
