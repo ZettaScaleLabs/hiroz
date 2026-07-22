@@ -94,27 +94,14 @@ fn test_rcl_talker_to_hiroz_listener() {
     let received = Arc::new(Mutex::new(Vec::new()));
     let received_clone = received.clone();
 
-    // Start hiroz listener in a thread using the example code
-    let router_endpoint = router.endpoint().to_string();
-    let listener_handle = thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&router_endpoint)
-                .expect("Failed to create hiroz context");
-
-            // Use the actual listener example code with timeout
-            let messages =
-                demo_nodes::run_listener(ctx, "chatter", Some(3), Some(Duration::from_secs(40)))
-                    .await
-                    .expect("Listener failed");
-
-            let mut received = received_clone.lock().unwrap();
-            *received = messages;
-        });
-    });
-
-    wait_for_ready(Duration::from_secs(5));
-
-    // Start RCL talker
+    // Start the RCL talker FIRST. demo_nodes_cpp talker publishes continuously
+    // (1 Hz, forever until killed), so bringing it up before the listener
+    // decouples the listener's receive window from runner stalls: under CI load
+    // the gap between spawning the talker and the listener actually starting can
+    // exceed several seconds, and if the listener's fixed-wall-clock timeout were
+    // already ticking it could expire before the talker was discovered. Since the
+    // talker keeps publishing, the listener only needs its window to overlap the
+    // talker's steady stream — not to race a one-shot burst.
     let talker = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "talker"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
@@ -126,6 +113,28 @@ fn test_rcl_talker_to_hiroz_listener() {
         .expect("Failed to start RCL talker");
 
     let _talker_guard = ProcessGuard::new(talker, "RCL talker");
+
+    wait_for_ready(Duration::from_secs(5));
+
+    // Start hiroz listener in a thread using the example code. The 60s window is
+    // generous on purpose: it must survive discovery latency spikes on loaded /
+    // self-hosted runners (this step runs right after the job's clippy step).
+    let router_endpoint = router.endpoint().to_string();
+    let listener_handle = thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&router_endpoint)
+                .expect("Failed to create hiroz context");
+
+            // Use the actual listener example code with timeout
+            let messages =
+                demo_nodes::run_listener(ctx, "chatter", Some(3), Some(Duration::from_secs(60)))
+                    .await
+                    .expect("Listener failed");
+
+            let mut received = received_clone.lock().unwrap();
+            *received = messages;
+        });
+    });
 
     listener_handle.join().expect("Listener thread panicked");
 
@@ -288,7 +297,7 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
     // right after this job's earlier clippy step, where the RCL server
     // subprocess and hiroz's router both start much slower.
     let client_handle = thread::spawn(move || -> i64 {
-        let deadline = std::time::Instant::now() + Duration::from_secs(35);
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
         loop {
             let ctx =
                 create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
@@ -393,7 +402,7 @@ fn test_rcl_fibonacci_action_server_to_hiroz_client() {
     // discovery latency, not response latency, so a longer fixed wait/
     // timeout doesn't reliably help under CI load.
     let client_handle = thread::spawn(move || -> Vec<i32> {
-        let deadline = std::time::Instant::now() + Duration::from_secs(35);
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
         loop {
             let ctx =
                 create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
