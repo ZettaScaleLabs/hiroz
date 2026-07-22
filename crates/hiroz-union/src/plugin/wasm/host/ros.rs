@@ -98,6 +98,7 @@ impl hu::plugin::ros::Host for PluginState {
                 }
             }
         };
+        tracing::warn!("[DIAG] connect_service built ke: {ke}");
 
         let session = self.engine.session.clone();
         let rep = self.alloc_rep();
