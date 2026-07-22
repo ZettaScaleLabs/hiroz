@@ -295,21 +295,29 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
 /// `{pkg}/msg/{Name}Request` (note: `/msg/`, not `/srv/` -- services don't get
 /// their own schema namespace, their Request/Response are just messages).
 ///
-/// `service_type` is expected in `pkg/srv/Name` form (as reported by the graph
-/// and used throughout hu-meter, e.g. `"rcl_interfaces/srv/GetParameters"`).
-/// Falls back to a `_Request`/`_Response` suffix on the input unchanged if it
-/// doesn't match that shape (e.g. an already-DDS-mangled or malformed name) --
-/// best effort, since a well-formed `pkg/srv/Name` is the documented contract
-/// for what callers pass as `type_name` to `connect_service`.
+/// `service_type` may arrive in any of the shapes actually seen in practice:
+/// the abstract service type (`"pkg/srv/Name"`, e.g. from
+/// `ServiceTypeInfo::service_type_info()`), the request-side type already
+/// (`"pkg/srv/Name_Request"`, e.g. a caller-supplied `--msg-type`), or the
+/// raw DDS-mangled request/service type as reported by the graph
+/// (`"pkg::srv::dds_::Name_Request_"` / `"pkg::srv::dds_::Name_"`). All are
+/// normalized down to the bare `pkg/srv/Name` service type before deriving
+/// Request/Response names, so the two suffixes are never double-appended.
 fn service_request_response_type_names(service_type: &str) -> (String, String) {
-    match service_type.split_once("/srv/") {
+    let normalized = service_type.replace("dds_::", "").replace("::", "/");
+    let normalized = normalized.strip_suffix('_').unwrap_or(&normalized);
+    let normalized = normalized
+        .strip_suffix("_Request")
+        .or_else(|| normalized.strip_suffix("_Response"))
+        .unwrap_or(normalized);
+    match normalized.split_once("/srv/") {
         Some((pkg, name)) => (
             format!("{pkg}/msg/{name}Request"),
             format!("{pkg}/msg/{name}Response"),
         ),
         None => (
-            format!("{service_type}_Request"),
-            format!("{service_type}_Response"),
+            format!("{normalized}_Request"),
+            format!("{normalized}_Response"),
         ),
     }
 }
@@ -395,5 +403,56 @@ fn json_to_dynamic_value(
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(DynamicValue::Array(items))
         }
+    }
+}
+
+#[cfg(test)]
+mod service_type_name_tests {
+    use super::service_request_response_type_names;
+
+    #[test]
+    fn abstract_service_type() {
+        assert_eq!(
+            service_request_response_type_names("example_interfaces/srv/AddTwoInts"),
+            (
+                "example_interfaces/msg/AddTwoIntsRequest".to_string(),
+                "example_interfaces/msg/AddTwoIntsResponse".to_string(),
+            )
+        );
+    }
+
+    #[test]
+    fn caller_supplied_request_suffixed_type() {
+        assert_eq!(
+            service_request_response_type_names("example_interfaces/srv/AddTwoInts_Request"),
+            (
+                "example_interfaces/msg/AddTwoIntsRequest".to_string(),
+                "example_interfaces/msg/AddTwoIntsResponse".to_string(),
+            )
+        );
+    }
+
+    #[test]
+    fn raw_dds_mangled_request_type() {
+        assert_eq!(
+            service_request_response_type_names(
+                "example_interfaces::srv::dds_::AddTwoInts_Request_"
+            ),
+            (
+                "example_interfaces/msg/AddTwoIntsRequest".to_string(),
+                "example_interfaces/msg/AddTwoIntsResponse".to_string(),
+            )
+        );
+    }
+
+    #[test]
+    fn raw_dds_mangled_service_type() {
+        assert_eq!(
+            service_request_response_type_names("example_interfaces::srv::dds_::AddTwoInts_"),
+            (
+                "example_interfaces/msg/AddTwoIntsRequest".to_string(),
+                "example_interfaces/msg/AddTwoIntsResponse".to_string(),
+            )
+        );
     }
 }
