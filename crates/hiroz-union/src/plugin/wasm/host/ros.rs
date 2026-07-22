@@ -107,6 +107,7 @@ impl hu::plugin::ros::Host for PluginState {
                 session,
                 ke,
                 type_name,
+                name,
             },
         );
         Ok(Resource::new_own(rep))
@@ -122,6 +123,17 @@ impl hu::plugin::ros::Host for PluginState {
         Ok(total_bytes as f64 / 1024.0 / window_s)
     }
 
+    // NOTE: still reads the global (structurally never-populated) SchemaRegistry --
+    // NOT rerouted to discovery like HostServiceClient::call. This is a topic-pub
+    // path (only caller is `hu meter pub`'s --msg-type/--yaml, via
+    // encode-yaml-to-cdr), and the discovery mechanism that would fix it
+    // (discover_topic_schema) is keyed by *topic*, not type name -- but this WIT
+    // function's signature is `(yaml, type-name)` with no topic parameter to key
+    // a discovery query on. Fixing this properly needs a WIT interface change
+    // (add a topic param, or a topic-keyed variant) across all plugin copies of
+    // wit/hu-plugin.wit, which is out of scope here. Left as a known, disclosed
+    // gap (see pr-readiness.md's `pub_yaml_nested_twist` note) rather than
+    // reroute to the wrong discovery primitive.
     fn encode_yaml_to_cdr(&mut self, yaml: String, type_name: String) -> Result<Vec<u8>, String> {
         self.require_perm(hu::plugin::types::Permission::PublishTopic)?;
         let schema = get_schema(&type_name)
@@ -184,10 +196,30 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         };
         let session = data.session.clone();
         let ke = data.ke.clone();
-        let req_type = data.type_name.clone();
+        let service_name = data.name.clone();
+        // `data.type_name` is the *service*-level type (e.g.
+        // "example_interfaces/srv/AddTwoInts" or "rcl_interfaces/srv/GetParameters"),
+        // not a Request/Response message type name. Resolve the actual
+        // Request/Response schemas via live discovery instead of the
+        // (structurally never-populated for services) global SchemaRegistry --
+        // see ZNode::discover_service_schema.
+        let (req_type, resp_type) = service_request_response_type_names(&data.type_name);
+        let node = self.engine.node.clone();
 
-        let req_schema =
-            get_schema(&req_type).ok_or_else(|| format!("schema for '{req_type}' not found"))?;
+        // Budget schema discovery separately from the caller's own --timeout so a
+        // slow/failed discovery round-trip (two get_type_description queries)
+        // can't consume the entire per-call timeout budget.
+        const DISCOVERY_TIMEOUT: Duration = Duration::from_millis(2000);
+        let (req_schema, resp_schema) = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(node.discover_service_schema(
+                &service_name,
+                &req_type,
+                &resp_type,
+                DISCOVERY_TIMEOUT,
+            ))
+        })
+        .map_err(|e| format!("schema discovery for service '{service_name}' failed: {e}"))?;
+
         let req_value = parse_yaml_or_json(&request_json)?;
         let req_msg = json_to_dynamic_message(&req_value, &req_schema)?;
         let req_cdr = serialize_cdr(&req_msg).map_err(|e| e.to_string())?;
@@ -206,20 +238,19 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         let sample = reply.result().map_err(|e| e.to_string())?;
         let resp_cdr = sample.payload().to_bytes().into_owned();
 
-        let resp_type = req_type.replace("_Request", "_Response");
-        if let Some(resp_schema) = get_schema(&resp_type) {
-            match deserialize_cdr(&resp_cdr, &resp_schema) {
-                Ok(msg) => return Ok(dynamic_message_to_json(&msg).to_string()),
-                Err(e) => tracing::warn!("failed to decode service response: {e}"),
+        match deserialize_cdr(&resp_cdr, &resp_schema) {
+            Ok(msg) => Ok(dynamic_message_to_json(&msg).to_string()),
+            Err(e) => {
+                tracing::warn!("failed to decode service response: {e}");
+                Ok(format!(
+                    "{{\"raw\":\"{}\"}}",
+                    resp_cdr
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<String>()
+                ))
             }
         }
-        Ok(format!(
-            "{{\"raw\":\"{}\"}}",
-            resp_cdr
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>()
-        ))
     }
 
     fn call_raw(
@@ -253,6 +284,33 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
     fn drop(&mut self, res: Resource<hu::plugin::ros::ServiceClient>) -> wasmtime::Result<()> {
         self.service_clients.remove(&res.rep());
         Ok(())
+    }
+}
+
+/// Derive a service's Request/Response type names from its service-level type
+/// name, matching the naming convention `hiroz-codegen` uses for generated
+/// service message types (`generate_service_impl`/`parse_srv_string`): the
+/// Request/Response structs are generated as ordinary messages named
+/// `{Name}Request`/`{Name}Response` in the *same package*, registered under
+/// `{pkg}/msg/{Name}Request` (note: `/msg/`, not `/srv/` -- services don't get
+/// their own schema namespace, their Request/Response are just messages).
+///
+/// `service_type` is expected in `pkg/srv/Name` form (as reported by the graph
+/// and used throughout hu-meter, e.g. `"rcl_interfaces/srv/GetParameters"`).
+/// Falls back to a `_Request`/`_Response` suffix on the input unchanged if it
+/// doesn't match that shape (e.g. an already-DDS-mangled or malformed name) --
+/// best effort, since a well-formed `pkg/srv/Name` is the documented contract
+/// for what callers pass as `type_name` to `connect_service`.
+fn service_request_response_type_names(service_type: &str) -> (String, String) {
+    match service_type.split_once("/srv/") {
+        Some((pkg, name)) => (
+            format!("{pkg}/msg/{name}Request"),
+            format!("{pkg}/msg/{name}Response"),
+        ),
+        None => (
+            format!("{service_type}_Request"),
+            format!("{service_type}_Response"),
+        ),
     }
 }
 

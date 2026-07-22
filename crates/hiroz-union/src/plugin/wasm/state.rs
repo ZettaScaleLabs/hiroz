@@ -77,6 +77,10 @@ pub(crate) struct ServiceClientData {
     pub session: Arc<zenoh::Session>,
     pub ke: String,
     pub type_name: String,
+    /// The ROS service name as connected (e.g. `/add_two_ints`), qualified but not
+    /// key-expression-mangled. Needed to key a graph lookup for schema discovery
+    /// (`ZNode::discover_service_schema`), which `ke`/`type_name` alone can't drive.
+    pub name: String,
 }
 
 // ─── Per-plugin state ────────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ use crate::{
     cache::ZCacheBuilder,
     context::{GlobalCounter, RemapRules},
     dynamic::{
-        DiscoveredTopicSchema, DynPubBuilder, DynSub, DynSubBuilder, DynamicMessage,
+        DiscoveredTopicSchema, DynPubBuilder, DynSub, DynSubBuilder, DynamicError, DynamicMessage,
         DynamicSerdeCdrSerdes, MessageSchema, SchemaDiscovery, TypeDescriptionService,
         discovered_schema_type_info, schema_type_info,
     },
@@ -254,6 +254,7 @@ impl Builder for ZNodeBuilder {
                 counter: &self.counter,
                 clock: &self.clock,
                 overrides: self.parameter_overrides,
+                type_desc_service: type_desc_service.as_ref(),
             })?;
             info!("[NOD] ParameterService created");
             Some(service)
@@ -443,8 +444,22 @@ impl ZNode {
     pub fn create_service<T>(&self, name: &str) -> ZServerBuilder<T>
     where
         T: ZService + ServiceTypeInfo,
+        T::Request: WithTypeInfo,
+        T::Response: WithTypeInfo,
     {
         debug!("[NOD] Creating service: name={}", name);
+        // Mirror create_pub<T>'s auto-registration: if the Request/Response types
+        // carry a runtime schema (generated ROS 2 message types do), register both
+        // with this node's type description service so `discover_service_schema`
+        // (used by hiroz-union's WASM plugin host, among others) can resolve them
+        // via live `get_type_description` queries instead of requiring callers to
+        // pre-populate the (otherwise-unpopulated) global SchemaRegistry.
+        if let Some(schema) = T::Request::message_schema() {
+            self.register_schema_with_type_description_service(&schema);
+        }
+        if let Some(schema) = T::Response::message_schema() {
+            self.register_schema_with_type_description_service(&schema);
+        }
         self.create_service_impl(name, Some(T::service_type_info()))
     }
 
@@ -1090,6 +1105,94 @@ impl ZNode {
             .discover(topic)
             .await
             .map_err(|e| zenoh::Error::from(e.to_string()))
+    }
+
+    /// Resolve a service's request and response schemas via live discovery.
+    ///
+    /// Mirrors [`discover_topic_schema`](ZNode::discover_topic_schema): rather than
+    /// reading from the (always-empty, for services) global `SchemaRegistry`, this
+    /// finds a node currently serving `service_name` in the graph and queries that
+    /// node's own `~get_type_description` service twice — once for
+    /// `request_type_name`, once for `response_type_name`. This is the same
+    /// `GetTypeDescription` protocol topic pub/sub already relies on
+    /// (`query_type_description`); it just keys off a service's graph entity
+    /// instead of a topic's publisher list.
+    ///
+    /// Type hash validation is skipped (empty `type_hash` on the query) since the
+    /// caller here generally only has the *service's* composite hash, not the
+    /// hashes of the Request/Response types individually.
+    ///
+    /// # Arguments
+    ///
+    /// * `service_name` - The service name (qualified using the same ROS 2 rules
+    ///   as [`create_service`](ZNode::create_service)/[`create_client`](ZNode::create_client)).
+    /// * `request_type_name` - The Request type's registered schema name.
+    ///   `hiroz-codegen`-generated services register these as
+    ///   `"{pkg}/msg/{Name}Request"` (e.g.
+    ///   `"example_interfaces/msg/AddTwoIntsRequest"`) -- Request/Response are
+    ///   ordinary generated messages, not a `/srv/`-namespaced schema. See
+    ///   `hiroz_union`'s `service_request_response_type_names` helper, which
+    ///   derives this from a service's `pkg/srv/Name` type name.
+    /// * `response_type_name` - The Response type's registered schema name,
+    ///   analogous to `request_type_name` (e.g.
+    ///   `"example_interfaces/msg/AddTwoIntsResponse"`).
+    /// * `timeout` - Per-query timeout. Applied independently to each of the two
+    ///   underlying `get_type_description` calls, so the total worst-case latency
+    ///   is up to `2 * timeout` -- callers with a tight overall call budget should
+    ///   pass a short, fixed timeout here rather than reusing the full call
+    ///   timeout (see hu-meter's discovery timeout handling).
+    pub async fn discover_service_schema(
+        &self,
+        service_name: &str,
+        request_type_name: &str,
+        response_type_name: &str,
+        timeout: Duration,
+    ) -> std::result::Result<(Arc<MessageSchema>, Arc<MessageSchema>), DynamicError> {
+        let qualified_service =
+            crate::topic_name::qualify_service_name(service_name, self.namespace(), self.name())
+                .map_err(|error| {
+                    DynamicError::SchemaNotFound(format!("Failed to qualify service name: {error}"))
+                })?;
+
+        let entities = self
+            .graph
+            .get_entities_by_topic(EndpointKind::Service, &qualified_service);
+        let node = entities
+            .iter()
+            .find_map(|entity| match entity.as_ref() {
+                Entity::Endpoint(endpoint) => endpoint.node.as_ref(),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                DynamicError::SchemaNotFound(format!(
+                    "No service server found for: {}",
+                    qualified_service
+                ))
+            })?;
+
+        let candidate = |type_name: &str| crate::dynamic::discovery::TopicSchemaCandidate {
+            node_name: node.name.clone(),
+            namespace: node.namespace.clone(),
+            type_name: type_name.to_string(),
+            type_hash: String::new(),
+        };
+
+        let (request_schema, _) = crate::dynamic::type_description_client::query_type_description(
+            self,
+            &candidate(request_type_name),
+            timeout,
+            false,
+        )
+        .await?;
+        let (response_schema, _) = crate::dynamic::type_description_client::query_type_description(
+            self,
+            &candidate(response_type_name),
+            timeout,
+            false,
+        )
+        .await?;
+
+        Ok((request_schema, response_schema))
     }
 
     /// Create a dynamic subscriber with automatic schema discovery.
