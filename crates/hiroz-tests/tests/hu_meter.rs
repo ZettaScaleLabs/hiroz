@@ -32,9 +32,9 @@ use hiroz_msgs::{
 /// Build it first: cargo build -p hu-meter --target wasm32-wasip2
 fn run_hu_meter(router: &str, args: &[&str]) -> Output {
     Command::new("hu")
-        .arg("meter")
         .arg("--router")
         .arg(router)
+        .arg("meter")
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -868,9 +868,9 @@ fn test_hu_meter_echo_raw() {
 /// Spawn hu-meter, let it run for `secs` seconds, kill it, and return accumulated output.
 fn run_hu_meter_timed(router: &str, args: &[&str], secs: u64) -> (Vec<u8>, Vec<u8>) {
     let mut child = Command::new("hu")
-        .arg("meter")
         .arg("--router")
         .arg(router)
+        .arg("meter")
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1208,6 +1208,7 @@ fn test_hu_meter_param_load() {
 
     // Write a YAML file to _tmp/
     let yaml_path = "_tmp/param_load_test.yaml";
+    std::fs::create_dir_all("_tmp").expect("failed to create _tmp dir");
     std::fs::write(
         yaml_path,
         "/param_load_node:\n  ros__parameters:\n    loadval: 55\n",

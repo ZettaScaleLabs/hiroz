@@ -22,9 +22,9 @@ use hiroz_msgs::{example_interfaces::srv::AddTwoInts, std_msgs::String as RosStr
 /// Run `hu monitor <args>` with a specific router endpoint, capturing all output.
 fn run_hu_monitor(router: &str, args: &[&str]) -> std::process::Output {
     Command::new("hu")
-        .arg("monitor")
         .arg("--router")
         .arg(router)
+        .arg("monitor")
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -197,9 +197,9 @@ fn test_monitor_watch_fires_on_topic_create() {
 
     // Start `hu monitor watch` in the background — it polls graph changes each tick.
     let mut watch_child = Command::new("hu")
-        .arg("monitor")
         .arg("--router")
         .arg(router.endpoint())
+        .arg("monitor")
         .arg("watch")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
