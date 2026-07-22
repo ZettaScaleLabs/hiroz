@@ -224,10 +224,21 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         let req_msg = json_to_dynamic_message(&req_value, &req_schema)?;
         let req_cdr = serialize_cdr(&req_msg).map_err(|e| e.to_string())?;
 
+        // The hiroz service queryable handler requires an RMW-style attachment
+        // (sequence number + timestamp + writer GID) on every query -- it's how
+        // `take_request`/`reply` correlate requests to responses -- see
+        // `ZClient::call_sample` in hiroz/src/service.rs for the reference
+        // client, and `ZServer`'s query handling, which errors on a missing
+        // attachment. A raw query without one is silently never answered.
+        let gid: hiroz::GidArray = session.zid().to_le_bytes();
+        let sn = self.alloc_rep() as i64;
+        let attachment = hiroz::attachment::Attachment::new(sn, gid);
+
         let timeout = Duration::from_millis(timeout_ms as u64);
         let replies = session
             .get(&ke)
             .payload(zenoh::bytes::ZBytes::from(req_cdr))
+            .attachment(attachment)
             .timeout(timeout)
             .wait()
             .map_err(|e| e.to_string())?;
