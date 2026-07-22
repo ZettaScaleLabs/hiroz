@@ -38,7 +38,7 @@ impl PluginManager {
     }
 
     pub fn select_next(&mut self) {
-        let max = self.count();
+        let max = self.count() + self.failed.len();
         if max > 0 && self.selected_index < max - 1 {
             self.selected_index += 1;
         }

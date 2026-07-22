@@ -49,16 +49,21 @@ impl App {
         }
 
         // Failed plugins shown below loaded ones with a red [FAILED] indicator.
-        for (path, _err) in &self.plugin_mgr.failed {
+        for (fi, (path, _err)) in self.plugin_mgr.failed.iter().enumerate() {
             let stem = std::path::Path::new(path)
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or(path.as_str());
             let label = format!("  [FAILED] {stem}");
-            items.push(ListItem::new(Span::styled(
-                label,
-                Style::default().fg(Color::Red),
-            )));
+            let style = if loaded_count + fi == self.plugin_mgr.selected_index {
+                Style::default()
+                    .fg(Color::Red)
+                    .bg(Color::White)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Red)
+            };
+            items.push(ListItem::new(Span::styled(label, style)));
         }
 
         items

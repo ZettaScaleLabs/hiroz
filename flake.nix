@@ -33,7 +33,7 @@
         ];
         # Only include distros present in the pinned nix-ros-overlay; newer distros
         # (lyrical, rolling) may not be cached on the CI worker yet.
-        availableDistros = builtins.filter (d: pkgs.rosPackages ? ${d}) distros;
+        availableDistros = builtins.filter (d: builtins.hasAttr d pkgs.rosPackages) distros;
 
         pkgs = import nixpkgs {
           inherit system;

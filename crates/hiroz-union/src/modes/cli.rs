@@ -29,8 +29,7 @@ pub async fn run_cli_plugin(
         return Ok(code);
     }
 
-    let tick_ms = plugin.manifest().tick_ms.max(10) as u64;
-    let tick_interval = Duration::from_millis(tick_ms);
+    let raw_tick_ms = plugin.manifest().tick_ms;
 
     let (sigint_tx, mut sigint_rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(async move {
@@ -39,10 +38,26 @@ pub async fn run_cli_plugin(
         }
     });
 
+    // `tick_ms == 0` means "no periodic ticks" (one-shot / Startup+Interrupt-only
+    // plugins). In that case wait solely on the sigint signal and never dispatch
+    // a Tick.
+    if raw_tick_ms == 0 {
+        let _ = sigint_rx.await;
+        let interrupt_code = plugin.dispatch_cli_event(CliEvent::Interrupt).exit_code();
+        flush_output(plugin);
+        return Ok(interrupt_code.unwrap_or(130));
+    }
+
+    let tick_ms = raw_tick_ms.max(10) as u64;
+    let tick_interval = Duration::from_millis(tick_ms);
+
     loop {
         if sigint_rx.try_recv().is_ok() {
-            plugin.dispatch_cli_event(CliEvent::Interrupt);
+            let interrupt_code = plugin.dispatch_cli_event(CliEvent::Interrupt).exit_code();
             flush_output(plugin);
+            if let Some(code) = interrupt_code {
+                return Ok(code);
+            }
             let code = plugin.dispatch_cli_event(CliEvent::Tick).exit_code();
             flush_output(plugin);
             return Ok(code.unwrap_or(130));

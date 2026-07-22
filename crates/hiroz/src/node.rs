@@ -435,8 +435,13 @@ impl ZNode {
         ZCacheBuilder::new(sub_builder, capacity)
     }
 
-    /// Create a service for the given service name
-    /// If T is a tuple (Req, Resp) where both implement WithTypeInfo, type information will be automatically populated
+    /// Create a service for the given service name.
+    ///
+    /// `T::Request` and `T::Response` must implement [`WithTypeInfo`] (enforced by
+    /// the trait bounds below). Type information is always populated with this
+    /// node's type-description service so schema discovery (e.g. by hiroz-union's
+    /// WASM plugin host) can resolve the Request/Response schemas via live
+    /// `get_type_description` queries.
     ///
     /// The service name will be qualified according to ROS 2 rules:
     /// - Absolute service names (starting with '/') are used as-is
@@ -1137,11 +1142,13 @@ impl ZNode {
     /// * `response_type_name` - The Response type's registered schema name,
     ///   analogous to `request_type_name` (e.g.
     ///   `"example_interfaces/msg/AddTwoIntsResponse"`).
-    /// * `timeout` - Per-query timeout. Applied independently to each of the two
-    ///   underlying `get_type_description` calls, so the total worst-case latency
-    ///   is up to `2 * timeout` -- callers with a tight overall call budget should
-    ///   pass a short, fixed timeout here rather than reusing the full call
-    ///   timeout (see hu-meter's discovery timeout handling).
+    /// * `timeout` - Per-phase timeout. Applied independently to (1) the initial
+    ///   graph poll that waits for the service's liveliness entry to appear and
+    ///   (2) each of the two sequential underlying `get_type_description` calls,
+    ///   so the total worst-case latency is up to `3 * timeout` -- callers with a
+    ///   tight overall call budget should pass a short, fixed timeout here rather
+    ///   than reusing the full call timeout (see hu-meter's discovery timeout
+    ///   handling).
     pub async fn discover_service_schema(
         &self,
         service_name: &str,

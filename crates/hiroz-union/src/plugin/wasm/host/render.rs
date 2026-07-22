@@ -3,9 +3,19 @@
 use super::super::state::PluginState;
 use super::hu;
 
+/// Maximum number of lines retained in a plugin's output buffer. Matches the
+/// ring-buffer capacity documented in `docs/tools/hu-plugins.md`; older lines
+/// are discarded so a long-running tick-driven plugin can't grow it unbounded.
+const MAX_OUTPUT_LINES: usize = 1000;
+
 impl hu::plugin::render::Host for PluginState {
     fn println(&mut self, text: String) {
-        self.output_lines.lock().push(text);
+        let mut lines = self.output_lines.lock();
+        lines.push(text);
+        let overflow = lines.len().saturating_sub(MAX_OUTPUT_LINES);
+        if overflow > 0 {
+            lines.drain(0..overflow);
+        }
     }
 
     fn eprintln(&mut self, text: String) {
