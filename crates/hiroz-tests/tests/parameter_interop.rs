@@ -85,7 +85,7 @@ fn test_ros2_param_list_on_hiroz_node() {
         thread::sleep(Duration::from_secs(30));
     });
 
-    wait_for_node("param_list_node", &rmw_env, Duration::from_secs(15));
+    wait_for_node("param_list_node", &rmw_env, Duration::from_secs(45));
 
     let output = ros2_cmd(&rmw_env)
         .args([
@@ -140,7 +140,7 @@ fn test_ros2_param_get_set_on_hiroz_node() {
         thread::sleep(Duration::from_secs(60));
     });
 
-    wait_for_node("param_getset_node", &rmw_env, Duration::from_secs(15));
+    wait_for_node("param_getset_node", &rmw_env, Duration::from_secs(45));
 
     // Get initial value
     let output = ros2_cmd(&rmw_env)
@@ -251,7 +251,7 @@ fn test_hiroz_reads_rclcpp_node_params() {
 
     let _guard = ProcessGuard::new(server, "rclcpp_param_node");
 
-    wait_for_node("rclcpp_param_node", &rmw_env, Duration::from_secs(15));
+    wait_for_node("rclcpp_param_node", &rmw_env, Duration::from_secs(45));
 
     let output = ros2_cmd(&rmw_env)
         .args([

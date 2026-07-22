@@ -307,7 +307,7 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
     // right after this job's earlier clippy step, where the RCL server
     // subprocess and hiroz's router both start much slower.
     let client_handle = thread::spawn(move || -> i64 {
-        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let deadline = std::time::Instant::now() + Duration::from_secs(90);
         loop {
             let ctx =
                 create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");

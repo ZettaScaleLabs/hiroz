@@ -11,7 +11,7 @@ slow-timeout = { period = "30s", terminate-after = 2 }
 # both CI and whippet) -- not just in the demo_nodes.rs cluster the
 # rcl-interop test-group below targets specifically.
 [profile.interop]
-slow-timeout = { period = "60s", terminate-after = 2 }
+slow-timeout = { period = "100s", terminate-after = 2 }
 test-threads = 4
 
 # nextest runs each test in its own process, so serial_test's in-process
