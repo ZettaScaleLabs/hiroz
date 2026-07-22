@@ -285,9 +285,15 @@ pub fn discover_wasm_plugins() -> Vec<(String, PathBuf)> {
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
             // Compiled WASM artifact filenames always normalize hyphens to
-            // underscores (crate name "hu-meter" -> "hu_meter.wasm"), so strip
-            // the underscored prefix here, not the crate name's hyphenated form.
-            let name = stem.strip_prefix("hu_").unwrap_or(stem).to_string();
+            // underscores (crate name "hu-meter" -> "hu_meter.wasm"), but a
+            // user-installed plugin can be named either "hu_foo.wasm" or
+            // "hu-foo.wasm" (both forms are documented) -- strip whichever
+            // prefix is actually present.
+            let name = stem
+                .strip_prefix("hu_")
+                .or_else(|| stem.strip_prefix("hu-"))
+                .unwrap_or(stem)
+                .to_string();
             (name, path)
         })
         .collect();

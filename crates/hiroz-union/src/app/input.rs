@@ -91,19 +91,28 @@ pub async fn handle_key(
                 }
             }
         }
-        KeyCode::Home => {
-            app.selected_index = 0;
-            app.detail_scroll = 0;
-        }
-        KeyCode::End => {
-            let max = match app.current_panel {
-                Panel::Topics => app.cached_topics.len().saturating_sub(1),
-                Panel::Nodes => app.cached_nodes.len().saturating_sub(1),
-                Panel::Services => app.cached_services.len().saturating_sub(1),
-                Panel::Measure | Panel::Plugins => 0,
-            };
-            app.selected_index = max;
-        }
+        KeyCode::Home => match app.current_panel {
+            Panel::Measure => app.measure_selected_index = 0,
+            Panel::Plugins => app.plugin_mgr.selected_index = 0,
+            _ => {
+                app.selected_index = 0;
+                app.detail_scroll = 0;
+            }
+        },
+        KeyCode::End => match app.current_panel {
+            Panel::Measure => {
+                app.measure_selected_index = app.monitor.measuring_topics.len().saturating_sub(1);
+            }
+            Panel::Plugins => {
+                app.plugin_mgr.selected_index =
+                    (app.plugin_mgr.count() + app.plugin_mgr.failed.len()).saturating_sub(1);
+            }
+            Panel::Topics => app.selected_index = app.cached_topics.len().saturating_sub(1),
+            Panel::Nodes => app.selected_index = app.cached_nodes.len().saturating_sub(1),
+            Panel::Services => {
+                app.selected_index = app.cached_services.len().saturating_sub(1);
+            }
+        },
 
         KeyCode::Tab => {
             app.current_panel = app.current_panel.next();

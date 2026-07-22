@@ -9,7 +9,7 @@ The plugin interface is defined using [WIT (WebAssembly Interface Types)](https:
 - Rust toolchain with the `wasm32-wasip2` target: `rustup target add wasm32-wasip2`
 - `hu` built with the `wasm-plugins` feature (the default release binary includes it)
 
-If `hu` was not built with `wasm-plugins`, plugin loading is silently disabled and `hu plugin list` returns an empty list.
+If `hu` was not built with `wasm-plugins`, plugin loading is disabled: `hu plugin list` prints a message saying WASM plugin support isn't compiled in (or `[]` under `--json`).
 
 ## Worlds
 
