@@ -16,13 +16,20 @@ test-threads = 4
 
 # nextest runs each test in its own process, so serial_test's in-process
 # static Mutex cannot serialize tests across process boundaries -- it is a
-# no-op under nextest. Use nextest's own test-groups instead to limit the 6
-# tests that spawn a real `ros2 run demo_nodes_cpp ...` subprocess to one at
-# a time, since concurrent RCL/rclcpp subprocess spawns cause them to all hit
-# the hard 60s kill simultaneously (observed on both CI and whippet).
+# no-op under nextest. Use nextest's own test-groups instead.
+#
+# Even with test-threads=4, tests in demo_nodes.rs/parameter_interop.rs that
+# spawn a real ros2/rclcpp subprocess kept intermittently missing their
+# discovery-latency deadlines (widened twice, still not converging) because
+# other RCL-spawning tests in pubsub_interop.rs/service_interop.rs/
+# type_description_interop.rs are not in the same serialization group and
+# can still run concurrently with them. Serialize whole test *binaries*
+# instead of hand-enumerating individual RCL-spawning test names, since
+# every one of these 5 binaries has at least one such test and getting the
+# name list wrong silently reintroduces the contention.
 [test-groups]
 rcl-interop = { max-threads = 1 }
 
 [[profile.interop.overrides]]
-filter = 'test(/test_(rcl_talker_to_hiroz_listener|hiroz_talker_to_rcl_listener|rcl_add_two_ints_server_to_hiroz_client|hiroz_add_two_ints_server_to_rcl_client|rcl_fibonacci_action_server_to_hiroz_client|hiroz_fibonacci_action_server_to_rcl_client)$/)'
+filter = 'binary_id(demo_nodes) | binary_id(parameter_interop) | binary_id(pubsub_interop) | binary_id(service_interop) | binary_id(type_description_interop)'
 test-group = 'rcl-interop'
