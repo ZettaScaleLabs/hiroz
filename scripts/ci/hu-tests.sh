@@ -13,5 +13,9 @@ cargo build --target wasm32-wasip2 --manifest-path "${PLUGIN_DIR}/hu-monitor/Car
 TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 export HU_PLUGIN_PATH="${TARGET_DIR}/wasm32-wasip2/release"
 
+# Tests spawn `hu` as a subprocess by name (Command::new("hu")) — put the
+# just-built binary on PATH.
+export PATH="${TARGET_DIR}/release:${PATH}"
+
 cargo test -p hiroz-tests --test hu_meter --features hu-meter-tests,jazzy --release
 cargo test -p hiroz-tests --test hu_monitor --features hu-monitor-tests,jazzy --release
