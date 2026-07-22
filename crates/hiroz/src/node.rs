@@ -23,6 +23,7 @@ use crate::{
         service::{ParameterService, ParameterServiceConfig},
     },
     pubsub::{ZPubBuilder, ZSubBuilder},
+    ros_msg::MessageTypeInfo,
     service::{ZClientBuilder, ZServerBuilder},
 };
 
