@@ -4,3 +4,4 @@ resolver = "2"
 
 [workspace.dependencies]
 wit-bindgen = "0.46"
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }

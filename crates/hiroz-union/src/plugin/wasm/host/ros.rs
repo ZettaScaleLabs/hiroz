@@ -126,8 +126,7 @@ impl hu::plugin::ros::Host for PluginState {
         self.require_perm(hu::plugin::types::Permission::PublishTopic)?;
         let schema = get_schema(&type_name)
             .ok_or_else(|| format!("schema for '{type_name}' not found in registry"))?;
-        let value: serde_json::Value =
-            serde_json::from_str(&yaml).map_err(|e| format!("failed to parse YAML/JSON: {e}"))?;
+        let value = parse_yaml_or_json(&yaml)?;
         let msg = json_to_dynamic_message(&value, &schema)?;
         serialize_cdr(&msg).map_err(|e| e.to_string())
     }
@@ -189,8 +188,7 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
 
         let req_schema =
             get_schema(&req_type).ok_or_else(|| format!("schema for '{req_type}' not found"))?;
-        let req_value: serde_json::Value = serde_json::from_str(&request_json)
-            .map_err(|e| format!("failed to parse request JSON: {e}"))?;
+        let req_value = parse_yaml_or_json(&request_json)?;
         let req_msg = json_to_dynamic_message(&req_value, &req_schema)?;
         let req_cdr = serialize_cdr(&req_msg).map_err(|e| e.to_string())?;
 
@@ -224,10 +222,55 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         ))
     }
 
+    fn call_raw(
+        &mut self,
+        res: Resource<hu::plugin::ros::ServiceClient>,
+        payload: Vec<u8>,
+        timeout_ms: u32,
+    ) -> Result<Vec<u8>, String> {
+        let rep = res.rep();
+        let Some(data) = self.service_clients.get(&rep) else {
+            return Err("service client not found".to_string());
+        };
+        let session = data.session.clone();
+        let ke = data.ke.clone();
+
+        let timeout = Duration::from_millis(timeout_ms as u64);
+        let replies = session
+            .get(&ke)
+            .payload(zenoh::bytes::ZBytes::from(payload))
+            .timeout(timeout)
+            .wait()
+            .map_err(|e| e.to_string())?;
+
+        let reply = replies
+            .recv()
+            .map_err(|_| "no reply within timeout".to_string())?;
+        let sample = reply.result().map_err(|e| e.to_string())?;
+        Ok(sample.payload().to_bytes().into_owned())
+    }
+
     fn drop(&mut self, res: Resource<hu::plugin::ros::ServiceClient>) -> wasmtime::Result<()> {
         self.service_clients.remove(&res.rep());
         Ok(())
     }
+}
+
+// ─── YAML/JSON→CDR helpers ───────────────────────────────────────────────────
+
+/// Parse a request/pub body that may be either strict JSON (quoted keys) or
+/// flow-style YAML (unquoted keys, e.g. `{a: 1, b: 2}`) — both are common in
+/// CLI-supplied `--yaml`/request strings, and `--yaml`-named flags in
+/// particular are documented as accepting YAML, not JSON. YAML is a JSON
+/// superset for our purposes, so try JSON first (fast path, and gives JSON's
+/// error messages when the caller really did pass invalid JSON) and fall
+/// back to a YAML parse re-expressed as `serde_json::Value`.
+fn parse_yaml_or_json(input: &str) -> Result<serde_json::Value, String> {
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
+        return Ok(v);
+    }
+    serde_yaml::from_str::<serde_json::Value>(input)
+        .map_err(|e| format!("failed to parse YAML/JSON: {e}"))
 }
 
 // ─── JSON→CDR helpers ────────────────────────────────────────────────────────

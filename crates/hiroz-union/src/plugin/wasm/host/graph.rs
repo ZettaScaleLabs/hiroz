@@ -52,6 +52,43 @@ impl hu::plugin::graph::Host for PluginState {
             })
             .collect()
     }
+
+    fn describe_node(&mut self, namespace: String, name: String) -> hu::plugin::graph::NodeDetail {
+        let graph = &self.engine.graph;
+        // Match against the same denormalized (namespace, name) pairs get_node_names()
+        // produces — see get_node_names(): empty namespace becomes "/", otherwise a
+        // leading '/' is prepended. Same lookup key shape as app/render/nodes.rs.
+        let found = graph
+            .get_node_names()
+            .into_iter()
+            .any(|(n, ns)| n == name && ns == namespace);
+        if !found {
+            return hu::plugin::graph::NodeDetail {
+                found: false,
+                publishers: vec![],
+                subscribers: vec![],
+            };
+        }
+        let node_key = (namespace, name);
+        let to_endpoints = |v: Vec<(String, String)>| {
+            v.into_iter()
+                .map(|(topic, type_name)| hu::plugin::graph::NodeEndpoint {
+                    name: topic,
+                    type_name,
+                })
+                .collect::<Vec<_>>()
+        };
+        let publishers = to_endpoints(
+            graph.get_names_and_types_by_node(node_key.clone(), EndpointKind::Publisher),
+        );
+        let subscribers =
+            to_endpoints(graph.get_names_and_types_by_node(node_key, EndpointKind::Subscription));
+        hu::plugin::graph::NodeDetail {
+            found: true,
+            publishers,
+            subscribers,
+        }
+    }
 }
 
 // web-types has only records — generated Host trait is empty.

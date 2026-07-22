@@ -104,9 +104,25 @@ interface graph {
         servers: u32,
     }
 
+    // Per-node endpoint detail — used by `describe-node` to answer "what does
+    // this node publish/subscribe to".
+    record node-endpoint {
+        name: string,
+        type-name: string,
+    }
+    record node-detail {
+        found: bool,
+        publishers: list<node-endpoint>,
+        subscribers: list<node-endpoint>,
+    }
+
     list-topics:   func() -> list<topic-info>;
     list-nodes:    func() -> list<node-info>;
     list-services: func() -> list<service-info>;
+    // Looks up a single node by (namespace, name) and returns its publisher /
+    // subscriber topics. `found: false` (with empty lists) when no such node
+    // exists in the graph.
+    describe-node: func(namespace: string, name: string) -> node-detail;
 }
 
 interface ros {
@@ -116,6 +132,10 @@ interface ros {
 
     resource service-client {
         call: func(request-json: string, timeout-ms: u32) -> result<string, string>;
+        // Raw CDR passthrough — bypasses schema-based JSON encode/decode.
+        // Used for callers that already have an exact CDR payload (e.g. hex
+        // bytes from a CLI --payload flag) rather than a JSON request body.
+        call-raw: func(payload: list<u8>, timeout-ms: u32) -> result<list<u8>, string>;
     }
 
     // Typed measurement records — avoid JSON round-trip for the common analytics path.

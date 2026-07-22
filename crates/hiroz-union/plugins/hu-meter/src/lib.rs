@@ -249,7 +249,16 @@ impl HuMeter {
     fn cmd_list(&self, args: &[String]) {
         let what = args.first().map(|s| s.as_str()).unwrap_or("topics");
         let show_all = args.contains(&"--all".to_string());
-        let type_filter = flag_value(args, "--find");
+        // `list <kind> --find <substr>` and the `list find-<kind> <substr>` sugar
+        // both filter — the latter takes its filter as a bare positional arg.
+        let (what, positional_filter) = match what {
+            "find-topics" => ("topics", args.get(1).cloned()),
+            "find-services" => ("services", args.get(1).cloned()),
+            "find-nodes" => ("nodes", args.get(1).cloned()),
+            other => (other, None),
+        };
+        let filter = positional_filter.or_else(|| flag_value(args, "--find"));
+        let count_limit: Option<usize> = flag_value(args, "--count").and_then(|v| v.parse().ok());
 
         match what {
             "topics" => {
@@ -259,14 +268,17 @@ impl HuMeter {
                 } else {
                     topics.into_iter().filter(|t| !is_hidden(&t.name)).collect()
                 };
-                let topics: Vec<_> = if let Some(ref f) = type_filter {
+                let mut topics: Vec<_> = if let Some(ref f) = filter {
                     topics
                         .into_iter()
-                        .filter(|t| t.type_name.contains(f.as_str()))
+                        .filter(|t| t.type_name.contains(f.as_str()) || t.name.contains(f.as_str()))
                         .collect()
                 } else {
                     topics
                 };
+                if let Some(n) = count_limit {
+                    topics.truncate(n);
+                }
                 if self.json {
                     render::println(&format!(
                         "[{}]",
@@ -293,6 +305,14 @@ impl HuMeter {
                 } else {
                     nodes.into_iter().filter(|n| !is_hidden(&n.name)).collect()
                 };
+                let mut nodes: Vec<_> = if let Some(ref f) = filter {
+                    nodes.into_iter().filter(|n| n.name.contains(f.as_str())).collect()
+                } else {
+                    nodes
+                };
+                if let Some(n) = count_limit {
+                    nodes.truncate(n);
+                }
                 if self.json {
                     render::println(&format!(
                         "[{}]",
@@ -327,6 +347,17 @@ impl HuMeter {
                         .filter(|s| !is_hidden(&s.name))
                         .collect()
                 };
+                let mut services: Vec<_> = if let Some(ref f) = filter {
+                    services
+                        .into_iter()
+                        .filter(|s| s.type_name.contains(f.as_str()) || s.name.contains(f.as_str()))
+                        .collect()
+                } else {
+                    services
+                };
+                if let Some(n) = count_limit {
+                    services.truncate(n);
+                }
                 if self.json {
                     render::println(&format!(
                         "[{}]",
@@ -368,7 +399,7 @@ impl HuMeter {
                 };
                 if self.json {
                     render::println(&format!(
-                        "{{\"name\":\"{}\",\"type\":\"{}\",\"publishers\":{},\"subscribers\":{}}}",
+                        "{{\"name\":\"{}\",\"type\":\"{}\",\"publisher_count\":{},\"subscriber_count\":{}}}",
                         topic.name, topic.type_name, topic.publishers, topic.subscribers
                     ));
                 } else {
@@ -394,13 +425,37 @@ impl HuMeter {
                     render::exit(1);
                     return;
                 };
+                let detail = graph::describe_node(&node.namespace, &node.name);
                 if self.json {
+                    let fmt_eps = |eps: &[graph::NodeEndpoint]| {
+                        eps.iter()
+                            .map(|e| {
+                                format!(
+                                    "{{\"name\":\"{}\",\"type\":\"{}\"}}",
+                                    e.name, e.type_name
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    };
                     render::println(&format!(
-                        "{{\"namespace\":\"{}\",\"name\":\"{}\"}}",
-                        node.namespace, node.name
+                        "{{\"found\":{},\"namespace\":\"{}\",\"name\":\"{}\",\"publishers\":[{}],\"subscribers\":[{}]}}",
+                        detail.found,
+                        node.namespace,
+                        node.name,
+                        fmt_eps(&detail.publishers),
+                        fmt_eps(&detail.subscribers),
                     ));
                 } else {
                     render::println(&format!("Node: {}/{}", node.namespace, node.name));
+                    render::println(&format!("Publishers ({}):", detail.publishers.len()));
+                    for p in &detail.publishers {
+                        render::println(&format!("  {}  [{}]", p.name, p.type_name));
+                    }
+                    render::println(&format!("Subscribers ({}):", detail.subscribers.len()));
+                    for s in &detail.subscribers {
+                        render::println(&format!("  {}  [{}]", s.name, s.type_name));
+                    }
                 }
                 render::exit(0);
             }
@@ -505,12 +560,15 @@ impl HuMeter {
             };
         } else {
             // One-shot publish (original behaviour)
+            let cdr_len = cdr.len();
             if let Err(e) = pub_.publish(&cdr) {
                 render::println(&format!("publish error: {e}"));
                 render::exit(1);
             } else {
                 if self.json {
-                    render::println(&format!("{{\"published\":true,\"topic\":\"{topic}\"}}"));
+                    render::println(&format!(
+                        "{{\"published\":1,\"bytes\":{cdr_len},\"topic\":\"{topic}\"}}"
+                    ));
                 } else {
                     render::println(&format!("Published to {topic}"));
                 }
@@ -521,34 +579,131 @@ impl HuMeter {
     }
 
     fn cmd_service(&self, args: &[String]) {
-        // hu meter service <name> <type> <request-json>
-        let (name, type_name, request_json) = match (args.first(), args.get(1), args.get(2)) {
-            (Some(n), Some(t), Some(r)) => (n.clone(), t.clone(), r.clone()),
-            _ => {
-                render::println("Usage: hu meter service <name> <type> <request-json>");
-                render::println("  Example: hu meter service /add_two_ints example_interfaces/srv/AddTwoInts '{\"a\":1,\"b\":2}'");
-                render::exit(1);
-                return;
-            }
+        // hu meter service list [--json]
+        // hu meter service find <substr>
+        // hu meter service type <name>
+        // hu meter service call <name> [--yaml <yaml> --msg-type <type> | --payload <hex>] [--timeout <s>]
+        let Some(subcmd) = args.first() else {
+            render::println("Usage: hu meter service list|find|type|call <name> [args]");
+            render::exit(1);
+            return;
         };
-        let timeout_ms: u32 = flag_value(args, "--timeout")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(5000);
-        let client = match ros::connect_service(&name, &type_name) {
-            Ok(c) => c,
-            Err(e) => {
-                render::println(&format!("ERROR: connect to {name}: {e}"));
-                render::exit(1);
-                return;
-            }
-        };
-        match client.call(&request_json, timeout_ms) {
-            Ok(resp) => {
-                render::println(&resp);
+        match subcmd.as_str() {
+            "list" => {
+                let services = graph::list_services();
+                if self.json {
+                    render::println(&format!(
+                        "[{}]",
+                        services
+                            .iter()
+                            .map(|s| format!(
+                                "{{\"name\":\"{}\",\"type\":\"{}\"}}",
+                                s.name, s.type_name
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    ));
+                } else {
+                    for s in &services {
+                        render::println(&format!("{}\t[{}]", s.name, s.type_name));
+                    }
+                }
                 render::exit(0);
             }
-            Err(e) => {
-                render::println(&format!("ERROR: call failed: {e}"));
+            "find" => {
+                let Some(needle) = args.get(1) else {
+                    render::println("Usage: hu meter service find <substr>");
+                    render::exit(1);
+                    return;
+                };
+                let services: Vec<_> = graph::list_services()
+                    .into_iter()
+                    .filter(|s| s.name.contains(needle.as_str()))
+                    .collect();
+                for s in &services {
+                    render::println(&s.name);
+                }
+                render::exit(0);
+            }
+            "type" => {
+                let Some(name) = args.get(1) else {
+                    render::println("Usage: hu meter service type <name>");
+                    render::exit(1);
+                    return;
+                };
+                let Some(svc) = graph::list_services().into_iter().find(|s| &s.name == name)
+                else {
+                    render::println(&format!("service not found: {name}"));
+                    render::exit(1);
+                    return;
+                };
+                render::println(&svc.type_name);
+                render::exit(0);
+            }
+            "call" => {
+                let Some(name) = args.get(1) else {
+                    render::println(
+                        "Usage: hu meter service call <name> [--yaml <yaml> --msg-type <type> | --payload <hex>] [--timeout <s>]",
+                    );
+                    render::exit(1);
+                    return;
+                };
+                let timeout_ms: u32 = flag_value(args, "--timeout")
+                    .and_then(|v| v.parse().ok())
+                    .map(|s: u32| s.saturating_mul(1000))
+                    .unwrap_or(5000);
+                let msg_type = flag_value(args, "--msg-type").unwrap_or_default();
+
+                let client = match ros::connect_service(name, &msg_type) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        render::println(&format!("ERROR: connect to {name}: {e}"));
+                        render::exit(1);
+                        return;
+                    }
+                };
+
+                if let Some(hex_payload) = flag_value(args, "--payload") {
+                    let payload = match parse_hex_bytes(&hex_payload) {
+                        Ok(b) => b,
+                        Err(e) => {
+                            render::println(&format!("ERROR: bad --payload: {e}"));
+                            render::exit(1);
+                            return;
+                        }
+                    };
+                    match client.call_raw(&payload, timeout_ms) {
+                        Ok(resp) => {
+                            render::println(&format!(
+                                "response ({} bytes): {}",
+                                resp.len(),
+                                bytes_to_hex(&resp)
+                            ));
+                            render::exit(0);
+                        }
+                        Err(e) => {
+                            render::println(&format!("ERROR: call failed: {e}"));
+                            render::exit(1);
+                        }
+                    }
+                    return;
+                }
+
+                let yaml = flag_value(args, "--yaml").unwrap_or_else(|| "{}".to_string());
+                match client.call(&yaml, timeout_ms) {
+                    Ok(resp) => {
+                        render::println(&resp);
+                        render::exit(0);
+                    }
+                    Err(e) => {
+                        render::println(&format!("ERROR: call failed: {e}"));
+                        render::exit(1);
+                    }
+                }
+            }
+            other => {
+                render::println(&format!("unknown service subcommand: {other}"));
+                render::println("Usage: hu meter service list|find|type|call <name> [args]");
                 render::exit(1);
             }
         }
@@ -576,22 +731,64 @@ impl HuMeter {
         };
         match subcmd {
             "list" => {
-                let svc = format!("{node}/list_parameters");
-                let client = match ros::connect_service(&svc, "rcl_interfaces/srv/ListParameters") {
-                    Ok(c) => c,
+                let filter = flag_value(args, "--filter");
+                let names = match list_param_names(&node) {
+                    Ok(n) => n,
                     Err(e) => {
-                        render::println(&format!("ERROR: connect to {svc}: {e}"));
+                        render::println(&format!("ERROR: {e}"));
                         render::exit(1);
                         return;
                     }
                 };
-                match client.call(r#"{"prefixes":[],"depth":0}"#, 5000) {
-                    Ok(resp) => {
+                let names: Vec<String> = match &filter {
+                    Some(f) => names.into_iter().filter(|n| n.contains(f.as_str())).collect(),
+                    None => names,
+                };
+                if self.json {
+                    render::println(&format!(
+                        "[{}]",
+                        names
+                            .iter()
+                            .map(|n| format!("\"{n}\""))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    ));
+                } else {
+                    for n in &names {
+                        render::println(n);
+                    }
+                }
+                render::exit(0);
+            }
+            "get" => {
+                // Supports `param get <node> <name>` and `param get <node> <name1> <name2> ...`
+                // — every positional arg after <node> (excluding flags) is a param name.
+                let param_names: Vec<String> = args[2..]
+                    .iter()
+                    .filter(|a| !a.starts_with("--"))
+                    .cloned()
+                    .collect();
+                if param_names.is_empty() {
+                    render::println("ERROR: parameter name required");
+                    render::exit(1);
+                    return;
+                }
+                match get_param_values(&node, &param_names) {
+                    Ok(values) => {
                         if self.json {
-                            render::println(&resp);
+                            render::println(&format!(
+                                "{{{}}}",
+                                param_names
+                                    .iter()
+                                    .zip(values.iter())
+                                    .map(|(n, v)| format!("\"{n}\":{v}"))
+                                    .collect::<Vec<_>>()
+                                    .join(",")
+                            ));
                         } else {
-                            // resp is JSON like {"result":{"names":["..."],"prefixes":[]}}
-                            render::println(&resp);
+                            for (n, v) in param_names.iter().zip(values.iter()) {
+                                render::println(&format!("{n}: {v}"));
+                            }
                         }
                         render::exit(0);
                     }
@@ -601,28 +798,51 @@ impl HuMeter {
                     }
                 }
             }
-            "get" => {
-                let param_name = match args.get(2) {
-                    Some(n) => n.clone(),
-                    None => {
-                        render::println("ERROR: parameter name required");
-                        render::exit(1);
-                        return;
-                    }
-                };
-                let svc = format!("{node}/get_parameters");
-                let client = match ros::connect_service(&svc, "rcl_interfaces/srv/GetParameters") {
-                    Ok(c) => c,
+            "dump" => {
+                let names = match list_param_names(&node) {
+                    Ok(n) => n,
                     Err(e) => {
-                        render::println(&format!("ERROR: connect to {svc}: {e}"));
+                        render::println(&format!("ERROR: {e}"));
                         render::exit(1);
                         return;
                     }
                 };
-                let req = format!(r#"{{"names":["{param_name}"]}}"#);
-                match client.call(&req, 5000) {
-                    Ok(resp) => {
-                        render::println(&resp);
+                let values = if names.is_empty() {
+                    Vec::new()
+                } else {
+                    match get_param_values(&node, &names) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            render::println(&format!("ERROR: {e}"));
+                            render::exit(1);
+                            return;
+                        }
+                    }
+                };
+                render::println(&format!("{node}:"));
+                render::println("  ros__parameters:");
+                for (n, v) in names.iter().zip(values.iter()) {
+                    render::println(&format!("    {n}: {v}"));
+                }
+                render::exit(0);
+            }
+            "describe" => {
+                let Some(param_name) = args.get(2) else {
+                    render::println("ERROR: parameter name required");
+                    render::exit(1);
+                    return;
+                };
+                match get_param_values(&node, std::slice::from_ref(param_name)) {
+                    Ok(values) => {
+                        let value = values.first().cloned().unwrap_or_else(|| "null".to_string());
+                        if self.json {
+                            render::println(&format!(
+                                "{{\"name\":\"{param_name}\",\"value\":{value}}}"
+                            ));
+                        } else {
+                            render::println(&format!("Name: {param_name}"));
+                            render::println(&format!("Value: {value}"));
+                        }
                         render::exit(0);
                     }
                     Err(e) => {
@@ -722,10 +942,20 @@ impl HuMeter {
                     }
                 }
             }
+            "load" => {
+                // NOTE: `param load <node> <yaml-file>` requires reading a host-filesystem
+                // path. WASM plugins have no filesystem host interface (see hu::plugin —
+                // only graph/ros/render/session/raw-transport are exposed), so this cannot
+                // be implemented from inside the plugin without a new host capability.
+                render::println(
+                    "ERROR: param load is not supported: WASM plugins have no filesystem access",
+                );
+                render::exit(1);
+            }
             other => {
                 render::println(&format!("unknown param subcommand: {other}"));
                 render::println(
-                    "Usage: hu meter param list|get|set|delete <node> [<param>] [<value>]",
+                    "Usage: hu meter param list|get|set|delete|dump|describe <node> [<param>] [<value>]",
                 );
                 render::exit(1);
             }
@@ -746,6 +976,103 @@ impl HuMeter {
             }
         };
         match subcmd {
+            "list" => {
+                let actions = list_actions();
+                if self.json {
+                    render::println(&format!(
+                        "[{}]",
+                        actions
+                            .iter()
+                            .map(|(name, type_name)| format!(
+                                "{{\"name\":\"{name}\",\"type\":\"{type_name}\"}}"
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    ));
+                } else {
+                    for (name, type_name) in &actions {
+                        render::println(&format!("{name}\t[{type_name}]"));
+                    }
+                }
+                render::exit(0);
+            }
+            "info" => {
+                let Some(name) = args.get(1) else {
+                    render::println("Usage: hu meter action info <name>");
+                    render::exit(1);
+                    return;
+                };
+                let send_goal_svc = format!("{name}/_action/send_goal");
+                let Some(svc) = graph::list_services()
+                    .into_iter()
+                    .find(|s| &s.name == &send_goal_svc)
+                else {
+                    render::println(&format!("action not found: {name}"));
+                    render::exit(1);
+                    return;
+                };
+                let action_type = svc.type_name.strip_suffix("_SendGoal").unwrap_or(&svc.type_name);
+                if self.json {
+                    render::println(&format!(
+                        "{{\"name\":\"{name}\",\"type\":\"{action_type}\",\"servers\":{}}}",
+                        svc.servers
+                    ));
+                } else {
+                    render::println(&format!("Action: {name}"));
+                    render::println(&format!("Type: {action_type}"));
+                    render::println(&format!("Servers: {}", svc.servers));
+                }
+                render::exit(0);
+            }
+            "send-goal" => {
+                let Some(name) = args.get(1) else {
+                    render::println(
+                        "Usage: hu meter action send-goal <name> --payload <hex> [--timeout <s>]",
+                    );
+                    render::exit(1);
+                    return;
+                };
+                let Some(hex_payload) = flag_value(args, "--payload") else {
+                    render::println("ERROR: --payload <hex-bytes> required");
+                    render::exit(1);
+                    return;
+                };
+                let payload = match parse_hex_bytes(&hex_payload) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        render::println(&format!("ERROR: bad --payload: {e}"));
+                        render::exit(1);
+                        return;
+                    }
+                };
+                let timeout_ms: u32 = flag_value(args, "--timeout")
+                    .and_then(|v| v.parse().ok())
+                    .map(|s: u32| s.saturating_mul(1000))
+                    .unwrap_or(30000);
+                let send_goal_svc = format!("{name}/_action/send_goal");
+                let client = match ros::connect_service(&send_goal_svc, "") {
+                    Ok(c) => c,
+                    Err(e) => {
+                        render::println(&format!("ERROR: connect to {send_goal_svc}: {e}"));
+                        render::exit(1);
+                        return;
+                    }
+                };
+                match client.call_raw(&payload, timeout_ms) {
+                    Ok(resp) => {
+                        render::println(&format!(
+                            "response ({} bytes): {}",
+                            resp.len(),
+                            bytes_to_hex(&resp)
+                        ));
+                        render::exit(0);
+                    }
+                    Err(e) => {
+                        render::println(&format!("ERROR: send-goal failed: {e}"));
+                        render::exit(1);
+                    }
+                }
+            }
             "echo" => {
                 // Subscribe to <action_name>/_action/feedback
                 let action_name = match args.get(1) {
@@ -1064,6 +1391,103 @@ fn infer_param_value(s: &str) -> (u8, String) {
     }
     let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
     (4, format!(r#""string_value":"{escaped}""#))
+}
+
+/// Calls `<node>/list_parameters` and returns the parameter names.
+fn list_param_names(node: &str) -> Result<Vec<String>, String> {
+    let svc = format!("{node}/list_parameters");
+    let client = ros::connect_service(&svc, "rcl_interfaces/srv/ListParameters")
+        .map_err(|e| format!("connect to {svc}: {e}"))?;
+    let resp = client
+        .call(r#"{"prefixes":[],"depth":0}"#, 5000)
+        .map_err(|e| e.to_string())?;
+    let value: serde_json::Value =
+        serde_json::from_str(&resp).map_err(|e| format!("bad list_parameters response: {e}"))?;
+    let names = value["result"]["names"]
+        .as_array()
+        .ok_or("list_parameters response missing result.names")?;
+    Ok(names
+        .iter()
+        .filter_map(|n| n.as_str().map(str::to_string))
+        .collect())
+}
+
+/// Calls `<node>/get_parameters` for the given names and returns each value
+/// re-expressed as a JSON literal (e.g. `"42"`, `"\"hello\""`), in request order.
+fn get_param_values(node: &str, names: &[String]) -> Result<Vec<String>, String> {
+    let svc = format!("{node}/get_parameters");
+    let client = ros::connect_service(&svc, "rcl_interfaces/srv/GetParameters")
+        .map_err(|e| format!("connect to {svc}: {e}"))?;
+    let names_json = names
+        .iter()
+        .map(|n| format!("\"{n}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    let req = format!(r#"{{"names":[{names_json}]}}"#);
+    let resp = client.call(&req, 5000).map_err(|e| e.to_string())?;
+    let value: serde_json::Value =
+        serde_json::from_str(&resp).map_err(|e| format!("bad get_parameters response: {e}"))?;
+    let values = value["values"]
+        .as_array()
+        .ok_or("get_parameters response missing values")?;
+    Ok(values.iter().map(param_value_literal).collect())
+}
+
+/// Extracts the ROS2 `rcl_interfaces/ParameterValue` union's active field as a
+/// JSON literal, based on its `type` discriminant
+/// (1=bool, 2=integer, 3=double, 4=string, everything else falls back to raw JSON).
+fn param_value_literal(v: &serde_json::Value) -> String {
+    let ty = v["type"].as_u64().unwrap_or(0);
+    let field = match ty {
+        1 => &v["bool_value"],
+        2 => &v["integer_value"],
+        3 => &v["double_value"],
+        4 => &v["string_value"],
+        5 => &v["byte_array_value"],
+        6 => &v["bool_array_value"],
+        7 => &v["integer_array_value"],
+        8 => &v["double_array_value"],
+        9 => &v["string_array_value"],
+        _ => return "null".to_string(),
+    };
+    if field.is_null() {
+        "null".to_string()
+    } else {
+        field.to_string()
+    }
+}
+
+/// Parses a whitespace-separated hex byte string (e.g. `"00 01 02"`) into bytes.
+fn parse_hex_bytes(s: &str) -> Result<Vec<u8>, String> {
+    s.split_whitespace()
+        .map(|tok| u8::from_str_radix(tok, 16).map_err(|e| format!("invalid hex byte '{tok}': {e}")))
+        .collect()
+}
+
+/// Derives the list of ROS2 actions from the service graph: an action server
+/// always registers a `<action>/_action/send_goal` service of type
+/// `<ActionType>_SendGoal` — no dedicated "action" entity exists in the graph.
+fn list_actions() -> Vec<(String, String)> {
+    graph::list_services()
+        .into_iter()
+        .filter_map(|s| {
+            let name = s.name.strip_suffix("/_action/send_goal")?.to_string();
+            let type_name = s
+                .type_name
+                .strip_suffix("_SendGoal")
+                .unwrap_or(&s.type_name)
+                .to_string();
+            Some((name, type_name))
+        })
+        .collect()
+}
+
+fn bytes_to_hex(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Extract a dot-separated field path from a JSON string.
