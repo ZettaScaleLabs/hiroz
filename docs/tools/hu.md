@@ -208,7 +208,11 @@ Measurement and introspection:
 | `hu meter info topic\|node\|service <name>` | Full entity introspection |
 | `hu meter service call <name> --yaml <yaml> --msg-type <type> [--timeout <s>]` | Call a service |
 | `hu meter param list\|get\|dump\|describe\|set\|delete\|load <node> [...]` | Read/write/delete node parameters, or bulk-load from a ROS-style YAML params file (`load <node> <yaml-file>`). `load` is host-handled: `hu` reads and parses the YAML on the host (WASM plugins have no filesystem access) and hands the plugin pre-flattened parameter data. |
-| `hu meter action send\|echo <name> <type> [<goal-json>]` | Send a goal or echo action feedback |
+| `hu meter action list` | List available actions |
+| `hu meter action info <name>` | Show an action's type and server count |
+| `hu meter action send <name> <type> <goal-json> [--timeout <s>]` | Send a goal (JSON) and poll for the result |
+| `hu meter action send-goal <name> --payload <hex> [--timeout <s>]` | Send a goal from raw hex-encoded CDR bytes |
+| `hu meter action echo <name> --msg-type <type> [--count <n>]` | Echo action feedback messages |
 
 ### hu monitor
 
@@ -217,7 +221,7 @@ Observation and diagnostics:
 | Command | Description |
 |---|---|
 | `hu monitor watch` | Stream live graph change events |
-| `hu monitor graph` | Snapshot the current graph (with optional `--watch` refresh) |
+| `hu monitor graph` | Snapshot the current graph |
 | `hu monitor log [--count <n>]` | Tail `/rosout` |
 | `hu monitor log-level <node> [<level>]` | Read or change a node's logger level |
 

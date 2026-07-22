@@ -3,15 +3,16 @@ wit_bindgen::generate!({
     path: "wit/hu-plugin.wit",
 });
 
-use hu::plugin::types::{EventKind, Permission};
-use hu::plugin::{graph, render, ros};
+use hu::plugin::{
+    graph, render, ros,
+    types::{EventKind, Permission},
+};
 
 // ─── Plugin state ─────────────────────────────────────────────────────────────
 
 struct HuMonitor {
     mode: Mode,
     json: bool,
-    once: bool,
 }
 
 enum Mode {
@@ -42,7 +43,6 @@ impl HuMonitor {
         HuMonitor {
             mode: Mode::Init,
             json: false,
-            once: false,
         }
     }
 
@@ -52,9 +52,6 @@ impl HuMonitor {
             .filter(|a| {
                 if a == "--json" {
                     self.json = true;
-                    false
-                } else if a == "--once" {
-                    self.once = true;
                     false
                 } else {
                     true
