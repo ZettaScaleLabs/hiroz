@@ -1894,8 +1894,9 @@ fn test_hu_meter_action_send_goal() {
     spawn_fibonacci_action_server(&router);
     thread::sleep(Duration::from_millis(1200));
 
-    // Minimal CDR goal payload for Fibonacci{order: 3}:
-    // CDR header (4 bytes) + int32 (4 bytes) = 00 01 00 00  03 00 00 00
+    // Minimal CDR goal payload for the SendGoal request { goal_id: UUID,
+    // goal: Fibonacci{order: 3} }: CDR header (4 bytes) + goal_id (16-byte
+    // fixed array, any value) + int32 order (4 bytes) = 24 bytes total.
     let out = run_hu_meter(
         router.endpoint(),
         &[
@@ -1903,7 +1904,9 @@ fn test_hu_meter_action_send_goal() {
             "send-goal",
             "/fibonacci_hu_test",
             "--payload",
-            "00 01 00 00 00 00 00 00 03 00 00 00",
+            "00 01 00 00 \
+             00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 \
+             03 00 00 00",
             "--timeout",
             "10",
         ],
