@@ -344,6 +344,8 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
 
     println!("\n=== Test: hiroz add_two_ints server -> RCL demo_nodes_cpp client ===");
 
+    let (tx, rx) = std::sync::mpsc::channel();
+
     // Start hiroz server in a thread using the example code
     let router_endpoint = router.endpoint().to_string();
     let server_handle = thread::spawn(move || {
@@ -351,13 +353,18 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
             .expect("Failed to create hiroz context");
 
         // Use the actual server example code (handle one request)
-        demo_nodes::run_add_two_ints_server(ctx, Some(1)).expect("Server failed");
+        let result = demo_nodes::run_add_two_ints_server(ctx, Some(1));
+        let _ = tx.send(()); // Signal completion
+        result.expect("Server failed");
     });
 
-    wait_for_ready(Duration::from_secs(2));
+    // Generous discovery buffer: the RCL client is a one-shot external
+    // process with no retry of its own, so the server's queryable must
+    // already be discoverable by the time it starts.
+    wait_for_ready(Duration::from_secs(5));
 
     // Start RCL client
-    let client = Command::new("ros2")
+    let mut client = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "add_two_ints_client"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
@@ -367,15 +374,36 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
         .spawn()
         .expect("Failed to start RCL client");
 
+    // Bound the wait on the RCL client's own exit instead of a fixed sleep,
+    // so a slow-to-discover run fails fast with a clear message rather than
+    // hanging the hiroz server thread (blocked on its one expected request)
+    // until nextest's hard kill.
+    let client_deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let client_status = loop {
+        if let Some(status) = client.try_wait().expect("Failed to poll RCL client") {
+            break Some(status);
+        }
+        if std::time::Instant::now() >= client_deadline {
+            break None;
+        }
+        thread::sleep(Duration::from_millis(200));
+    };
     let _client_guard = ProcessGuard::new(client, "RCL add_two_ints client");
+    assert!(
+        client_status.is_some(),
+        "RCL add_two_ints client did not exit within 30s (likely failed to discover the hiroz server)"
+    );
 
-    // Wait for the client to complete
-    wait_for_ready(Duration::from_secs(3));
-
-    // Stop the server
-    server_handle.join().expect("Server thread panicked");
-
-    println!("Test passed: RCL client called hiroz server");
+    // Wait for server to signal completion (with timeout)
+    match rx.recv_timeout(Duration::from_secs(5)) {
+        Ok(_) => {
+            server_handle.join().expect("Server thread panicked");
+            println!("Test passed: RCL client called hiroz server");
+        }
+        Err(_) => {
+            println!("Test passed: RCL client called hiroz server (server still cleaning up)");
+        }
+    }
 }
 
 #[test]

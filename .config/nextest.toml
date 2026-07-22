@@ -4,9 +4,15 @@ slow-timeout = { period = "30s", terminate-after = 2 }
 # Profile for interop tests that spawn ros2 CLI subprocesses.
 # Each test owns its own TestRouter port so all 14 tests run in parallel.
 # The larger slow-timeout budget accommodates subprocess startup on CI runners.
+# test-threads lowered from 8: real ros2/rclcpp subprocesses are spawned by
+# tests across demo_nodes.rs, parameter_interop.rs, pubsub_interop.rs,
+# service_interop.rs, and type_description_interop.rs, and too many
+# concurrent spawns cause discovery-latency failures/timeouts (observed on
+# both CI and whippet) -- not just in the demo_nodes.rs cluster the
+# rcl-interop test-group below targets specifically.
 [profile.interop]
 slow-timeout = { period = "60s", terminate-after = 2 }
-test-threads = 8
+test-threads = 4
 
 # nextest runs each test in its own process, so serial_test's in-process
 # static Mutex cannot serialize tests across process boundaries -- it is a
