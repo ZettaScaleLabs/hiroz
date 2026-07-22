@@ -2519,3 +2519,141 @@ fn test_hu_plugin_template_validate_and_discover() {
         "Expected the template plugin in `hu plugin list` output:\n{listed}"
     );
 }
+
+// ─── hu-plugin-template runtime dispatch (Startup + Tick) ────────────────────
+
+/// The template plugin is the copy-paste starting point third-party authors
+/// adapt. test_hu_plugin_template_validate_and_discover only proves it *loads*;
+/// this drives its actual runtime path — Startup dispatch, then the Tick loop
+/// that its `on_event` handler renders from — so a bug in the demonstrated
+/// example logic (not just the component ABI) is caught. The template's
+/// manifest name is `my-plugin`, so it is invoked as `hu my-plugin`.
+#[test]
+#[serial_test::serial]
+fn test_hu_plugin_template_runtime_ticks() {
+    let router = TestRouter::new();
+
+    // `my-plugin` has tick_ms=1000 and prints "hello from WASM!" on each Tick,
+    // looping until interrupted. Run it briefly, then kill and inspect output.
+    let mut child = Command::new("hu")
+        .arg("--router")
+        .arg(router.endpoint())
+        .arg("my-plugin")
+        .arg("demo-arg")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn hu my-plugin (template)");
+
+    // Allow a couple of tick intervals (tick_ms = 1000) to elapse.
+    thread::sleep(Duration::from_millis(2600));
+    let _ = child.kill();
+    let out = child
+        .wait_with_output()
+        .expect("failed to wait on template plugin");
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("hello from WASM!"),
+        "Expected the template's Tick output 'hello from WASM!' (Startup+Tick dispatch), got:\n{stdout}\nstderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+// ─── HU_ROUTER / HU_DOMAIN environment configuration ─────────────────────────
+
+/// docs/tools/hu.md's Quick Start recommends exporting HU_ROUTER/HU_DOMAIN once
+/// per session rather than passing --router on every call. Every other test
+/// here uses the explicit --router flag; this one configures the router purely
+/// via the environment (no flags), so a regression in env-var parsing — or a
+/// default flag value silently overriding it — is caught.
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_env_var_router_config() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("env_meter_node").build().unwrap();
+            let _pub = node
+                .create_pub::<RosString>("/env_meter_topic")
+                .build()
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(6)).await;
+        });
+    });
+
+    thread::sleep(Duration::from_millis(1000));
+
+    // No --router / --domain flags: reach the router entirely through HU_ROUTER.
+    let out = Command::new("hu")
+        .env("HU_ROUTER", router.endpoint())
+        .env("HU_DOMAIN", "0")
+        .args(["meter", "list", "topics", "--json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run hu meter via env config");
+
+    assert!(
+        out.status.success(),
+        "hu meter list topics via HU_ROUTER failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("Expected JSON from env-configured hu meter: {e}\n{stdout}"));
+    let topics = json.as_array().expect("Expected JSON array");
+    assert!(
+        topics
+            .iter()
+            .any(|t| t["name"].as_str().unwrap_or("").contains("env_meter_topic")),
+        "Env-configured hu must reach the router and list /env_meter_topic: {stdout}"
+    );
+}
+
+// ─── param describe --json (strict shape) ────────────────────────────────────
+
+/// docs/tools/hu.md advertises `--json` on every meter subcommand for piping to
+/// jq. `param get`/`param list` already have strict JSON-parse tests; this adds
+/// the same for `param describe --json`, whose output was previously only
+/// substring-checked. Asserts the parsed `{name, value}` shape so a field-name
+/// or encoding regression in the describe JSON path is caught.
+#[test]
+fn test_hu_meter_param_describe_json() {
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+    spawn_param_node(endpoint, "param_desc_json_node", vec![("descjson", 7)]);
+    thread::sleep(Duration::from_millis(800));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &[
+            "param",
+            "describe",
+            "/param_desc_json_node",
+            "descjson",
+            "--json",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter param describe --json failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("param describe --json not valid JSON: {e}\n{stdout}"));
+    assert_eq!(
+        json["name"].as_str().unwrap_or(""),
+        "descjson",
+        "Expected name=descjson in describe JSON: {stdout}"
+    );
+    assert_eq!(
+        json["value"].as_i64().unwrap_or(-1),
+        7,
+        "Expected value=7 in describe JSON: {stdout}"
+    );
+}
