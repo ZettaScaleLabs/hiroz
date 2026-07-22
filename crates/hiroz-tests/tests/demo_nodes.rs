@@ -264,15 +264,13 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
 
     println!("\n=== Test: RCL demo_nodes_cpp add_two_ints server -> hiroz client ===");
 
-    // Start RCL server. Diagnostic: inherit stdout/stderr (rather than
-    // Stdio::null()) so a CI failure shows whether the server process
-    // actually started/discovered anything, instead of failing blind.
+    // Start RCL server.
     let server = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "add_two_ints_server"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .process_group(0)
         .spawn()
         .expect("Failed to start RCL server");
