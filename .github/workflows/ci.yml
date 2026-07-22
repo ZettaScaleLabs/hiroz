@@ -54,14 +54,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          # Push from this branch's own PR runs too (same-repo branch, so
-          # CACHIX_AUTH_TOKEN is available): a Cargo.lock change invalidated
-          # cached derivation hashes for a chunk of the Rust dependency tree,
-          # and PR runs were never allowed to repopulate the cache, so every
-          # run rebuilt ~15 minutes of crates from source. Temporary --
-          # revisit once this settles back to the normal push-on-main-only
-          # policy.
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Check formatting
         run: nix build .#checks.x86_64-linux.pre-commit-check -L
@@ -107,14 +100,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          # Push from this branch's own PR runs too (same-repo branch, so
-          # CACHIX_AUTH_TOKEN is available): a Cargo.lock change invalidated
-          # cached derivation hashes for a chunk of the Rust dependency tree,
-          # and PR runs were never allowed to repopulate the cache, so every
-          # run rebuilt ~15 minutes of crates from source. Temporary --
-          # revisit once this settles back to the normal push-on-main-only
-          # policy.
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell (Linux via Nix)
         if: runner.os == 'Linux'
@@ -209,14 +195,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          # Push from this branch's own PR runs too (same-repo branch, so
-          # CACHIX_AUTH_TOKEN is available): a Cargo.lock change invalidated
-          # cached derivation hashes for a chunk of the Rust dependency tree,
-          # and PR runs were never allowed to repopulate the cache, so every
-          # run rebuilt ~15 minutes of crates from source. Temporary --
-          # revisit once this settles back to the normal push-on-main-only
-          # policy.
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell (Linux via Nix)
         run: |
@@ -274,14 +253,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          # Push from this branch's own PR runs too (same-repo branch, so
-          # CACHIX_AUTH_TOKEN is available): a Cargo.lock change invalidated
-          # cached derivation hashes for a chunk of the Rust dependency tree,
-          # and PR runs were never allowed to repopulate the cache, so every
-          # run rebuilt ~15 minutes of crates from source. Temporary --
-          # revisit once this settles back to the normal push-on-main-only
-          # policy.
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell
         run: nix profile install nixpkgs#nushell
@@ -360,14 +332,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          # Push from this branch's own PR runs too (same-repo branch, so
-          # CACHIX_AUTH_TOKEN is available): a Cargo.lock change invalidated
-          # cached derivation hashes for a chunk of the Rust dependency tree,
-          # and PR runs were never allowed to repopulate the cache, so every
-          # run rebuilt ~15 minutes of crates from source. Temporary --
-          # revisit once this settles back to the normal push-on-main-only
-          # policy.
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell (Linux via Nix)
         if: runner.os == 'Linux'
@@ -489,14 +454,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          # Push from this branch's own PR runs too (same-repo branch, so
-          # CACHIX_AUTH_TOKEN is available): a Cargo.lock change invalidated
-          # cached derivation hashes for a chunk of the Rust dependency tree,
-          # and PR runs were never allowed to repopulate the cache, so every
-          # run rebuilt ~15 minutes of crates from source. Temporary --
-          # revisit once this settles back to the normal push-on-main-only
-          # policy.
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup nix environment
         run: |
@@ -600,14 +558,7 @@ jobs:
           # subsequent runs (including PRs) can download them from Cachix
           # instead of rebuilding. hiroz.cachix.org is our own cache;
           # ros.cachix.org is read-only for upstream ROS packages.
-          # Push from this branch's own PR runs too (same-repo branch, so
-          # CACHIX_AUTH_TOKEN is available): a Cargo.lock change invalidated
-          # cached derivation hashes for a chunk of the Rust dependency tree,
-          # and PR runs were never allowed to repopulate the cache, so every
-          # run rebuilt ~15 minutes of crates from source. Temporary --
-          # revisit once this settles back to the normal push-on-main-only
-          # policy.
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell
         run: |
@@ -720,14 +671,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          # Push from this branch's own PR runs too (same-repo branch, so
-          # CACHIX_AUTH_TOKEN is available): a Cargo.lock change invalidated
-          # cached derivation hashes for a chunk of the Rust dependency tree,
-          # and PR runs were never allowed to repopulate the cache, so every
-          # run rebuilt ~15 minutes of crates from source. Temporary --
-          # revisit once this settles back to the normal push-on-main-only
-          # policy.
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell
         run: |
