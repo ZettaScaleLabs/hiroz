@@ -895,6 +895,30 @@ fn test_hu_meter_echo_raw() {
     );
 }
 
+/// Exercises `resolve_topic_ke`'s wildcard-fallback branch: with no publisher
+/// or subscriber on the topic, no type is discoverable, so the key expression
+/// falls back to `{domain_id}/{topic}/**`. `echo --raw` must still resolve that
+/// ke, raw-subscribe successfully, and exit cleanly on timeout (no messages) —
+/// if the fallback produced an invalid ke, resolve/subscribe would error and
+/// the command would exit non-zero.
+#[test]
+fn test_hu_meter_echo_raw_wildcard_fallback() {
+    let router = TestRouter::new();
+
+    // No publisher/subscriber is ever created on this topic, so the graph has
+    // no type info and resolve_topic_ke takes the `**` fallback path.
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["echo", "/no_publisher_topic", "--raw", "--timeout", "2"],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter echo --raw against a topic with no publisher should resolve the \
+         wildcard key expression and exit cleanly on timeout: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 // ─── delay ────────────────────────────────────────────────────────────────────
 
 /// Spawn hu-meter, let it run for `secs` seconds, kill it, and return accumulated output.
@@ -1255,15 +1279,24 @@ fn test_hu_meter_param_dump() {
 fn test_hu_meter_param_load() {
     let router = TestRouter::new();
     let endpoint = router.endpoint().to_string();
-    spawn_param_node(endpoint, "param_load_node", vec![("loadval", 0)]);
+    // Declare both a flat param and a dotted (nested-map) param. ROS 2
+    // parameter names are flat dotted strings, so a nested YAML map is
+    // flattened by load_ros_param_yaml into `group.nested_val`.
+    spawn_param_node(
+        endpoint,
+        "param_load_node",
+        vec![("loadval", 0), ("group.nested_val", 0)],
+    );
     thread::sleep(Duration::from_millis(800));
 
-    // Write a YAML file to _tmp/
+    // Write a YAML file to _tmp/ mixing a flat scalar and a nested map, so
+    // the loader's dotted-key flattening path is exercised, not just the
+    // flat-scalar path.
     let yaml_path = "_tmp/param_load_test.yaml";
     std::fs::create_dir_all("_tmp").expect("failed to create _tmp dir");
     std::fs::write(
         yaml_path,
-        "/param_load_node:\n  ros__parameters:\n    loadval: 55\n",
+        "/param_load_node:\n  ros__parameters:\n    loadval: 55\n    group:\n      nested_val: 42\n",
     )
     .expect("failed to write param yaml");
 
@@ -1277,7 +1310,7 @@ fn test_hu_meter_param_load() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    // Verify the param was actually set
+    // Verify the flat param was actually set
     let get_out = run_hu_meter(
         router.endpoint(),
         &["param", "get", "/param_load_node", "loadval", "--json"],
@@ -1290,6 +1323,27 @@ fn test_hu_meter_param_load() {
         55,
         "Expected loadval=55 after param load: {}",
         stdout
+    );
+
+    // Verify the nested map was flattened to `group.nested_val` and set
+    let nested_out = run_hu_meter(
+        router.endpoint(),
+        &[
+            "param",
+            "get",
+            "/param_load_node",
+            "group.nested_val",
+            "--json",
+        ],
+    );
+    let nested_stdout = String::from_utf8_lossy(&nested_out.stdout);
+    let nested_map: serde_json::Value = serde_json::from_str(&nested_stdout)
+        .expect("Expected JSON from param get after load (nested)");
+    assert_eq!(
+        nested_map["group.nested_val"].as_i64().unwrap_or(-1),
+        42,
+        "Expected group.nested_val=42 after param load: {}",
+        nested_stdout
     );
 }
 
