@@ -1736,6 +1736,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#permission-host-call-gating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        permission — host-call gating
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2766,6 +2777,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#permission-host-call-gating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        permission — host-call gating
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3154,6 +3176,43 @@
 <p>All resources are declared by calling the corresponding host function: <code>raw-subscribe(ke)</code>, <code>raw-publisher(ke)</code>, <code>declare-liveliness(ke)</code>, <code>subscribe-liveliness(ke)</code>, <code>declare-queryable(ke)</code>, <code>querier(ke)</code>.</p>
 <h3 id="session-named-zenoh-sessions"><code>session</code> — named Zenoh sessions<a class="headerlink" href="#session-named-zenoh-sessions" title="Permanent link">&para;</a></h3>
 <p>For bridge plugins and other low-level use: declare sessions in your manifest and retrieve them via <code>session::get-session(name)</code>. The returned <code>session-handle</code> exposes the same raw subscribe, publish, liveliness, queryable, and querier primitives as <code>raw-transport</code>, but on a separately opened session — useful when a plugin needs two independent Zenoh connections (e.g. Humble and Jazzy router endpoints).</p>
+<h3 id="permission-host-call-gating"><code>permission</code> — host-call gating<a class="headerlink" href="#permission-host-call-gating" title="Permanent link">&para;</a></h3>
+<p>Every plugin declares the host capabilities it needs in <code>required_permissions</code> (a <code>list&lt;permission&gt;</code> on <code>PluginManifest</code>). The host records the granted set before the first event and rejects any host call whose required permission was not declared — the call returns an error to the guest rather than silently succeeding. A plugin with an empty <code>required_permissions</code> can still render output and receive events, but every graph-mutating or transport host call below will fail.</p>
+<table>
+<thead>
+<tr>
+<th>Permission</th>
+<th>Gates</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>subscribe-topic</code></td>
+<td><code>ros::subscribe(topic)</code></td>
+</tr>
+<tr>
+<td><code>publish-topic</code></td>
+<td><code>ros::publish(...)</code> (typed publish / <code>encode-yaml-to-cdr</code> publish path)</td>
+</tr>
+<tr>
+<td><code>call-service</code></td>
+<td><code>ros::connect-service(name, type)</code> and the resulting <code>service-client::call</code></td>
+</tr>
+<tr>
+<td><code>measure-metrics</code></td>
+<td><code>ros::measure-hz</code>, <code>measure-hz-typed</code>, <code>measure-bw</code>, <code>measure-bw-typed</code></td>
+</tr>
+<tr>
+<td><code>access-raw-cdr</code></td>
+<td>all <code>raw-transport</code> host calls — <code>raw-subscribe</code>, <code>raw-publisher</code>, <code>declare-liveliness</code>, <code>subscribe-liveliness</code>, <code>declare-queryable</code>, <code>querier</code></td>
+</tr>
+<tr>
+<td><code>open-session</code></td>
+<td><code>session::get-session(name)</code> (named multi-session access)</td>
+</tr>
+</tbody>
+</table>
+<p><code>hu-meter</code>'s <code>echo &lt;topic&gt; --raw</code> mode reads raw CDR payloads through <code>raw-transport</code>, so it declares <code>access-raw-cdr</code> in its manifest.</p>
 <h2 id="events">Events<a class="headerlink" href="#events" title="Permanent link">&para;</a></h2>
 <h3 id="cli-events-hu-cli-plugin">CLI events (<code>hu-cli-plugin</code>)<a class="headerlink" href="#cli-events-hu-cli-plugin" title="Permanent link">&para;</a></h3>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>variant cli-event {

@@ -2945,6 +2945,10 @@
 <td>Print arriving messages</td>
 </tr>
 <tr>
+<td><code>hu meter echo &lt;topic&gt; --raw</code></td>
+<td>Hex-dump raw CDR bytes, bypassing schema decode (requires the <code>access-raw-cdr</code> permission)</td>
+</tr>
+<tr>
 <td><code>hu meter delay &lt;topic&gt;</code></td>
 <td>End-to-end latency</td>
 </tr>
@@ -3018,7 +3022,7 @@
 </tr>
 <tr>
 <td><code>hu plugin validate &lt;path&gt;</code></td>
-<td>Validate a <code>.wasm</code> file against the <code>hu-plugin</code> ABI</td>
+<td>Validate that a <code>.wasm</code> file compiles as a WASM component</td>
 </tr>
 </tbody>
 </table>
@@ -3139,9 +3143,9 @@
 <td>ROS 2 domain ID (also <code>HU_DOMAIN</code>)</td>
 </tr>
 <tr>
-<td><code>--backend</code></td>
-<td>TUI</td>
-<td>Force a specific backend (<code>tui</code>, <code>headless</code>, <code>web</code>)</td>
+<td><code>--backend &lt;name&gt;</code></td>
+<td><code>rmw-zenoh</code></td>
+<td>Select the graph/RMW backend (currently only <code>rmw-zenoh</code>). Not a mode switch — use <code>--headless</code>/<code>--web</code> for output mode</td>
 </tr>
 <tr>
 <td><code>--headless</code></td>
@@ -3151,7 +3155,7 @@
 <tr>
 <td><code>--json</code></td>
 <td>—</td>
-<td>Structured JSON output (headless mode only)</td>
+<td>Structured JSON output — affects headless event streaming, <code>hu plugin list</code> output, and log formatting</td>
 </tr>
 <tr>
 <td><code>--echo &lt;TOPIC&gt;</code></td>
