@@ -22,8 +22,6 @@ enum Mode {
         prev_nodes: Vec<String>,
         prev_services: Vec<String>,
     },
-    /// Print the current graph and exit
-    Graph,
     /// Subscribe to /rosout and print log messages
     Log {
         sub: Option<ros::Subscription>,
