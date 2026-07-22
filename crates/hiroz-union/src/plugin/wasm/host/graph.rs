@@ -69,7 +69,20 @@ impl hu::plugin::graph::Host for PluginState {
                 subscribers: vec![],
             };
         }
-        let node_key = (namespace, name);
+        // get_names_and_types_by_node looks up the graph's raw by_node index,
+        // which stores "/" (root namespace) as "" -- see
+        // hiroz::entity::normalize_node_namespace -- while the namespace
+        // we're given here is the *denormalized* "/" form get_node_names()
+        // produces above. Normalize back or every lookup on a root-namespace
+        // node returns empty publishers/subscribers.
+        let node_key = (
+            if namespace == "/" {
+                String::new()
+            } else {
+                namespace
+            },
+            name,
+        );
         let to_endpoints = |v: Vec<(String, String)>| {
             v.into_iter()
                 .map(|(topic, type_name)| hu::plugin::graph::NodeEndpoint {
