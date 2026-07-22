@@ -1,0 +1,6 @@
+# A list of logger names to get the levels for.
+string[] names
+
+---
+# A list of logger levels, in the same length and order as the provided names.
+LoggerLevel[] levels

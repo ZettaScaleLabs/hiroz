@@ -7,6 +7,19 @@ use hiroz_codegen::python_msgspec_generator;
 fn main() -> Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
+    // The message/service definitions live outside this crate (in
+    // hiroz-codegen/assets/), so cargo's default "rerun on package change"
+    // heuristic never notices when a .msg/.srv is added or edited there. Track
+    // the asset trees explicitly so codegen re-runs when definitions change.
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    if let Some(codegen_assets) = manifest_dir
+        .parent()
+        .map(|p| p.join("hiroz-codegen/assets"))
+        && codegen_assets.exists()
+    {
+        println!("cargo:rerun-if-changed={}", codegen_assets.display());
+    }
+
     // Declare custom cfg for ROS version detection
     println!("cargo:rustc-check-cfg=cfg(ros_humble)");
 
