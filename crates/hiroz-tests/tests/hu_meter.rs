@@ -841,17 +841,7 @@ fn test_hu_meter_service_list_with_types() {
 
 // ─── echo --raw ───────────────────────────────────────────────────────────────
 
-/// Ignored: `--raw` was never implemented -- `cmd_echo` only ever calls
-/// `ros::subscribe`, which always returns decoded JSON (see
-/// `hu::plugin::ros::Host::subscribe`); there is no raw-byte topic
-/// subscription path reachable from a plugin without knowing the full
-/// RmwZenoh key expression (domain id + mangled type + hash), none of
-/// which is exposed to WASM guests today (`session::raw-subscribe` takes
-/// a caller-supplied exact key expression, not a bare ROS topic name).
-/// Needs new host-side support to resolve a topic name to its key
-/// expression before this can work, not a bug fix.
 #[test]
-#[ignore = "echo --raw is unimplemented -- see doc comment"]
 fn test_hu_meter_echo_raw() {
     let router = TestRouter::new();
 
@@ -1261,12 +1251,7 @@ fn test_hu_meter_param_dump() {
     );
 }
 
-/// Ignored: `param load` reads a YAML file from a host filesystem path, but
-/// WASM plugins have no filesystem host interface -- `cmd_param`'s "load"
-/// branch says so explicitly and always returns an error. This is a
-/// deliberate, disclosed limitation, not a bug to fix here.
 #[test]
-#[ignore = "param load has no filesystem access from WASM plugins -- see doc comment"]
 fn test_hu_meter_param_load() {
     let router = TestRouter::new();
     let endpoint = router.endpoint().to_string();

@@ -39,6 +39,13 @@ enum Mode {
         printed: usize,
         field: Option<String>,
     },
+    /// Echo raw CDR bytes (hex), bypassing schema-based decode
+    EchoRaw {
+        topic: String,
+        sub: Option<hu::plugin::raw_transport::RawSubscription>,
+        count: usize,
+        printed: usize,
+    },
     /// Delay measurement (header stamp vs receive time) — requires JSON with header.stamp
     Delay {
         topic: String,
@@ -216,6 +223,44 @@ impl HuMeter {
             .and_then(|v| v.parse::<f64>().ok())
             .map(|s| s.ceil().max(1.0) as u32)
             .unwrap_or(DEFAULT_ECHO_TIMEOUT_TICKS);
+
+        if args.iter().any(|a| a == "--raw") {
+            let ke = match ros::resolve_topic_ke(&topic) {
+                Ok(ke) => ke,
+                Err(e) => {
+                    render::eprintln(&format!("Failed to resolve key expression for {topic}: {e}"));
+                    render::exit(1);
+                    self.mode = Mode::Done;
+                    return;
+                }
+            };
+            let sess = match hu::plugin::session::get_session("default") {
+                Ok(s) => s,
+                Err(e) => {
+                    render::eprintln(&format!("failed to get default session: {e}"));
+                    render::exit(1);
+                    self.mode = Mode::Done;
+                    return;
+                }
+            };
+            let sub = match sess.raw_subscribe(&ke) {
+                Ok(s) => s,
+                Err(e) => {
+                    render::eprintln(&format!("Failed to raw-subscribe to {topic}: {e}"));
+                    render::exit(1);
+                    self.mode = Mode::Done;
+                    return;
+                }
+            };
+            self.mode = Mode::EchoRaw {
+                topic,
+                sub: Some(sub),
+                count,
+                printed: 0,
+            };
+            return;
+        }
+
         let sub = match ros::subscribe(&topic) {
             Ok(s) => s,
             Err(e) => {
@@ -959,14 +1004,52 @@ impl HuMeter {
                 }
             }
             "load" => {
-                // NOTE: `param load <node> <yaml-file>` requires reading a host-filesystem
-                // path. WASM plugins have no filesystem host interface (see hu::plugin —
-                // only graph/ros/render/session/raw-transport are exposed), so this cannot
-                // be implemented from inside the plugin without a new host capability.
-                render::println(
-                    "ERROR: param load is not supported: WASM plugins have no filesystem access",
-                );
-                render::exit(1);
+                // The host CLI (main.rs) reads and parses the YAML file --
+                // WASM plugins have no filesystem host interface -- and
+                // hands us the already-flattened parameters as a JSON array
+                // of [name, value] pairs in args[2] instead of a path.
+                let Some(params_json) = args.get(2) else {
+                    render::println("ERROR: missing pre-parsed param data");
+                    render::exit(1);
+                    return;
+                };
+                let entries: Vec<(String, serde_json::Value)> =
+                    match serde_json::from_str(params_json) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            render::eprintln(&format!("ERROR: bad param data: {e}"));
+                            render::exit(1);
+                            return;
+                        }
+                    };
+                let svc = format!("{node}/set_parameters");
+                let client = match ros::connect_service(&svc, "rcl_interfaces/srv/SetParameters")
+                {
+                    Ok(c) => c,
+                    Err(e) => {
+                        render::eprintln(&format!("ERROR: connect to {svc}: {e}"));
+                        render::exit(1);
+                        return;
+                    }
+                };
+                let params_field: Vec<String> = entries
+                    .iter()
+                    .map(|(name, value)| {
+                        let (type_id, value_json) = infer_param_value_json(value);
+                        format!(r#"{{"name":"{name}","value":{{"type":{type_id},{value_json}}}}}"#)
+                    })
+                    .collect();
+                let req = format!(r#"{{"parameters":[{}]}}"#, params_field.join(","));
+                match client.call(&req, 5000) {
+                    Ok(resp) => {
+                        render::println(&resp);
+                        render::exit(0);
+                    }
+                    Err(e) => {
+                        render::eprintln(&format!("ERROR: {e}"));
+                        render::exit(1);
+                    }
+                }
             }
             other => {
                 render::eprintln(&format!("unknown param subcommand: {other}"));
@@ -1298,6 +1381,29 @@ impl HuMeter {
                     self.mode = Mode::Done;
                 }
             }
+            Mode::EchoRaw {
+                topic,
+                sub,
+                count,
+                printed,
+            } => {
+                let Some(s) = sub.as_ref() else {
+                    return;
+                };
+                while let Some(bytes) = s.try_recv() {
+                    *printed += 1;
+                    render::println(&format!("[{topic}] {}", bytes_to_hex(&bytes)));
+                    if *count > 0 && *printed >= *count {
+                        render::exit(0);
+                        self.mode = Mode::Done;
+                        return;
+                    }
+                }
+                if done {
+                    render::exit(0);
+                    self.mode = Mode::Done;
+                }
+            }
             Mode::Delay { topic, sub } => {
                 let Some(s) = sub.as_ref() else {
                     return;
@@ -1416,6 +1522,21 @@ fn infer_param_value(s: &str) -> (u8, String) {
     }
     let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
     (4, format!(r#""string_value":"{escaped}""#))
+}
+
+/// Same as `infer_param_value` but from an already-typed JSON value (as
+/// produced by the host's YAML-file parser for `param load`), so a numeric
+/// YAML scalar like `55` isn't round-tripped through string parsing.
+fn infer_param_value_json(v: &serde_json::Value) -> (u8, String) {
+    match v {
+        serde_json::Value::Bool(b) => (1, format!(r#""bool_value":{b}"#)),
+        serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => {
+            (2, format!(r#""integer_value":{n}"#))
+        }
+        serde_json::Value::Number(n) => (3, format!(r#""double_value":{n}"#)),
+        serde_json::Value::String(s) => infer_param_value(s),
+        other => infer_param_value(&other.to_string()),
+    }
 }
 
 /// Calls `<node>/list_parameters` and returns the parameter names.

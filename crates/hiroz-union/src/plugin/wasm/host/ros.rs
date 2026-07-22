@@ -16,6 +16,33 @@ use super::super::state::{PluginState, ServiceClientData, SubscriptionData};
 use super::hu;
 
 impl hu::plugin::ros::Host for PluginState {
+    fn resolve_topic_ke(&mut self, topic: String) -> Result<String, String> {
+        use hiroz_protocol::{EndpointKind, Entity, KeyExprFormatter, RmwZenohFormatter};
+        let domain_id = self.engine.domain_id;
+        let topic_stripped = topic.trim_start_matches('/').to_string();
+
+        let type_info = [EndpointKind::Publisher, EndpointKind::Subscription]
+            .into_iter()
+            .find_map(|kind| {
+                self.engine
+                    .graph
+                    .get_entities_by_topic(kind, &topic)
+                    .first()
+                    .and_then(|ent| match ent.as_ref() {
+                        Entity::Endpoint(ep) => ep.type_info.clone(),
+                        _ => None,
+                    })
+            });
+
+        Ok(match type_info {
+            Some(ti) => {
+                let type_escaped = RmwZenohFormatter::mangle_name(&ti.name);
+                format!("{domain_id}/{topic_stripped}/{type_escaped}/{}", ti.hash)
+            }
+            None => format!("{domain_id}/{topic_stripped}/**"),
+        })
+    }
+
     fn subscribe(
         &mut self,
         topic: String,

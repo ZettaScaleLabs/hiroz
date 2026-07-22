@@ -132,7 +132,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             #[cfg(feature = "wasm-plugins")]
             {
                 let plugin_name = args[0].clone();
-                let plugin_args = args[1..].to_vec();
+                let mut plugin_args = args[1..].to_vec();
+                // `meter param load <node> <yaml-file>` needs real filesystem
+                // access, which WASM plugins deliberately don't have. Read
+                // and parse the file here on the host instead, and hand the
+                // plugin pre-parsed parameter data (JSON, which it can
+                // already decode) rather than a path.
+                if plugin_name == "meter"
+                    && plugin_args.first().map(String::as_str) == Some("param")
+                    && plugin_args.get(1).map(String::as_str) == Some("load")
+                {
+                    let node = plugin_args.get(2).cloned().unwrap_or_default();
+                    let path = plugin_args.get(3).cloned().unwrap_or_default();
+                    let params = load_ros_param_yaml(&path, &node)
+                        .map_err(|e| format!("failed to read/parse param file '{path}': {e}"))?;
+                    plugin_args = vec![
+                        "param".to_string(),
+                        "load".to_string(),
+                        node,
+                        serde_json::to_string(&params)?,
+                    ];
+                }
                 let core = Arc::new(CoreEngine::new(&router, domain, cli.backend).await?);
                 core.start_monitoring().await;
                 let code = modes::cli::run_cli_plugin(core, &plugin_name, plugin_args).await?;
@@ -307,4 +327,62 @@ async fn run_tui_loop(
             return Ok(());
         }
     }
+}
+
+/// Read a ROS 2 `ros2 param dump`-style YAML file and flatten the
+/// `ros__parameters` map for the given node into a JSON array of
+/// `[name, value]` pairs. Nested maps are flattened with `.`-joined names,
+/// matching ROS 2's own parameter-name convention.
+#[cfg(feature = "wasm-plugins")]
+fn load_ros_param_yaml(
+    path: &str,
+    node: &str,
+) -> Result<Vec<(String, serde_json::Value)>, Box<dyn std::error::Error + Send + Sync>> {
+    let content = std::fs::read_to_string(path)?;
+    let doc: serde_yaml::Value = serde_yaml::from_str(&content)?;
+    let doc = doc
+        .as_mapping()
+        .ok_or("expected a top-level YAML mapping")?;
+
+    let node_key = node.trim_start_matches('/');
+    let node_value = doc
+        .iter()
+        .find(|(k, _)| {
+            k.as_str()
+                .map(|s| s.trim_start_matches('/') == node_key)
+                .unwrap_or(false)
+        })
+        .map(|(_, v)| v)
+        .ok_or_else(|| format!("node '{node}' not found in param file"))?;
+
+    let params = node_value
+        .get("ros__parameters")
+        .and_then(|v| v.as_mapping())
+        .ok_or("expected 'ros__parameters' mapping under the node")?;
+
+    fn flatten(
+        prefix: &str,
+        map: &serde_yaml::Mapping,
+        out: &mut Vec<(String, serde_json::Value)>,
+    ) {
+        for (k, v) in map {
+            let Some(key) = k.as_str() else { continue };
+            let full_key = if prefix.is_empty() {
+                key.to_string()
+            } else {
+                format!("{prefix}.{key}")
+            };
+            if let Some(nested) = v.as_mapping() {
+                flatten(&full_key, nested, out);
+            } else {
+                let json_value: serde_json::Value =
+                    serde_json::to_value(v).unwrap_or(serde_json::Value::Null);
+                out.push((full_key, json_value));
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    flatten("", params, &mut out);
+    Ok(out)
 }

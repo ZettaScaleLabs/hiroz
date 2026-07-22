@@ -152,6 +152,12 @@ interface ros {
     }
 
     subscribe: func(topic: string) -> result<subscription, string>;
+    // Resolve a ROS topic name to its full RmwZenoh key expression (domain
+    // + mangled type + hash), for use with session.raw-subscribe/raw-publisher
+    // when raw CDR bytes are needed instead of the decoded-JSON subscribe
+    // path. Falls back to a wildcard-type key expression if no publisher/
+    // subscriber for the topic has been discovered yet.
+    resolve-topic-ke: func(topic: string) -> result<string, string>;
     connect-service: func(name: string, type-name: string) -> result<service-client, string>;
 
     // Scalar variants kept for backward compatibility.
