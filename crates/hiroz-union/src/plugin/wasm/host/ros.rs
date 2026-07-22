@@ -82,7 +82,7 @@ impl hu::plugin::ros::Host for PluginState {
             let entities = self
                 .engine
                 .graph
-                .get_entities_by_topic(EndpointKind::Service, &name);
+                .get_entities_by_service(EndpointKind::Service, &name);
             let type_info = entities.first().and_then(|ent| match ent.as_ref() {
                 Entity::Endpoint(ep) => ep.type_info.as_ref(),
                 _ => None,

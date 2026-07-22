@@ -1166,7 +1166,7 @@ impl ZNode {
         let node = loop {
             let entities = self
                 .graph
-                .get_entities_by_topic(EndpointKind::Service, &qualified_service);
+                .get_entities_by_service(EndpointKind::Service, &qualified_service);
             let found = entities.iter().find_map(|entity| match entity.as_ref() {
                 Entity::Endpoint(endpoint) => endpoint.node.clone(),
                 _ => None,
