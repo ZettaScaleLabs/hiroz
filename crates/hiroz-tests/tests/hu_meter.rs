@@ -18,9 +18,13 @@ use std::{
 use common::*;
 use hiroz::{Builder, action::server::ExecutingGoal};
 #[cfg(not(any(feature = "kilted", feature = "lyrical")))]
-use hiroz_msgs::action_tutorials_interfaces::{FibonacciResult, action::Fibonacci};
+use hiroz_msgs::action_tutorials_interfaces::{
+    FibonacciFeedback, FibonacciGoal, FibonacciResult, action::Fibonacci,
+};
 #[cfg(any(feature = "kilted", feature = "lyrical"))]
-use hiroz_msgs::example_interfaces::{FibonacciResult, action::Fibonacci};
+use hiroz_msgs::example_interfaces::{
+    FibonacciFeedback, FibonacciGoal, FibonacciResult, action::Fibonacci,
+};
 use hiroz_msgs::{
     example_interfaces::{AddTwoIntsResponse, srv::AddTwoInts},
     std_msgs::{Header, String as RosString},
@@ -2179,5 +2183,339 @@ fn test_hu_plugin_list_json() {
     assert!(
         names.contains(&"meter"),
         "Expected 'meter' in plugin list JSON names: {names:?}"
+    );
+}
+
+// ─── --json output for scripting (echo / service call) ───────────────────────
+//
+// docs/tools/hu.md advertises `--json` output for scripting. `hz`/`bw` already
+// have typed-field JSON tests above; the following cover the remaining decoded
+// paths. `param get --json` is already covered by test_hu_meter_param_get.
+
+/// `hu meter echo` decodes each message to JSON. The line is prefixed with the
+/// topic (`[topic] {json}`); stripping that prefix must yield valid JSON with
+/// the message's fields, so a decode regression is caught for scripted use.
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_echo_json() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx
+                .create_node("echo_json_pub")
+                .with_type_description_service()
+                .build()
+                .unwrap();
+            let pub_ = node
+                .create_pub::<RosString>("/echo_json_test")
+                .build()
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            for _ in 0..10 {
+                let _ = pub_
+                    .async_publish(&RosString {
+                        data: "payload-42".into(),
+                    })
+                    .await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        });
+    });
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["echo", "/echo_json_test", "--count", "1"],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter echo failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Isolate the JSON body (everything from the first '{') and parse it.
+    let json_start = stdout
+        .find('{')
+        .unwrap_or_else(|| panic!("no JSON body in echo output: {stdout}"));
+    let body = stdout[json_start..].trim();
+    let msg: serde_json::Value = serde_json::from_str(body)
+        .unwrap_or_else(|e| panic!("echo body not valid JSON: {e}\n{body}"));
+    assert_eq!(
+        msg["data"].as_str().unwrap_or(""),
+        "payload-42",
+        "Expected data field in echo JSON: {stdout}"
+    );
+}
+
+/// `hu meter service call --yaml` prints the decoded response as JSON. It must
+/// parse as JSON with the correct field, since docs tell users to pipe it to jq.
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_service_call_json() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("svc_json_server")
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        let mut server = node
+            .create_service::<AddTwoInts>("/svc_json_test")
+            .build()
+            .unwrap();
+        for _ in 0..300 {
+            if let Ok(req) = server.take_request() {
+                let sum = req.message().a + req.message().b;
+                let _ = req.reply_blocking(&AddTwoIntsResponse { sum });
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    });
+
+    thread::sleep(Duration::from_millis(3000));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &[
+            "service",
+            "call",
+            "/svc_json_test",
+            "--yaml",
+            "{a: 20, b: 22}",
+            "--msg-type",
+            "example_interfaces/srv/AddTwoInts_Request",
+            "--timeout",
+            "10",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter service call --yaml failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let resp: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("service call response not valid JSON: {e}\n{stdout}"));
+    assert_eq!(
+        resp["sum"].as_i64().unwrap_or(-1),
+        42,
+        "Expected sum=42 in JSON response: {stdout}"
+    );
+}
+
+// ─── action echo (feedback streaming) ────────────────────────────────────────
+
+/// Full action type string (distro-dependent) used for `--msg-type`.
+#[cfg(not(any(feature = "kilted", feature = "lyrical")))]
+const FIB_ACTION_TYPE: &str = "action_tutorials_interfaces/action/Fibonacci";
+#[cfg(any(feature = "kilted", feature = "lyrical"))]
+const FIB_ACTION_TYPE: &str = "example_interfaces/action/Fibonacci";
+
+/// `hu meter action echo` subscribes to `<action>/_action/feedback` and prints
+/// each feedback message. Spawn a Fibonacci server that streams feedback while a
+/// client drives a goal, then assert `hu` captures and decodes the feedback.
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_action_echo_feedback() {
+    let router = TestRouter::new();
+
+    // Server: on a goal, wait for hu's feedback subscriber, then stream feedback.
+    let server_endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async move {
+                let ctx = create_hiroz_context_with_endpoint(&server_endpoint).unwrap();
+                let node = ctx
+                    .create_node("fib_echo_server")
+                    .with_type_description_service()
+                    .build()
+                    .unwrap();
+                let _server = node
+                    .create_action_server::<Fibonacci>("/fibonacci_echo_test")
+                    .build()
+                    .unwrap()
+                    .with_handler(|executing: ExecutingGoal<Fibonacci>| async move {
+                        // Block until the hu echo subscriber is present so no
+                        // feedback is published before it can be observed.
+                        executing
+                            .wait_for_feedback_subscriber(1, Duration::from_secs(8))
+                            .await;
+                        let mut seq = vec![0i32, 1];
+                        for i in 2..=12usize {
+                            let next = seq[i - 1] + seq[i - 2];
+                            seq.push(next);
+                            #[cfg(not(any(feature = "kilted", feature = "lyrical")))]
+                            let _ = executing.publish_feedback(FibonacciFeedback {
+                                partial_sequence: seq.clone(),
+                            });
+                            #[cfg(any(feature = "kilted", feature = "lyrical"))]
+                            let _ = executing.publish_feedback(FibonacciFeedback {
+                                sequence: seq.clone(),
+                            });
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                        }
+                        executing
+                            .succeed(FibonacciResult { sequence: seq })
+                            .unwrap();
+                    });
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            });
+    });
+
+    thread::sleep(Duration::from_millis(1500));
+
+    // Client: send a goal to trigger the server's feedback loop.
+    let client_endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async move {
+                let ctx = create_hiroz_context_with_endpoint(&client_endpoint).unwrap();
+                let node = ctx.create_node("fib_echo_client").build().unwrap();
+                let client = node
+                    .create_action_client::<Fibonacci>("/fibonacci_echo_test")
+                    .build()
+                    .unwrap();
+                client.wait_for_server(Duration::from_secs(5)).await;
+                if let Ok(gh) = client.send_goal(FibonacciGoal { order: 12 }).await {
+                    // Keep the goal alive so the server runs to completion.
+                    let _ = tokio::time::timeout(Duration::from_secs(12), gh.result()).await;
+                }
+            });
+    });
+
+    // hu subscribes to the feedback topic and captures 3 feedback messages.
+    let out = run_hu_meter(
+        router.endpoint(),
+        &[
+            "action",
+            "echo",
+            "/fibonacci_echo_test",
+            "--msg-type",
+            FIB_ACTION_TYPE,
+            "--count",
+            "3",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter action echo failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert!(
+        lines.len() >= 3,
+        "Expected at least 3 feedback lines, got {}: {}",
+        lines.len(),
+        stdout
+    );
+    // Each captured line must be a valid JSON feedback message.
+    for line in lines.iter().take(3) {
+        serde_json::from_str::<serde_json::Value>(line.trim())
+            .unwrap_or_else(|e| panic!("feedback line not valid JSON: {e}\n{line}"));
+    }
+}
+
+// ─── hu plugin validate ──────────────────────────────────────────────────────
+
+/// Locate a compiled plugin .wasm under HU_PLUGIN_PATH by artifact stem.
+fn plugin_wasm_path(stem: &str) -> std::path::PathBuf {
+    let dir = std::env::var("HU_PLUGIN_PATH")
+        .expect("HU_PLUGIN_PATH must be set (CI: scripts/ci/hu-tests.sh)");
+    std::path::Path::new(&dir).join(format!("{stem}.wasm"))
+}
+
+fn run_hu_plugin(args: &[&str]) -> Output {
+    Command::new("hu")
+        .arg("plugin")
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run hu plugin")
+}
+
+/// `hu plugin validate <meter.wasm>` must accept a genuine compiled component.
+#[test]
+#[serial_test::serial]
+fn test_hu_plugin_validate_meter_ok() {
+    let path = plugin_wasm_path("hu_meter");
+    assert!(
+        path.exists(),
+        "compiled hu_meter.wasm not found at {} — build it first",
+        path.display()
+    );
+    let out = run_hu_plugin(&["validate", path.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "hu plugin validate on a valid component exited non-zero: {}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// `hu plugin validate` must reject a file that is not a WASM component.
+#[test]
+#[serial_test::serial]
+fn test_hu_plugin_validate_rejects_bad_file() {
+    std::fs::create_dir_all("_tmp").expect("failed to create _tmp dir");
+    let bad = "_tmp/not_a_component.wasm";
+    std::fs::write(bad, b"this is definitely not a wasm component").expect("write bad file");
+    let out = run_hu_plugin(&["validate", bad]);
+    assert!(
+        !out.status.success(),
+        "hu plugin validate must fail on a non-component file, but exited 0: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+// ─── hu-plugin-template (runtime coverage of the author template) ─────────────
+
+/// The template plugin ships as the starting point for third-party authors and
+/// docs claim CI keeps it in sync with the WIT world. Prove that claim: the
+/// compiled template must pass `hu plugin validate` (loads as a component
+/// against the live host) and be discovered by `hu plugin list`.
+#[test]
+#[serial_test::serial]
+fn test_hu_plugin_template_validate_and_discover() {
+    let path = plugin_wasm_path("hu_plugin_template");
+    assert!(
+        path.exists(),
+        "compiled hu_plugin_template.wasm not found at {} — scripts/ci/hu-tests.sh must build it",
+        path.display()
+    );
+
+    // 1. It loads as a valid WASM component against the current host.
+    let validate = run_hu_plugin(&["validate", path.to_str().unwrap()]);
+    assert!(
+        validate.status.success(),
+        "hu plugin validate on hu-plugin-template failed: {}\n{}",
+        String::from_utf8_lossy(&validate.stdout),
+        String::from_utf8_lossy(&validate.stderr)
+    );
+
+    // 2. It is discovered by `hu plugin list` (HU_PLUGIN_PATH scan). The `hu-`
+    //    prefix is stripped, so hu_plugin_template.wasm lists as "plugin_template".
+    let list = run_hu_plugin(&["list"]);
+    assert!(
+        list.status.success(),
+        "hu plugin list failed: {}",
+        String::from_utf8_lossy(&list.stderr)
+    );
+    let listed = String::from_utf8_lossy(&list.stdout);
+    assert!(
+        listed.contains("plugin_template"),
+        "Expected the template plugin in `hu plugin list` output:\n{listed}"
     );
 }

@@ -301,3 +301,142 @@ fn test_monitor_graph_text_output_structure() {
         stdout
     );
 }
+
+// ─── log (/rosout subscription, --count) ─────────────────────────────────────
+
+/// `hu monitor log --count <n>` subscribes to /rosout and must stop after
+/// exactly <n> messages rather than streaming forever. hiroz core does not ship
+/// rcl_interfaces/msg/Log, so a String publisher stands in on /rosout purely to
+/// exercise the subscribe + --count-limit + clean-exit code path.
+#[test]
+#[serial_test::serial]
+fn test_monitor_log_count_limits_output() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx
+                .create_node("rosout_pub_node")
+                .with_type_description_service()
+                .build()
+                .unwrap();
+            let pub_ = node.create_pub::<RosString>("/rosout").build().unwrap();
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+            for i in 0..20 {
+                let _ = pub_
+                    .async_publish(&RosString {
+                        data: format!("log line {i}"),
+                    })
+                    .await;
+                tokio::time::sleep(Duration::from_millis(150)).await;
+            }
+        });
+    });
+
+    let out = run_hu_monitor(router.endpoint(), &["log", "--count", "2"]);
+    assert!(
+        out.status.success(),
+        "hu monitor log --count 2 failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let lines = stdout.lines().filter(|l| !l.trim().is_empty()).count();
+    assert_eq!(
+        lines, 2,
+        "Expected exactly 2 log lines from --count 2, got {lines}: {stdout}"
+    );
+}
+
+// ─── log-level (get/set via rcl_interfaces service) ──────────────────────────
+
+/// `hu monitor log-level <node>` connects to `<node>/get_logger_levels`. hiroz
+/// core does not implement logger-level services, so this asserts the command's
+/// graceful-failure path: it must terminate promptly (no hang) and emit an
+/// ERROR rather than panicking or blocking when the service is absent. This
+/// guards the LogLevel dispatch + connect-service host call + clean-exit path.
+#[test]
+#[serial_test::serial]
+fn test_monitor_log_level_reports_missing_service() {
+    let router = TestRouter::new();
+
+    let start = std::time::Instant::now();
+    let out = run_hu_monitor(
+        router.endpoint(),
+        &["log-level", "/no_such_logger_node_xyzzy"],
+    );
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < Duration::from_secs(15),
+        "hu monitor log-level took too long ({elapsed:?}) — possible hang"
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        combined.contains("ERROR"),
+        "Expected an ERROR line when the logger service is absent: {combined}"
+    );
+}
+
+// ─── watch: node + service appearance ────────────────────────────────────────
+
+/// The watch diffing loop reports node and service appearance the same way it
+/// reports topics. test_monitor_watch_fires_on_topic_create only covers topics;
+/// this covers the node-appeared and service-appeared branches (lib.rs diffing),
+/// including the namespace+name concatenation for nodes.
+#[test]
+#[serial_test::serial]
+fn test_monitor_watch_fires_on_node_and_service() {
+    let router = TestRouter::new();
+
+    let mut watch_child = Command::new("hu")
+        .arg("--router")
+        .arg(router.endpoint())
+        .arg("monitor")
+        .arg("watch")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn hu monitor watch");
+
+    // Let watch record the initial (empty) graph snapshot.
+    thread::sleep(Duration::from_secs(2));
+
+    let endpoint = router.endpoint().to_string();
+    let node_handle = thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+            let node = ctx.create_node("watch_ns_node").build().unwrap();
+            let _srv = node
+                .create_service::<AddTwoInts>("/watch_appear_service")
+                .build()
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+    });
+
+    // Wait for several watch ticks (tick_ms = 1000ms) to detect the changes.
+    thread::sleep(Duration::from_secs(4));
+
+    let _ = watch_child.kill();
+    let watch_out = watch_child
+        .wait_with_output()
+        .expect("failed to collect watch output");
+    node_handle.join().ok();
+
+    let stdout = String::from_utf8_lossy(&watch_out.stdout);
+    let stderr = String::from_utf8_lossy(&watch_out.stderr);
+    assert!(
+        stdout.contains("node appeared:") && stdout.contains("watch_ns_node"),
+        "Expected 'node appeared: ...watch_ns_node'; stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("service appeared:") && stdout.contains("watch_appear_service"),
+        "Expected 'service appeared: /watch_appear_service'; stdout: {stdout}\nstderr: {stderr}"
+    );
+}

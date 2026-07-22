@@ -17,6 +17,11 @@ cargo build -p hiroz-union --release
 PLUGIN_DIR="crates/hiroz-union/plugins"
 cargo build --target wasm32-wasip2 --manifest-path "${PLUGIN_DIR}/hu-meter/Cargo.toml" --release
 cargo build --target wasm32-wasip2 --manifest-path "${PLUGIN_DIR}/hu-monitor/Cargo.toml" --release
+# hu-plugin-template is the starting point third-party authors copy. Build it
+# into the same HU_PLUGIN_PATH so the hu_meter test suite can load it through
+# the real component-model host (`hu plugin validate` / `hu plugin list`) and
+# catch a WIT/ABI regression that a compile-only check would miss.
+cargo build --target wasm32-wasip2 --manifest-path "${PLUGIN_DIR}/hu-plugin-template/Cargo.toml" --release
 
 # Expose the WASM output directory as HU_PLUGIN_PATH so that `hu meter` /
 # `hu monitor` can load the compiled plugins during tests.
