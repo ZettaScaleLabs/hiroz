@@ -2783,7 +2783,7 @@
 <td>Call a service</td>
 <td><code>ros2 service call</code></td>
 <td>—</td>
-<td><code>hu meter service &lt;name&gt; &lt;type&gt; &lt;request-json&gt;</code></td>
+<td><code>hu meter service call &lt;name&gt; --yaml &lt;yaml&gt; --msg-type &lt;type&gt;</code></td>
 </tr>
 <tr>
 <td>Action introspection</td>
@@ -3177,7 +3177,7 @@
 <h3 id="services-and-parameters">Services and parameters<a class="headerlink" href="#services-and-parameters" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Call a service</span>
 </span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>ros2<span class="w"> </span>service<span class="w"> </span>call<span class="w"> </span>/add_two_ints<span class="w"> </span>example_interfaces/srv/AddTwoInts<span class="w"> </span><span class="s1">&#39;{a: 3, b: 7}&#39;</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>hu<span class="w"> </span>meter<span class="w"> </span>service<span class="w"> </span>/add_two_ints<span class="w"> </span>example_interfaces/srv/AddTwoInts<span class="w"> </span><span class="s1">&#39;{&quot;a&quot;:3,&quot;b&quot;:7}&#39;</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>hu<span class="w"> </span>meter<span class="w"> </span>service<span class="w"> </span>call<span class="w"> </span>/add_two_ints<span class="w"> </span>--yaml<span class="w"> </span><span class="s1">&#39;{a: 3, b: 7}&#39;</span><span class="w"> </span>--msg-type<span class="w"> </span>example_interfaces/srv/AddTwoInts_Request
 </span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
 </span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># Get a parameter</span>
 </span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>ros2<span class="w"> </span>param<span class="w"> </span>get<span class="w"> </span>/talker<span class="w"> </span>use_sim_time
