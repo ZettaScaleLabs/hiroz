@@ -103,7 +103,7 @@ fn test_rcl_talker_to_hiroz_listener() {
 
             // Use the actual listener example code with timeout
             let messages =
-                demo_nodes::run_listener(ctx, "chatter", Some(3), Some(Duration::from_secs(25)))
+                demo_nodes::run_listener(ctx, "chatter", Some(3), Some(Duration::from_secs(40)))
                     .await
                     .expect("Listener failed");
 
@@ -277,15 +277,29 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
 
     let _server_guard = ProcessGuard::new(server, "RCL add_two_ints server");
 
-    wait_for_ready(Duration::from_secs(8));
+    wait_for_ready(Duration::from_secs(3));
 
-    // Start hiroz client in a thread using the example code
+    // Retry until the server's queryable is actually discovered: a Zenoh
+    // query with QueryTarget::All completes (with zero replies) as soon as
+    // there are no known repliers at query time -- it does NOT wait out its
+    // timeout for a replier that hasn't been discovered yet, so widening the
+    // call timeout alone never helped here. The failure mode is discovery
+    // latency, not response latency, and it's most visible under CI load
+    // right after this job's earlier clippy step, where the RCL server
+    // subprocess and hiroz's router both start much slower.
     let client_handle = thread::spawn(move || -> i64 {
-        let ctx =
-            create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
-
-        // Use the actual client example code
-        demo_nodes::run_add_two_ints_client(ctx, 4, 7, false).expect("Client failed")
+        let deadline = std::time::Instant::now() + Duration::from_secs(35);
+        loop {
+            let ctx =
+                create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
+            match demo_nodes::run_add_two_ints_client(ctx, 4, 7, false) {
+                Ok(v) => break v,
+                Err(_) if std::time::Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(500));
+                }
+                Err(e) => panic!("Client failed: {e}"),
+            }
+        }
     });
 
     let result = client_handle.join().expect("Client thread panicked");
@@ -372,18 +386,28 @@ fn test_rcl_fibonacci_action_server_to_hiroz_client() {
 
     let _server_guard = ProcessGuard::new(server, "RCL fibonacci action server");
 
-    wait_for_ready(Duration::from_secs(10));
+    wait_for_ready(Duration::from_secs(3));
 
-    // Start hiroz client in a thread
+    // Retry until the action server's queryables are actually discovered --
+    // same rationale as the add_two_ints RCL-server test above: this is
+    // discovery latency, not response latency, so a longer fixed wait/
+    // timeout doesn't reliably help under CI load.
     let client_handle = thread::spawn(move || -> Vec<i32> {
-        let ctx =
-            create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
-
-        // Use the actual client example code
-        tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(async { demo_nodes::run_fibonacci_action_client(ctx, 2).await })
-            .expect("Client failed")
+        let deadline = std::time::Instant::now() + Duration::from_secs(35);
+        loop {
+            let ctx =
+                create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
+            let result = tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(async { demo_nodes::run_fibonacci_action_client(ctx, 2).await });
+            match result {
+                Ok(v) => break v,
+                Err(_) if std::time::Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(500));
+                }
+                Err(e) => panic!("Client failed: {e}"),
+            }
+        }
     });
 
     let result = client_handle.join().expect("Client thread panicked");
