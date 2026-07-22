@@ -1714,6 +1714,7 @@ impl Guest for Plugin {
                 Permission::CallService,
                 Permission::MeasureMetrics,
                 Permission::OpenSession,
+                Permission::AccessRawCdr,
             ],
         }
     }
