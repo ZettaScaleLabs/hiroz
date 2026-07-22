@@ -3053,8 +3053,24 @@
 <td>Read/write/delete node parameters, or bulk-load from a ROS-style YAML params file (<code>load &lt;node&gt; &lt;yaml-file&gt;</code>). <code>load</code> is host-handled: <code>hu</code> reads and parses the YAML on the host (WASM plugins have no filesystem access) and hands the plugin pre-flattened parameter data.</td>
 </tr>
 <tr>
-<td><code>hu meter action send\|echo &lt;name&gt; &lt;type&gt; [&lt;goal-json&gt;]</code></td>
-<td>Send a goal or echo action feedback</td>
+<td><code>hu meter action list</code></td>
+<td>List available actions</td>
+</tr>
+<tr>
+<td><code>hu meter action info &lt;name&gt;</code></td>
+<td>Show an action's type and server count</td>
+</tr>
+<tr>
+<td><code>hu meter action send &lt;name&gt; &lt;type&gt; &lt;goal-json&gt; [--timeout &lt;s&gt;]</code></td>
+<td>Send a goal (JSON) and poll for the result</td>
+</tr>
+<tr>
+<td><code>hu meter action send-goal &lt;name&gt; --payload &lt;hex&gt; [--timeout &lt;s&gt;]</code></td>
+<td>Send a goal from raw hex-encoded CDR bytes</td>
+</tr>
+<tr>
+<td><code>hu meter action echo &lt;name&gt; --msg-type &lt;type&gt; [--count &lt;n&gt;]</code></td>
+<td>Echo action feedback messages</td>
 </tr>
 </tbody>
 </table>
@@ -3074,7 +3090,7 @@
 </tr>
 <tr>
 <td><code>hu monitor graph</code></td>
-<td>Snapshot the current graph (with optional <code>--watch</code> refresh)</td>
+<td>Snapshot the current graph</td>
 </tr>
 <tr>
 <td><code>hu monitor log [--count &lt;n&gt;]</code></td>
