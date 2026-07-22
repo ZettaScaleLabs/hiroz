@@ -1957,13 +1957,18 @@ fn test_hu_meter_hz_json_typed_fields() {
 
     let (stdout_bytes, stderr_bytes) = run_hu_meter_timed(
         router.endpoint(),
-        &["hz", "/hz_typed_test", "--json", "--duration", "2"],
-        3,
+        &["hz", "/hz_typed_test", "--json", "--duration", "4"],
+        6,
     );
     let stdout = String::from_utf8_lossy(&stdout_bytes);
 
     // Each JSON line emitted by the typed path must have rate_hz and samples.
+    // The tracker's subscriber is declared asynchronously, so the very first
+    // 1s measurement window can legitimately observe zero samples before
+    // discovery completes -- scan every line rather than asserting on the
+    // first typed one.
     let mut found_typed = false;
+    let mut found_positive_rate = false;
     for line in stdout.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -1974,14 +1979,21 @@ fn test_hu_meter_hz_json_typed_fields() {
             && v.get("samples").is_some()
         {
             found_typed = true;
-            let rate = v["rate_hz"].as_f64().unwrap_or(0.0);
-            assert!(rate > 0.0, "rate_hz should be positive, got {rate}");
-            break;
+            if v["rate_hz"].as_f64().unwrap_or(0.0) > 0.0 {
+                found_positive_rate = true;
+                break;
+            }
         }
     }
     assert!(
         found_typed,
         "Expected JSON with rate_hz and samples fields (typed record path) in output:\n{}\nstderr: {}",
+        stdout,
+        String::from_utf8_lossy(&stderr_bytes)
+    );
+    assert!(
+        found_positive_rate,
+        "Expected at least one rate_hz > 0 across all measurement windows in output:\n{}\nstderr: {}",
         stdout,
         String::from_utf8_lossy(&stderr_bytes)
     );
