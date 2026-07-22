@@ -2898,7 +2898,7 @@
 <li>Rust toolchain with the <code>wasm32-wasip2</code> target: <code>rustup target add wasm32-wasip2</code></li>
 <li><code>hu</code> built with the <code>wasm-plugins</code> feature (the default release binary includes it)</li>
 </ul>
-<p>If <code>hu</code> was not built with <code>wasm-plugins</code>, plugin loading is silently disabled and <code>hu plugin list</code> returns an empty list.</p>
+<p>If <code>hu</code> was not built with <code>wasm-plugins</code>, plugin loading is disabled: <code>hu plugin list</code> prints a message saying WASM plugin support isn't compiled in (or <code>[]</code> under <code>--json</code>).</p>
 <h2 id="worlds">Worlds<a class="headerlink" href="#worlds" title="Permanent link">&para;</a></h2>
 <p>There are three WIT worlds — pick the one that matches your plugin's role:</p>
 <table>
