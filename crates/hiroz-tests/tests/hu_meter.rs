@@ -2657,3 +2657,224 @@ fn test_hu_meter_param_describe_json() {
         "Expected value=7 in describe JSON: {stdout}"
     );
 }
+
+// ─── pub ──────────────────────────────────────────────────────────────────────
+
+/// Coverage for `hu meter pub` (plain publish subcommand), which previously had
+/// no test running in CI — the only test exercising it
+/// (`test_pub_yaml_nested_twist`) is `#[ignore]`d.
+///
+/// NOTE on scope: `pub` cannot be exercised through to "a live subscriber
+/// receives the message" in CI. `pub --yaml` encodes via the
+/// `encode-yaml-to-cdr` WIT host function, which resolves the message schema
+/// from the global `SchemaRegistry` (`hiroz::dynamic::get_schema`). Nothing in
+/// this codebase populates that registry at runtime — schemas otherwise come
+/// only from compile-time-generated Rust types or from live discovery against
+/// an already-running publisher/service (and `encode-yaml-to-cdr`, unlike
+/// service `call`, is *not* rerouted through discovery). So *every* msg-type
+/// fails schema lookup, not just nested ones — this is the same root cause that
+/// forced `test_pub_yaml_nested_twist` to be ignored. It is not a bug in `pub`;
+/// it needs a runtime `.msg` schema loader that does not exist yet.
+///
+/// This test therefore exercises the maximal CI-safe surface of `pub`: the arg
+/// parsing, the one-shot dispatch, the `encode-yaml-to-cdr` host-call boundary,
+/// and the error-rendering/exit paths. A regression that breaks argument
+/// handling, panics the plugin, or hangs the command is caught here even though
+/// the happy encode-and-receive path is not yet reachable.
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_pub_arg_and_encode_paths() {
+    let router = TestRouter::new();
+
+    // (a) Missing --msg-type: `pub` must reject with a clear error and a
+    //     non-zero exit, not silently no-op or crash.
+    let out = run_hu_meter(router.endpoint(), &["pub", "/pub_no_type_topic"]);
+    assert!(
+        !out.status.success(),
+        "hu meter pub without --msg-type should exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("msg-type"),
+        "Expected a --msg-type-required error, got stderr: {stderr}\nstdout: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    // (b) With --msg-type + --yaml but no schema in the registry: the
+    //     encode-yaml-to-cdr host call must surface a clean "not found"
+    //     encode error and exit non-zero — again, no panic/hang.
+    let out = run_hu_meter(
+        router.endpoint(),
+        &[
+            "pub",
+            "/pub_string_topic",
+            "--msg-type",
+            "std_msgs/msg/String",
+            "--yaml",
+            "{data: hello}",
+        ],
+    );
+    assert!(
+        !out.status.success(),
+        "hu meter pub with an unresolvable schema should exit non-zero"
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        combined.contains("encode error") || combined.contains("not found"),
+        "Expected a schema-not-found encode error from `pub`, got: {combined}"
+    );
+}
+
+// ─── info service ─────────────────────────────────────────────────────────────
+
+/// Coverage for `hu meter info service <name>`. `info`'s topic and node targets
+/// are tested (`test_hu_meter_info_topic_pub_count`, `test_hu_meter_info_node_full`),
+/// but the service branch of `cmd_info` was untested. Spawns a live service
+/// server and asserts the reported server count and name.
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_info_service() {
+    let router = TestRouter::new();
+
+    let endpoint = router.endpoint().to_string();
+    thread::spawn(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("info_service_node").build().unwrap();
+        let _server = node
+            .create_service::<AddTwoInts>("/info_service_test")
+            .build()
+            .unwrap();
+        thread::sleep(Duration::from_secs(5));
+    });
+
+    thread::sleep(Duration::from_millis(1000));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["info", "service", "/info_service_test", "--json"],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter info service failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("Expected JSON from info service");
+    assert!(
+        json["name"]
+            .as_str()
+            .unwrap_or("")
+            .contains("info_service_test"),
+        "Expected /info_service_test in info service name: {stdout}"
+    );
+    assert!(
+        json["servers"].as_u64().unwrap_or(0) >= 1,
+        "Expected at least 1 service server: {stdout}"
+    );
+}
+
+// ─── param delete ─────────────────────────────────────────────────────────────
+
+/// Coverage for `hu meter param delete <node> <name>`, previously untested.
+///
+/// Rather than assume `delete` succeeds (hiroz's parameter server exposes the
+/// standard six rcl_interfaces services — describe/get/get_types/list/set/
+/// set_atomically — but **not** a `delete_parameters` service, so `delete`
+/// against a hiroz node cannot actually remove the parameter), this test
+/// asserts the *invariant* that matters for catching a "silently claims success
+/// but no-ops" or "crashes" regression: the `delete` command must terminate
+/// deterministically, and the parameter's post-delete presence must be
+/// consistent with `delete`'s own reported exit status.
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_param_delete() {
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+    spawn_param_node(endpoint, "param_delete_node", vec![("victim", 5)]);
+    thread::sleep(Duration::from_millis(800));
+
+    // Confirm the param is visible before the delete attempt.
+    let list_before = run_hu_meter(
+        router.endpoint(),
+        &["param", "list", "/param_delete_node", "--json"],
+    );
+    let before: Vec<String> =
+        serde_json::from_str(String::from_utf8_lossy(&list_before.stdout).trim())
+            .expect("Expected JSON array from param list (before)");
+    assert!(
+        before.iter().any(|n| n == "victim"),
+        "Expected 'victim' present before delete: {before:?}"
+    );
+
+    // Attempt the delete. Must terminate (the host `call` has a bounded 5s
+    // timeout) — never hang or crash the test harness.
+    let del = run_hu_meter(
+        router.endpoint(),
+        &["param", "delete", "/param_delete_node", "victim"],
+    );
+    let delete_succeeded = del.status.success();
+
+    // Post-delete presence must agree with the reported outcome.
+    let list_after = run_hu_meter(
+        router.endpoint(),
+        &["param", "list", "/param_delete_node", "--json"],
+    );
+    let after: Vec<String> =
+        serde_json::from_str(String::from_utf8_lossy(&list_after.stdout).trim())
+            .expect("Expected JSON array from param list (after)");
+    let still_present = after.iter().any(|n| n == "victim");
+
+    if delete_succeeded {
+        assert!(
+            !still_present,
+            "delete reported success but 'victim' is still present — silent no-op: {after:?}"
+        );
+    } else {
+        assert!(
+            still_present,
+            "delete reported failure but 'victim' vanished — inconsistent state: {after:?}"
+        );
+    }
+}
+
+// ─── action send (JSON goal) ──────────────────────────────────────────────────
+
+/// Coverage for `hu meter action send <name> <type> <goal-json>` — the
+/// user-facing JSON-goal form. Only `action send-goal` (raw hex CDR payload) was
+/// tested (`test_hu_meter_action_send_goal`); `send` has its own distinct code
+/// path (JSON → discovered-schema encode, then a follow-up get_result call).
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_action_send() {
+    let router = TestRouter::new();
+    spawn_fibonacci_action_server(&router);
+    thread::sleep(Duration::from_millis(1500));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &[
+            "action",
+            "send",
+            "/fibonacci_hu_test",
+            FIB_ACTION_TYPE,
+            "{\"order\": 3}",
+            "--timeout",
+            "10",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter action send (JSON goal) failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Result") || stdout.contains("Goal response"),
+        "Expected a goal response / result in action send output: {stdout}"
+    );
+}
