@@ -293,6 +293,10 @@ hu meter param get /talker use_sim_time
 # Set a parameter
 ros2 param set /talker use_sim_time true
 hu meter param set /talker use_sim_time true
+
+# Bulk-load parameters from a YAML file
+ros2 param load /talker params.yaml
+hu meter param load /talker params.yaml
 ```
 
 ### Logging

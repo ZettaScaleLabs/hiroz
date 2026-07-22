@@ -264,15 +264,12 @@ sequenceDiagram
 flowchart TD
     A["$HU_PLUGIN_PATH dirs<br>(colon-separated)"] --> S
     B["~/.local/share/hu/plugins/"] --> S
-    S["scan for *.wasm files"] --> C["call manifest() on each candidate"]
-    C --> D{manifest() succeeded?}
-    D -->|yes| E["strip hu- prefix from filename<br>register as subcommand"]
-    D -->|no| F["log warning, skip<br>(visible in hu plugin list)"]
+    S["scan for *.wasm files"] --> E["strip hu_/hu- prefix from filename<br>register as subcommand"]
 ```
 
-`hu` searches both locations in order. Files named `hu-<name>.wasm` register as `<name>`. Run `hu plugin list` to see which plugins loaded successfully.
+`hu` searches both locations in order for `*.wasm` files. Discovery is a pure filename scan: the name is derived from the filename (stripping a leading `hu_` or `hu-`), and the component is **not** instantiated and its `manifest()` is **not** called at this stage. Files named `hu-<name>.wasm` (or `hu_<name>.wasm`) register as `<name>`. Run `hu plugin list` to see the discovered plugins and their paths.
 
-If a plugin fails to load (ABI mismatch, missing exports, or corrupt file), `hu` logs a warning and continues. The warning appears on stderr when `--debug` is passed. The plugin is listed in `hu plugin list` with a `failed` status.
+Because discovery never loads the component, `hu plugin list` cannot distinguish a valid plugin from a corrupt or ABI-mismatched one — there is no `failed` status. A plugin's manifest and ABI are only validated lazily, when you actually invoke its subcommand; a mismatch or missing export surfaces as an error at that point, not at `plugin list` time. Use `hu plugin validate <path>` to check a specific artifact ahead of time.
 
 ## Multi-session plugins (`session` interface)
 
@@ -286,4 +283,4 @@ Plugins can read environment variables from the `hu` process (`HU_ROUTER`, `HU_D
 
 ## Reference implementations
 
-See `crates/hiroz-union/plugins/hu-plugin-template/` for the minimal runnable version of the quick-start example above. It is compiled in CI against the `wasm32-wasip2` target so it stays in sync with the WIT interface. `crates/hiroz-union/plugins/hu-meter/` and `crates/hiroz-union/plugins/hu-monitor/` are full CLI plugins with subcommand dispatch and periodic output.
+See `crates/hiroz-union/plugins/hu-plugin-template/` for the minimal runnable version of the quick-start example above. CI builds it against the `wasm32-wasip2` target and then loads the compiled artifact through the real component-model host — `scripts/ci/hu-tests.sh` runs `hu plugin validate` and `hu plugin list` on it (see `test_hu_plugin_template_validate_and_discover` in `crates/hiroz-tests/tests/hu_meter.rs`). So the template is verified to load against the live WIT world, not merely to compile, and a WIT/ABI regression fails CI. `crates/hiroz-union/plugins/hu-meter/` and `crates/hiroz-union/plugins/hu-monitor/` are full CLI plugins with subcommand dispatch and periodic output.

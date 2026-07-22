@@ -104,6 +104,68 @@ export HU_DOMAIN=5
 hu meter hz /chatter
 ```
 
+### More examples
+
+The Quick Start covers `list`, `hz`, and `watch`. The subcommands below are the least self-explanatory ones — each transcript shows the exact command and the output line to expect. These paths are exercised by the integration suite (`crates/hiroz-tests/tests/hu_meter.rs`, `hu_monitor.rs`).
+
+**Call a service** (against an `AddTwoInts` server on `/add_two_ints`):
+
+```bash
+# --yaml takes the request as inline YAML; --msg-type names the request type.
+hu meter service call /add_two_ints \
+  --yaml '{a: 20, b: 22}' \
+  --msg-type example_interfaces/srv/AddTwoInts_Request \
+  --timeout 10
+# {"sum": 42}
+```
+
+The response prints as JSON, so it pipes straight into `jq`:
+
+```bash
+hu meter service call /add_two_ints --yaml '{a: 20, b: 22}' \
+  --msg-type example_interfaces/srv/AddTwoInts_Request | jq '.sum'
+# 42
+```
+
+**Round-trip a parameter** (set then read it back):
+
+```bash
+hu meter param set /talker publish_period_ms 500
+# OK
+
+hu meter param get /talker publish_period_ms --json
+# {"publish_period_ms": 500}
+```
+
+**Stream action feedback** while a goal runs:
+
+```bash
+hu meter action echo /fibonacci \
+  --msg-type example_interfaces/action/Fibonacci --count 3
+# [/fibonacci/_action/feedback] {"partial_sequence": [0, 1, 1]}
+# [/fibonacci/_action/feedback] {"partial_sequence": [0, 1, 1, 2]}
+# [/fibonacci/_action/feedback] {"partial_sequence": [0, 1, 1, 2, 3]}
+```
+
+**Get / set a node's log level** with `hu monitor`:
+
+```bash
+# Read the current logger levels for /talker.
+hu monitor log-level /talker
+# log levels: {"levels": [{"name": "talker", "level": 20}]}
+
+# Set it to DEBUG (subsequent /rosout traffic reflects the new level).
+hu monitor log-level /talker DEBUG
+# set log level to DEBUG
+
+# Follow /rosout, stopping after 2 messages.
+hu monitor log --count 2
+# [rosout] ...
+# [rosout] ...
+```
+
+> `hu monitor log-level` talks to the target node's `get_logger_levels` / `set_logger_levels` services (`rcl_interfaces`), so the node must expose them — standard `rclcpp`/`rclpy` nodes do; the pure-hiroz demo nodes do not yet.
+
 ---
 
 ## Why hu instead of ros2cli?
@@ -145,7 +207,7 @@ Measurement and introspection:
 | `hu meter list topics\|nodes\|services` | Enumerate graph entities |
 | `hu meter info topic\|node\|service <name>` | Full entity introspection |
 | `hu meter service <name> <type> <request-json>` | Call a service |
-| `hu meter param list\|get\|set\|delete <node>` | Read/write/delete node parameters |
+| `hu meter param list\|get\|dump\|describe\|set\|delete\|load <node> [...]` | Read/write/delete node parameters, or bulk-load from a ROS-style YAML params file (`load <node> <yaml-file>`). `load` is host-handled: `hu` reads and parses the YAML on the host (WASM plugins have no filesystem access) and hands the plugin pre-flattened parameter data. |
 | `hu meter action send\|echo <name> <type> [<goal-json>]` | Send a goal or echo action feedback |
 
 ### hu monitor
