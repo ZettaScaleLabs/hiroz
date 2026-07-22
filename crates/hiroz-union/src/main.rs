@@ -97,7 +97,7 @@ enum Commands {
 enum PluginAction {
     /// List all installed hu-* plugins
     List,
-    /// Validate a .wasm plugin file and report its manifest
+    /// Validate that a .wasm file compiles as a WASM component
     Validate {
         /// Path to the .wasm plugin file
         path: String,

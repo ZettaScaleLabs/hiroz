@@ -194,6 +194,21 @@ All resources are declared by calling the corresponding host function: `raw-subs
 
 For bridge plugins and other low-level use: declare sessions in your manifest and retrieve them via `session::get-session(name)`. The returned `session-handle` exposes the same raw subscribe, publish, liveliness, queryable, and querier primitives as `raw-transport`, but on a separately opened session — useful when a plugin needs two independent Zenoh connections (e.g. Humble and Jazzy router endpoints).
 
+### `permission` — host-call gating
+
+Every plugin declares the host capabilities it needs in `required_permissions` (a `list<permission>` on `PluginManifest`). The host records the granted set before the first event and rejects any host call whose required permission was not declared — the call returns an error to the guest rather than silently succeeding. A plugin with an empty `required_permissions` can still render output and receive events, but every graph-mutating or transport host call below will fail.
+
+| Permission | Gates |
+|---|---|
+| `subscribe-topic` | `ros::subscribe(topic)` |
+| `publish-topic` | `ros::publish(...)` (typed publish / `encode-yaml-to-cdr` publish path) |
+| `call-service` | `ros::connect-service(name, type)` and the resulting `service-client::call` |
+| `measure-metrics` | `ros::measure-hz`, `measure-hz-typed`, `measure-bw`, `measure-bw-typed` |
+| `access-raw-cdr` | all `raw-transport` host calls — `raw-subscribe`, `raw-publisher`, `declare-liveliness`, `subscribe-liveliness`, `declare-queryable`, `querier` |
+| `open-session` | `session::get-session(name)` (named multi-session access) |
+
+`hu-meter`'s `echo <topic> --raw` mode reads raw CDR payloads through `raw-transport`, so it declares `access-raw-cdr` in its manifest.
+
 ## Events
 
 ### CLI events (`hu-cli-plugin`)

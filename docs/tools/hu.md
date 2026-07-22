@@ -139,6 +139,7 @@ Measurement and introspection:
 | `hu meter hz <topic>` | Publish rate (sliding window) |
 | `hu meter bw <topic>` | Bandwidth in bytes/sec |
 | `hu meter echo <topic>` | Print arriving messages |
+| `hu meter echo <topic> --raw` | Hex-dump raw CDR bytes, bypassing schema decode (requires the `access-raw-cdr` permission) |
 | `hu meter delay <topic>` | End-to-end latency |
 | `hu meter pub <topic>` | Publish a message |
 | `hu meter list topics\|nodes\|services` | Enumerate graph entities |
@@ -165,7 +166,7 @@ Plugin management:
 | Command | Description |
 |---|---|
 | `hu plugin list` | List all loaded `.wasm` plugins with name and path |
-| `hu plugin validate <path>` | Validate a `.wasm` file against the `hu-plugin` ABI |
+| `hu plugin validate <path>` | Validate that a `.wasm` file compiles as a WASM component |
 
 ---
 
@@ -256,9 +257,9 @@ Each web plugin is reachable at `/plugins/<name>/` and `/plugins/<name>/*path`. 
 |---|---|---|
 | `--router <endpoint>` | `tcp/127.0.0.1:7447` | Zenoh router endpoint (also `HU_ROUTER`) |
 | `--domain <id>` | `0` | ROS 2 domain ID (also `HU_DOMAIN`) |
-| `--backend` | TUI | Force a specific backend (`tui`, `headless`, `web`) |
+| `--backend <name>` | `rmw-zenoh` | Select the graph/RMW backend (currently only `rmw-zenoh`). Not a mode switch — use `--headless`/`--web` for output mode |
 | `--headless` | — | Run in headless (no TUI) event-streaming mode |
-| `--json` | — | Structured JSON output (headless mode only) |
+| `--json` | — | Structured JSON output — affects headless event streaming, `hu plugin list` output, and log formatting |
 | `--echo <TOPIC>` | — | Subscribe to topic and stream messages (headless, repeatable) |
 | `--web [PORT]` | — | Run web plugin server (requires `web-plugins` feature) |
 | `--export <path>` | — | Write a graph snapshot to a file and exit |
