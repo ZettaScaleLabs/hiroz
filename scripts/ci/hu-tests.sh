@@ -10,7 +10,10 @@ cargo build --target wasm32-wasip2 --manifest-path "${PLUGIN_DIR}/hu-monitor/Car
 
 # Resolve the WASM output directory and expose it as HU_PLUGIN_PATH so that
 # `hu meter` / `hu monitor` can load the compiled plugins during tests.
-TARGET_DIR="${CARGO_TARGET_DIR:-target}"
+# Must be absolute: `cargo test -p hiroz-tests` runs test binaries with their
+# CWD set to the crate root (crates/hiroz-tests/), not the workspace root, so
+# a relative PATH entry here silently resolves to the wrong directory.
+TARGET_DIR="${CARGO_TARGET_DIR:-$(pwd)/target}"
 export HU_PLUGIN_PATH="${TARGET_DIR}/wasm32-wasip2/release"
 
 # Tests spawn `hu` as a subprocess by name (Command::new("hu")) — put the
