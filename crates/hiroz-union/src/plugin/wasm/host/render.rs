@@ -13,7 +13,10 @@ impl hu::plugin::render::Host for PluginState {
     }
 
     fn emit_json(&mut self, key: String, value: String) {
-        self.println(format!("{{\"{key}\":{value}}}"));
+        let parsed_value: serde_json::Value =
+            serde_json::from_str(&value).unwrap_or(serde_json::Value::String(value));
+        let obj = serde_json::json!({ key: parsed_value });
+        self.println(obj.to_string());
     }
 
     fn exit(&mut self, code: u32) {

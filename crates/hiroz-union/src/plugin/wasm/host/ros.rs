@@ -21,8 +21,7 @@ impl hu::plugin::ros::Host for PluginState {
         topic: String,
     ) -> Result<Resource<hu::plugin::ros::Subscription>, String> {
         self.require_perm(hu::plugin::types::Permission::SubscribeTopic)?;
-        let rep = self.next_sub_rep;
-        self.next_sub_rep += 1;
+        let rep = self.alloc_rep();
 
         let (tx, rx) = flume::bounded::<String>(256);
         let node = self.engine.node.clone();

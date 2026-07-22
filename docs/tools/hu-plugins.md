@@ -17,7 +17,7 @@ There are three WIT worlds — pick the one that matches your plugin's role:
 
 | World | Use case | Event type |
 |---|---|---|
-| `hu-cli-plugin` | One-shot or streaming terminal tool (hz, bw, echo, bridge) | `cli-event` — startup, tick, interrupt |
+| `hu-cli-plugin` | One-shot or streaming terminal tool (hz, bw, echo, bridge — bridge is a hypothetical example, not shipped) | `cli-event` — startup, tick, interrupt |
 | `hu-tui-plugin` | Tick-driven TUI pane with keybindings and topic navigation | `tui-event` — startup, tick, interrupt, key-action, topic-selected |
 | `hu-web-plugin` | HTTP request/response handler for `hu --web` | no events — stateless `handle(req) → response` |
 
@@ -259,52 +259,11 @@ flowchart TD
 
 If a plugin fails to load (ABI mismatch, missing exports, or corrupt file), `hu` logs a warning and continues. The warning appears on stderr when `--debug` is passed. The plugin is listed in `hu plugin list` with a `failed` status.
 
-## Example: bridge plugin with two sessions
+## Multi-session plugins (`session` interface)
 
-A bridge plugin that forwards messages between two Zenoh endpoints (e.g. Humble on port 7447 and Jazzy on port 7448) must connect to both routers independently. Declare both sessions in the manifest; the host opens them before the first `Startup` event.
+A plugin that needs two independent Zenoh connections — for example, one that forwards messages between two routers (Humble on port 7447 and Jazzy on port 7448) — declares both sessions in its manifest via `SessionRequirement { name, endpoint, mode }`. The host opens all declared sessions before the first `Startup` event, and the plugin retrieves each one with `session::get_session(name)`, which returns a `session-handle` exposing `raw-subscribe`, `raw-publisher`, `declare-liveliness`, `subscribe-liveliness`, and `declare-queryable` — the same primitives as `raw-transport`, but scoped to that named session rather than the shared host session.
 
-```rust
-fn manifest() -> PluginManifest {
-    PluginManifest {
-        name: "my-bridge".to_string(),
-        version: "0.1.0".to_string(),
-        description: "Forward messages between two routers".to_string(),
-        bindings: vec![],
-        tick_ms: 10,
-        sessions: vec![
-            SessionRequirement {
-                name: "humble".to_string(),
-                endpoint: "tcp/127.0.0.1:7447".to_string(),
-                mode: SessionMode::Client,
-            },
-            SessionRequirement {
-                name: "jazzy".to_string(),
-                endpoint: "tcp/127.0.0.1:7448".to_string(),
-                mode: SessionMode::Client,
-            },
-        ],
-        subscribed_events: vec![EventKind::Startup, EventKind::Tick, EventKind::Interrupt],
-        required_permissions: vec![],
-    }
-}
-
-fn on_event(event: CliEvent) {
-    match event {
-        CliEvent::Startup(args) => {
-            let humble = session::get_session("humble").unwrap();
-            let jazzy  = session::get_session("jazzy").unwrap();
-            // subscribe on humble, re-publish on jazzy
-            let sub = humble.raw_subscribe("0/**").unwrap();
-            let pub_ = jazzy.raw_publisher("0/**").unwrap();
-            // store sub/pub_ in plugin state for use in Tick …
-        }
-        CliEvent::Tick => { /* drain sub, forward to pub_ */ }
-        CliEvent::Interrupt => { render::exit(130); }
-    }
-}
-```
-
-The `session-handle` methods (`raw-subscribe`, `raw-publisher`, `declare-liveliness`, `subscribe-liveliness`, `declare-queryable`) correspond directly to the `raw-transport` resources but operate on the named session rather than the shared host session.
+No such bridge plugin ships in this PR. For worked, compiling examples of manifest declaration, session/state handling, and event dispatch, see the reference implementations below — `hu-meter` in particular declares and drives a session end-to-end.
 
 ## Environment
 

@@ -21,7 +21,9 @@ pub async fn run_cli_plugin(
         .find(|p| p.is_cli() && p.manifest().name == plugin_name)
         .ok_or_else(|| format!("CLI WASM plugin '{plugin_name}' not found"))?;
 
-    let exit_code = plugin.dispatch_cli_event(CliEvent::Startup(args));
+    let exit_code = plugin
+        .dispatch_cli_event(CliEvent::Startup(args))
+        .exit_code();
     flush_output(plugin);
     if let Some(code) = exit_code {
         return Ok(code);
@@ -41,14 +43,14 @@ pub async fn run_cli_plugin(
         if sigint_rx.try_recv().is_ok() {
             plugin.dispatch_cli_event(CliEvent::Interrupt);
             flush_output(plugin);
-            let code = plugin.dispatch_cli_event(CliEvent::Tick);
+            let code = plugin.dispatch_cli_event(CliEvent::Tick).exit_code();
             flush_output(plugin);
             return Ok(code.unwrap_or(130));
         }
 
         tokio::time::sleep(tick_interval).await;
 
-        let code = plugin.dispatch_cli_event(CliEvent::Tick);
+        let code = plugin.dispatch_cli_event(CliEvent::Tick).exit_code();
         flush_output(plugin);
         if let Some(c) = code {
             return Ok(c);

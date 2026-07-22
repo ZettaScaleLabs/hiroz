@@ -5,7 +5,7 @@ use crate::plugin::wasm::{TuiEvent, WasmPlugin};
 
 pub struct PluginManager {
     #[cfg(feature = "wasm-plugins")]
-    pub plugins: Vec<WasmPlugin>,
+    plugins: Vec<WasmPlugin>,
     pub failed: Vec<(String, String)>,
     pub selected_index: usize,
 }
@@ -18,6 +18,16 @@ impl PluginManager {
             failed: Vec::new(),
             selected_index: 0,
         }
+    }
+
+    #[cfg(feature = "wasm-plugins")]
+    pub fn plugins(&self) -> &[WasmPlugin] {
+        &self.plugins
+    }
+
+    #[cfg(feature = "wasm-plugins")]
+    pub fn set_plugins(&mut self, plugins: Vec<WasmPlugin>) {
+        self.plugins = plugins;
     }
 
     pub fn count(&self) -> usize {

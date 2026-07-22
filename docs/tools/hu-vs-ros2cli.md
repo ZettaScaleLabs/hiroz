@@ -51,7 +51,7 @@ xychart-beta
     bar [96829, 90971, 1398]
 ```
 
-*`hu` numbers measured on the hiroz CI worker (feat/hiroz-union, job 407, release binary). `test_hz_python_saturation` in `hiroz-tests`. `ros2 topic hz` figure from a prior run on identical hardware; ros2 was not available in the benchmark shell. Current codebase validated: job 410 (756 tests passed).*
+*`hu` numbers measured from internal testing on a release binary, via `test_hz_python_saturation` in `hiroz-tests`. `ros2 topic hz` figure from a prior run on identical hardware; ros2 was not available in the benchmark shell. These are internal measurements, not a reproducible public benchmark — treat the specific numbers as illustrative of the order-of-magnitude gap rather than exact figures for your hardware.*
 
 | Metric | Measured value |
 |---|---|
@@ -66,7 +66,7 @@ xychart-beta
 
 ## No daemon
 
-`ros2cli` starts a background daemon process (`_ros2_daemon`) on first use and caches graph state there. `hu` has no daemon — every invocation opens a direct Zenoh session, reads the live liveliness index, and exits.
+See [Why hu?](why-hu.md#the-problem-with-existing-cli-tools) for the full explanation of why `ros2cli`'s daemon model causes problems and how `hu`'s daemon-free design avoids them. The table below lists the specific failure modes this replaces, for reference when comparing against `ros2cli`.
 
 | Failure mode | Trigger | Symptom | Recovery |
 |---|---|---|---|

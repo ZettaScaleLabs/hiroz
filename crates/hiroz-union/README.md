@@ -1,6 +1,6 @@
 <!--
 DO NOT EXPAND THIS README
-Documentation source: book/ - Published: https://zettascalelabs.github.io/hiroz/
+Documentation source: docs/ - Published: https://zettascalelabs.github.io/hiroz/
 Keep this file minimal. Point readers to the book.
 -->
 
@@ -8,4 +8,4 @@ Keep this file minimal. Point readers to the book.
 
 Plugin platform and TUI (`hu`) for the hiroz ROS 2 ecosystem.
 
-**📚 [Full Documentation](https://zettascalelabs.github.io/hiroz/chapters/hu.html)**
+**📚 [Full Documentation](https://zettascalelabs.github.io/hiroz/tools/hu/)**

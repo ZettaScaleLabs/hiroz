@@ -82,26 +82,25 @@ pub(crate) struct ServiceClientData {
 // ─── Per-plugin state ────────────────────────────────────────────────────────
 
 pub struct PluginState {
-    pub wasi: wasmtime_wasi::WasiCtx,
-    pub table: wasmtime_wasi::ResourceTable,
-    pub engine: Arc<CoreEngine>,
-    pub subscriptions: HashMap<u32, SubscriptionData>,
-    pub next_sub_rep: u32,
-    pub sessions: HashMap<String, Arc<zenoh::Session>>,
-    pub session_handle_names: HashMap<u32, String>,
-    pub raw_subs: HashMap<u32, RawSubData>,
-    pub raw_pubs: HashMap<u32, RawPubData>,
-    pub lv_tokens: HashMap<u32, LivelinessTokenData>,
-    pub lv_subs: HashMap<u32, LivelinessSubData>,
-    pub queryables: HashMap<u32, QueryableData>,
-    pub queriers: HashMap<u32, QuerierData>,
-    pub next_raw_rep: u32,
-    pub rate_trackers: HashMap<String, RateTrackerData>,
-    pub service_clients: HashMap<u32, ServiceClientData>,
-    pub output_lines: Arc<Mutex<Vec<String>>>,
-    pub title: Arc<Mutex<String>>,
-    pub exit_code: Option<u32>,
-    pub permissions: Vec<Permission>,
+    pub(crate) wasi: wasmtime_wasi::WasiCtx,
+    pub(crate) table: wasmtime_wasi::ResourceTable,
+    pub(crate) engine: Arc<CoreEngine>,
+    pub(crate) subscriptions: HashMap<u32, SubscriptionData>,
+    pub(crate) sessions: HashMap<String, Arc<zenoh::Session>>,
+    pub(crate) session_handle_names: HashMap<u32, String>,
+    pub(crate) raw_subs: HashMap<u32, RawSubData>,
+    pub(crate) raw_pubs: HashMap<u32, RawPubData>,
+    pub(crate) lv_tokens: HashMap<u32, LivelinessTokenData>,
+    pub(crate) lv_subs: HashMap<u32, LivelinessSubData>,
+    pub(crate) queryables: HashMap<u32, QueryableData>,
+    pub(crate) queriers: HashMap<u32, QuerierData>,
+    pub(crate) next_raw_rep: u32,
+    pub(crate) rate_trackers: HashMap<String, RateTrackerData>,
+    pub(crate) service_clients: HashMap<u32, ServiceClientData>,
+    pub(crate) output_lines: Arc<Mutex<Vec<String>>>,
+    pub(crate) title: Arc<Mutex<String>>,
+    pub(crate) exit_code: Option<u32>,
+    pub(crate) permissions: Vec<Permission>,
 }
 
 impl WasiView for PluginState {
@@ -118,6 +117,17 @@ impl PluginState {
         let r = self.next_raw_rep;
         self.next_raw_rep += 1;
         r
+    }
+
+    /// Read-only view of the permissions declared by the plugin manifest.
+    pub fn permissions(&self) -> &[Permission] {
+        &self.permissions
+    }
+
+    /// Set the permissions granted to this plugin (called once at load time,
+    /// after the manifest has been read).
+    pub fn set_permissions(&mut self, permissions: Vec<Permission>) {
+        self.permissions = permissions;
     }
 
     pub fn ensure_rate_tracker(&mut self, topic: &str) -> Result<(), String> {
@@ -155,7 +165,7 @@ impl PluginState {
     }
 
     pub fn require_perm(&self, p: Permission) -> Result<(), String> {
-        if self.permissions.contains(&p) {
+        if self.permissions().contains(&p) {
             Ok(())
         } else {
             Err(format!(

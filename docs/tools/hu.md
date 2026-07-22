@@ -1,24 +1,96 @@
 # hu — The hiroz Unified Tool
 
-`hu` is the command-line companion to the hiroz stack. It replaces `ros2 topic`, `ros2 node`, `ros2 service`, `ros2 action`, and `ros2 param` with a daemon-free, plugin-based tool that works directly over Zenoh — no DDS, no Python, no background process. Subcommands like `meter`, `monitor`, and `bridge` are WASM plugins; you can ship your own by dropping a `.wasm` file into `~/.local/share/hu/plugins/`.
+`hu` is the command-line companion to the hiroz stack. It replaces `ros2 topic`, `ros2 node`, `ros2 service`, `ros2 action`, and `ros2 param` with a daemon-free, plugin-based tool that works directly over Zenoh — no DDS, no Python, no background process. Subcommands like `meter` and `monitor` are WASM plugins; you can ship your own by dropping a `.wasm` file into `~/.local/share/hu/plugins/`.
+
+## Terminology
+
+A few terms recur throughout this page:
+
+- **Zenoh router** — the process (`zenohd`, or `rmw_zenohd` when bundled with `rmw_zenoh_cpp`) that lets `hu` and ROS 2 nodes discover and reach each other; `hu` always connects to one, it never uses peer-to-peer discovery.
+- **Domain ID** — a numeric namespace (default `0`) that partitions independent ROS 2 graphs sharing the same router.
+- **Liveliness** — Zenoh's mechanism for announcing and detecting when a node, topic, or service appears or disappears, which is how `hu` builds its live graph view without polling.
+- **CDR** — Common Data Representation, the binary wire format ROS 2 messages are serialized to; `hu meter` decodes and encodes it directly.
+- **RMW** — the ROS Middleware interface; `rmw_zenoh_cpp` is the RMW implementation that lets standard ROS 2 nodes talk over Zenoh, which is what makes them visible to `hu`.
+
+## Installation
+
+### Pre-built Binary
+
+Download the latest release for your platform from the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases):
+
+| Platform | File |
+|---|---|
+| Linux x86_64 | `bin-hu-x86_64-linux` |
+| Linux aarch64 | `bin-hu-aarch64-linux` |
+| macOS aarch64 | `bin-hu-aarch64-macos` |
+
+```bash
+# Linux x86_64 example — replace <version> and filename for your platform
+curl -Lo hu https://github.com/ZettaScaleLabs/hiroz/releases/download/<version>/bin-hu-x86_64-linux
+chmod +x hu
+./hu --help
+```
+
+`hu` has no ROS 2 dependency — it works with any [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) or hiroz deployment.
+
+### Build from Source
+
+Requires Rust 1.85+:
+
+```bash
+# Build hu (release build)
+cargo build -p hiroz-union --release
+
+# Run directly from build output — produces a binary named `hu`
+./target/release/hu --help
+
+# Or install to ~/.cargo/bin so `hu` works from anywhere
+cargo install --path crates/hiroz-union
+```
 
 ## Quick Start
 
+This walks through a real end-to-end session: a router, a talker/listener pair, and `hu` observing them. Run each step in its own terminal.
+
+**Terminal 1 — start the Zenoh router:**
+
 ```bash
-# Connect to a local router and list all topics
-hu meter list topics
-
-# Measure publish rate
-hu meter hz /camera/image_raw
-
-# Show node introspection
-hu meter info node /my_robot
-
-# Monitor the live graph
-hu monitor watch
+cargo run --example zenoh_router
 ```
 
-By default `hu` connects to `tcp/127.0.0.1:7447` and uses domain ID `0`. Override with flags or environment variables:
+**Terminal 2 — start a hiroz listener:**
+
+```bash
+cargo run --example z_pubsub -- --role listener
+```
+
+**Terminal 3 — start a hiroz talker:**
+
+```bash
+cargo run --example z_pubsub -- --role talker
+```
+
+Both examples connect to `tcp/127.0.0.1:7447` (never bare peer discovery — see [`examples/z_pubsub.rs`](https://github.com/ZettaScaleLabs/hiroz/blob/main/crates/hiroz/examples/z_pubsub.rs)), and publish/subscribe on `/chatter`.
+
+**Terminal 4 — observe with `hu`:**
+
+```bash
+# List all topics
+hu meter list topics
+# /chatter (std_msgs/msg/String)
+
+# Measure the talker's publish rate
+hu meter hz /chatter
+# rate: 1.001 Hz
+
+# Watch the live graph
+hu monitor watch
+# node appeared:  /talker
+# node appeared:  /listener
+# topic appeared: /chatter
+```
+
+By default `hu` connects to `tcp/127.0.0.1:7447` and uses domain ID `0` — matching the talker/listener above. Override with flags or environment variables:
 
 ```bash
 hu --router tcp/192.168.1.10:7447 --domain 5 meter list topics
@@ -29,84 +101,16 @@ Or set them once for the session:
 ```bash
 export HU_ROUTER=tcp/192.168.1.10:7447
 export HU_DOMAIN=5
-hu meter hz /lidar/scan
+hu meter hz /chatter
 ```
 
 ---
 
 ## Why hu instead of ros2cli?
 
-`ros2cli` is the standard ROS 2 command-line tool. It works, but it carries a set of well-known pain points that `hu` was built to eliminate.
+`ros2cli` carries a set of well-known pain points — a background daemon that goes stale or crashes, Python-bound rate measurement that undercounts at high frequency, silent QoS-mismatch drops, service calls with no timeout, slow startup on embedded hardware, and fragile nested-YAML publishing. `hu` addresses all of these with a daemon-free, compiled, Zenoh-native design.
 
-### No daemon
-
-`ros2cli` spawns a background daemon process (`_ros2_daemon`) on first use and caches graph state there. This causes several failure modes that users hit regularly:
-
-- **Stale domain ID**: the daemon snapshots your environment at startup. If you change `ROS_DOMAIN_ID` or `RMW_IMPLEMENTATION` in a new terminal, the daemon silently queries the wrong domain ([ros2cli#1238](https://github.com/ros2/ros2cli/issues/1238)).
-- **Daemon crashes**: on enterprise networks with strict firewall rules, the daemon dies silently after 1–3 hours and all CLI commands return empty results until you kill it manually ([ros2cli#502](https://github.com/ros2/ros2cli/issues/502)).
-- **WSL2 / container incompatibility**: the daemon health check fails in certain WSL2 configurations, making `ros2 topic list` unusable ([ros2cli#934](https://github.com/ros2/ros2cli/issues/934)).
-- **Manual recovery**: the only fix is `pkill -f _ros2_daemon` then re-running your command ([ros2cli#702](https://github.com/ros2/ros2cli/issues/702)).
-
-`hu` has no daemon. Every invocation connects directly to the Zenoh router, reads the current graph state, and exits. It always reflects the real current state.
-
-### Accurate rate measurement
-
-`ros2 topic hz` deserializes every message in Python before counting it. At high publish rates or with large messages (cameras, lidar, point clouds), deserialization can't keep up and the reported rate is lower than the real rate:
-
-- A 30 fps camera reports 15–22 fps ([ros2cli#871](https://github.com/ros2/ros2cli/issues/871))
-- At ~2 kHz the reported rate saturates — Python simply cannot process arrivals fast enough ([ros2cli#1043](https://github.com/ros2/ros2cli/issues/1043))
-- Large messages (5 MB+) compound the problem regardless of `PYTHONOPTIMIZE` ([ros2cli#843](https://github.com/ros2/ros2cli/issues/843))
-
-`hu meter hz` subscribes at the raw Zenoh byte level — no deserialization, no Python overhead. It counts message arrivals with nanosecond timestamps and reports the actual rate.
-
-```bash
-# ros2 topic hz /camera/image_raw  → "average rate: 17.3"  (real: 30 fps)
-# hu meter hz /camera/image_raw    → "rate: 30.001 Hz"
-```
-
-### QoS visibility
-
-`ros2 topic echo` silently drops messages when the subscriber's QoS is incompatible with the publisher's — there is no warning ([ros2cli#593](https://github.com/ros2/ros2cli/issues/593)). You see no output and assume the topic is empty.
-
-`hu meter echo` uses hiroz's QoS event system and prints a warning when a mismatch is detected:
-
-```text
-[warn] QoS incompatible: publisher on /scan uses BEST_EFFORT, subscriber expects RELIABLE
-```
-
-### Service call timeout
-
-`ros2 service call` blocks indefinitely when no server is available — there is no `--timeout` flag and no way to interrupt it cleanly without killing the process ([ros2cli#818](https://github.com/ros2/ros2cli/issues/818)).
-
-`hu meter service` has a `--timeout <ms>` flag (default: 5000 ms) and returns a clear error:
-
-```bash
-hu meter service /my_srv std_msgs/srv/Empty '{}' --timeout 5000
-# Error: Service call timed out after 5000 ms
-```
-
-### Fast startup
-
-`ros2 --help` takes 7+ seconds on Raspberry Pi 2 due to Python import overhead ([ros2cli#424](https://github.com/ros2/ros2cli/issues/424)). `hu --help` is a compiled binary — startup is under 10 ms on any hardware.
-
-### Topic publish with nested messages
-
-`ros2 topic pub` populates message fields from YAML, but it has no type information at encoding time. Nested array fields and non-primitive array elements fail silently or error out ([ros2cli#59](https://github.com/ros2/ros2cli/issues/59), [ros2cli#191](https://github.com/ros2/ros2cli/issues/191)).
-
-`hu meter pub` accepts `--yaml` with `--msg-type` and encodes directly to CDR using the known message layout:
-
-```bash
-hu meter pub /cmd_vel \
-  --msg-type geometry_msgs/msg/Vector3 \
-  --yaml '{x: 0.5, y: 0.0, z: 0.0}'
-```
-
-For std_msgs primitive types, all fields are supported:
-
-```bash
-hu meter pub /enable --msg-type std_msgs/msg/Bool --yaml '{data: true}'
-hu meter pub /count  --msg-type std_msgs/msg/Int32 --yaml '{data: 42}'
-```
+See [Why hu instead of ros2cli?](why-hu.md) for the full comparison with issue references and before/after examples.
 
 ---
 
@@ -174,6 +178,23 @@ hu
 ```
 
 This is the primary advantage over `ros2 topic hz`, which requires a separate terminal per topic.
+
+### TUI Keybindings
+
+| Key | Action |
+|---|---|
+| `Tab` / `Shift+Tab` | Cycle panels (Topics, Services, Nodes, Measure, Plugins) |
+| `1`–`5` | Jump directly to a panel |
+| `↑`/`k`, `↓`/`j` | Move selection |
+| `Enter` / `Space` | Expand/focus the selected item's detail |
+| `/` | Enter filter mode (type-ahead search) |
+| `r` | Quick rate check on the selected topic (Topics panel) or clear tracked rates (Measure panel) |
+| `m` | Toggle the selected topic or service into the Measure panel's tracking list |
+| `w` | Start/stop recording metrics |
+| `e` | Export the current rate cache to a timestamped CSV file |
+| `S` | Capture a screenshot of the current TUI state |
+| `?` | Toggle the help overlay |
+| `q` / `Ctrl+C` | Quit |
 
 ---
 

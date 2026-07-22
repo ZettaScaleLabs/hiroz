@@ -1,16 +1,17 @@
 //! WASM plugin loader: WasmPlugin, load_plugins, discover_wasm_plugins.
 //!
 //! Plugin world detection order at load time:
-//!   1. hu-cli-plugin  → WasmPlugin::Cli
-//!   2. hu-tui-plugin  → WasmPlugin::Tui
-//!   3. hu-web-plugin  → WasmPlugin::Web
-//!   4. hu-plugin      → WasmPlugin::Legacy  (v0.3 compat)
+//!   1. hu-cli-plugin  → PluginBindings::Cli
+//!   2. hu-tui-plugin  → PluginBindings::Tui
+//!   3. hu-web-plugin  → PluginBindings::Web  (feature = "web-plugins")
+//!   4. hu-plugin      → PluginBindings::Legacy  (v0.3 compat)
 
 pub mod host;
 pub mod state;
 
-pub use host::hu;
-pub use host::hu::plugin::types::{CliEvent, TuiEvent};
+pub(crate) use host::hu;
+pub use host::hu::plugin::types::{CliEvent, Permission, PluginManifest, TuiEvent};
+#[cfg(feature = "web-plugins")]
 pub use host::web_bindgen::hu::plugin::web_types::{HttpRequest, HttpResponse};
 
 use std::collections::HashMap;
@@ -29,106 +30,106 @@ use zenoh::Wait;
 
 use crate::core::engine::CoreEngine;
 
-use self::host::{HuPlugin, cli_bindgen, tui_bindgen, web_bindgen};
+#[cfg(feature = "web-plugins")]
+use self::host::web_bindgen;
+use self::host::{HuPlugin, cli_bindgen, tui_bindgen};
 use self::state::PluginState;
 
 // ─── Loaded plugin handle ─────────────────────────────────────────────────────
 
-/// Typed plugin handle.  Each variant wraps the correct WIT-world bindings so
-/// the host dispatcher cannot accidentally send a TUI event to a CLI plugin.
-pub enum WasmPlugin {
+/// Fields shared by every plugin world: identity, buffered output, and the
+/// wasmtime store the guest instance runs in.
+pub struct PluginCommon {
+    manifest: PluginManifest,
+    output_lines: Arc<Mutex<Vec<String>>>,
+    title: Arc<Mutex<String>>,
+    store: Store<PluginState>,
+}
+
+/// Per-world generated bindings.  Keeping only the bindings type per-variant
+/// (instead of duplicating `manifest`/`output_lines`/`title`/`store` on each
+/// arm) means the host dispatcher still cannot accidentally send a TUI event
+/// to a CLI plugin, but the shared bookkeeping lives in one place.
+pub enum PluginBindings {
     /// Plugin compiled against `hu-cli-plugin` world.
-    Cli {
-        manifest: hu::plugin::types::PluginManifest,
-        output_lines: Arc<Mutex<Vec<String>>>,
-        title: Arc<Mutex<String>>,
-        store: Store<PluginState>,
-        bindings: cli_bindgen::HuCliPlugin,
-    },
+    Cli(cli_bindgen::HuCliPlugin),
     /// Plugin compiled against `hu-tui-plugin` world (v0.1).
-    Tui {
-        manifest: hu::plugin::types::PluginManifest,
-        output_lines: Arc<Mutex<Vec<String>>>,
-        title: Arc<Mutex<String>>,
-        store: Store<PluginState>,
-        bindings: tui_bindgen::HuTuiPlugin,
-    },
+    Tui(tui_bindgen::HuTuiPlugin),
     /// Plugin compiled against `hu-web-plugin` world.
-    #[allow(dead_code)]
-    Web {
-        manifest: hu::plugin::types::PluginManifest,
-        output_lines: Arc<Mutex<Vec<String>>>,
-        title: Arc<Mutex<String>>,
-        store: Store<PluginState>,
-        bindings: web_bindgen::HuWebPlugin,
-    },
+    #[cfg(feature = "web-plugins")]
+    Web(web_bindgen::HuWebPlugin),
     /// Plugin compiled against legacy `hu-plugin` world (v0.3 compat).
-    Legacy {
-        manifest: hu::plugin::types::PluginManifest,
-        output_lines: Arc<Mutex<Vec<String>>>,
-        title: Arc<Mutex<String>>,
-        store: Store<PluginState>,
-        bindings: HuPlugin,
-    },
+    Legacy(HuPlugin),
+}
+
+/// Typed plugin handle.
+pub struct WasmPlugin {
+    common: PluginCommon,
+    bindings: PluginBindings,
+}
+
+/// Outcome of dispatching an event/request to a `WasmPlugin`.  Distinguishes
+/// "dispatch ran on a plugin of the wrong kind" (a programmer error at the
+/// call site) from "dispatch ran fine, no exit code yet" (normal steady
+/// state) — collapsing both to `None` made it impossible to tell them apart.
+pub enum DispatchOutcome {
+    /// The plugin handle was not of the kind this dispatch method targets.
+    WrongKind,
+    /// The dispatch call was made; the plugin may or may not have exited.
+    Ran { exit_code: Option<u32> },
+}
+
+impl DispatchOutcome {
+    /// Convenience accessor for call sites that don't care about the
+    /// wrong-kind/ran distinction and just want the exit code, if any.
+    pub fn exit_code(&self) -> Option<u32> {
+        match self {
+            DispatchOutcome::WrongKind => None,
+            DispatchOutcome::Ran { exit_code } => *exit_code,
+        }
+    }
 }
 
 impl WasmPlugin {
-    pub fn manifest(&self) -> &hu::plugin::types::PluginManifest {
-        match self {
-            WasmPlugin::Cli { manifest, .. }
-            | WasmPlugin::Tui { manifest, .. }
-            | WasmPlugin::Web { manifest, .. }
-            | WasmPlugin::Legacy { manifest, .. } => manifest,
-        }
+    pub fn manifest(&self) -> &PluginManifest {
+        &self.common.manifest
     }
 
     pub fn output_lines(&self) -> &Arc<Mutex<Vec<String>>> {
-        match self {
-            WasmPlugin::Cli { output_lines, .. }
-            | WasmPlugin::Tui { output_lines, .. }
-            | WasmPlugin::Web { output_lines, .. }
-            | WasmPlugin::Legacy { output_lines, .. } => output_lines,
-        }
+        &self.common.output_lines
     }
 
     pub fn title(&self) -> &Arc<Mutex<String>> {
-        match self {
-            WasmPlugin::Cli { title, .. }
-            | WasmPlugin::Tui { title, .. }
-            | WasmPlugin::Web { title, .. }
-            | WasmPlugin::Legacy { title, .. } => title,
-        }
+        &self.common.title
     }
 
     pub fn is_cli(&self) -> bool {
-        matches!(self, WasmPlugin::Cli { .. })
+        matches!(self.bindings, PluginBindings::Cli(_))
     }
 
-    #[allow(dead_code)]
+    #[cfg(feature = "web-plugins")]
     pub fn is_web(&self) -> bool {
-        matches!(self, WasmPlugin::Web { .. })
+        matches!(self.bindings, PluginBindings::Web(_))
     }
 
     /// Dispatch a CLI event to a `Cli` plugin.  Type-safe: `CliEvent` has no
     /// `key-action` or `topic-selected` variants so the compiler prevents TUI
     /// events from being sent down the CLI path.
-    pub fn dispatch_cli_event(&mut self, event: CliEvent) -> Option<u32> {
-        let WasmPlugin::Cli {
-            store,
-            bindings,
-            manifest,
-            ..
-        } = self
-        else {
-            return None;
+    pub fn dispatch_cli_event(&mut self, event: CliEvent) -> DispatchOutcome {
+        let PluginBindings::Cli(bindings) = &mut self.bindings else {
+            return DispatchOutcome::WrongKind;
         };
+        let store = &mut self.common.store;
+        let manifest = &self.common.manifest;
         // Interrupt bypasses subscription filtering.
         if matches!(event, CliEvent::Interrupt) {
             store.set_epoch_deadline(30);
             if let Err(e) = bindings.call_on_event(&mut *store, &event) {
                 tracing::warn!("CLI plugin '{}' interrupt error: {e}", manifest.name);
             }
-            return store.data().exit_code;
+            return DispatchOutcome::Ran {
+                exit_code: store.data().exit_code,
+            };
         }
         // Event subscription filtering.
         if !manifest.subscribed_events.is_empty() {
@@ -145,55 +146,50 @@ impl WasmPlugin {
                 )
             });
             if !subscribed {
-                return store.data().exit_code;
+                return DispatchOutcome::Ran {
+                    exit_code: store.data().exit_code,
+                };
             }
         }
         store.set_epoch_deadline(30);
         if let Err(e) = bindings.call_on_event(&mut *store, &event) {
             tracing::warn!("CLI plugin '{}' error: {e}", manifest.name);
         }
-        store.data().exit_code
+        DispatchOutcome::Ran {
+            exit_code: store.data().exit_code,
+        }
     }
 
     /// Dispatch a TUI event to a `Tui` or `Legacy` plugin.
-    pub fn dispatch_tui_event(&mut self, event: TuiEvent) -> Option<u32> {
-        match self {
-            WasmPlugin::Tui {
-                store,
-                bindings,
-                manifest,
-                ..
-            } => dispatch_inner("TUI", store, manifest, |s| {
-                bindings.call_on_event(s, &event)
-            }),
-            WasmPlugin::Legacy {
-                store,
-                bindings,
-                manifest,
-                ..
-            } => {
+    pub fn dispatch_tui_event(&mut self, event: TuiEvent) -> DispatchOutcome {
+        let Self { common, bindings } = self;
+        match bindings {
+            PluginBindings::Tui(bindings) => DispatchOutcome::Ran {
+                exit_code: dispatch_inner("TUI", &mut common.store, &common.manifest, |s| {
+                    bindings.call_on_event(s, &event)
+                }),
+            },
+            PluginBindings::Legacy(bindings) => {
                 // Convert TuiEvent → PluginEvent for the legacy world.
                 let pe = tui_to_plugin_event(event);
-                dispatch_inner("Legacy", store, manifest, |s| {
-                    bindings.call_on_event(s, &pe)
-                })
+                DispatchOutcome::Ran {
+                    exit_code: dispatch_inner("Legacy", &mut common.store, &common.manifest, |s| {
+                        bindings.call_on_event(s, &pe)
+                    }),
+                }
             }
-            _ => None,
+            _ => DispatchOutcome::WrongKind,
         }
     }
 
     /// Dispatch a web request to a `Web` plugin and return the HTTP response.
-    #[allow(dead_code)]
+    #[cfg(feature = "web-plugins")]
     pub fn dispatch_web_request(&mut self, req: HttpRequest) -> Option<HttpResponse> {
-        let WasmPlugin::Web {
-            store,
-            bindings,
-            manifest,
-            ..
-        } = self
-        else {
+        let PluginBindings::Web(bindings) = &mut self.bindings else {
             return None;
         };
+        let store = &mut self.common.store;
+        let manifest = &self.common.manifest;
         store.set_epoch_deadline(30);
         match bindings.call_handle(&mut *store, &req) {
             Ok(resp) => Some(resp),
@@ -272,11 +268,12 @@ pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Result<LoadResult> {
 }
 
 fn plugin_kind_label(p: &WasmPlugin) -> &'static str {
-    match p {
-        WasmPlugin::Cli { .. } => "cli",
-        WasmPlugin::Tui { .. } => "tui",
-        WasmPlugin::Web { .. } => "web",
-        WasmPlugin::Legacy { .. } => "legacy",
+    match p.bindings {
+        PluginBindings::Cli(_) => "cli",
+        PluginBindings::Tui(_) => "tui",
+        #[cfg(feature = "web-plugins")]
+        PluginBindings::Web(_) => "web",
+        PluginBindings::Legacy(_) => "legacy",
     }
 }
 
@@ -354,7 +351,6 @@ fn make_state_and_store(
         table: wasmtime_wasi::ResourceTable::new(),
         engine: engine_ref,
         subscriptions: HashMap::new(),
-        next_sub_rep: 0,
         sessions: initial_sessions,
         session_handle_names: HashMap::new(),
         raw_subs: HashMap::new(),
@@ -404,6 +400,7 @@ fn load_one(
     }
 
     // Probe Web world.
+    #[cfg(feature = "web-plugins")]
     if let Ok(plugin) = try_load_web(wasm_engine, &component, &work_dir, engine_ref.clone()) {
         return Ok(plugin);
     }
@@ -428,15 +425,19 @@ macro_rules! try_load {
                 make_state_and_store(wasm_engine, work_dir, engine_ref)?;
             let bindings = <$bindings_ty>::instantiate(&mut store, component, &linker)?;
             let manifest = bindings.call_manifest(&mut store).context("manifest()")?;
-            store.data_mut().permissions = manifest.required_permissions.clone();
+            store
+                .data_mut()
+                .set_permissions(manifest.required_permissions.clone());
             open_declared_sessions(&mut store, &manifest)?;
             *title.lock() = manifest.name.clone();
-            Ok(WasmPlugin::$variant {
-                manifest,
-                output_lines,
-                title,
-                store,
-                bindings,
+            Ok(WasmPlugin {
+                common: PluginCommon {
+                    manifest,
+                    output_lines,
+                    title,
+                    store,
+                },
+                bindings: PluginBindings::$variant(bindings),
             })
         }
     };
@@ -444,6 +445,7 @@ macro_rules! try_load {
 
 try_load!(try_load_cli, cli_bindgen::HuCliPlugin, Cli);
 try_load!(try_load_tui, tui_bindgen::HuTuiPlugin, Tui);
+#[cfg(feature = "web-plugins")]
 try_load!(try_load_web, web_bindgen::HuWebPlugin, Web);
 try_load!(try_load_legacy, HuPlugin, Legacy);
 

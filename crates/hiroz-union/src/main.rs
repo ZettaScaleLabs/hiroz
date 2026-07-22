@@ -273,7 +273,7 @@ async fn run_tui_mode(
     #[cfg(feature = "wasm-plugins")]
     {
         let (plugins, failed) = plugin::wasm::load_plugins(core)?;
-        app.plugin_mgr.plugins = plugins;
+        app.plugin_mgr.set_plugins(plugins);
         app.plugin_mgr.failed = failed;
     }
     let result = run_tui_loop(&mut terminal, &mut app).await;

@@ -1,4 +1,4 @@
-# hiroz-console (superseded)
+# hiroz-console (legacy)
 
 `hiroz-console` has been superseded by `hu`. All functionality is available via the `hu` command-line toolset.
 
