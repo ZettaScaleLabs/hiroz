@@ -57,14 +57,39 @@ jobs:
     container:
       image: ${{ matrix.image }}
     steps:
+      - name: Compute weekly cache key
+        id: cache-week
+        run: echo "week=$(date -u +%Y-W%V)" >> "$GITHUB_OUTPUT"
+
       - name: Cache apt packages
         uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives
           key: apt-${{ matrix.distro }}-v3-${{ hashFiles('.github/workflows/test.yml') }}
 
+      # `apt-get update`'s package-index fetch (not the package downloads
+      # themselves) is the actual bottleneck on this container's mirror --
+      # observed as low as ~900 B/s for a few hundred KB, costing several
+      # minutes per job even though installs run at a normal few hundred
+      # kB/s once the index is warm. Caching the index avoids refetching it
+      # every run. Keyed weekly (not indefinitely) so it can't go
+      # permanently stale; a cache miss just re-fetches, no failure mode.
+      - name: Cache apt package lists
+        uses: actions/cache@v4
+        with:
+          path: /var/lib/apt/lists
+          key: apt-lists-${{ matrix.distro }}-${{ steps.cache-week.outputs.week }}
+          restore-keys: |
+            apt-lists-${{ matrix.distro }}-
+
       - name: Install system dependencies
-        run: apt-get update && apt-get install -y nodejs
+        run: |
+          # jq is installed here (not left to taiki-e/install-action's own
+          # internal bootstrap in the "Install cargo-nextest" step below)
+          # specifically to avoid a second, fully independent apt-get
+          # update -- that redundant second index fetch was the entire cost
+          # of the cargo-nextest install step.
+          apt-get update && apt-get install -y nodejs jq
 
       - name: Install Nushell
         run: |
