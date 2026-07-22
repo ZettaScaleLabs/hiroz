@@ -197,7 +197,9 @@ impl HuMeter {
 
     fn cmd_echo(&mut self, args: &[String]) {
         let Some(topic) = args.first().cloned() else {
-            render::println("Usage: hu meter echo <topic> [--count <n>] [--field <path>]");
+            render::println(
+                "Usage: hu meter echo <topic> [--count <n>] [--field <path>] [--timeout <s>]",
+            );
             render::exit(1);
             self.mode = Mode::Done;
             return;
@@ -206,6 +208,14 @@ impl HuMeter {
             .and_then(|v| v.parse().ok())
             .unwrap_or(0usize);
         let field = flag_value(args, "--field");
+        // Explicit --timeout always applies. Absent that, fall back to a safety
+        // bound so `echo` can never hang forever waiting for messages that
+        // never arrive (matches hz/bw's duration-based exit).
+        const DEFAULT_ECHO_TIMEOUT_TICKS: u32 = 30;
+        self.duration_ticks = flag_value(args, "--timeout")
+            .and_then(|v| v.parse::<f64>().ok())
+            .map(|s| s.ceil().max(1.0) as u32)
+            .unwrap_or(DEFAULT_ECHO_TIMEOUT_TICKS);
         let sub = match ros::subscribe(&topic) {
             Ok(s) => s,
             Err(e) => {
@@ -1271,6 +1281,10 @@ impl HuMeter {
                         self.mode = Mode::Done;
                         return;
                     }
+                }
+                if done {
+                    render::exit(0);
+                    self.mode = Mode::Done;
                 }
             }
             Mode::Delay { topic, sub } => {
