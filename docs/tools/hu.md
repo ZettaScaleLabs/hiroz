@@ -104,6 +104,14 @@ export HU_DOMAIN=5
 hu meter hz /chatter
 ```
 
+`HU_ROUTER` and `HU_DOMAIN` fully replace the `--router` / `--domain` flags — once exported, every `hu meter` / `hu monitor` invocation reaches that router with no per-command flags, which is the recommended workflow for an interactive session:
+
+```bash
+export HU_ROUTER=tcp/127.0.0.1:7447
+hu meter list topics      # no --router needed
+hu monitor graph --once   # same session, same router
+```
+
 ### More examples
 
 The Quick Start covers `list`, `hz`, and `watch`. The subcommands below are the least self-explanatory ones — each transcript shows the exact command and the output line to expect. These paths are exercised by the integration suite (`crates/hiroz-tests/tests/hu_meter.rs`, `hu_monitor.rs`).
@@ -137,6 +145,13 @@ hu meter param get /talker publish_period_ms --json
 # {"publish_period_ms": 500}
 ```
 
+**Describe a parameter** as JSON (every meter subcommand supports `--json` for scripting):
+
+```bash
+hu meter param describe /talker publish_period_ms --json
+# {"name":"publish_period_ms","value":500}
+```
+
 **Stream action feedback** while a goal runs:
 
 ```bash
@@ -162,6 +177,12 @@ hu monitor log-level /talker DEBUG
 hu monitor log --count 2
 # [rosout] ...
 # [rosout] ...
+
+# Omit --count to stream every /rosout message indefinitely (Ctrl-C to stop).
+hu monitor log
+# [rosout] ...
+# [rosout] ...
+# ...
 ```
 
 > `hu monitor log-level` talks to the target node's `get_logger_levels` / `set_logger_levels` services (`rcl_interfaces`), so the node must expose them — standard `rclcpp`/`rclpy` nodes do; the pure-hiroz demo nodes do not yet.

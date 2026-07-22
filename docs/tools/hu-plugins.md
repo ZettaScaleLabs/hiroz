@@ -119,6 +119,23 @@ cp target/wasm32-wasip2/release/my_hu_plugin.wasm \
 
 Start `hu` and press `5` to open the Plugins panel (TUI plugins), or run `hu my-plugin <args>` from the terminal (CLI plugins).
 
+### 6. Run it end-to-end
+
+The shipped template (`crates/hiroz-union/plugins/hu-plugin-template/`) is exactly the crate above. Build it, point `HU_PLUGIN_PATH` at the output, and invoke it by its manifest name (`my-plugin`). Its `on_event` handler stores the `Startup` args and prints `hello from WASM!` on every `Tick` (`tick_ms = 1000`), so a running session emits one line per second until interrupted:
+
+```sh
+cargo build --target wasm32-wasip2 --release \
+  --manifest-path crates/hiroz-union/plugins/hu-plugin-template/Cargo.toml
+
+export HU_PLUGIN_PATH=target/wasm32-wasip2/release
+hu my-plugin demo-arg
+# hello from WASM!
+# hello from WASM!
+# ^C
+```
+
+This is the same path the integration suite drives in `test_hu_plugin_template_runtime_ticks` (`crates/hiroz-tests/tests/hu_meter.rs`), which runs `hu my-plugin`, lets the Tick loop fire, and asserts the `hello from WASM!` output — so the template's demonstrated example logic is verified at runtime, not just that the component loads.
+
 ## WIT world boundary
 
 ```mermaid
