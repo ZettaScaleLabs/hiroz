@@ -1653,6 +1653,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#6-run-it-end-to-end" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Run it end-to-end
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2694,6 +2705,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#6-run-it-end-to-end" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Run it end-to-end
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3022,6 +3044,18 @@
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">   </span>~/.local/share/hu/plugins/my-plugin.wasm
 </span></code></pre></div>
 <p>Start <code>hu</code> and press <code>5</code> to open the Plugins panel (TUI plugins), or run <code>hu my-plugin &lt;args&gt;</code> from the terminal (CLI plugins).</p>
+<h3 id="6-run-it-end-to-end">6. Run it end-to-end<a class="headerlink" href="#6-run-it-end-to-end" title="Permanent link">&para;</a></h3>
+<p>The shipped template (<code>crates/hiroz-union/plugins/hu-plugin-template/</code>) is exactly the crate above. Build it, point <code>HU_PLUGIN_PATH</code> at the output, and invoke it by its manifest name (<code>my-plugin</code>). Its <code>on_event</code> handler stores the <code>Startup</code> args and prints <code>hello from WASM!</code> on every <code>Tick</code> (<code>tick_ms = 1000</code>), so a running session emits one line per second until interrupted:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--target<span class="w"> </span>wasm32-wasip2<span class="w"> </span>--release<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--manifest-path<span class="w"> </span>crates/hiroz-union/plugins/hu-plugin-template/Cargo.toml
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_PLUGIN_PATH</span><span class="o">=</span>target/wasm32-wasip2/release
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>hu<span class="w"> </span>my-plugin<span class="w"> </span>demo-arg
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="c1"># hello from WASM!</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="c1"># hello from WASM!</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="c1"># ^C</span>
+</span></code></pre></div>
+<p>This is the same path the integration suite drives in <code>test_hu_plugin_template_runtime_ticks</code> (<code>crates/hiroz-tests/tests/hu_meter.rs</code>), which runs <code>hu my-plugin</code>, lets the Tick loop fire, and asserts the <code>hello from WASM!</code> output — so the template's demonstrated example logic is verified at runtime, not just that the component loads.</p>
 <h2 id="wit-world-boundary">WIT world boundary<a class="headerlink" href="#wit-world-boundary" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>flowchart LR
     subgraph Host["Host (hu binary)"]
@@ -3215,20 +3249,20 @@
 <p><code>hu-meter</code>'s <code>echo &lt;topic&gt; --raw</code> mode reads raw CDR payloads through <code>raw-transport</code>, so it declares <code>access-raw-cdr</code> in its manifest.</p>
 <h2 id="events">Events<a class="headerlink" href="#events" title="Permanent link">&para;</a></h2>
 <h3 id="cli-events-hu-cli-plugin">CLI events (<code>hu-cli-plugin</code>)<a class="headerlink" href="#cli-events-hu-cli-plugin" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>variant cli-event {
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    startup(list&lt;string&gt;),   // fired once on load with CLI args after the plugin name
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    tick,                    // fired every tick-ms milliseconds
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    interrupt,               // user pressed Ctrl-C
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>}
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>variant cli-event {
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    startup(list&lt;string&gt;),   // fired once on load with CLI args after the plugin name
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    tick,                    // fired every tick-ms milliseconds
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    interrupt,               // user pressed Ctrl-C
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>}
 </span></code></pre></div>
 <h3 id="tui-events-hu-tui-plugin">TUI events (<code>hu-tui-plugin</code>)<a class="headerlink" href="#tui-events-hu-tui-plugin" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>variant tui-event {
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    startup(list&lt;string&gt;),
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    key-action(string),      // user pressed a key declared in the manifest
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    topic-selected(string),  // user pressed Enter on a topic in another panel
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    tick,
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    interrupt,
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>}
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>variant tui-event {
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    startup(list&lt;string&gt;),
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    key-action(string),      // user pressed a key declared in the manifest
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    topic-selected(string),  // user pressed Enter on a topic in another panel
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    tick,
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    interrupt,
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>}
 </span></code></pre></div>
 <h2 id="event-lifecycle">Event lifecycle<a class="headerlink" href="#event-lifecycle" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>sequenceDiagram
