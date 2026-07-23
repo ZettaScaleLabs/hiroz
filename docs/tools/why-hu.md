@@ -1,20 +1,24 @@
 # hu Toolkit — Overview
 
-`hu` — short for **H**iroz **U**nion, and the crate that builds it is [`hiroz-union`](https://github.com/ZettaScaleLabs/hiroz/tree/main/crates/hiroz-union) — is the tooling ecosystem for the hiroz stack: a single, daemon-free binary that talks directly to Zenoh and grows through WebAssembly plugins. It replaces `ros2 topic`, `ros2 node`, `ros2 service`, `ros2 action`, `ros2 param`, and much of `rqt` — but the more important idea is that everything `hu` does, including the commands that ship in the box, is a **plugin**. This page introduces that ecosystem; the rest of this section drills into each part.
+`hu` — short for **H**iroz **U**nion, and the crate that builds it is [`hiroz-union`](https://github.com/ZettaScaleLabs/hiroz/tree/main/crates/hiroz-union) — is the tooling ecosystem for the hiroz stack: a single, daemon-free binary that talks directly to Zenoh and grows through WebAssembly plugins. It replaces `ros2 topic`, `ros2 node`, `ros2 service`, `ros2 action`, `ros2 param`, and much of `rqt` — but the more important idea is that most of what `hu` does, including the observation and measurement commands that ship in the box, is delivered as **plugins**. This page introduces that ecosystem; the rest of this section drills into each part.
 
 ## The ecosystem at a glance
 
-`hu` itself is a thin dispatcher. When you run `hu <name> <args>`, it looks up `<name>` among the plugins it discovered at startup and hands the invocation to that plugin. The built-in commands (`meter`, `monitor`) are shipped as plugins compiled into the binary; third-party plugins are `.wasm` files you drop into a directory. Both kinds implement the exact same typed contract, so a plugin you write is a first-class citizen alongside the ones that ship.
+`hu` itself is a thin dispatcher. When you run `hu <name> <args>`, it routes `<name>` to one of two kinds of command:
+
+- **Plugins** — sandboxed WebAssembly components that do the ROS 2 work (measurement, observation, your own tools). The shipped `meter` and `monitor` commands are plugins compiled into the binary; third-party plugins are `.wasm` files you drop into a directory. Both implement the exact same typed contract, so a plugin you write is a first-class citizen alongside the ones that ship.
+- **Host commands** — a small set of native subcommands built into the binary for things the sandbox deliberately can't do: `router` (start an embedded Zenoh router, which binds a network socket) and `plugin` (list/validate installed plugins).
 
 Every plugin — built-in or third-party — reaches the ROS 2 graph the same way: through the Zenoh router, using the live liveliness index instead of a background daemon.
 
 ```mermaid
 graph TD
-    accTitle: The hu toolkit — dispatcher, plugins, and the three WIT worlds over Zenoh
-    accDescr: The hu binary dispatches a subcommand to a plugin. Built-in plugins (meter, monitor) and third-party WASM plugins both implement one of three WIT worlds (CLI, TUI, web) and reach the ROS 2 graph through a shared Zenoh router.
+    accTitle: The hu toolkit — dispatcher routing to native host commands or sandboxed plugins over Zenoh
+    accDescr: The hu binary dispatches a subcommand either to a native host command (router, plugin) or to a plugin. Built-in plugins (meter, monitor) and third-party WASM plugins implement one of three WIT worlds (CLI, TUI, web). Everything reaches the ROS 2 graph through a shared Zenoh router.
 
     user(["hu · name · args"]) --> disp["hu dispatcher"]
 
+    disp -->|native| host["Host commands<br>router · plugin"]
     disp -->|dispatch| builtin["Built-in plugins<br>meter · monitor"]
     disp -->|dispatch| wasm["Third-party plugins<br>.wasm files"]
     path["HU_PLUGIN_PATH<br>~/.local/share/hu/plugins/"] -. loaded at startup .-> wasm
@@ -31,7 +35,8 @@ graph TD
     wasm --> tui
     wasm --> web
 
-    cli -->|Zenoh session| router(["Zenoh router"])
+    host -->|hu router serves| router(["Zenoh router"])
+    cli -->|Zenoh session| router
     tui --> router
     web --> router
     router <-->|liveliness + CDR| ros2graph(["ROS 2 graph<br>hiroz · rmw_zenoh_cpp"])
@@ -39,11 +44,12 @@ graph TD
 
 The moving parts:
 
-- **Dispatcher** — `hu` parses the first argument and routes to a plugin. It owns no ROS logic itself.
+- **Dispatcher** — `hu` parses the first argument and routes it to a host command or a plugin. It owns no ROS logic itself.
+- **Host commands** — native subcommands compiled into the binary, not plugins: `router` starts an embedded Zenoh router (see [Running a router](hu.md#running-a-router)), and `plugin` lists and validates installed plugins. These live outside the sandbox because they need host capabilities (binding a socket, reading the plugin directory) that a WASM guest is not granted.
 - **Built-in plugins** — `meter` (measurement: `hz`, `bw`, `delay`, `echo`, `pub`, `list`, `info`, service/action/param) and `monitor` (observation: `watch`, `graph`, `log`, `log-level`). They are plugins that happen to be compiled in.
 - **Third-party plugins** — any `.wasm` file in `$HU_PLUGIN_PATH` or `~/.local/share/hu/plugins/` becomes a `hu <name>` command with no registration step, no Python entry-points, and no shared runtime state.
 - **Three WIT worlds** — a plugin picks the role it plays: a one-shot/streaming CLI command (`hu-cli-plugin`), an interactive TUI pane (`hu-tui-plugin`), or an HTTP handler for `hu --web` (`hu-web-plugin`).
-- **Sandbox** — WASM plugins run sandboxed and capability-gated: a plugin only gets the host access (topic subscription, file, bag) it is explicitly granted.
+- **Sandbox** — WASM plugins run sandboxed and capability-gated: a plugin only gets the host access (topic subscription, file, bag) it is explicitly granted. Host commands are the deliberate exception — they are trusted native code, which is exactly why `router` is one rather than a plugin.
 - **Transport** — everything speaks to a Zenoh router and reads the liveliness index; there is no `_ros2_daemon` and no DDS discovery.
 
 Read on for [why this design beats the Python-based tools](#the-problem-with-existing-cli-tools), the [full command reference](hu.md), and [how to write your own plugin](hu-plugins.md).

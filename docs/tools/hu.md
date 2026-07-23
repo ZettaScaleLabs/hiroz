@@ -368,7 +368,7 @@ Point every other `hu` command (and your ROS 2 / hiroz nodes) at it with `--conn
 
 ## Plugin Architecture
 
-`hu` is a plugin host. `meter` and `monitor` are not built-in subcommands — they are WASM plugins compiled to `wasm32-wasip2` and loaded at startup from `$HU_PLUGIN_PATH` and `~/.local/share/hu/plugins/`. The `hu` binary itself is just the host runtime and TUI shell.
+`hu` is a plugin host. `meter` and `monitor` are not built-in subcommands — they are WASM plugins compiled to `wasm32-wasip2` and loaded at startup from `$HU_PLUGIN_PATH` and `~/.local/share/hu/plugins/`. The `hu` binary itself is the host runtime and TUI shell, plus a small set of native **host commands** that live outside the plugin sandbox because they need host capabilities a WASM guest is not granted: `router` (binds a network socket to serve an embedded Zenoh router) and `plugin` (lists/validates installed plugins).
 
 ```mermaid
 flowchart TD
