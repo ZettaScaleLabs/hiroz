@@ -27,7 +27,7 @@
     
     
       
-        <title>hu (unified tool) - HIROZ</title>
+        <title>hu (Hiroz Union) - HIROZ</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#hu-the-hiroz-unified-tool" class="md-skip">
+        <a href="#hu-hiroz-union" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              hu (unified tool)
+              hu (Hiroz Union)
             
           </span>
         </div>
@@ -312,7 +312,7 @@
           
   
   
-  Tools
+  hu Toolkit
 
         </a>
       </li>
@@ -1392,7 +1392,7 @@
   <span class="md-ellipsis">
     
   
-    Tools
+    hu Toolkit
   
 
     
@@ -1408,7 +1408,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Tools
+    hu Toolkit
   
 
           </label>
@@ -1428,7 +1428,7 @@
   <span class="md-ellipsis">
     
   
-    Why hu?
+    Overview
   
 
     
@@ -1465,7 +1465,7 @@
   <span class="md-ellipsis">
     
   
-    hu (unified tool)
+    hu (Hiroz Union)
   
 
     
@@ -1483,7 +1483,7 @@
   <span class="md-ellipsis">
     
   
-    hu (unified tool)
+    hu (Hiroz Union)
   
 
     
@@ -1698,10 +1698,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#headless-mode" class="md-nav__link">
+  <a href="#stream-mode" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Headless Mode
+        Stream Mode
       
     </span>
   </a>
@@ -1713,6 +1713,17 @@
     <span class="md-ellipsis">
       
         Web Mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-a-router" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running a router
       
     </span>
   </a>
@@ -1793,34 +1804,6 @@
     
   
     hu Plugin Authoring
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../console/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    hiroz-console (legacy)
   
 
     
@@ -2746,10 +2729,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#headless-mode" class="md-nav__link">
+  <a href="#stream-mode" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Headless Mode
+        Stream Mode
       
     </span>
   </a>
@@ -2761,6 +2744,17 @@
     <span class="md-ellipsis">
       
         Web Mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-a-router" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running a router
       
     </span>
   </a>
@@ -2814,7 +2808,7 @@
   
 
 
-<h1 id="hu-the-hiroz-unified-tool">hu — The hiroz Unified Tool<a class="headerlink" href="#hu-the-hiroz-unified-tool" title="Permanent link">&para;</a></h1>
+<h1 id="hu-hiroz-union">hu — Hiroz Union<a class="headerlink" href="#hu-hiroz-union" title="Permanent link">&para;</a></h1>
 <p><code>hu</code> is the command-line companion to the hiroz stack. It replaces <code>ros2 topic</code>, <code>ros2 node</code>, <code>ros2 service</code>, <code>ros2 action</code>, and <code>ros2 param</code> with a daemon-free, plugin-based tool that works directly over Zenoh — no DDS, no Python, no background process. Subcommands like <code>meter</code> and <code>monitor</code> are WASM plugins; you can ship your own by dropping a <code>.wasm</code> file into <code>~/.local/share/hu/plugins/</code>.</p>
 <h2 id="terminology">Terminology<a class="headerlink" href="#terminology" title="Permanent link">&para;</a></h2>
 <p>A few terms recur throughout this page:</p>
@@ -2870,7 +2864,7 @@
 <h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
 <p>This walks through a real end-to-end session: a router, a talker/listener pair, and <code>hu</code> observing them. Run each step in its own terminal.</p>
 <p><strong>Terminal 1 — start the Zenoh router:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>zenoh_router
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>hu<span class="w"> </span>router
 </span></code></pre></div>
 <p><strong>Terminal 2 — start a hiroz listener:</strong></p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>z_pubsub<span class="w"> </span>--<span class="w"> </span>--role<span class="w"> </span>listener
@@ -2895,16 +2889,16 @@
 </span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="c1"># topic appeared: /chatter</span>
 </span></code></pre></div>
 <p>By default <code>hu</code> connects to <code>tcp/127.0.0.1:7447</code> and uses domain ID <code>0</code> — matching the talker/listener above. Override with flags or environment variables:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>hu<span class="w"> </span>--router<span class="w"> </span>tcp/192.168.1.10:7447<span class="w"> </span>--domain<span class="w"> </span><span class="m">5</span><span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>hu<span class="w"> </span>--connect<span class="w"> </span>tcp/192.168.1.10:7447<span class="w"> </span>--domain<span class="w"> </span><span class="m">5</span><span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics
 </span></code></pre></div>
 <p>Or set them once for the session:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_ROUTER</span><span class="o">=</span>tcp/192.168.1.10:7447
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_CONNECT</span><span class="o">=</span>tcp/192.168.1.10:7447
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_DOMAIN</span><span class="o">=</span><span class="m">5</span>
 </span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>hu<span class="w"> </span>meter<span class="w"> </span>hz<span class="w"> </span>/chatter
 </span></code></pre></div>
-<p><code>HU_ROUTER</code> and <code>HU_DOMAIN</code> fully replace the <code>--router</code> / <code>--domain</code> flags — once exported, every <code>hu meter</code> / <code>hu monitor</code> invocation reaches that router with no per-command flags, which is the recommended workflow for an interactive session:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_ROUTER</span><span class="o">=</span>tcp/127.0.0.1:7447
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>hu<span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics<span class="w">      </span><span class="c1"># no --router needed</span>
+<p><code>HU_CONNECT</code> and <code>HU_DOMAIN</code> fully replace the <code>--connect</code> / <code>--domain</code> flags — once exported, every <code>hu meter</code> / <code>hu monitor</code> invocation reaches that router with no per-command flags, which is the recommended workflow for an interactive session:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_CONNECT</span><span class="o">=</span>tcp/127.0.0.1:7447
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>hu<span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics<span class="w">      </span><span class="c1"># no --connect needed</span>
 </span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>hu<span class="w"> </span>monitor<span class="w"> </span>graph<span class="w"> </span>--once<span class="w">   </span><span class="c1"># same session, same router</span>
 </span></code></pre></div>
 <h3 id="more-examples">More examples<a class="headerlink" href="#more-examples" title="Permanent link">&para;</a></h3>
@@ -3139,10 +3133,10 @@
 </table>
 <hr />
 <h2 id="multi-topic-rate-dashboard">Multi-topic Rate Dashboard<a class="headerlink" href="#multi-topic-rate-dashboard" title="Permanent link">&para;</a></h2>
-<p>For continuous monitoring of multiple topics at once, use the <code>hu</code> TUI. It shows a live rate table for all active topics, updated every second, without spawning one process per topic:</p>
+<p>For continuous monitoring of several topics at once, use the <code>hu</code> TUI. Select topics in the Topics panel and press <code>m</code> to add them to the Measure panel, which shows a live, per-second rate and bandwidth table for every topic you're tracking — all in one process, instead of one <code>ros2 topic hz</code> per topic:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>hu
 </span></code></pre></div>
-<p>This is the primary advantage over <code>ros2 topic hz</code>, which requires a separate terminal per topic.</p>
+<p>Bare <code>hu</code> launches the TUI; use <code>Tab</code>/<code>1</code>–<code>5</code> to reach the Measure panel. This is the primary advantage over <code>ros2 topic hz</code>, which needs a separate terminal per topic and no combined view.</p>
 <h3 id="tui-keybindings">TUI Keybindings<a class="headerlink" href="#tui-keybindings" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3210,29 +3204,44 @@
 </span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>hu<span class="w"> </span>meter<span class="w"> </span>info<span class="w"> </span>node<span class="w"> </span>/talker<span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.publishers[].name&#39;</span>
 </span></code></pre></div>
 <hr />
-<h2 id="headless-mode">Headless Mode<a class="headerlink" href="#headless-mode" title="Permanent link">&para;</a></h2>
-<p><code>--headless</code> streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>hu<span class="w"> </span>--headless
+<h2 id="stream-mode">Stream Mode<a class="headerlink" href="#stream-mode" title="Permanent link">&para;</a></h2>
+<p><code>hu stream</code> streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>hu<span class="w"> </span>stream
 </span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="c1"># node appeared:  /camera_driver</span>
 </span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="c1"># topic appeared: /camera/image_raw</span>
 </span></code></pre></div>
 <p>Add <code>--json</code> for structured output:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>hu<span class="w"> </span>--headless<span class="w"> </span>--json
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json
 </span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="c1"># {&quot;type&quot;:&quot;initial_state&quot;,&quot;nodes&quot;:[...],&quot;topics&quot;:[...]}</span>
 </span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="c1"># {&quot;type&quot;:&quot;node_appeared&quot;,&quot;name&quot;:&quot;/camera_driver&quot;}</span>
 </span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1"># {&quot;type&quot;:&quot;topic_appeared&quot;,&quot;name&quot;:&quot;/camera/image_raw&quot;,&quot;type_name&quot;:&quot;sensor_msgs/msg/Image&quot;}</span>
 </span></code></pre></div>
 <p>Add <code>--echo &lt;TOPIC&gt;</code> to also subscribe to a topic and interleave decoded messages. <code>--echo</code> can be repeated for multiple topics:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>hu<span class="w"> </span>--headless<span class="w"> </span>--json<span class="w"> </span>--echo<span class="w"> </span>/scan<span class="w"> </span>--echo<span class="w"> </span>/cmd_vel
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json<span class="w"> </span>--echo<span class="w"> </span>/scan<span class="w"> </span>--echo<span class="w"> </span>/cmd_vel
 </span></code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code>hu stream</code> replaces the deprecated <code>--headless</code> flag, which still works as a hidden alias for now.</p>
+</div>
 <hr />
 <h2 id="web-mode">Web Mode<a class="headerlink" href="#web-mode" title="Permanent link">&para;</a></h2>
-<p><code>--web [PORT]</code> starts an HTTP server (default port 8080) that dispatches requests to <code>hu-web-plugin</code> WASM plugins. Requires <code>hu</code> built with the <code>web-plugins</code> feature:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>hu<span class="w"> </span>--web<span class="w">          </span><span class="c1"># listen on 0.0.0.0:8080</span>
-</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>hu<span class="w"> </span>--web<span class="w"> </span><span class="m">9090</span><span class="w">     </span><span class="c1"># listen on 0.0.0.0:9090</span>
+<p><code>hu web</code> starts an HTTP server (default port 8080) that dispatches requests to <code>hu-web-plugin</code> WASM plugins. Requires <code>hu</code> built with the <code>web-plugins</code> feature:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>hu<span class="w"> </span>web<span class="w">                </span><span class="c1"># listen on 0.0.0.0:8080</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>hu<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9090</span><span class="w">    </span><span class="c1"># listen on 0.0.0.0:9090</span>
 </span></code></pre></div>
 <p>Each web plugin is reachable at <code>/plugins/&lt;name&gt;/</code> and <code>/plugins/&lt;name&gt;/*path</code>. The plugin handles the full HTTP request/response cycle (see <a href="../hu-plugins/">hu Plugin Authoring Guide</a>).</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code>hu web</code> replaces the deprecated <code>--web [PORT]</code> flag, which still works as a hidden alias for now.</p>
+</div>
 <hr />
+<h2 id="running-a-router">Running a router<a class="headerlink" href="#running-a-router" title="Permanent link">&para;</a></h2>
+<p><code>hu router</code> starts an embedded Zenoh router configured to match <code>rmw_zenoh_cpp</code>, so you don't need a separate <code>zenohd</code> install or the <code>cargo run --example zenoh_router</code> helper for local development. It listens on <code>tcp/[::]:7447</code> by default and runs until Ctrl-C:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>hu<span class="w"> </span>router<span class="w">                              </span><span class="c1"># listen on tcp/[::]:7447</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>hu<span class="w"> </span>router<span class="w"> </span>--listen<span class="w"> </span>tcp/0.0.0.0:7448<span class="w">    </span><span class="c1"># custom endpoint (repeatable)</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>hu<span class="w"> </span>router<span class="w"> </span>--config<span class="w"> </span>router.json5<span class="w">        </span><span class="c1"># full JSON5/YAML config, overrides --listen</span>
+</span></code></pre></div>
+<p>Point every other <code>hu</code> command (and your ROS 2 / hiroz nodes) at it with <code>--connect</code> / <code>HU_CONNECT</code>. For production deployments, prefer the bundled <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenohd</code></a> or a standalone <code>zenohd</code>.</p>
 <h2 id="additional-flags">Additional Flags<a class="headerlink" href="#additional-flags" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3244,9 +3253,9 @@
 </thead>
 <tbody>
 <tr>
-<td><code>--router &lt;endpoint&gt;</code></td>
+<td><code>--connect &lt;endpoint&gt;</code></td>
 <td><code>tcp/127.0.0.1:7447</code></td>
-<td>Zenoh router endpoint (also <code>HU_ROUTER</code>)</td>
+<td>Zenoh router endpoint to connect to (also <code>HU_CONNECT</code>)</td>
 </tr>
 <tr>
 <td><code>--domain &lt;id&gt;</code></td>
@@ -3256,27 +3265,17 @@
 <tr>
 <td><code>--backend &lt;name&gt;</code></td>
 <td><code>rmw-zenoh</code></td>
-<td>Select the graph/RMW backend (currently only <code>rmw-zenoh</code>). Not a mode switch — use <code>--headless</code>/<code>--web</code> for output mode</td>
-</tr>
-<tr>
-<td><code>--headless</code></td>
-<td>—</td>
-<td>Run in headless (no TUI) event-streaming mode</td>
+<td>Select the graph/RMW backend (currently only <code>rmw-zenoh</code>). Not a mode switch — pick a mode with the <code>tui</code>/<code>web</code>/<code>stream</code> subcommands</td>
 </tr>
 <tr>
 <td><code>--json</code></td>
 <td>—</td>
-<td>Structured JSON output — affects headless event streaming, <code>hu plugin list</code> output, and log formatting</td>
+<td>Structured JSON output — affects <code>hu stream</code> event streaming, <code>hu plugin list</code> output, and log formatting</td>
 </tr>
 <tr>
 <td><code>--echo &lt;TOPIC&gt;</code></td>
 <td>—</td>
-<td>Subscribe to topic and stream messages (headless, repeatable)</td>
-</tr>
-<tr>
-<td><code>--web [PORT]</code></td>
-<td>—</td>
-<td>Run web plugin server (requires <code>web-plugins</code> feature)</td>
+<td>Subscribe to topic and stream messages (<code>hu stream</code>, repeatable)</td>
 </tr>
 <tr>
 <td><code>--export &lt;path&gt;</code></td>
@@ -3290,9 +3289,10 @@
 </tr>
 </tbody>
 </table>
+<p>The run mode is chosen by subcommand — <code>hu</code> (or <code>hu tui</code>) for the TUI, <code>hu web</code> for the HTTP server, <code>hu stream</code> for JSON streaming. The old <code>--web</code> / <code>--headless</code> flags still work as hidden, deprecated aliases.</p>
 <hr />
 <h2 id="plugin-architecture">Plugin Architecture<a class="headerlink" href="#plugin-architecture" title="Permanent link">&para;</a></h2>
-<p><code>hu</code> is a plugin host. <code>meter</code> and <code>monitor</code> are not built-in subcommands — they are WASM plugins compiled to <code>wasm32-wasip2</code> and loaded at startup from <code>$HU_PLUGIN_PATH</code> and <code>~/.local/share/hu/plugins/</code>. The <code>hu</code> binary itself is just the host runtime and TUI shell.</p>
+<p><code>hu</code> is a plugin host. <code>meter</code> and <code>monitor</code> are not built-in subcommands — they are WASM plugins compiled to <code>wasm32-wasip2</code> and loaded at startup from <code>$HU_PLUGIN_PATH</code> and <code>~/.local/share/hu/plugins/</code>. The <code>hu</code> binary itself is the host runtime and TUI shell, plus a small set of native <strong>host commands</strong> that live outside the plugin sandbox because they need host capabilities a WASM guest is not granted: <code>router</code> (binds a network socket to serve an embedded Zenoh router) and <code>plugin</code> (lists/validates installed plugins).</p>
 <pre class="mermaid"><code>flowchart TD
     H["hu binary&lt;br&gt;(host runtime + TUI shell)"]
     H --&gt; M["meter.wasm&lt;br&gt;hu meter hz / bw / echo / pub / list / info …"]
@@ -3300,10 +3300,10 @@
     H --&gt; C["custom.wasm&lt;br&gt;hu &amp;lt;name&amp;gt; &amp;lt;args&amp;gt;"]
     HU_PLUGIN_PATH["$HU_PLUGIN_PATH&lt;br&gt;~/.local/share/hu/plugins/"] --&gt; H</code></pre>
 <p>Any team can ship a <code>hu-&lt;name&gt;.wasm</code> file and it becomes a <code>hu &lt;name&gt;</code> subcommand with no build-system changes, no Python packaging, and no shared runtime state:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># Drop a .wasm file and it becomes available immediately</span>
-</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>cp<span class="w"> </span>./my-debug-tool.wasm<span class="w"> </span>~/.local/share/hu/plugins/
-</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>hu<span class="w"> </span>plugin<span class="w"> </span>list<span class="w">          </span><span class="c1"># shows all loaded plugins with name and path</span>
-</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>hu<span class="w"> </span>my-debug-tool<span class="w"> </span>--help
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="c1"># Drop a .wasm file and it becomes available immediately</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>cp<span class="w"> </span>./my-debug-tool.wasm<span class="w"> </span>~/.local/share/hu/plugins/
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>hu<span class="w"> </span>plugin<span class="w"> </span>list<span class="w">          </span><span class="c1"># shows all loaded plugins with name and path</span>
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>hu<span class="w"> </span>my-debug-tool<span class="w"> </span>--help
 </span></code></pre></div>
 <p>Plugins are sandboxed: they declare the capabilities they need (subscriptions, raw CDR, additional Zenoh sessions) in a manifest, and the host refuses calls for anything undeclared. Plugins also never manage Zenoh connections directly — the host opens all sessions declared in the plugin's manifest before the first event fires. The same <code>.wasm</code> binary runs as a TUI panel and as a CLI subcommand.</p>
 <p>See <a href="../hu-plugins/">hu Plugin Authoring Guide</a> for the WIT interface reference and a worked example.</p>
@@ -3342,7 +3342,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../why-hu/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Why hu?">
+          <a href="../why-hu/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Overview">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -3352,7 +3352,7 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                Why hu?
+                Overview
               </div>
             </div>
           </a>

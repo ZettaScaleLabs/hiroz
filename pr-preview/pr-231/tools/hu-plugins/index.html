@@ -16,7 +16,7 @@
         <link rel="prev" href="../hu-vs-ros2cli/">
       
       
-        <link rel="next" href="../console/">
+        <link rel="next" href="../../bindings/python-quick-start/">
       
       
         
@@ -312,7 +312,7 @@
           
   
   
-  Tools
+  hu Toolkit
 
         </a>
       </li>
@@ -1392,7 +1392,7 @@
   <span class="md-ellipsis">
     
   
-    Tools
+    hu Toolkit
   
 
     
@@ -1408,7 +1408,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Tools
+    hu Toolkit
   
 
           </label>
@@ -1428,7 +1428,7 @@
   <span class="md-ellipsis">
     
   
-    Why hu?
+    Overview
   
 
     
@@ -1456,7 +1456,7 @@
   <span class="md-ellipsis">
     
   
-    hu (unified tool)
+    hu (Hiroz Union)
   
 
     
@@ -1861,34 +1861,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../console/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    hiroz-console (legacy)
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -2935,7 +2907,7 @@
 
 
 <h1 id="hu-plugin-authoring-guide">hu Plugin Authoring Guide<a class="headerlink" href="#hu-plugin-authoring-guide" title="Permanent link">&para;</a></h1>
-<p><code>hu</code> supports third-party plugins compiled to <a href="https://github.com/WebAssembly/WASI">WebAssembly System Interface (WASI) Preview 2</a> — a sandboxed, portable binary format. Plugins run as CLI commands (<code>hu &lt;plugin-name&gt; &lt;args&gt;</code>), as TUI panes (panel 5), or as web handlers (<code>hu --web</code>). They are loaded at startup from <code>$HU_PLUGIN_PATH</code> or <code>~/.local/share/hu/plugins/</code>.</p>
+<p><code>hu</code> supports third-party plugins compiled to <a href="https://github.com/WebAssembly/WASI">WebAssembly System Interface (WASI) Preview 2</a> — a sandboxed, portable binary format. Plugins run as CLI commands (<code>hu &lt;plugin-name&gt; &lt;args&gt;</code>), as TUI panes (panel 5), or as web handlers (<code>hu web</code>). They are loaded at startup from <code>$HU_PLUGIN_PATH</code> or <code>~/.local/share/hu/plugins/</code>.</p>
 <p>The plugin interface is defined using <a href="https://component-model.bytecodealliance.org/design/wit.html">WIT (WebAssembly Interface Types)</a> — a typed IDL for describing host/guest contracts. You do not need to understand WIT deeply to write a plugin; <code>wit_bindgen</code> generates all the Rust boilerplate from it.</p>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
@@ -2966,7 +2938,7 @@
 </tr>
 <tr>
 <td><code>hu-web-plugin</code></td>
-<td>HTTP request/response handler for <code>hu --web</code></td>
+<td>HTTP request/response handler for <code>hu web</code></td>
 <td>no events — stateless <code>handle(req) → response</code></td>
 </tr>
 </tbody>
@@ -3295,7 +3267,7 @@
 <p>A plugin that needs two independent Zenoh connections — for example, one that forwards messages between two routers (Humble on port 7447 and Jazzy on port 7448) — declares both sessions in its manifest via <code>SessionRequirement { name, endpoint, mode }</code>. The host opens all declared sessions before the first <code>Startup</code> event, and the plugin retrieves each one with <code>session::get_session(name)</code>, which returns a <code>session-handle</code> exposing <code>raw-subscribe</code>, <code>raw-publisher</code>, <code>declare-liveliness</code>, <code>subscribe-liveliness</code>, and <code>declare-queryable</code> — the same primitives as <code>raw-transport</code>, but scoped to that named session rather than the shared host session.</p>
 <p>No such bridge plugin ships in this PR. For worked, compiling examples of manifest declaration, session/state handling, and event dispatch, see the reference implementations below — <code>hu-meter</code> in particular declares and drives a session end-to-end.</p>
 <h2 id="environment">Environment<a class="headerlink" href="#environment" title="Permanent link">&para;</a></h2>
-<p>Plugins can read environment variables from the <code>hu</code> process (<code>HU_ROUTER</code>, <code>HU_DOMAIN</code>, and any others set in the shell). Filesystem and network access are not available. Only install plugins you trust.</p>
+<p>Plugins can read environment variables from the <code>hu</code> process (<code>HU_CONNECT</code>, <code>HU_DOMAIN</code>, and any others set in the shell). Filesystem and network access are not available. Only install plugins you trust.</p>
 <h2 id="reference-implementations">Reference implementations<a class="headerlink" href="#reference-implementations" title="Permanent link">&para;</a></h2>
 <p>See <code>crates/hiroz-union/plugins/hu-plugin-template/</code> for the minimal runnable version of the quick-start example above. CI builds it against the <code>wasm32-wasip2</code> target and then loads the compiled artifact through the real component-model host — <code>scripts/ci/hu-tests.sh</code> runs <code>hu plugin validate</code> and <code>hu plugin list</code> on it (see <code>test_hu_plugin_template_validate_and_discover</code> in <code>crates/hiroz-tests/tests/hu_meter.rs</code>). So the template is verified to load against the live WIT world, not merely to compile, and a WIT/ABI regression fails CI. <code>crates/hiroz-union/plugins/hu-meter/</code> and <code>crates/hiroz-union/plugins/hu-monitor/</code> are full CLI plugins with subcommand dispatch and periodic output.</p>
 
@@ -3350,13 +3322,13 @@
         
         
           
-          <a href="../console/" class="md-footer__link md-footer__link--next" aria-label="Next: hiroz-console (legacy)">
+          <a href="../../bindings/python-quick-start/" class="md-footer__link md-footer__link--next" aria-label="Next: Quick Start">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                hiroz-console (legacy)
+                Quick Start
               </div>
             </div>
             <div class="md-footer__button md-icon">

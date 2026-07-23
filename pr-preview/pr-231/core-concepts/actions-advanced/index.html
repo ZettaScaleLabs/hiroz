@@ -312,7 +312,7 @@
           
   
   
-  Tools
+  hu Toolkit
 
         </a>
       </li>
@@ -1532,7 +1532,7 @@
   <span class="md-ellipsis">
     
   
-    Tools
+    hu Toolkit
   
 
     
@@ -1548,7 +1548,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Tools
+    hu Toolkit
   
 
           </label>
@@ -1568,7 +1568,7 @@
   <span class="md-ellipsis">
     
   
-    Why hu?
+    Overview
   
 
     
@@ -1596,7 +1596,7 @@
   <span class="md-ellipsis">
     
   
-    hu (unified tool)
+    hu (Hiroz Union)
   
 
     
@@ -1653,34 +1653,6 @@
     
   
     hu Plugin Authoring
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../tools/console/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    hiroz-console (legacy)
   
 
     
@@ -2619,7 +2591,7 @@
 </ul>
 <p><strong>Running the server</strong> (clone the repo first: <code>git clone https://github.com/ZettaScaleLabs/hiroz.git &amp;&amp; cd hiroz</code>):</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Start Eclipse Zenoh router first</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>zenoh_router
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>hu<span class="w"> </span>router
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Run the server (runs until Ctrl+C)</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>demo_nodes_fibonacci_action_server
@@ -2713,7 +2685,7 @@
 <p>These commands run the ready-made examples from the hiroz repository. Clone it first with <code>git clone https://github.com/ZettaScaleLabs/hiroz.git &amp;&amp; cd hiroz</code>. If you're building your own project, run your binaries with <code>cargo run</code> instead.</p>
 </div>
 <p><strong>Terminal 1 - Start Zenoh Router:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>zenoh_router
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>hu<span class="w"> </span>router
 </span></code></pre></div>
 <p><strong>Terminal 2 - Start Action Server:</strong></p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>demo_nodes_fibonacci_action_server
