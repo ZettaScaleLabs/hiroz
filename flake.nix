@@ -7,6 +7,7 @@
     rust-overlay.url = "github:oxalica/rust-overlay";
     git-hooks.url = "github:cachix/git-hooks.nix";
     systems.url = "github:nix-systems/default";
+    crane.url = "github:ipetkov/crane";
   };
 
   outputs =
@@ -17,6 +18,7 @@
       rust-overlay,
       git-hooks,
       systems,
+      crane,
     }:
     nix-ros-overlay.inputs.flake-utils.lib.eachDefaultSystem (
       system:
@@ -50,6 +52,15 @@
             "llvm-tools-preview"
           ];
         };
+
+        # crane splits the `hu` package build into a deps-only layer
+        # (cargoArtifacts, cacheable independently of workspace source changes)
+        # and the actual package build that reuses it -- unlike
+        # rustPlatform.buildRustPackage's single-phase build, a change to any
+        # workspace crate's own code doesn't invalidate the compiled-dependency
+        # cache, so cachix only needs to re-push the deps layer when Cargo.lock
+        # itself changes.
+        craneLib = (crane.mkLib pkgs).overrideToolchain (_: rustToolchain);
 
         # CI-only toolchain — adds the wasm32-wasip2 sysroot for building WASM
         # plugins. Kept separate so everyday `nix develop` shells don't pay the
@@ -534,29 +545,32 @@
           }) availableDistros
         ));
 
-        packages = rec {
-          hu = pkgs.rustPlatform.buildRustPackage {
-            pname = "hu";
-            version = "0.1.0";
-            src = ./.;
-            cargoLock.lockFile = ./Cargo.lock;
-            nativeBuildInputs = [
-              pkgs.pkg-config
-              pkgs.protobuf
-            ];
-            cargoBuildFlags = [
-              "-p"
-              "hiroz-union"
-            ];
-            cargoInstallFlags = [
-              "--bin"
-              "hu"
-            ];
-            doCheck = false;
-            RUSTFLAGS = "";
+        packages =
+          let
+            huCommonArgs = {
+              pname = "hu";
+              version = "0.1.0";
+              src = craneLib.cleanCargoSource ./.;
+              strictDeps = true;
+              nativeBuildInputs = [
+                pkgs.pkg-config
+                pkgs.protobuf
+              ];
+              cargoExtraArgs = "-p hiroz-union --bin hu";
+              doCheck = false;
+              RUSTFLAGS = "";
+            };
+            huCargoArtifacts = craneLib.buildDepsOnly huCommonArgs;
+          in
+          rec {
+            hu = craneLib.buildPackage (
+              huCommonArgs
+              // {
+                cargoArtifacts = huCargoArtifacts;
+              }
+            );
+            default = hu;
           };
-          default = hu;
-        };
 
         formatter = pkgs.nixfmt-rfc-style;
       }
