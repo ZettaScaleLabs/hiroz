@@ -109,6 +109,15 @@ cargo build --target wasm32-wasip2 --release
 
 No `cargo-component` or other tooling required — plain `cargo build` with the `wasm32-wasip2` target is sufficient.
 
+**Tip — skip the `--target` flag.** Since a plugin crate only ever builds for WASM, set the default target once in your crate's `.cargo/config.toml`:
+
+```toml
+[build]
+target = "wasm32-wasip2"
+```
+
+Then `cargo build --release` builds the component with no flags (after a one-time `rustup target add wasm32-wasip2`).
+
 ### 5. Install
 
 Name the file `<subcommand>.wasm` — `hu` strips any `hu-` prefix when discovering plugins, so `hu-meter.wasm` registers as `meter` and is invoked by `hu meter <args>`.

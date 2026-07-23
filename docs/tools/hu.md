@@ -51,12 +51,13 @@ cargo build -p hiroz-union --release
 ./target/release/hu --help
 ```
 
-**2. Build the `meter` / `monitor` plugins.** These are **WASM plugins, not part of the `hu` binary**, so `hu meter …` and `hu monitor …` do nothing until their `.wasm` files are on the plugin path. They live in a separate wasm workspace:
+**2. Build the `meter` / `monitor` plugins.** These are **WASM plugins, not part of the `hu` binary**, so `hu meter …` and `hu monitor …` do nothing until their `.wasm` files are on the plugin path. Build them with the `cargo hu-plugins` alias:
 
 ```bash
-cargo build --manifest-path crates/hiroz-union/plugins/Cargo.toml \
-  --target wasm32-wasip2 --release --workspace
+cargo hu-plugins --release
 ```
+
+That's shorthand for `cargo build --manifest-path crates/hiroz-union/plugins/Cargo.toml --target wasm32-wasip2 --workspace`. The plugins are a separate wasm workspace, so you can also `cd crates/hiroz-union/plugins && cargo build --release` (the target defaults to `wasm32-wasip2` there).
 
 **3. Put the plugins on the plugin path** — either point `HU_PLUGIN_PATH` at the build output, or copy the `.wasm` files into `~/.local/share/hu/plugins/` (the always-searched dir). The `hu_`/`hu-` prefix is stripped on discovery, so `hu_meter.wasm` becomes `meter`:
 

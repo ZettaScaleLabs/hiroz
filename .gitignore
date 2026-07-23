@@ -2,7 +2,9 @@
 .direnv
 target
 node_modules
-.cargo
+# Ignore local cargo state but keep committed config.toml (aliases, build target)
+.cargo/*
+!.cargo/config.toml
 compile_commands.json
 _*
 !crates/hiroz-py/python/**/__init__.py

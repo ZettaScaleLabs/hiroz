@@ -1,0 +1,5 @@
+# These crates are WASM components. Default the build target so, from inside
+# this plugins workspace, `cargo build --release` just works — no need to pass
+# `--target wasm32-wasip2` every time.
+[build]
+target = "wasm32-wasip2"
