@@ -3187,6 +3187,14 @@
 <td>Capture a screenshot of the current TUI state</td>
 </tr>
 <tr>
+<td><code>t</code></td>
+<td>Tick the selected plugin (Plugins panel)</td>
+</tr>
+<tr>
+<td><code>R</code></td>
+<td>Reload plugins — rescan the plugin directories live, no restart (Plugins panel)</td>
+</tr>
+<tr>
 <td><code>?</code></td>
 <td>Toggle the help overlay</td>
 </tr>
@@ -3196,6 +3204,7 @@
 </tr>
 </tbody>
 </table>
+<p>When a TUI plugin's output pane is focused (select it on the Plugins panel and press <code>l</code>/<code>Enter</code>), keystrokes are sent to the plugin as <code>key-action</code> events instead of driving the TUI — press <code>Esc</code> (or <code>←</code>/<code>h</code>) to return control to the list.</p>
 <hr />
 <h2 id="json-output">JSON Output<a class="headerlink" href="#json-output" title="Permanent link">&para;</a></h2>
 <p>Every <code>hu meter</code> subcommand accepts <code>--json</code> for scripting:</p>
