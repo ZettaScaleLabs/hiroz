@@ -432,6 +432,8 @@ async fn run_tui_mode(
         let (plugins, failed) = plugin::wasm::load_plugins(core)?;
         app.plugin_mgr.set_plugins(plugins);
         app.plugin_mgr.failed = failed;
+        // Let TUI plugins initialize before the first frame's tick.
+        app.plugin_mgr.dispatch_startup();
     }
     let result = run_tui_loop(&mut terminal, &mut app).await;
 
@@ -454,6 +456,7 @@ async fn run_tui_loop(
         app.update_graph_cache();
         app.update_metrics();
         app.update_multi_metrics();
+        app.plugin_mgr.dispatch_tick_all();
 
         terminal.draw(|f| app.render(f))?;
 

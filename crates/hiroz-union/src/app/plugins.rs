@@ -60,6 +60,30 @@ impl PluginManager {
     #[cfg(not(feature = "wasm-plugins"))]
     pub fn dispatch_tick(&mut self, _plugin_idx: usize) {}
 
+    /// Send `startup` once to every TUI plugin. Called right after load so a
+    /// pane can initialize before the first tick.
+    #[cfg(feature = "wasm-plugins")]
+    pub fn dispatch_startup(&mut self) {
+        for plugin in self.plugins.iter_mut().filter(|p| p.is_tui()) {
+            plugin.dispatch_tui_event(TuiEvent::Startup(Vec::new()));
+        }
+    }
+
+    #[cfg(not(feature = "wasm-plugins"))]
+    pub fn dispatch_startup(&mut self) {}
+
+    /// Tick every TUI plugin — called once per TUI frame so panes advance on
+    /// their own without a manual keypress.
+    #[cfg(feature = "wasm-plugins")]
+    pub fn dispatch_tick_all(&mut self) {
+        for plugin in self.plugins.iter_mut().filter(|p| p.is_tui()) {
+            plugin.dispatch_tui_event(TuiEvent::Tick);
+        }
+    }
+
+    #[cfg(not(feature = "wasm-plugins"))]
+    pub fn dispatch_tick_all(&mut self) {}
+
     /// Whether the plugin at `selected_index` accepts TUI events (so key
     /// presses should be forwarded to it rather than driving the TUI).
     pub fn selected_is_tui(&self) -> bool {

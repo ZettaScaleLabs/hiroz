@@ -16,7 +16,7 @@ The relationship that ties it together: a **frontend is the native host side** o
 |---|---|---|---|
 | `cli` | `hu-cli-plugin` | a `hu <name>` command (`meter`, `monitor`, yours) | ✅ shipped |
 | `web` | `hu-web-plugin` | an HTTP route handler | 🟡 landing soon (host wired, no reference plugin) |
-| `tui` | `hu-tui-plugin` | a pane in the TUI | 🟡 landing soon (loads, renders, receives key-action + topic-selected; startup/auto-tick pending) |
+| `tui` | `hu-tui-plugin` | a pane in the TUI | 🟡 landing soon (host fully wired; no reference plugin yet) |
 | `stream` | *(none)* | — (a raw dump of the core event bus) | ✅ shipped |
 
 ```mermaid
