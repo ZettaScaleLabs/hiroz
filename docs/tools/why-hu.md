@@ -1,6 +1,6 @@
 # hu Toolkit — Overview
 
-`hu` is the tooling ecosystem for the hiroz stack: a single, daemon-free binary that talks directly to Zenoh and grows through WebAssembly plugins. It replaces `ros2 topic`, `ros2 node`, `ros2 service`, `ros2 action`, `ros2 param`, and much of `rqt` — but the more important idea is that everything `hu` does, including the commands that ship in the box, is a **plugin**. This page introduces that ecosystem; the rest of this section drills into each part.
+`hu` — short for **H**iroz **U**nion, and the crate that builds it is [`hiroz-union`](https://github.com/ZettaScaleLabs/hiroz/tree/main/crates/hiroz-union) — is the tooling ecosystem for the hiroz stack: a single, daemon-free binary that talks directly to Zenoh and grows through WebAssembly plugins. It replaces `ros2 topic`, `ros2 node`, `ros2 service`, `ros2 action`, `ros2 param`, and much of `rqt` — but the more important idea is that everything `hu` does, including the commands that ship in the box, is a **plugin**. This page introduces that ecosystem; the rest of this section drills into each part.
 
 ## The ecosystem at a glance
 
@@ -11,29 +11,30 @@ Every plugin — built-in or third-party — reaches the ROS 2 graph the same wa
 ```mermaid
 graph TD
     accTitle: The hu toolkit — dispatcher, plugins, and the three WIT worlds over Zenoh
-    accDescr: The hu binary dispatches a subcommand to a plugin. Built-in plugins (meter, monitor) and third-party WASM plugins loaded from HU_PLUGIN_PATH both implement one of three WIT worlds (CLI, TUI, web). All plugins reach the ROS 2 graph through a shared Zenoh router.
+    accDescr: The hu binary dispatches a subcommand to a plugin. Built-in plugins (meter, monitor) and third-party WASM plugins both implement one of three WIT worlds (CLI, TUI, web) and reach the ROS 2 graph through a shared Zenoh router.
 
-    user(["hu &lt;name&gt; &lt;args&gt;"]) --> disp["hu dispatcher"]
+    user(["hu · name · args"]) --> disp["hu dispatcher"]
 
-    subgraph plugins["Plugins — same typed contract"]
-        direction LR
-        builtin["Built-in<br>meter · monitor"]
-        wasm["Third-party<br>.wasm files"]
-    end
+    disp -->|dispatch| builtin["Built-in plugins<br>meter · monitor"]
+    disp -->|dispatch| wasm["Third-party plugins<br>.wasm files"]
+    path["HU_PLUGIN_PATH<br>~/.local/share/hu/plugins/"] -. loaded at startup .-> wasm
 
-    disp -->|dispatch| plugins
-    wasm -. loaded at startup .- path[["$HU_PLUGIN_PATH<br>~/.local/share/hu/plugins/"]]
-
-    subgraph worlds["One of three WIT worlds"]
+    subgraph "One of three WIT worlds"
         direction LR
         cli["hu-cli-plugin<br>terminal command"]
         tui["hu-tui-plugin<br>TUI pane"]
         web["hu-web-plugin<br>hu --web handler"]
     end
 
-    plugins --> worlds
-    worlds -->|Zenoh session| router(["Zenoh router"])
-    router <-->|liveliness + CDR| graph(["ROS 2 graph<br>hiroz · rmw_zenoh_cpp"])
+    builtin --> cli
+    wasm --> cli
+    wasm --> tui
+    wasm --> web
+
+    cli -->|Zenoh session| router(["Zenoh router"])
+    tui --> router
+    web --> router
+    router <-->|liveliness + CDR| ros2graph(["ROS 2 graph<br>hiroz · rmw_zenoh_cpp"])
 ```
 
 The moving parts:
