@@ -31,5 +31,5 @@ test-threads = 4
 rcl-interop = { max-threads = 1 }
 
 [[profile.interop.overrides]]
-filter = 'binary_id(demo_nodes) | binary_id(parameter_interop) | binary_id(pubsub_interop) | binary_id(service_interop) | binary_id(type_description_interop)'
+filter = 'binary_id(hiroz-tests::demo_nodes) | binary_id(hiroz-tests::parameter_interop) | binary_id(hiroz-tests::pubsub_interop) | binary_id(hiroz-tests::service_interop) | binary_id(hiroz-tests::type_description_interop)'
 test-group = 'rcl-interop'
