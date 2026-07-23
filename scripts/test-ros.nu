@@ -34,6 +34,22 @@ def run-ros-interop [] {
         return
     }
 
+    # Fail fast if the `run` verb plugin (ros2run) isn't installed in this
+    # devshell. `ros2 --version` and `ros2 pkg prefix <pkg>` both succeed
+    # even when `ros2run` is missing, so a package-set regression here was
+    # previously invisible until individual interop tests spawning
+    # `ros2 run ...` either hung for their full discovery timeout or, worse,
+    # silently false-passed (some only assert "the process eventually
+    # exited", which an instant `ros2: error: invalid choice: 'run'` also
+    # satisfies). Checking it once, up front, turns that into an immediate,
+    # unambiguous failure instead of a 60s+ timeout deep in an unrelated test.
+    let run_verb_check = (do -i { run-cmd "ros2 run --help" | complete })
+    if $run_verb_check.exit_code != 0 {
+        error make {
+            msg: "ros2 CLI is missing the 'run' verb (ros2run package not installed in this devshell) -- every `ros2 run ...`-based interop test would hang or false-pass. Add ros2run (and ros2launch) to the devshell's ROS package set."
+        }
+    }
+
     $env.RMW_IMPLEMENTATION = "rmw_zenoh_cpp"
     $env.RUSTFLAGS = "-D warnings"
 

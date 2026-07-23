@@ -420,10 +420,18 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
         thread::sleep(Duration::from_millis(200));
     };
     let _client_guard = ProcessGuard::new(client, "RCL add_two_ints client");
-    assert!(
-        client_status.is_some(),
-        "RCL add_two_ints client did not exit within 30s (likely failed to discover the hiroz server)"
-    );
+    // Check the exit status is actually success, not just that the process
+    // exited -- an instantly-failing `ros2 run` (e.g. missing verb plugin,
+    // bad args) also "exits within 30s" and would otherwise false-pass here.
+    match client_status {
+        None => panic!(
+            "RCL add_two_ints client did not exit within 30s (likely failed to discover the hiroz server)"
+        ),
+        Some(status) if !status.success() => {
+            panic!("RCL add_two_ints client exited with failure status {status:?}")
+        }
+        Some(_) => {}
+    }
 
     // Wait for server to signal completion (with timeout)
     match rx.recv_timeout(Duration::from_secs(5)) {
