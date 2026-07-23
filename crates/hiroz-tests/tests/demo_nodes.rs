@@ -17,6 +17,8 @@ use std::{
     time::Duration,
 };
 
+use hiroz_protocol::EndpointKind;
+
 use crate::common::*;
 
 #[test]
@@ -296,29 +298,33 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
 
     let _server_guard = ProcessGuard::new(server, "RCL add_two_ints server");
 
-    wait_for_ready(Duration::from_secs(3));
-
-    // Retry until the server's queryable is actually discovered: a Zenoh
-    // query with QueryTarget::All completes (with zero replies) as soon as
-    // there are no known repliers at query time -- it does NOT wait out its
-    // timeout for a replier that hasn't been discovered yet, so widening the
-    // call timeout alone never helped here. The failure mode is discovery
-    // latency, not response latency, and it's most visible under CI load
-    // right after this job's earlier clippy step, where the RCL server
-    // subprocess and hiroz's router both start much slower.
+    // A Zenoh query with QueryTarget::All completes (with zero replies) as
+    // soon as there are no known repliers at query time -- it does NOT wait
+    // out its timeout for a replier that hasn't been discovered yet, so a
+    // retry-the-query loop against a wall-clock deadline is inherently a
+    // race against discovery timing, not a bounded wait for an actual
+    // event. Instead, poll the context's own graph (populated in the
+    // background by its liveliness subscriber, no external process
+    // spawned per check) until the server's queryable is actually known,
+    // then issue exactly one query.
     let client_handle = thread::spawn(move || -> i64 {
-        let deadline = std::time::Instant::now() + Duration::from_secs(90);
-        loop {
-            let ctx =
-                create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
-            match demo_nodes::run_add_two_ints_client(ctx, 4, 7, false) {
-                Ok(v) => break v,
-                Err(_) if std::time::Instant::now() < deadline => {
-                    thread::sleep(Duration::from_millis(500));
-                }
-                Err(e) => panic!("Client failed: {e}"),
+        let ctx =
+            create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        while ctx
+            .graph()
+            .count_by_service(EndpointKind::Service, "/add_two_ints")
+            == 0
+        {
+            if std::time::Instant::now() >= deadline {
+                panic!("RCL add_two_ints server never appeared in the graph within 60s");
             }
+            thread::sleep(Duration::from_millis(20));
         }
+
+        demo_nodes::run_add_two_ints_client(ctx, 4, 7, false)
+            .expect("Client failed after server was confirmed discovered")
     });
 
     let result = client_handle.join().expect("Client thread panicked");
