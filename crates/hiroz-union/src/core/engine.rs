@@ -51,33 +51,35 @@ impl CoreEngine {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let backend = backend.into();
 
-        // Peer mode connected only to the configured router. We use peer (not
-        // client) mode so a missing router is a *soft* failure: peer's
-        // multi-link connect path honors `connect/exit_on_failure=false` and
-        // retries in the background, so `zenoh::open` succeeds and the TUI can
-        // start disconnected and populate once a router appears. Client mode's
-        // single-link connect path ignores `exit_on_failure` and hard-fails —
-        // and under CI resource contention that hard failure (or an outright
-        // hang) showed up in the short-lived `hu meter` CLI invocations
-        // (test_hu_meter_delay_basic, test_hu_meter_echo_count_3), which had
-        // been reliably green under peer mode. Reverting to peer mode.
+        // Client mode connected to the configured router. Client mode connects
+        // directly to the known router endpoint and `zenoh::open` returns as
+        // soon as the link is up (~1ms in tests). Peer mode instead runs peer
+        // discovery and blocks in `open` for up to `scouting.delay` (500ms
+        // default) waiting for scouting to settle — and hu opens two sessions
+        // (this one + the ZContext session, see the KNOWN GAP below), so peer
+        // mode adds ~1s of startup. That pushed hu's subscriber past the
+        // short-lived-publisher windows in the CLI tests (`hu meter echo` ~500ms;
+        // the plugin tick loop), so `echo`/`template` received nothing under
+        // peer mode — reproduced as a GitHub CI `WASM Plugin Tests` failure and
+        // isolated on whippet (peer job 3017 FAIL vs client job 3026 echo 6/6).
+        // Client mode is ready immediately and fits hu's role — a short-lived
+        // CLI attaching to a known router, not a mesh participant.
         //
-        // Both multicast and gossip scouting are disabled, so despite peer mode
-        // hu still performs no peer discovery — it only ever talks to the
-        // router (hiroz's router-only discovery policy). Router-relayed
-        // liveliness therefore reaches us exactly as in client mode; the old
-        // "peer mode misses liveliness" caveat was specific to multicast
-        // scouting, which stays off here.
+        // Trade-off: a missing router is a hard failure here (client mode can't
+        // open without a router); `router_connect_hint` tells the user to start
+        // one. (rmw_zenoh_cpp nodes use peer mode + the 500ms delay, but they
+        // are long-lived, so the startup cost is invisible to them.)
         let mut config = zenoh::Config::default();
-        config.insert_json5("mode", "\"peer\"")?;
+        config.insert_json5("mode", "\"client\"")?;
         config.insert_json5("connect/endpoints", &format!("[\"{}\"]", router_addr))?;
         config.insert_json5("scouting/multicast/enabled", "false")?;
-        config.insert_json5("scouting/gossip/enabled", "false")?;
-        config.insert_json5("connect/exit_on_failure", "false")?;
 
-        let session = zenoh::open(config.clone())
-            .await
-            .map_err(|e| format!("failed to open Zenoh session: {e}"))?;
+        let session = zenoh::open(config.clone()).await.map_err(|e| {
+            format!(
+                "{}\nunderlying error: {e}",
+                router_connect_hint(router_addr)
+            )
+        })?;
         let session = Arc::new(session);
 
         // Initialize graph with RmwZenoh liveliness pattern
