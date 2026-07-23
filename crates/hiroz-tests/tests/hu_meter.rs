@@ -1006,8 +1006,14 @@ fn test_hu_meter_delay_basic() {
         });
     });
 
-    // Let delay run for 3 seconds — enough to capture at least one report (interval=1s)
-    let (stdout, _stderr) = run_hu_meter_timed(router.endpoint(), &["delay", "/delay_test"], 3);
+    // 8s, not 3s: `delay` has no --duration self-exit (unlike bw/hz), so it
+    // can only be observed via run_hu_meter_timed's sleep-then-kill. hu's own
+    // startup (session connect, node build, TDS/ParameterService setup) plus
+    // the background schema-discovery task ros::subscribe kicks off (up to a
+    // few hundred ms before the dyn sub is actually ready) can eat most of a
+    // 3s window before the publisher's first message (itself delayed ~1s by
+    // its own connect + "give subscriber time" sleeps) is even seen.
+    let (stdout, _stderr) = run_hu_meter_timed(router.endpoint(), &["delay", "/delay_test"], 8);
     let stdout = String::from_utf8_lossy(&stdout);
 
     assert!(
