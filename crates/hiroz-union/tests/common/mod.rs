@@ -108,6 +108,13 @@ impl TestRouter {
             config
                 .insert_json5("scouting/multicast/enabled", "false")
                 .unwrap();
+            // Disable gateway.south so the router doesn't apply the South-region
+            // optimization that sets subscriber_interest_finalized on publisher faces.
+            // With gateway.south:auto (the zenoh 1.9.0 default), the router classifies
+            // all connecting sessions as South and uses client-hat routing which can
+            // suppress routing from zenoh-c rmw_zenoh_cpp publishers to 1.9.0 client
+            // subscribers — exactly the pattern these dynamic-subscriber tests need.
+            let _ = config.insert_json5("gateway/south", "null");
 
             match zenoh::open(config).wait() {
                 Ok(session) => {
