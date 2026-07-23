@@ -20,7 +20,7 @@ graph TD
     path["HU_PLUGIN_PATH<br>~/.local/share/hu/plugins/"] -. loaded at startup .-> wasm
 
     subgraph "One of three WIT worlds"
-        direction LR
+        direction TB
         cli["hu-cli-plugin<br>terminal command"]
         tui["hu-tui-plugin<br>TUI pane"]
         web["hu-web-plugin<br>hu --web handler"]
