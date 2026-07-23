@@ -15,11 +15,13 @@ If `hu` was not built with `wasm-plugins`, plugin loading is disabled: `hu plugi
 
 There are three WIT worlds — pick the one that matches your plugin's role:
 
-| World | Use case | Event type |
-|---|---|---|
-| `hu-cli-plugin` | One-shot or streaming terminal tool (hz, bw, echo, bridge — bridge is a hypothetical example, not shipped) | `cli-event` — startup, tick, interrupt |
-| `hu-tui-plugin` | Tick-driven TUI pane with keybindings and topic navigation | `tui-event` — startup, tick, interrupt, key-action, topic-selected |
-| `hu-web-plugin` | HTTP request/response handler for `hu web` | no events — stateless `handle(req) → response` |
+| World | Use case | Event type | Status |
+|---|---|---|---|
+| `hu-cli-plugin` | One-shot or streaming terminal tool (hz, bw, echo) | `cli-event` — startup, tick, interrupt | ✅ shipped (`meter`, `monitor`) |
+| `hu-web-plugin` | HTTP request/response handler for `hu web` | no events — stateless `handle(req) → response` | 🟡 landing soon — host fully wired, no reference plugin yet |
+| `hu-tui-plugin` | Tick-driven TUI pane with keybindings and topic navigation | `tui-event` — startup, tick, interrupt, key-action, topic-selected | 🟡 landing soon — loads and renders as a tick pane; `key-action` / `topic-selected` forwarding not wired in the host yet |
+
+Only the CLI world ships with a reference implementation today. The web and TUI worlds are fully defined and the host can load them, but no example plugin ships yet — hence "landing soon". For the TUI world specifically, a plugin currently receives `tick` (and its output renders in panel 5), but the host does not yet forward `key-action` or `topic-selected`, so interactive panes are not complete.
 
 The `hu-plugin` world still exists as a compatibility alias for `hu-tui-plugin`. New plugins should use one of the three typed worlds above.
 

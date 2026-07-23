@@ -12,12 +12,12 @@
 
 The relationship that ties it together: a **frontend is the native host side** of an interaction surface, and a **plugin is the sandboxed guest side** of that same surface. That is why the WIT worlds line up one-to-one with the frontends:
 
-| Frontend (native) | Guest contract (WIT world) | A plugin here is… |
-|---|---|---|
-| `cli` | `hu-cli-plugin` | a `hu <name>` command (`meter`, `monitor`, yours) |
-| `tui` | `hu-tui-plugin` | a pane in the TUI |
-| `web` | `hu-web-plugin` | an HTTP route handler |
-| `stream` | *(none)* | — (a raw dump of the core event bus) |
+| Frontend (native) | Guest contract (WIT world) | A plugin here is… | Status |
+|---|---|---|---|
+| `cli` | `hu-cli-plugin` | a `hu <name>` command (`meter`, `monitor`, yours) | ✅ shipped |
+| `web` | `hu-web-plugin` | an HTTP route handler | 🟡 landing soon (host wired, no reference plugin) |
+| `tui` | `hu-tui-plugin` | a pane in the TUI | 🟡 landing soon (loads + renders; interactive events not yet forwarded) |
+| `stream` | *(none)* | — (a raw dump of the core event bus) | ✅ shipped |
 
 ```mermaid
 graph TD
