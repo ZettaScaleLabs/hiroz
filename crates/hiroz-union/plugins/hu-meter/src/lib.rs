@@ -1200,6 +1200,15 @@ impl HuMeter {
                 let count = flag_value(args, "--count")
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(0usize);
+                // Explicit --timeout always applies. Absent that, fall back to a
+                // safety bound so `action echo` can never hang forever waiting
+                // for feedback that never arrives -- same fix as cmd_echo's
+                // DEFAULT_ECHO_TIMEOUT_TICKS, which this mode never had.
+                const DEFAULT_ACTION_ECHO_TIMEOUT_TICKS: u32 = 30;
+                self.duration_ticks = flag_value(args, "--timeout")
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .map(|s| s.ceil().max(1.0) as u32)
+                    .unwrap_or(DEFAULT_ACTION_ECHO_TIMEOUT_TICKS);
                 let feedback_topic = format!("{action_name}/_action/feedback");
                 // feedback type is <ActionType>_FeedbackMessage
                 let _feedback_type = format!("{action_type}_FeedbackMessage");
