@@ -91,9 +91,15 @@ impl RawServiceClient {
             .map_err(|e| crate::error::Error::Other(format!("Failed to send query: {}", e)))?;
 
         let sample = rx.recv_timeout(timeout).map_err(|e| match e {
-            flume::RecvTimeoutError::Timeout => crate::error::Error::Timeout(timeout),
-            flume::RecvTimeoutError::Disconnected => {
-                crate::error::Error::Other(format!("Reply channel disconnected: {}", e))
+            // `Disconnected` fires immediately (not after `timeout`) when no
+            // queryable matches: zenoh finalizes the query right away and
+            // drops the callback (and with it, `tx`) with no reply ever
+            // sent. From the caller's perspective this is indistinguishable
+            // from "no response arrived" — map it to the same Timeout error
+            // rather than a generic failure so callers can rely on
+            // is_timeout()/ErrorCodeServiceTimeout for "service unavailable".
+            flume::RecvTimeoutError::Timeout | flume::RecvTimeoutError::Disconnected => {
+                crate::error::Error::Timeout(timeout)
             }
         })?;
 
