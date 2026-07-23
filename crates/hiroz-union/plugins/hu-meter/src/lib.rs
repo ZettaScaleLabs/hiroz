@@ -281,11 +281,17 @@ impl HuMeter {
 
     fn cmd_delay(&mut self, args: &[String]) {
         let Some(topic) = args.first().cloned() else {
-            render::println("Usage: hu meter delay <topic>");
+            render::println("Usage: hu meter delay <topic> [--duration <s>]");
             render::exit(1);
             self.mode = Mode::Done;
             return;
         };
+        // Optional self-exit, same as hz/bw/echo: with no --duration this
+        // stays 0 (never done), matching the prior always-running behavior.
+        self.duration_ticks = flag_value(args, "--duration")
+            .and_then(|v| v.parse::<f64>().ok())
+            .map(|s| s.ceil().max(1.0) as u32)
+            .unwrap_or(0);
         let sub = match ros::subscribe(&topic) {
             Ok(s) => s,
             Err(e) => {
@@ -1422,6 +1428,10 @@ impl HuMeter {
                     let delay_note = extract_delay_note(&json_msg);
                     let t = topic.clone();
                     render::println(&format!("[{t}] {delay_note}"));
+                }
+                if done {
+                    render::exit(0);
+                    self.mode = Mode::Done;
                 }
             }
             Mode::Pub {

@@ -1006,15 +1006,17 @@ fn test_hu_meter_delay_basic() {
         });
     });
 
-    // 8s, not 3s: `delay` has no --duration self-exit (unlike bw/hz), so it
-    // can only be observed via run_hu_meter_timed's sleep-then-kill. hu's own
-    // startup (session connect, node build, TDS/ParameterService setup) plus
-    // the background schema-discovery task ros::subscribe kicks off (up to a
-    // few hundred ms before the dyn sub is actually ready) can eat most of a
-    // 3s window before the publisher's first message (itself delayed ~1s by
-    // its own connect + "give subscriber time" sleeps) is even seen.
-    let (stdout, _stderr) = run_hu_meter_timed(router.endpoint(), &["delay", "/delay_test"], 8);
-    let stdout = String::from_utf8_lossy(&stdout);
+    // run_hu_meter (self-exit via --duration), not run_hu_meter_timed
+    // (blind sleep-then-SIGKILL): widening the kill margin alone (previous
+    // commit, 3s then 8s) never fixed this -- same buffered-output-vs-SIGKILL
+    // race as test_hu_meter_bw_json_typed_fields. `delay` didn't support
+    // --duration before; added it (see cmd_delay/Mode::Delay in hu-meter's
+    // lib.rs) so this test can self-exit like the bw/hz ones.
+    let out = run_hu_meter(
+        router.endpoint(),
+        &["delay", "/delay_test", "--duration", "5"],
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
 
     assert!(
         stdout.contains("delay") || stdout.contains("mean") || stdout.contains("Waiting"),
