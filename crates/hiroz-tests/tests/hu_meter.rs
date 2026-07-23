@@ -952,26 +952,6 @@ fn test_hu_meter_echo_raw_wildcard_fallback() {
 
 // ─── delay ────────────────────────────────────────────────────────────────────
 
-/// Spawn hu-meter, let it run for `secs` seconds, kill it, and return accumulated output.
-fn run_hu_meter_timed(router: &str, args: &[&str], secs: u64) -> (Vec<u8>, Vec<u8>) {
-    let mut child = Command::new("hu")
-        .arg("--connect")
-        .arg(router)
-        .arg("meter")
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to spawn hu-meter");
-
-    thread::sleep(Duration::from_secs(secs));
-    let _ = child.kill();
-    let out = child
-        .wait_with_output()
-        .expect("failed to wait on hu-meter");
-    (out.stdout, out.stderr)
-}
-
 #[test]
 fn test_hu_meter_delay_basic() {
     let router = TestRouter::new();
