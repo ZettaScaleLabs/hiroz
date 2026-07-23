@@ -2124,18 +2124,21 @@ fn test_hu_meter_bw_json_typed_fields() {
 
     thread::sleep(Duration::from_millis(400));
 
-    // 6s kill timeout, not 3s: hu's startup (session connect, node build,
-    // TypeDescriptionService + ParameterService queryable declarations, WASM
-    // plugin load) can take over a second on a loaded CI runner, which left
-    // only ~1s of margin after `--duration 2` -- tight enough to sometimes
-    // kill the process before its first tick ever printed a JSON line
-    // (matches test_hu_meter_hz_json_typed_fields's more generous 6s/`--duration 4`).
-    let (stdout_bytes, stderr_bytes) = run_hu_meter_timed(
+    // run_hu_meter (waits for hu's own --duration self-exit), not
+    // run_hu_meter_timed (blind sleep-then-SIGKILL): a plugin's render::println
+    // output is buffered host-side (see render.rs's output_lines) and only
+    // flushed to the real stdout pipe at points outside this WASM call
+    // boundary. A hard SIGKILL from run_hu_meter_timed can land between a
+    // tick and that flush, discarding buffered output regardless of how much
+    // margin the kill timeout has -- which is why widening it alone didn't
+    // help. Self-exit avoids the race entirely (matches the already-passing
+    // test_hu_meter_bw_hiroz_publisher, which uses the same helper).
+    let out = run_hu_meter(
         router.endpoint(),
         &["bw", "/bw_typed_test", "--json", "--duration", "2"],
-        6,
     );
-    let stdout = String::from_utf8_lossy(&stdout_bytes);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr_bytes = out.stderr;
 
     let mut found_typed = false;
     for line in stdout.lines() {
