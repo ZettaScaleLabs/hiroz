@@ -2455,49 +2455,66 @@
 <h1 id="hu-toolkit-overview">hu Toolkit — Overview<a class="headerlink" href="#hu-toolkit-overview" title="Permanent link">&para;</a></h1>
 <p><code>hu</code> — short for <strong>H</strong>iroz <strong>U</strong>nion, and the crate that builds it is <a href="https://github.com/ZettaScaleLabs/hiroz/tree/main/crates/hiroz-union"><code>hiroz-union</code></a> — is the tooling ecosystem for the hiroz stack: a single, daemon-free binary that talks directly to Zenoh and grows through WebAssembly plugins. It replaces <code>ros2 topic</code>, <code>ros2 node</code>, <code>ros2 service</code>, <code>ros2 action</code>, <code>ros2 param</code>, and much of <code>rqt</code> — but the more important idea is that most of what <code>hu</code> does, including the observation and measurement commands that ship in the box, is delivered as <strong>plugins</strong>. This page introduces that ecosystem; the rest of this section drills into each part.</p>
 <h2 id="the-ecosystem-at-a-glance">The ecosystem at a glance<a class="headerlink" href="#the-ecosystem-at-a-glance" title="Permanent link">&para;</a></h2>
-<p><code>hu</code> itself is a thin dispatcher. When you run <code>hu &lt;name&gt; &lt;args&gt;</code>, it routes <code>&lt;name&gt;</code> to one of two kinds of command:</p>
+<p><code>hu</code> is a platform, not a monolith. A thin dispatcher routes <code>hu &lt;name&gt; &lt;args&gt;</code> to one of three things, all layered over a shared <strong>core engine</strong>:</p>
 <ul>
-<li><strong>Plugins</strong> — sandboxed WebAssembly components that do the ROS 2 work (measurement, observation, your own tools). The shipped <code>meter</code> and <code>monitor</code> commands are plugins compiled into the binary; third-party plugins are <code>.wasm</code> files you drop into a directory. Both implement the exact same typed contract, so a plugin you write is a first-class citizen alongside the ones that ship.</li>
-<li><strong>Host commands</strong> — a small set of native subcommands built into the binary for things the sandbox deliberately can't do: <code>router</code> (start an embedded Zenoh router, which binds a network socket) and <code>plugin</code> (list/validate installed plugins).</li>
+<li><strong>Frontends</strong> — native runtimes that present the platform and own their I/O: <code>tui</code> (interactive terminal — also what bare <code>hu</code> runs), <code>web</code> (HTTP server), <code>stream</code> (newline-delimited JSON events), and the one-shot <strong>CLI</strong>. A frontend owns the core engine and <em>hosts the plugins that target it</em>.</li>
+<li><strong>Plugins</strong> — sandboxed WebAssembly components that do the ROS 2 work. Each targets one frontend through a WIT world: a CLI command (<code>meter</code>, <code>monitor</code>, or your own), a TUI pane, or a web handler. The shipped <code>meter</code>/<code>monitor</code> are plugins compiled into the binary; third-party plugins are <code>.wasm</code> files you drop into a directory — the same contract either way.</li>
+<li><strong>Management</strong> — native commands for platform infrastructure that touch no graph: <code>router</code> (run an embedded Zenoh router) and <code>plugin</code> (list/validate installed plugins).</li>
 </ul>
-<p>Every plugin — built-in or third-party — reaches the ROS 2 graph the same way: through the Zenoh router, using the live liveliness index instead of a background daemon.</p>
+<p>The relationship that ties it together: a <strong>frontend is the native host side</strong> of an interaction surface, and a <strong>plugin is the sandboxed guest side</strong> of that same surface. That is why the WIT worlds line up one-to-one with the frontends:</p>
+<table>
+<thead>
+<tr>
+<th>Frontend (native)</th>
+<th>Guest contract (WIT world)</th>
+<th>A plugin here is…</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cli</code></td>
+<td><code>hu-cli-plugin</code></td>
+<td>a <code>hu &lt;name&gt;</code> command (<code>meter</code>, <code>monitor</code>, yours)</td>
+</tr>
+<tr>
+<td><code>tui</code></td>
+<td><code>hu-tui-plugin</code></td>
+<td>a pane in the TUI</td>
+</tr>
+<tr>
+<td><code>web</code></td>
+<td><code>hu-web-plugin</code></td>
+<td>an HTTP route handler</td>
+</tr>
+<tr>
+<td><code>stream</code></td>
+<td><em>(none)</em></td>
+<td>— (a raw dump of the core event bus)</td>
+</tr>
+</tbody>
+</table>
 <pre class="mermaid"><code>graph TD
-    accTitle: The hu toolkit — dispatcher routing to native host commands or sandboxed plugins over Zenoh
-    accDescr: The hu binary dispatches a subcommand either to a native host command (router, plugin) or to a plugin. Built-in plugins (meter, monitor) and third-party WASM plugins implement one of three WIT worlds (CLI, TUI, web). Everything reaches the ROS 2 graph through a shared Zenoh router.
+    accTitle: The hu platform — dispatcher, native frontends hosting WASM plugins, over a shared core and Zenoh router
+    accDescr: The hu dispatcher routes to native management commands (router, plugin) or to native frontends (cli, tui, web, stream). Frontends host sandboxed WASM plugins that target their WIT world. Frontends and plugins share one core engine, which reaches the ROS 2 graph through a Zenoh router.
 
     user(["hu · name · args"]) --&gt; disp["hu dispatcher"]
-
-    disp --&gt;|native| host["Host commands&lt;br&gt;router · plugin"]
-    disp --&gt;|dispatch| builtin["Built-in plugins&lt;br&gt;meter · monitor"]
-    disp --&gt;|dispatch| wasm["Third-party plugins&lt;br&gt;.wasm files"]
-    path["HU_PLUGIN_PATH&lt;br&gt;~/.local/share/hu/plugins/"] -. loaded at startup .-&gt; wasm
-
-    subgraph "One of three WIT worlds"
-        direction TB
-        cli["hu-cli-plugin&lt;br&gt;terminal command"]
-        tui["hu-tui-plugin&lt;br&gt;TUI pane"]
-        web["hu-web-plugin&lt;br&gt;hu web handler"]
-    end
-
-    builtin --&gt; cli
-    wasm --&gt; cli
-    wasm --&gt; tui
-    wasm --&gt; web
-
-    host --&gt;|hu router serves| router(["Zenoh router"])
-    cli --&gt;|Zenoh session| router
-    tui --&gt; router
-    web --&gt; router
-    router &lt;--&gt;|liveliness + CDR| ros2graph(["ROS 2 graph&lt;br&gt;hiroz · rmw_zenoh_cpp"])</code></pre>
+    disp --&gt;|manage| mgmt["Management (native)&lt;br&gt;router · plugin"]
+    disp --&gt;|run| frontends["Frontends (native runtimes)&lt;br&gt;cli · tui · web · stream"]
+    frontends --&gt;|host| plugins["Plugins (WASM guests)&lt;br&gt;meter · monitor · your .wasm"]
+    frontends --&gt; core
+    plugins --&gt; core
+    core(["Core engine&lt;br&gt;Zenoh session · graph · events"])
+    mgmt -. serves .-&gt; router(["Zenoh router"])
+    core &lt;--&gt; router
+    router &lt;--&gt;|liveliness + CDR| ros2(["ROS 2 graph&lt;br&gt;hiroz · rmw_zenoh_cpp"])</code></pre>
 <p>The moving parts:</p>
 <ul>
-<li><strong>Dispatcher</strong> — <code>hu</code> parses the first argument and routes it to a host command or a plugin. It owns no ROS logic itself.</li>
-<li><strong>Host commands</strong> — native subcommands compiled into the binary, not plugins: <code>router</code> starts an embedded Zenoh router (see <a href="../hu/#running-a-router">Running a router</a>), and <code>plugin</code> lists and validates installed plugins. These live outside the sandbox because they need host capabilities (binding a socket, reading the plugin directory) that a WASM guest is not granted.</li>
-<li><strong>Built-in plugins</strong> — <code>meter</code> (measurement: <code>hz</code>, <code>bw</code>, <code>delay</code>, <code>echo</code>, <code>pub</code>, <code>list</code>, <code>info</code>, service/action/param) and <code>monitor</code> (observation: <code>watch</code>, <code>graph</code>, <code>log</code>, <code>log-level</code>). They are plugins that happen to be compiled in.</li>
-<li><strong>Third-party plugins</strong> — any <code>.wasm</code> file in <code>$HU_PLUGIN_PATH</code> or <code>~/.local/share/hu/plugins/</code> becomes a <code>hu &lt;name&gt;</code> command with no registration step, no Python entry-points, and no shared runtime state.</li>
-<li><strong>Three WIT worlds</strong> — a plugin picks the role it plays: a one-shot/streaming CLI command (<code>hu-cli-plugin</code>), an interactive TUI pane (<code>hu-tui-plugin</code>), or an HTTP handler for <code>hu web</code> (<code>hu-web-plugin</code>).</li>
-<li><strong>Sandbox</strong> — WASM plugins run sandboxed and capability-gated: a plugin only gets the host access (topic subscription, file, bag) it is explicitly granted. Host commands are the deliberate exception — they are trusted native code, which is exactly why <code>router</code> is one rather than a plugin.</li>
-<li><strong>Transport</strong> — everything speaks to a Zenoh router and reads the liveliness index; there is no <code>_ros2_daemon</code> and no DDS discovery.</li>
+<li><strong>Dispatcher</strong> — <code>hu</code> parses the first argument and routes it to a frontend, a plugin (via the CLI frontend), or a management command. It owns no ROS logic itself.</li>
+<li><strong>Core engine</strong> — one shared <code>CoreEngine</code>: the Zenoh session, the live graph built from the liveliness index, the event bus. Every frontend and plugin sits on it; there is no <code>_ros2_daemon</code> and no DDS discovery.</li>
+<li><strong>Frontends</strong> — native, trusted runtimes. <code>tui</code> owns the terminal and renders tui-plugins as panes; <code>web</code> serves web-plugins as routes; <code>cli</code> runs one cli-plugin and exits; <code>stream</code> dumps core events as JSON. They are native (not plugins) because they need full host access — the terminal, the runtime, the sessions — which the sandbox withholds.</li>
+<li><strong>Plugins</strong> — <code>meter</code> (measurement: <code>hz</code>, <code>bw</code>, <code>delay</code>, <code>echo</code>, <code>pub</code>, <code>list</code>, <code>info</code>, service/action/param) and <code>monitor</code> (observation: <code>watch</code>, <code>graph</code>, <code>log</code>, <code>log-level</code>) ship compiled in; any <code>.wasm</code> in <code>$HU_PLUGIN_PATH</code> or <code>~/.local/share/hu/plugins/</code> becomes a <code>hu &lt;name&gt;</code> command with no registration step, no Python entry-points, and no shared runtime state.</li>
+<li><strong>Management</strong> — <code>router</code> starts an embedded Zenoh router (see <a href="../hu/#running-a-router">Running a router</a>); <code>plugin</code> lists and validates installed plugins. Native infrastructure, no graph involvement.</li>
+<li><strong>Sandbox</strong> — WASM plugins are capability-gated: a plugin only gets the host access (topic subscription, file, bag) it is explicitly granted. Frontends and management are the deliberate native exceptions.</li>
 </ul>
 <p>Read on for <a href="#the-problem-with-existing-cli-tools">why this design beats the Python-based tools</a>, the <a href="../hu/">full command reference</a>, and <a href="../hu-plugins/">how to write your own plugin</a>.</p>
 <hr />
