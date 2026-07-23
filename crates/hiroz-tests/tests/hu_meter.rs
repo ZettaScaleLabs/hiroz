@@ -35,15 +35,38 @@ use hiroz_msgs::{
 /// Requires HU_PLUGIN_PATH to contain the compiled hu-meter.wasm.
 /// Build it first: cargo build -p hu-meter --target wasm32-wasip2
 fn run_hu_meter(router: &str, args: &[&str]) -> Output {
-    Command::new("hu")
+    let mut child = Command::new("hu")
         .arg("--connect")
         .arg(router)
         .arg("meter")
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output()
-        .expect("failed to run hu meter")
+        .spawn()
+        .expect("failed to spawn hu meter");
+
+    // Hard wall-clock ceiling well above any individual test's own `--timeout`
+    // (tests use at most 10-30s). This is a safety net, not a normal exit
+    // path: if `hu`'s own internal timeout handling has a gap and the process
+    // never exits on its own, kill it here instead of hanging the whole test
+    // binary (and therefore the whole CI job) indefinitely.
+    const HARD_CEILING: Duration = Duration::from_secs(60);
+    let deadline = std::time::Instant::now() + HARD_CEILING;
+    loop {
+        if let Some(_status) = child.try_wait().expect("failed to poll hu meter") {
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            panic!(
+                "hu meter did not exit within {HARD_CEILING:?} (args: {args:?}) -- \
+                 likely a hang in hu's own timeout handling, not a normal test failure"
+            );
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    child.wait_with_output().expect("failed to run hu meter")
 }
 
 // ─── hz ─────────────────────────────────────────────────────────────────────
