@@ -3,12 +3,15 @@ use std::{sync::Arc, time::Duration};
 mod app;
 mod core;
 mod export;
+mod frontend;
 mod modes;
 
 #[cfg(feature = "wasm-plugins")]
 mod plugin;
 
 use core::engine::CoreEngine;
+
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 use app::{App, POLL_TIMEOUT_MS};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -17,7 +20,6 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use export::export_and_exit;
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq, Default)]
@@ -138,114 +140,135 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(cli.domain);
 
-    // Interactive/streaming run modes fall through to the shared engine setup
-    // below; Plugin/Router/External are terminal and return from the match.
-    let mut requested_mode: Option<RunMode> = None;
-    match cli.command {
-        Some(Commands::Tui) => requested_mode = Some(RunMode::Tui),
-        Some(Commands::Web { port }) => requested_mode = Some(RunMode::Web(port)),
-        Some(Commands::Stream) => requested_mode = Some(RunMode::Stream),
+    // Platform-management commands need no engine and return immediately.
+    match &cli.command {
         Some(Commands::Plugin {
             action: PluginAction::List,
-        }) => {
-            return run_plugin_list(cli.json);
-        }
+        }) => return run_plugin_list(cli.json),
         Some(Commands::Plugin {
             action: PluginAction::Validate { path },
-        }) => {
-            return run_plugin_validate(&path, cli.json);
-        }
+        }) => return run_plugin_validate(path, cli.json),
         Some(Commands::Router { listen, config }) => {
-            return run_router(listen, config).await;
+            return run_router(listen.clone(), config.clone()).await;
         }
-        Some(Commands::External(args)) => {
-            #[cfg(feature = "wasm-plugins")]
-            {
-                let plugin_name = args[0].clone();
-                let mut plugin_args = args[1..].to_vec();
-                // `meter param load <node> <yaml-file>` needs real filesystem
-                // access, which WASM plugins deliberately don't have. Read
-                // and parse the file here on the host instead, and hand the
-                // plugin pre-parsed parameter data (JSON, which it can
-                // already decode) rather than a path.
-                if plugin_name == "meter"
-                    && plugin_args.first().map(String::as_str) == Some("param")
-                    && plugin_args.get(1).map(String::as_str) == Some("load")
-                {
-                    let node = plugin_args.get(2).cloned().unwrap_or_default();
-                    let path = plugin_args.get(3).cloned().unwrap_or_default();
-                    let params = load_ros_param_yaml(&path, &node)
-                        .map_err(|e| format!("failed to read/parse param file '{path}': {e}"))?;
-                    plugin_args = vec![
-                        "param".to_string(),
-                        "load".to_string(),
-                        node,
-                        serde_json::to_string(&params)?,
-                    ];
-                }
-                let core = Arc::new(CoreEngine::new(&router, domain, cli.backend).await?);
-                core.start_monitoring().await;
-                require_router(&core, &router).await?;
-                let code = modes::cli::run_cli_plugin(core, &plugin_name, plugin_args).await?;
-                std::process::exit(code as i32);
-            }
-            #[cfg(not(feature = "wasm-plugins"))]
-            {
-                eprintln!(
-                    "error: unknown subcommand '{}' (WASM plugin support not compiled in)",
-                    args[0]
-                );
-                std::process::exit(1);
-            }
-        }
-        None => {}
+        _ => {}
     }
 
+    // Everything else is a frontend over a shared CoreEngine.
     let core = Arc::new(CoreEngine::new(&router, domain, cli.backend).await?);
     core.start_monitoring().await;
-
     tracing::info!(router = router, domain = domain, "Using Zenoh router");
 
-    if let Some(export_path) = cli.export {
-        require_router(&core, &router).await?;
-        return export_and_exit(&core, &export_path).await;
-    }
+    let code = match cli.command {
+        Some(Commands::Tui) => frontend::launch(frontend::Tui, core, &router).await?,
+        Some(Commands::Web { port }) => {
+            frontend::launch(
+                frontend::Web {
+                    port: port.unwrap_or(8080),
+                },
+                core,
+                &router,
+            )
+            .await?
+        }
+        Some(Commands::Stream) => {
+            frontend::launch(
+                frontend::Stream {
+                    json: cli.json,
+                    echo: cli.echo_topics,
+                },
+                core,
+                &router,
+            )
+            .await?
+        }
+        Some(Commands::External(args)) => run_cli_frontend(args, core, &router).await?,
+        // Plugin/Router are handled and returned above.
+        Some(Commands::Plugin { .. }) | Some(Commands::Router { .. }) => unreachable!(),
+        // Default + the deprecated --export / --web / --headless flags.
+        None => {
+            if let Some(path) = cli.export {
+                frontend::launch(frontend::Export { path }, core, &router).await?
+            } else if let Some(port) = cli.web {
+                frontend::launch(
+                    frontend::Web {
+                        port: port.unwrap_or(8080),
+                    },
+                    core,
+                    &router,
+                )
+                .await?
+            } else if cli.headless {
+                frontend::launch(
+                    frontend::Stream {
+                        json: cli.json,
+                        echo: cli.echo_topics,
+                    },
+                    core,
+                    &router,
+                )
+                .await?
+            } else {
+                frontend::launch(frontend::Tui, core, &router).await?
+            }
+        }
+    };
 
-    // A mode subcommand wins; otherwise fall back to the deprecated --web /
-    // --headless flags, else the default TUI.
-    let mode = requested_mode.unwrap_or_else(|| {
-        if let Some(port_opt) = cli.web {
-            RunMode::Web(port_opt)
-        } else if cli.headless {
-            RunMode::Stream
-        } else {
-            RunMode::Tui
-        }
-    });
-
-    match mode {
-        RunMode::Web(port) => {
-            require_router(&core, &router).await?;
-            modes::web::run_web_mode(core, port.unwrap_or(8080)).await?;
-        }
-        RunMode::Stream => {
-            require_router(&core, &router).await?;
-            modes::headless::run_headless_mode(&core, cli.json, cli.echo_topics).await?;
-        }
-        RunMode::Tui => {
-            run_tui_mode(core).await?;
-        }
-    }
-
-    Ok(())
+    std::process::exit(code as i32)
 }
 
-/// Resolved run mode after reconciling the mode subcommand, the deprecated
-/// mode flags, and the default. `Web` carries an optional port.
-enum RunMode {
-    Tui,
-    Web(Option<u16>),
-    Stream,
+/// Dispatch an unknown `hu <name> …` subcommand to the CLI frontend (a WASM
+/// cli-plugin). Handles the `meter param load` file-read glue that plugins
+/// can't do inside the sandbox.
+#[cfg(feature = "wasm-plugins")]
+async fn run_cli_frontend(
+    args: Vec<String>,
+    core: Arc<CoreEngine>,
+    router: &str,
+) -> Result<u8, BoxError> {
+    let plugin_name = args[0].clone();
+    let mut plugin_args = args[1..].to_vec();
+    // `meter param load <node> <yaml-file>` needs real filesystem access, which
+    // WASM plugins deliberately don't have. Read and parse the file here on the
+    // host instead, and hand the plugin pre-parsed parameter data (JSON, which
+    // it can already decode) rather than a path.
+    if plugin_name == "meter"
+        && plugin_args.first().map(String::as_str) == Some("param")
+        && plugin_args.get(1).map(String::as_str) == Some("load")
+    {
+        let node = plugin_args.get(2).cloned().unwrap_or_default();
+        let path = plugin_args.get(3).cloned().unwrap_or_default();
+        let params = load_ros_param_yaml(&path, &node)
+            .map_err(|e| format!("failed to read/parse param file '{path}': {e}"))?;
+        plugin_args = vec![
+            "param".to_string(),
+            "load".to_string(),
+            node,
+            serde_json::to_string(&params)?,
+        ];
+    }
+    frontend::launch(
+        frontend::Cli {
+            plugin: plugin_name,
+            args: plugin_args,
+        },
+        core,
+        router,
+    )
+    .await
+}
+
+#[cfg(not(feature = "wasm-plugins"))]
+async fn run_cli_frontend(
+    args: Vec<String>,
+    _core: Arc<CoreEngine>,
+    _router: &str,
+) -> Result<u8, BoxError> {
+    eprintln!(
+        "error: unknown subcommand '{}' (WASM plugin support not compiled in)",
+        args[0]
+    );
+    Ok(1)
 }
 
 /// Non-interactive modes (CLI plugins, headless, web, export) need a live
