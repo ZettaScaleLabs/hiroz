@@ -885,14 +885,18 @@ fn test_hu_meter_echo_raw() {
                 .create_pub::<RosString>("/echo_raw_test")
                 .build()
                 .unwrap();
-            // Give echo time to subscribe
+            // Give echo time to subscribe, then publish repeatedly so a single
+            // missed connection window doesn't fail the test (hu needs --count 1;
+            // publishing several times over ~500ms gives it multiple chances).
             tokio::time::sleep(Duration::from_millis(800)).await;
-            let _ = pub_
-                .async_publish(&RosString {
-                    data: "rawtest".into(),
-                })
-                .await;
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            for _ in 0..5 {
+                let _ = pub_
+                    .async_publish(&RosString {
+                        data: "rawtest".into(),
+                    })
+                    .await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
         });
     });
 
