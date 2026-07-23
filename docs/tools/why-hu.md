@@ -1,6 +1,51 @@
-# Why hu?
+# hu Toolkit — Overview
 
-`hu` is the command-line tool for the hiroz stack. If you already use `ros2 topic`, `ros2 node`, `ros2 service`, or `rqt`, this page explains what problem `hu` solves and why you might want it.
+`hu` is the tooling ecosystem for the hiroz stack: a single, daemon-free binary that talks directly to Zenoh and grows through WebAssembly plugins. It replaces `ros2 topic`, `ros2 node`, `ros2 service`, `ros2 action`, `ros2 param`, and much of `rqt` — but the more important idea is that everything `hu` does, including the commands that ship in the box, is a **plugin**. This page introduces that ecosystem; the rest of this section drills into each part.
+
+## The ecosystem at a glance
+
+`hu` itself is a thin dispatcher. When you run `hu <name> <args>`, it looks up `<name>` among the plugins it discovered at startup and hands the invocation to that plugin. The built-in commands (`meter`, `monitor`) are shipped as plugins compiled into the binary; third-party plugins are `.wasm` files you drop into a directory. Both kinds implement the exact same typed contract, so a plugin you write is a first-class citizen alongside the ones that ship.
+
+Every plugin — built-in or third-party — reaches the ROS 2 graph the same way: through the Zenoh router, using the live liveliness index instead of a background daemon.
+
+```mermaid
+graph TD
+    accTitle: The hu toolkit — dispatcher, plugins, and the three WIT worlds over Zenoh
+    accDescr: The hu binary dispatches a subcommand to a plugin. Built-in plugins (meter, monitor) and third-party WASM plugins loaded from HU_PLUGIN_PATH both implement one of three WIT worlds (CLI, TUI, web). All plugins reach the ROS 2 graph through a shared Zenoh router.
+
+    user(["hu &lt;name&gt; &lt;args&gt;"]) --> disp["hu dispatcher"]
+
+    subgraph plugins["Plugins — same typed contract"]
+        direction LR
+        builtin["Built-in<br>meter · monitor"]
+        wasm["Third-party<br>.wasm files"]
+    end
+
+    disp -->|dispatch| plugins
+    wasm -. loaded at startup .- path[["$HU_PLUGIN_PATH<br>~/.local/share/hu/plugins/"]]
+
+    subgraph worlds["One of three WIT worlds"]
+        direction LR
+        cli["hu-cli-plugin<br>terminal command"]
+        tui["hu-tui-plugin<br>TUI pane"]
+        web["hu-web-plugin<br>hu --web handler"]
+    end
+
+    plugins --> worlds
+    worlds -->|Zenoh session| router(["Zenoh router"])
+    router <-->|liveliness + CDR| graph(["ROS 2 graph<br>hiroz · rmw_zenoh_cpp"])
+```
+
+The moving parts:
+
+- **Dispatcher** — `hu` parses the first argument and routes to a plugin. It owns no ROS logic itself.
+- **Built-in plugins** — `meter` (measurement: `hz`, `bw`, `delay`, `echo`, `pub`, `list`, `info`, service/action/param) and `monitor` (observation: `watch`, `graph`, `log`, `log-level`). They are plugins that happen to be compiled in.
+- **Third-party plugins** — any `.wasm` file in `$HU_PLUGIN_PATH` or `~/.local/share/hu/plugins/` becomes a `hu <name>` command with no registration step, no Python entry-points, and no shared runtime state.
+- **Three WIT worlds** — a plugin picks the role it plays: a one-shot/streaming CLI command (`hu-cli-plugin`), an interactive TUI pane (`hu-tui-plugin`), or an HTTP handler for `hu --web` (`hu-web-plugin`).
+- **Sandbox** — WASM plugins run sandboxed and capability-gated: a plugin only gets the host access (topic subscription, file, bag) it is explicitly granted.
+- **Transport** — everything speaks to a Zenoh router and reads the liveliness index; there is no `_ros2_daemon` and no DDS discovery.
+
+Read on for [why this design beats the Python-based tools](#the-problem-with-existing-cli-tools), the [full command reference](hu.md), and [how to write your own plugin](hu-plugins.md).
 
 ---
 
@@ -67,3 +112,4 @@ There is no `hu launch`, no `hu pkg`, and no `hu run`. `hu` is scoped to graph i
 
 - [hu reference](hu.md) — full command reference
 - [hu vs. ros2cli / rqt](hu-vs-ros2cli.md) — feature-by-feature comparison with benchmark data
+- [hu Plugin Authoring](hu-plugins.md) — write your own `hu <name>` command as a WASM plugin

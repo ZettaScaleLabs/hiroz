@@ -34,7 +34,7 @@ def check-bundled-msgs [] {
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features nav_msgs"
 }
 
-def check-console [] {
+def check-hu [] {
     log-step "Check hiroz-union"
     run-cmd "cargo check -p hiroz-union"
     run-cmd "cargo clippy -p hiroz-union -- -D warnings"
@@ -92,7 +92,7 @@ def get-test-map [] {
         clippy-workspace: { clippy-workspace }
         run-tests: { run-tests }
         check-bundled-msgs: { check-bundled-msgs }
-        check-console: { check-console }
+        check-hu: { check-hu }
         check-examples: { check-examples }
         check-distro-features: { check-distro-features }
         clippy-hiroz-py: { clippy-hiroz-py }
@@ -106,7 +106,7 @@ def get-test-pipeline [] {
         "clippy-workspace"
         "run-tests"
         "check-bundled-msgs"
-        "check-console"
+        "check-hu"
         "check-examples"
         "check-distro-features"
         "clippy-hiroz-py"
