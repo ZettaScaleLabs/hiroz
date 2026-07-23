@@ -98,7 +98,7 @@
                 test-msgs
               ];
 
-              # CLI tools needed for interop tests (ros2 topic/param/node/service)
+              # CLI tools needed for interop tests (ros2 topic/param/node/service/run)
               testCli = with pkgs.rosPackages.${rosDistro}; [
                 ros2cli
                 ros2topic
@@ -107,6 +107,8 @@
                 ros2service
                 ros2action
                 ros2pkg
+                ros2run
+                ros2launch
                 rmw-zenoh-cpp
               ];
 
