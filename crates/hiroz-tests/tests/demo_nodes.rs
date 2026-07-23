@@ -17,8 +17,6 @@ use std::{
     time::Duration,
 };
 
-use hiroz_protocol::EndpointKind;
-
 use crate::common::*;
 
 #[test]
@@ -288,7 +286,8 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
     // Start RCL server. stdout/stderr are piped (not discarded) so that if
     // discovery never completes we can tell whether the process is still
     // alive-but-slow or has actually exited/errored -- silently discarding
-    // its output here was hiding that distinction entirely.
+    // its output here was hiding that distinction entirely (this is how the
+    // missing-ros2run-verb regression was originally found).
     let mut server = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "add_two_ints_server"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
@@ -314,45 +313,35 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
 
     let mut server_guard = ProcessGuard::new(server, "RCL add_two_ints server");
 
-    // A Zenoh query with QueryTarget::All completes (with zero replies) as
-    // soon as there are no known repliers at query time -- it does NOT wait
-    // out its timeout for a replier that hasn't been discovered yet, so a
-    // retry-the-query loop against a wall-clock deadline is inherently a
-    // race against discovery timing, not a bounded wait for an actual
-    // event. Instead, poll the context's own graph (populated in the
-    // background by its liveliness subscriber, no external process
-    // spawned per check) until the server's queryable is actually known,
-    // then issue exactly one query.
-    let ctx = create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
+    wait_for_ready(Duration::from_secs(3));
+
+    // Retry until the server's queryable is actually discovered -- same
+    // rationale as the fibonacci RCL-server test below: this is discovery
+    // latency, not response latency, so a longer fixed wait/timeout doesn't
+    // reliably help under CI load.
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
-    let mut discovered = true;
-    while ctx
-        .graph()
-        .count_by_service(EndpointKind::Service, "/add_two_ints")
-        == 0
-    {
-        if std::time::Instant::now() >= deadline {
-            discovered = false;
-            break;
+    let result = loop {
+        let ctx =
+            create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
+        match demo_nodes::run_add_two_ints_client(ctx, 4, 7, false) {
+            Ok(v) => break v,
+            Err(_) if std::time::Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(500));
+            }
+            Err(e) => {
+                let exit_status = server_guard
+                    .child
+                    .as_mut()
+                    .and_then(|c| c.try_wait().ok().flatten());
+                let stdout = stdout_handle.join().unwrap_or_default();
+                let stderr = stderr_handle.join().unwrap_or_default();
+                panic!(
+                    "Client failed: {e} (process exit status: {exit_status:?})\n\
+                     stdout:\n{stdout}\nstderr:\n{stderr}"
+                );
+            }
         }
-        thread::sleep(Duration::from_millis(20));
-    }
-
-    if !discovered {
-        let exit_status = server_guard
-            .child
-            .as_mut()
-            .and_then(|c| c.try_wait().ok().flatten());
-        let stdout = stdout_handle.join().unwrap_or_default();
-        let stderr = stderr_handle.join().unwrap_or_default();
-        panic!(
-            "RCL add_two_ints server never appeared in the graph within 60s \
-             (process exit status: {exit_status:?})\nstdout:\n{stdout}\nstderr:\n{stderr}"
-        );
-    }
-
-    let result = demo_nodes::run_add_two_ints_client(ctx, 4, 7, false)
-        .expect("Client failed after server was confirmed discovered");
+    };
     assert_eq!(result, 11, "Expected 4 + 7 = 11");
 
     println!(
