@@ -51,27 +51,33 @@ impl CoreEngine {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let backend = backend.into();
 
-        // Client mode connected to the configured router. Client mode blocks
-        // in `zenoh::open` until the router link is established, so by the time
-        // this returns the session is fully connected and freshly-declared
-        // subscriptions receive data immediately. That readiness is required by
-        // the short-lived-publisher paths (`hu meter echo`, plugin tick loops):
-        // peer mode returns before the connection settles, so those raced — and
-        // missed — a publisher that only ran for a few hundred milliseconds.
-        // The trade-off is that a missing router is a hard failure here (client
-        // mode cannot open without a router); the actionable hint below tells
-        // the user how to start one.
+        // Peer mode connected only to the configured router. We use peer (not
+        // client) mode so a missing router is a *soft* failure: peer's
+        // multi-link connect path honors `connect/exit_on_failure=false` and
+        // retries in the background, so `zenoh::open` succeeds and the TUI can
+        // start disconnected and populate once a router appears. Client mode's
+        // single-link connect path ignores `exit_on_failure` and hard-fails —
+        // and under CI resource contention that hard failure (or an outright
+        // hang) showed up in the short-lived `hu meter` CLI invocations
+        // (test_hu_meter_delay_basic, test_hu_meter_echo_count_3), which had
+        // been reliably green under peer mode. Reverting to peer mode.
+        //
+        // Both multicast and gossip scouting are disabled, so despite peer mode
+        // hu still performs no peer discovery — it only ever talks to the
+        // router (hiroz's router-only discovery policy). Router-relayed
+        // liveliness therefore reaches us exactly as in client mode; the old
+        // "peer mode misses liveliness" caveat was specific to multicast
+        // scouting, which stays off here.
         let mut config = zenoh::Config::default();
-        config.insert_json5("mode", "\"client\"")?;
+        config.insert_json5("mode", "\"peer\"")?;
         config.insert_json5("connect/endpoints", &format!("[\"{}\"]", router_addr))?;
         config.insert_json5("scouting/multicast/enabled", "false")?;
+        config.insert_json5("scouting/gossip/enabled", "false")?;
+        config.insert_json5("connect/exit_on_failure", "false")?;
 
-        let session = zenoh::open(config.clone()).await.map_err(|e| {
-            format!(
-                "{}\nunderlying error: {e}",
-                router_connect_hint(router_addr)
-            )
-        })?;
+        let session = zenoh::open(config.clone())
+            .await
+            .map_err(|e| format!("failed to open Zenoh session: {e}"))?;
         let session = Arc::new(session);
 
         // Initialize graph with RmwZenoh liveliness pattern
