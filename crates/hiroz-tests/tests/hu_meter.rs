@@ -36,7 +36,7 @@ use hiroz_msgs::{
 /// Build it first: cargo build -p hu-meter --target wasm32-wasip2
 fn run_hu_meter(router: &str, args: &[&str]) -> Output {
     Command::new("hu")
-        .arg("--router")
+        .arg("--connect")
         .arg(router)
         .arg("meter")
         .args(args)
@@ -928,7 +928,7 @@ fn test_hu_meter_echo_raw_wildcard_fallback() {
 /// Spawn hu-meter, let it run for `secs` seconds, kill it, and return accumulated output.
 fn run_hu_meter_timed(router: &str, args: &[&str], secs: u64) -> (Vec<u8>, Vec<u8>) {
     let mut child = Command::new("hu")
-        .arg("--router")
+        .arg("--connect")
         .arg(router)
         .arg("meter")
         .args(args)
@@ -2536,7 +2536,7 @@ fn test_hu_plugin_template_runtime_ticks() {
     // `my-plugin` has tick_ms=1000 and prints "hello from WASM!" on each Tick,
     // looping until interrupted. Run it briefly, then kill and inspect output.
     let mut child = Command::new("hu")
-        .arg("--router")
+        .arg("--connect")
         .arg(router.endpoint())
         .arg("my-plugin")
         .arg("demo-arg")
@@ -2560,11 +2560,11 @@ fn test_hu_plugin_template_runtime_ticks() {
     );
 }
 
-// ─── HU_ROUTER / HU_DOMAIN environment configuration ─────────────────────────
+// ─── HU_CONNECT / HU_DOMAIN environment configuration ─────────────────────────
 
-/// docs/tools/hu.md's Quick Start recommends exporting HU_ROUTER/HU_DOMAIN once
-/// per session rather than passing --router on every call. Every other test
-/// here uses the explicit --router flag; this one configures the router purely
+/// docs/tools/hu.md's Quick Start recommends exporting HU_CONNECT/HU_DOMAIN once
+/// per session rather than passing --connect on every call. Every other test
+/// here uses the explicit --connect flag; this one configures the router purely
 /// via the environment (no flags), so a regression in env-var parsing — or a
 /// default flag value silently overriding it — is caught.
 #[test]
@@ -2587,9 +2587,9 @@ fn test_hu_meter_env_var_router_config() {
 
     thread::sleep(Duration::from_millis(1000));
 
-    // No --router / --domain flags: reach the router entirely through HU_ROUTER.
+    // No --connect / --domain flags: reach the router entirely through HU_CONNECT.
     let out = Command::new("hu")
-        .env("HU_ROUTER", router.endpoint())
+        .env("HU_CONNECT", router.endpoint())
         .env("HU_DOMAIN", "0")
         .args(["meter", "list", "topics", "--json"])
         .stdout(Stdio::piped())
@@ -2599,7 +2599,7 @@ fn test_hu_meter_env_var_router_config() {
 
     assert!(
         out.status.success(),
-        "hu meter list topics via HU_ROUTER failed: {}",
+        "hu meter list topics via HU_CONNECT failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);

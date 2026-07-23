@@ -29,7 +29,7 @@ use hiroz_msgs::{
 /// Run `hu monitor <args>` with a specific router endpoint, capturing all output.
 fn run_hu_monitor(router: &str, args: &[&str]) -> std::process::Output {
     Command::new("hu")
-        .arg("--router")
+        .arg("--connect")
         .arg(router)
         .arg("monitor")
         .args(args)
@@ -204,7 +204,7 @@ fn test_monitor_watch_fires_on_topic_create() {
 
     // Start `hu monitor watch` in the background — it polls graph changes each tick.
     let mut watch_child = Command::new("hu")
-        .arg("--router")
+        .arg("--connect")
         .arg(router.endpoint())
         .arg("monitor")
         .arg("watch")
@@ -402,7 +402,7 @@ fn test_monitor_watch_fires_on_node_and_service() {
     let router = TestRouter::new();
 
     let mut watch_child = Command::new("hu")
-        .arg("--router")
+        .arg("--connect")
         .arg(router.endpoint())
         .arg("monitor")
         .arg("watch")
@@ -596,7 +596,7 @@ fn test_monitor_log_default_streams_unbounded() {
 
     // No --count → count=0 → stream forever; run for a few seconds then kill.
     let mut child = Command::new("hu")
-        .arg("--router")
+        .arg("--connect")
         .arg(router.endpoint())
         .arg("monitor")
         .arg("log")
@@ -618,11 +618,11 @@ fn test_monitor_log_default_streams_unbounded() {
     );
 }
 
-// ─── HU_ROUTER / HU_DOMAIN environment configuration ─────────────────────────
+// ─── HU_CONNECT / HU_DOMAIN environment configuration ─────────────────────────
 
-/// docs/tools/hu.md's Quick Start recommends exporting HU_ROUTER/HU_DOMAIN
-/// once per session instead of passing --router each time. Every other test
-/// uses the explicit --router flag; this one omits the flags entirely and
+/// docs/tools/hu.md's Quick Start recommends exporting HU_CONNECT/HU_DOMAIN
+/// once per session instead of passing --connect each time. Every other test
+/// uses the explicit --connect flag; this one omits the flags entirely and
 /// configures the router via the environment, so a regression in the env-var
 /// parsing (or a default flag value silently winning) would be caught.
 #[test]
@@ -645,9 +645,9 @@ fn test_monitor_env_var_router_config() {
 
     thread::sleep(Duration::from_millis(1000));
 
-    // No --router / --domain flags — configure entirely via the environment.
+    // No --connect / --domain flags — configure entirely via the environment.
     let out = Command::new("hu")
-        .env("HU_ROUTER", router.endpoint())
+        .env("HU_CONNECT", router.endpoint())
         .env("HU_DOMAIN", "0")
         .args(["monitor", "graph", "--json", "--once"])
         .stdout(Stdio::piped())
@@ -657,7 +657,7 @@ fn test_monitor_env_var_router_config() {
 
     assert!(
         out.status.success(),
-        "hu monitor graph via HU_ROUTER failed: {}",
+        "hu monitor graph via HU_CONNECT failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
