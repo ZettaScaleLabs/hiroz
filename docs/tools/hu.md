@@ -259,13 +259,13 @@ Plugin management:
 
 ## Multi-topic Rate Dashboard
 
-For continuous monitoring of multiple topics at once, use the `hu` TUI. It shows a live rate table for all active topics, updated every second, without spawning one process per topic:
+For continuous monitoring of several topics at once, use the `hu` TUI. Select topics in the Topics panel and press `m` to add them to the Measure panel, which shows a live, per-second rate and bandwidth table for every topic you're tracking — all in one process, instead of one `ros2 topic hz` per topic:
 
 ```bash
 hu
 ```
 
-This is the primary advantage over `ros2 topic hz`, which requires a separate terminal per topic.
+Bare `hu` launches the TUI; use `Tab`/`1`–`5` to reach the Measure panel. This is the primary advantage over `ros2 topic hz`, which needs a separate terminal per topic and no combined view.
 
 ### TUI Keybindings
 
