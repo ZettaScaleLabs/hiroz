@@ -54,7 +54,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Check formatting
         run: nix build .#checks.x86_64-linux.pre-commit-check -L
@@ -100,7 +100,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell (Linux via Nix)
         if: runner.os == 'Linux'
@@ -195,7 +195,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell (Linux via Nix)
         run: |
@@ -253,7 +253,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell
         run: nix profile install nixpkgs#nushell
@@ -332,7 +332,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell (Linux via Nix)
         if: runner.os == 'Linux'
@@ -454,7 +454,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup nix environment
         run: |
@@ -558,7 +558,7 @@ jobs:
           # subsequent runs (including PRs) can download them from Cachix
           # instead of rebuilding. hiroz.cachix.org is our own cache;
           # ros.cachix.org is read-only for upstream ROS packages.
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell
         run: |
@@ -671,7 +671,7 @@ jobs:
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: false
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Install Nushell
         run: |
