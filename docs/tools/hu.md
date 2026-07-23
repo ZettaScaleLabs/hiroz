@@ -37,7 +37,13 @@ The `meter` and `monitor` subcommands are WASM plugins loaded from the plugin pa
 
 ### Build from Source
 
-Requires Rust 1.85+ and the `wasm32-wasip2` target (used to build the plugins):
+Requires Rust 1.85+ and the `wasm32-wasip2` target (used to build the plugins). With the Nix dev environment, enter the wasm-capable shell — it already has the target:
+
+```bash
+nix develop .#pureRust-wasm
+```
+
+Without Nix, add the target to your toolchain:
 
 ```bash
 rustup target add wasm32-wasip2

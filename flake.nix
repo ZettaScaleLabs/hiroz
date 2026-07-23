@@ -466,6 +466,33 @@
             '';
           };
 
+          # Pure-Rust dev shell WITH the wasm32-wasip2 target — for building the
+          # hu WASM plugins (meter/monitor, or your own) locally with the full
+          # dev toolchain (pre-commit, dev tools). Same as `pureRust` but the
+          # WASM-capable toolchain replaces the default one. Use this instead of
+          # a `*-ci` shell when developing plugins: `nix develop .#pureRust-wasm`
+          # then `cargo hu-plugins`. The default `pureRust` shell stays lean and
+          # does not fetch the wasm sysroot.
+          pureRust-wasm = mkDevShell {
+            name = "hiroz-pure-rust-wasm";
+            packages = [
+              rustfmt-nightly-bin
+              rustToolchainWasm
+            ]
+            ++ (builtins.filter (p: p != rustToolchain) commonBuildInputs)
+            ++ devTools
+            ++ pythonTools
+            ++ docTools
+            ++ testTools
+            ++ pre-commit-check.enabledPackages;
+            extraShellHook = preCommitGuard;
+            banner = ''
+              echo "🦀 hiroz development environment (pure Rust + wasm32-wasip2)"
+              echo "Rust: $(rustc --version)"
+              echo "Build plugins with: cargo hu-plugins"
+            '';
+          };
+
           # CI without ROS — includes wasm32-wasip2 sysroot for WASM plugin builds.
           # Uses rustToolchainWasm so the WASM target is only fetched in CI, not
           # in the default developer shell.
