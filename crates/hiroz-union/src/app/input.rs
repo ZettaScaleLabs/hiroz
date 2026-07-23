@@ -38,6 +38,38 @@ pub async fn handle_key(
         return Ok(false);
     }
 
+    // Interactive TUI-plugin input: when a tui/legacy plugin's output pane is
+    // focused, keystrokes go to the plugin as `key-action` events instead of
+    // driving the TUI. Ctrl-C (handled above) always quits; a few keys stay
+    // reserved so the user can always escape the pane.
+    if app.current_panel == Panel::Plugins
+        && app.focus_pane == FocusPane::Detail
+        && app.plugin_mgr.selected_is_tui()
+    {
+        match key.code {
+            KeyCode::Esc | KeyCode::Left | KeyCode::Char('h') => {
+                app.focus_pane = FocusPane::List;
+            }
+            KeyCode::Tab => {
+                app.current_panel = app.current_panel.next();
+                app.selected_index = 0;
+                app.detail_scroll = 0;
+            }
+            KeyCode::BackTab => {
+                app.current_panel = app.current_panel.prev();
+                app.selected_index = 0;
+                app.detail_scroll = 0;
+            }
+            _ => {
+                if let Some(action) = key_to_action_string(key) {
+                    let idx = app.plugin_mgr.selected_index;
+                    app.plugin_mgr.dispatch_key_action(idx, action);
+                }
+            }
+        }
+        return Ok(false);
+    }
+
     match key.code {
         KeyCode::Char('q') => return Ok(true),
         KeyCode::Char('?') => app.show_help = true,
@@ -45,6 +77,7 @@ pub async fn handle_key(
         KeyCode::Up | KeyCode::Char('k') => {
             if app.focus_pane == FocusPane::List {
                 app.select_previous();
+                app.notify_topic_selected_to_plugins();
             } else {
                 app.detail_state.selected_section = match app.detail_state.selected_section {
                     super::DetailSection::Publishers => super::DetailSection::Clients,
@@ -57,6 +90,7 @@ pub async fn handle_key(
         KeyCode::Down | KeyCode::Char('j') => {
             if app.focus_pane == FocusPane::List {
                 app.select_next();
+                app.notify_topic_selected_to_plugins();
             } else {
                 app.detail_state.selected_section = match app.detail_state.selected_section {
                     super::DetailSection::Publishers => super::DetailSection::Subscribers,
@@ -259,7 +293,55 @@ pub async fn handle_key(
     Ok(false)
 }
 
+/// Encode a key press as the string a TUI plugin receives in a `key-action`
+/// event. Printable chars pass through as-is; named keys use stable names
+/// (`Up`, `Enter`, `F5`, …); Ctrl/Alt are prefixed (`C-`, `A-`).
+fn key_to_action_string(key: KeyEvent) -> Option<String> {
+    let base = match key.code {
+        KeyCode::Char(c) => c.to_string(),
+        KeyCode::Enter => "Enter".to_string(),
+        KeyCode::Backspace => "Backspace".to_string(),
+        KeyCode::Delete => "Delete".to_string(),
+        KeyCode::Insert => "Insert".to_string(),
+        KeyCode::Up => "Up".to_string(),
+        KeyCode::Down => "Down".to_string(),
+        KeyCode::Left => "Left".to_string(),
+        KeyCode::Right => "Right".to_string(),
+        KeyCode::Home => "Home".to_string(),
+        KeyCode::End => "End".to_string(),
+        KeyCode::PageUp => "PageUp".to_string(),
+        KeyCode::PageDown => "PageDown".to_string(),
+        KeyCode::Tab => "Tab".to_string(),
+        KeyCode::BackTab => "BackTab".to_string(),
+        KeyCode::Esc => "Esc".to_string(),
+        KeyCode::F(n) => format!("F{n}"),
+        _ => return None,
+    };
+    let mut s = String::new();
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        s.push_str("C-");
+    }
+    if key.modifiers.contains(KeyModifiers::ALT) {
+        s.push_str("A-");
+    }
+    s.push_str(&base);
+    Some(s)
+}
+
 impl App {
+    /// When navigating the Topics panel, tell TUI plugins which topic is now
+    /// highlighted (`topic-selected`). Cheap no-op off the Topics panel or when
+    /// no TUI plugin is loaded.
+    pub fn notify_topic_selected_to_plugins(&mut self) {
+        if self.current_panel != Panel::Topics || self.plugin_mgr.tui_count() == 0 {
+            return;
+        }
+        if let Some((topic, _)) = self.cached_topics.get(self.selected_index) {
+            let topic = topic.clone();
+            self.plugin_mgr.dispatch_topic_selected(topic);
+        }
+    }
+
     pub fn matches_filter(&self, filter_text: &str, item: &str) -> bool {
         if filter_text.is_empty() {
             true

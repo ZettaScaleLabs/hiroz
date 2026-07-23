@@ -19,9 +19,9 @@ There are three WIT worlds — pick the one that matches your plugin's role:
 |---|---|---|---|
 | `hu-cli-plugin` | One-shot or streaming terminal tool (hz, bw, echo) | `cli-event` — startup, tick, interrupt | ✅ shipped (`meter`, `monitor`) |
 | `hu-web-plugin` | HTTP request/response handler for `hu web` | no events — stateless `handle(req) → response` | 🟡 landing soon — host fully wired, no reference plugin yet |
-| `hu-tui-plugin` | Tick-driven TUI pane with keybindings and topic navigation | `tui-event` — startup, tick, interrupt, key-action, topic-selected | 🟡 landing soon — loads and renders as a tick pane; `key-action` / `topic-selected` forwarding not wired in the host yet |
+| `hu-tui-plugin` | Tick-driven TUI pane with keybindings and topic navigation | `tui-event` — startup, tick, interrupt, key-action, topic-selected | 🟡 landing soon — loads, renders, and receives `key-action` / `topic-selected`; `startup` and automatic per-frame `tick` not wired yet |
 
-Only the CLI world ships with a reference implementation today. The web and TUI worlds are fully defined and the host can load them, but no example plugin ships yet — hence "landing soon". For the TUI world specifically, a plugin currently receives `tick` (and its output renders in panel 5), but the host does not yet forward `key-action` or `topic-selected`, so interactive panes are not complete.
+Only the CLI world ships with a reference implementation today. The web and TUI worlds are fully defined and the host can load them, but no example plugin ships yet — hence "landing soon". For the TUI world: a focused plugin pane now receives forwarded `key-action` events, and TUI plugins receive `topic-selected` as you navigate the Topics panel; `tick` is delivered on demand (press `t` on panel 5). Still missing are a `startup` event on load and an automatic per-frame `tick`.
 
 The `hu-plugin` world still exists as a compatibility alias for `hu-tui-plugin`. New plugins should use one of the three typed worlds above.
 

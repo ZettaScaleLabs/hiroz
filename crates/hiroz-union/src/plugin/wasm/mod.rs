@@ -107,6 +107,16 @@ impl WasmPlugin {
         matches!(self.bindings, PluginBindings::Cli(_))
     }
 
+    /// A plugin that accepts `tui-event`s (the `hu-tui-plugin` world or its
+    /// `hu-plugin` legacy alias). Only these receive forwarded key-action /
+    /// topic-selected events.
+    pub fn is_tui(&self) -> bool {
+        matches!(
+            self.bindings,
+            PluginBindings::Tui(_) | PluginBindings::Legacy(_)
+        )
+    }
+
     #[cfg(feature = "web-plugins")]
     pub fn is_web(&self) -> bool {
         matches!(self.bindings, PluginBindings::Web(_))

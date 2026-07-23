@@ -59,6 +59,51 @@ impl PluginManager {
 
     #[cfg(not(feature = "wasm-plugins"))]
     pub fn dispatch_tick(&mut self, _plugin_idx: usize) {}
+
+    /// Whether the plugin at `selected_index` accepts TUI events (so key
+    /// presses should be forwarded to it rather than driving the TUI).
+    pub fn selected_is_tui(&self) -> bool {
+        #[cfg(feature = "wasm-plugins")]
+        return self
+            .plugins
+            .get(self.selected_index)
+            .is_some_and(|p| p.is_tui());
+        #[cfg(not(feature = "wasm-plugins"))]
+        return false;
+    }
+
+    /// Forward a key press to a focused TUI plugin as a `key-action` event.
+    #[cfg(feature = "wasm-plugins")]
+    pub fn dispatch_key_action(&mut self, plugin_idx: usize, key: String) {
+        if let Some(plugin) = self.plugins.get_mut(plugin_idx)
+            && plugin.is_tui()
+        {
+            plugin.dispatch_tui_event(TuiEvent::KeyAction(key));
+        }
+    }
+
+    #[cfg(not(feature = "wasm-plugins"))]
+    pub fn dispatch_key_action(&mut self, _plugin_idx: usize, _key: String) {}
+
+    /// Broadcast the currently-selected topic to every loaded TUI plugin as a
+    /// `topic-selected` event, so panes can follow the user's topic navigation.
+    #[cfg(feature = "wasm-plugins")]
+    pub fn dispatch_topic_selected(&mut self, topic: String) {
+        for plugin in self.plugins.iter_mut().filter(|p| p.is_tui()) {
+            plugin.dispatch_tui_event(TuiEvent::TopicSelected(topic.clone()));
+        }
+    }
+
+    #[cfg(not(feature = "wasm-plugins"))]
+    pub fn dispatch_topic_selected(&mut self, _topic: String) {}
+
+    /// Number of loaded TUI-world plugins (cheap gate before broadcasting).
+    pub fn tui_count(&self) -> usize {
+        #[cfg(feature = "wasm-plugins")]
+        return self.plugins.iter().filter(|p| p.is_tui()).count();
+        #[cfg(not(feature = "wasm-plugins"))]
+        return 0;
+    }
 }
 
 impl Default for PluginManager {
