@@ -695,7 +695,9 @@ fn test_hu_meter_echo_once() {
                 .build()
                 .unwrap();
             tokio::time::sleep(Duration::from_millis(800)).await;
-            for i in 0..5 {
+            // 100, not 5: see test_hu_meter_delay_basic's comment for why a
+            // short burst can end before hu's dyn sub is ready.
+            for i in 0..100 {
                 let _ = pub_
                     .async_publish(&RosString {
                         data: format!("once_{}", i),
@@ -893,8 +895,10 @@ fn test_hu_meter_echo_raw() {
             // Give echo time to subscribe, then publish repeatedly so a single
             // missed connection window doesn't fail the test (hu needs --count 1;
             // publishing several times over ~500ms gives it multiple chances).
+            // 100, not 5: see test_hu_meter_delay_basic's comment for why a
+            // short burst can end before hu's dyn sub is ready.
             tokio::time::sleep(Duration::from_millis(800)).await;
-            for _ in 0..5 {
+            for _ in 0..100 {
                 let _ = pub_
                     .async_publish(&RosString {
                         data: "rawtest".into(),
@@ -2262,7 +2266,9 @@ fn test_hu_meter_echo_json() {
                 .build()
                 .unwrap();
             tokio::time::sleep(Duration::from_millis(800)).await;
-            for _ in 0..10 {
+            // 100, not 10: see test_hu_meter_delay_basic's comment for why a
+            // short burst can end before hu's dyn sub is ready.
+            for _ in 0..100 {
                 let _ = pub_
                     .async_publish(&RosString {
                         data: "payload-42".into(),
