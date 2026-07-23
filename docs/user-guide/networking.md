@@ -97,7 +97,7 @@ hiroz applications require a Zenoh router to be running. There are several ways 
 | [Pre-built Binary](#method-2-pre-built-binary) | Quick setup, no Rust | None | Fast |
 | [Docker](#method-3-docker) | Containers, CI/CD | Docker | Fast |
 | [Package Manager](#method-4-package-manager-apt-brew) | System-wide install | apt/brew/etc | Fast |
-| [hiroz Example](#method-5-hiroz-example-router) | hiroz repo developers | hiroz repository | Fast |
+| [`hu router`](#method-5-hu-router) | Local development | `hu` tool | Fast |
 | [ROS 2 rmw_zenoh](#method-6-ros-2-rmw_zenoh) | ROS 2 interop testing | ROS 2 installed | Already installed |
 
 ---
@@ -188,19 +188,18 @@ yay -S zenoh && zenohd
 
 ---
 
-### Method 5: hiroz Example Router
+### Method 5: `hu router`
 
-**Only available when working in the hiroz repository.**
+**Best for local development if you already have the `hu` tool.**
 
 ```bash
-cd /path/to/hiroz
-cargo run --example zenoh_router
+hu router
 ```
 
-Pre-configured for hiroz defaults. Not suitable for standalone projects.
+Starts an embedded router pre-configured for `rmw_zenoh_cpp`/hiroz defaults, listening on `tcp/[::]:7447`. See the [hu documentation](../tools/hu.md#running-a-router) for `--listen` and `--config` options and how to install `hu`.
 
-!!! warning
-    This method is for hiroz repository development only. If you're building your own project with hiroz as a dependency, use one of the other methods instead.
+!!! note
+    Convenient for development, but for production deployments prefer the bundled [`rmw_zenohd`](https://github.com/ros2/rmw_zenoh) or a standalone `zenohd` (Methods 1–4).
 
 ---
 

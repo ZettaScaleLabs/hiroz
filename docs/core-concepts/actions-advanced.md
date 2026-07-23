@@ -96,7 +96,7 @@ pub async fn run_fibonacci_action_server(ctx: ZContext, timeout: Option<Duration
 
 ```bash
 # Start Eclipse Zenoh router first
-cargo run --example zenoh_router
+hu router
 
 # Run the server (runs until Ctrl+C)
 cargo run --example demo_nodes_fibonacci_action_server
@@ -200,7 +200,7 @@ cargo run --example demo_nodes_fibonacci_action_client -- --endpoint tcp/localho
 **Terminal 1 - Start Zenoh Router:**
 
 ```bash
-cargo run --example zenoh_router
+hu router
 ```
 
 **Terminal 2 - Start Action Server:**

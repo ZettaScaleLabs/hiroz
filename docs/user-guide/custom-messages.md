@@ -109,7 +109,7 @@ automatically register their runtime schema so dynamic subscribers can discover 
 
 ```bash
 # Terminal 1: Router
-cargo run --example zenoh_router
+hu router
 
 # Terminal 2: Subscriber
 cargo run --example z_custom_message -- --mode status-sub

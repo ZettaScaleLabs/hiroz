@@ -25,7 +25,7 @@ accDescr: A ROS 2 C++ talker connects through rmw_zenoh_cpp to a local Zenoh rou
 ```
 
 !!! note
-    The Zenoh router can be [`rmw_zenohd`](https://github.com/ros2/rmw_zenoh), `zenohd`, `cargo run --example zenoh_router`, or Docker.
+    The Zenoh router can be [`rmw_zenohd`](https://github.com/ros2/rmw_zenoh), `zenohd`, `hu router`, or Docker.
     See [Networking](./networking.md) for all options.
 
 **Requirements for successful message exchange:**
