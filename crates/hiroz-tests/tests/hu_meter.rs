@@ -174,7 +174,12 @@ fn test_hu_meter_echo_count_3() {
             let pub_ = node.create_pub::<RosString>("/echo_test").build().unwrap();
             // Give echo time to subscribe
             tokio::time::sleep(Duration::from_millis(800)).await;
-            for i in 0..10 {
+            // 100, not 10: at 100ms/msg that's a 10s burst, comfortably
+            // outlasting hu's own startup plus the background
+            // schema-discovery round trip ros::subscribe kicks off (see
+            // test_hu_meter_delay_basic's comment for the same race -- a
+            // short burst can end before hu's dyn sub is even ready).
+            for i in 0..100 {
                 let _ = pub_
                     .async_publish(&RosString {
                         data: format!("msg_{}", i),
