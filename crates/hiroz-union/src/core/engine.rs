@@ -3,7 +3,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use hiroz::{Builder, context::ZContext, dynamic::DynSub, graph::Graph, node::ZNode};
@@ -59,15 +59,16 @@ impl CoreEngine {
         config.insert_json5("mode", "\"client\"")?;
         config.insert_json5("connect/endpoints", &format!("[\"{}\"]", router_addr))?;
         config.insert_json5("scouting/multicast/enabled", "false")?;
+        // Soft-fail on a missing router: open the session even if no router is
+        // reachable yet and let zenoh keep retrying in the background, so the TUI
+        // can start and show a "disconnected" banner instead of aborting. Callers
+        // that need a live connection (CLI plugins, headless, web, export) gate on
+        // `wait_for_router` and surface `router_connect_hint` themselves.
+        config.insert_json5("connect/exit_on_failure", "false")?;
 
-        let session = zenoh::open(config.clone()).await.map_err(|e| {
-            format!(
-                "could not connect to a Zenoh router at {router_addr}.\n\
-                 Start one with `hu router` (in another terminal), or point hu at an \
-                 existing router with `--connect <endpoint>` / HU_CONNECT.\n\
-                 underlying error: {e}"
-            )
-        })?;
+        let session = zenoh::open(config.clone())
+            .await
+            .map_err(|e| format!("failed to open Zenoh session: {e}"))?;
         let session = Arc::new(session);
 
         // Initialize graph with RmwZenoh liveliness pattern
@@ -116,7 +117,9 @@ impl CoreEngine {
             domain_id,
             router_addr: router_addr.to_string(),
             backend,
-            is_connected: Arc::new(AtomicBool::new(true)),
+            // Starts false; the connection poller (start_monitoring) and
+            // wait_for_router flip it true once a router is actually reachable.
+            is_connected: Arc::new(AtomicBool::new(false)),
             context,
             node,
             monitoring_tasks: Mutex::new(Vec::new()),
@@ -180,9 +183,9 @@ impl CoreEngine {
         let session2 = session.clone();
         let conn_handle = tokio::spawn(async move {
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 let connected = session2.info().routers_zid().await.count() > 0;
                 is_connected.store(connected, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         });
         self.monitoring_tasks
@@ -255,4 +258,31 @@ impl CoreEngine {
         });
         self.monitoring_tasks.lock().push(lv_handle.abort_handle());
     }
+
+    /// Poll for a reachable router until one is seen or `timeout` elapses,
+    /// updating `is_connected`. Returns whether a router was found. Used by the
+    /// non-interactive modes to fail fast with a helpful hint when no router is
+    /// up; the TUI skips this and shows a disconnected banner instead.
+    pub async fn wait_for_router(&self, timeout: Duration) -> bool {
+        let start = Instant::now();
+        loop {
+            if self.session.info().routers_zid().await.count() > 0 {
+                self.is_connected.store(true, Ordering::SeqCst);
+                return true;
+            }
+            if start.elapsed() >= timeout {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+}
+
+/// Actionable hint shown when hu cannot reach a Zenoh router.
+pub fn router_connect_hint(router_addr: &str) -> String {
+    format!(
+        "could not connect to a Zenoh router at {router_addr}.\n\
+         Start one with `hu router` (in another terminal), or point hu at an \
+         existing router with `--connect <endpoint>` / HU_CONNECT."
+    )
 }

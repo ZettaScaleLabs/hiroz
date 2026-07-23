@@ -169,6 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }
                 let core = Arc::new(CoreEngine::new(&router, domain, cli.backend).await?);
                 core.start_monitoring().await;
+                require_router(&core, &router).await?;
                 let code = modes::cli::run_cli_plugin(core, &plugin_name, plugin_args).await?;
                 std::process::exit(code as i32);
             }
@@ -187,26 +188,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let core = Arc::new(CoreEngine::new(&router, domain, cli.backend).await?);
     core.start_monitoring().await;
 
-    tracing::info!(
-        router = router,
-        domain = domain,
-        "Connected to Zenoh router"
-    );
+    tracing::info!(router = router, domain = domain, "Using Zenoh router");
 
     if let Some(export_path) = cli.export {
+        require_router(&core, &router).await?;
         return export_and_exit(&core, &export_path).await;
     }
 
     if let Some(port_opt) = cli.web {
+        require_router(&core, &router).await?;
         let port = port_opt.unwrap_or(8080);
         modes::web::run_web_mode(core, port).await?;
     } else if cli.headless {
+        require_router(&core, &router).await?;
         modes::headless::run_headless_mode(&core, cli.json, cli.echo_topics).await?;
     } else {
         run_tui_mode(core).await?;
     }
 
     Ok(())
+}
+
+/// Non-interactive modes (CLI plugins, headless, web, export) need a live
+/// router to do anything useful, so fail fast with an actionable hint if none
+/// appears shortly. The TUI deliberately does not call this — it starts anyway
+/// and shows a disconnected banner until a router comes up.
+async fn require_router(
+    engine: &CoreEngine,
+    router_addr: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if engine.wait_for_router(Duration::from_secs(3)).await {
+        Ok(())
+    } else {
+        Err(crate::core::engine::router_connect_hint(router_addr).into())
+    }
 }
 
 /// Start an embedded Zenoh router with rmw_zenoh_cpp-compatible settings and
