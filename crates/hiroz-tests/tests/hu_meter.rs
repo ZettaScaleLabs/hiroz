@@ -2124,10 +2124,16 @@ fn test_hu_meter_bw_json_typed_fields() {
 
     thread::sleep(Duration::from_millis(400));
 
+    // 6s kill timeout, not 3s: hu's startup (session connect, node build,
+    // TypeDescriptionService + ParameterService queryable declarations, WASM
+    // plugin load) can take over a second on a loaded CI runner, which left
+    // only ~1s of margin after `--duration 2` -- tight enough to sometimes
+    // kill the process before its first tick ever printed a JSON line
+    // (matches test_hu_meter_hz_json_typed_fields's more generous 6s/`--duration 4`).
     let (stdout_bytes, stderr_bytes) = run_hu_meter_timed(
         router.endpoint(),
         &["bw", "/bw_typed_test", "--json", "--duration", "2"],
-        3,
+        6,
     );
     let stdout = String::from_utf8_lossy(&stdout_bytes);
 
