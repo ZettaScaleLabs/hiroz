@@ -33,24 +33,50 @@ chmod +x hu
 
 `hu` has no ROS 2 dependency — it works with any [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) or hiroz deployment.
 
+The `meter` and `monitor` subcommands are WASM plugins loaded from the plugin path, not part of the binary. If your download doesn't include them, build them from source (below) and set `HU_PLUGIN_PATH`; verify with `hu plugin list`.
+
 ### Build from Source
 
-Requires Rust 1.85+:
+Requires Rust 1.85+ and the `wasm32-wasip2` target (used to build the plugins):
 
 ```bash
-# Build hu (release build)
-cargo build -p hiroz-union --release
-
-# Run directly from build output — produces a binary named `hu`
-./target/release/hu --help
-
-# Or install to ~/.cargo/bin so `hu` works from anywhere
-cargo install --path crates/hiroz-union
+rustup target add wasm32-wasip2
 ```
+
+**1. Build the `hu` binary:**
+
+```bash
+cargo build -p hiroz-union --release
+# → ./target/release/hu   (or install it: cargo install --path crates/hiroz-union)
+./target/release/hu --help
+```
+
+**2. Build the `meter` / `monitor` plugins.** These are **WASM plugins, not part of the `hu` binary**, so `hu meter …` and `hu monitor …` do nothing until their `.wasm` files are on the plugin path. They live in a separate wasm workspace:
+
+```bash
+cargo build --manifest-path crates/hiroz-union/plugins/Cargo.toml \
+  --target wasm32-wasip2 --release --workspace
+```
+
+**3. Put the plugins on the plugin path** — either point `HU_PLUGIN_PATH` at the build output, or copy the `.wasm` files into `~/.local/share/hu/plugins/` (the always-searched dir). The `hu_`/`hu-` prefix is stripped on discovery, so `hu_meter.wasm` becomes `meter`:
+
+```bash
+export HU_PLUGIN_PATH=$PWD/crates/hiroz-union/plugins/target/wasm32-wasip2/release
+# or, to install permanently:
+#   mkdir -p ~/.local/share/hu/plugins
+#   cp crates/hiroz-union/plugins/target/wasm32-wasip2/release/hu_{meter,monitor}.wasm ~/.local/share/hu/plugins/
+
+hu plugin list          # verify — should list `meter` and `monitor`
+```
+
+If `hu plugin list` is empty, `hu meter`/`hu monitor` won't work — the plugins aren't being found on the path.
 
 ## Quick Start
 
 This walks through a real end-to-end session: a router, a talker/listener pair, and `hu` observing them. Run each step in its own terminal.
+
+!!! note "Prerequisite"
+    This uses `hu meter` and `hu monitor`, which are plugins — make sure `hu plugin list` shows `meter` and `monitor` first. If it's empty, build the plugins and set `HU_PLUGIN_PATH` as described under [Build from Source](#build-from-source).
 
 **Terminal 1 — start the Zenoh router:**
 
