@@ -296,7 +296,7 @@ No such bridge plugin ships in this PR. For worked, compiling examples of manife
 
 ## Environment
 
-Plugins can read environment variables from the `hu` process (`HU_ROUTER`, `HU_DOMAIN`, and any others set in the shell). Filesystem and network access are not available. Only install plugins you trust.
+Plugins can read environment variables from the `hu` process (`HU_CONNECT`, `HU_DOMAIN`, and any others set in the shell). Filesystem and network access are not available. Only install plugins you trust.
 
 ## Reference implementations
 

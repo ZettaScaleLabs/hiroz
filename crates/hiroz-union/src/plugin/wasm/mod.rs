@@ -333,7 +333,7 @@ fn make_state_and_store(
     let title = Arc::new(Mutex::new(String::new()));
 
     let mut wasi_builder = WasiCtxBuilder::new();
-    for var in &["HU_ROUTER", "HU_DOMAIN", "HOME", "PATH", "RUST_LOG"] {
+    for var in &["HU_CONNECT", "HU_DOMAIN", "HOME", "PATH", "RUST_LOG"] {
         if let Ok(val) = std::env::var(var) {
             wasi_builder.env(var, &val);
         }

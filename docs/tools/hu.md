@@ -55,7 +55,7 @@ This walks through a real end-to-end session: a router, a talker/listener pair, 
 **Terminal 1 — start the Zenoh router:**
 
 ```bash
-cargo run --example zenoh_router
+hu router
 ```
 
 **Terminal 2 — start a hiroz listener:**
@@ -93,22 +93,22 @@ hu monitor watch
 By default `hu` connects to `tcp/127.0.0.1:7447` and uses domain ID `0` — matching the talker/listener above. Override with flags or environment variables:
 
 ```bash
-hu --router tcp/192.168.1.10:7447 --domain 5 meter list topics
+hu --connect tcp/192.168.1.10:7447 --domain 5 meter list topics
 ```
 
 Or set them once for the session:
 
 ```bash
-export HU_ROUTER=tcp/192.168.1.10:7447
+export HU_CONNECT=tcp/192.168.1.10:7447
 export HU_DOMAIN=5
 hu meter hz /chatter
 ```
 
-`HU_ROUTER` and `HU_DOMAIN` fully replace the `--router` / `--domain` flags — once exported, every `hu meter` / `hu monitor` invocation reaches that router with no per-command flags, which is the recommended workflow for an interactive session:
+`HU_CONNECT` and `HU_DOMAIN` fully replace the `--connect` / `--domain` flags — once exported, every `hu meter` / `hu monitor` invocation reaches that router with no per-command flags, which is the recommended workflow for an interactive session:
 
 ```bash
-export HU_ROUTER=tcp/127.0.0.1:7447
-hu meter list topics      # no --router needed
+export HU_CONNECT=tcp/127.0.0.1:7447
+hu meter list topics      # no --connect needed
 hu monitor graph --once   # same session, same router
 ```
 
@@ -338,11 +338,23 @@ Each web plugin is reachable at `/plugins/<name>/` and `/plugins/<name>/*path`. 
 
 ---
 
+## Running a router
+
+`hu router` starts an embedded Zenoh router configured to match `rmw_zenoh_cpp`, so you don't need a separate `zenohd` install or the `cargo run --example zenoh_router` helper for local development. It listens on `tcp/[::]:7447` by default and runs until Ctrl-C:
+
+```bash
+hu router                              # listen on tcp/[::]:7447
+hu router --listen tcp/0.0.0.0:7448    # custom endpoint (repeatable)
+hu router --config router.json5        # full JSON5/YAML config, overrides --listen
+```
+
+Point every other `hu` command (and your ROS 2 / hiroz nodes) at it with `--connect` / `HU_CONNECT`. For production deployments, prefer the bundled [`rmw_zenohd`](https://github.com/ros2/rmw_zenoh) or a standalone `zenohd`.
+
 ## Additional Flags
 
 | Flag | Default | Description |
 |---|---|---|
-| `--router <endpoint>` | `tcp/127.0.0.1:7447` | Zenoh router endpoint (also `HU_ROUTER`) |
+| `--connect <endpoint>` | `tcp/127.0.0.1:7447` | Zenoh router endpoint to connect to (also `HU_CONNECT`) |
 | `--domain <id>` | `0` | ROS 2 domain ID (also `HU_DOMAIN`) |
 | `--backend <name>` | `rmw-zenoh` | Select the graph/RMW backend (currently only `rmw-zenoh`). Not a mode switch — use `--headless`/`--web` for output mode |
 | `--headless` | — | Run in headless (no TUI) event-streaming mode |

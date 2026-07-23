@@ -41,9 +41,9 @@ impl From<Backend> for core::engine::Backend {
     disable_help_subcommand = true
 )]
 struct Cli {
-    /// Zenoh router address
+    /// Zenoh router address to connect to
     #[arg(long, default_value = "tcp/127.0.0.1:7447", global = true)]
-    router: String,
+    connect: String,
 
     /// ROS domain ID
     #[arg(long, default_value = "0", global = true)]
@@ -88,6 +88,17 @@ enum Commands {
         #[command(subcommand)]
         action: PluginAction,
     },
+    /// Start an embedded Zenoh router (rmw_zenoh_cpp compatible)
+    Router {
+        /// Endpoints to listen on. Repeat to open several listeners.
+        /// Defaults to `tcp/[::]:7447`.
+        #[arg(short, long, value_name = "ENDPOINT")]
+        listen: Vec<String>,
+
+        /// JSON5 or YAML router config file (overrides `--listen`).
+        #[arg(short, long, value_name = "PATH")]
+        config: Option<String>,
+    },
     /// Dispatch to a named WASM plugin (e.g. `hu meter hz /topic`)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -110,8 +121,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     core::logger::init_logger(cli.json, cli.debug);
 
-    // Env vars override clap defaults so `HU_ROUTER=tcp/... hu meter hz /topic` works.
-    let router = std::env::var("HU_ROUTER").unwrap_or(cli.router);
+    // Env vars override clap defaults so `HU_CONNECT=tcp/... hu meter hz /topic` works.
+    let router = std::env::var("HU_CONNECT").unwrap_or(cli.connect);
     let domain: usize = std::env::var("HU_DOMAIN")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -127,6 +138,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             action: PluginAction::Validate { path },
         }) => {
             return run_plugin_validate(&path, cli.json);
+        }
+        Some(Commands::Router { listen, config }) => {
+            return run_router(listen, config).await;
         }
         Some(Commands::External(args)) => {
             #[cfg(feature = "wasm-plugins")]
@@ -192,6 +206,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         run_tui_mode(core).await?;
     }
 
+    Ok(())
+}
+
+/// Start an embedded Zenoh router with rmw_zenoh_cpp-compatible settings and
+/// block until Ctrl-C. This is the built-in replacement for
+/// `cargo run --example zenoh_router`.
+async fn run_router(
+    listen: Vec<String>,
+    config: Option<String>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use hiroz::config::RouterConfigBuilder;
+
+    let zenoh_config = if let Some(path) = &config {
+        zenoh::Config::from_file(path)
+            .map_err(|e| format!("failed to load router config '{path}': {e}"))?
+    } else {
+        let mut builder = RouterConfigBuilder::new();
+        if listen.is_empty() {
+            builder = builder.with_listen_port(7447);
+        } else {
+            for endpoint in &listen {
+                builder = builder.with_listen_endpoint(endpoint);
+            }
+        }
+        builder.build_config()?
+    };
+
+    let listen_info = if let Some(path) = &config {
+        format!("config file {path}")
+    } else if listen.is_empty() {
+        "tcp/[::]:7447".to_string()
+    } else {
+        listen.join(", ")
+    };
+
+    let session = zenoh::open(zenoh_config).await?;
+
+    tracing::info!(zid = %session.zid(), listen = %listen_info, "hu router started");
+    println!("hu router (rmw_zenoh_cpp compatible) listening on {listen_info}");
+    println!("ZID: {}", session.zid());
+    println!("Press Ctrl-C to stop");
+
+    tokio::signal::ctrl_c().await?;
+
+    println!("\nhu router shutting down...");
+    session.close().await?;
     Ok(())
 }
 
@@ -264,7 +324,7 @@ fn run_plugin_validate(
                     );
                 } else {
                     println!("{msg}");
-                    println!("(Use --router to connect and read the full plugin manifest)");
+                    println!("(Use --connect to reach a router and read the full plugin manifest)");
                 }
                 Ok(())
             }

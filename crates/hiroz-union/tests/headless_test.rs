@@ -18,10 +18,10 @@ use serde_json::Value;
 fn spawn_hu_headless(router_endpoint: &str, echo_topics: &[&str]) -> ProcessGuard {
     use std::os::unix::process::CommandExt;
 
-    // --router must precede any positional-looking token — clap treats an
+    // --connect must precede any positional-looking token — clap treats an
     // unrecognized bare positional as an external-subcommand (plugin) name,
     // which would swallow router_endpoint instead of setting the router.
-    let mut args = vec!["--router", router_endpoint, "--headless", "--json"];
+    let mut args = vec!["--connect", router_endpoint, "--headless", "--json"];
 
     for topic in echo_topics {
         args.push("--echo");
