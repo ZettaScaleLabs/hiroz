@@ -51,19 +51,24 @@ impl CoreEngine {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let backend = backend.into();
 
-        // Initialize Zenoh session in client mode connected to the given router.
-        // Client mode is required for correct liveliness propagation with rmw_zenoh_cpp
-        // publishers: peer mode with multicast scouting does not reliably see liveliness
-        // tokens from rmw_zenoh_cpp nodes connected to the same router.
+        // Peer mode connected only to the configured router. We use peer (not
+        // client) mode so a missing router is a *soft* failure: peer's
+        // multi-link connect path honors `connect/exit_on_failure=false` and
+        // retries in the background, so `zenoh::open` succeeds and the TUI can
+        // start disconnected and populate once a router appears. Client mode's
+        // single-link connect path ignores `exit_on_failure` and hard-fails.
+        //
+        // Both multicast and gossip scouting are disabled, so despite peer mode
+        // hu still performs no peer discovery — it only ever talks to the
+        // router (hiroz's router-only discovery policy). Router-relayed
+        // liveliness therefore reaches us exactly as in client mode; the old
+        // "peer mode misses liveliness" caveat was specific to multicast
+        // scouting, which stays off here.
         let mut config = zenoh::Config::default();
-        config.insert_json5("mode", "\"client\"")?;
+        config.insert_json5("mode", "\"peer\"")?;
         config.insert_json5("connect/endpoints", &format!("[\"{}\"]", router_addr))?;
         config.insert_json5("scouting/multicast/enabled", "false")?;
-        // Soft-fail on a missing router: open the session even if no router is
-        // reachable yet and let zenoh keep retrying in the background, so the TUI
-        // can start and show a "disconnected" banner instead of aborting. Callers
-        // that need a live connection (CLI plugins, headless, web, export) gate on
-        // `wait_for_router` and surface `router_connect_hint` themselves.
+        config.insert_json5("scouting/gossip/enabled", "false")?;
         config.insert_json5("connect/exit_on_failure", "false")?;
 
         let session = zenoh::open(config.clone())
