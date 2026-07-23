@@ -968,7 +968,13 @@ fn test_hu_meter_delay_basic() {
             let pub_ = node.create_pub::<Header>("/delay_test").build().unwrap();
             // Give delay subscriber time to connect
             tokio::time::sleep(Duration::from_millis(500)).await;
-            for _ in 0..20 {
+            // 80, not 20: at 100ms/msg that's an 8s burst, comfortably
+            // outlasting hu's own startup (session connect, node build,
+            // TDS/ParameterService setup) plus the background schema-discovery
+            // round trip ros::subscribe kicks off. A 20-message/2s burst
+            // could end before hu's dyn sub was even ready, so hu observed
+            // nothing regardless of how long it then waited.
+            for _ in 0..80 {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default();
