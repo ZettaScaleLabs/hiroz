@@ -182,6 +182,9 @@ pub async fn handle_key(
             let idx = app.plugin_mgr.selected_index;
             app.plugin_mgr.dispatch_tick(idx);
         }
+        KeyCode::Char('R') if app.current_panel == Panel::Plugins => {
+            app.reload_plugins();
+        }
 
         KeyCode::Enter | KeyCode::Char(' ') => {
             if app.focus_pane == FocusPane::Detail {

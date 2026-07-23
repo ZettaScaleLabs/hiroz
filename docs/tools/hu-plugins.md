@@ -119,7 +119,7 @@ cp target/wasm32-wasip2/release/my_hu_plugin.wasm \
    ~/.local/share/hu/plugins/my-plugin.wasm
 ```
 
-Start `hu` and press `5` to open the Plugins panel (TUI plugins), or run `hu my-plugin <args>` from the terminal (CLI plugins).
+Start `hu` and press `5` to open the Plugins panel (TUI plugins), or run `hu my-plugin <args>` from the terminal (CLI plugins). If `hu` is already running in the TUI, you don't need to restart it — copy the `.wasm` into a plugin directory and press `R` on the Plugins panel to rescan and load it live.
 
 ### 6. Run it end-to-end
 

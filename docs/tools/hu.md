@@ -281,8 +281,12 @@ Bare `hu` launches the TUI; use `Tab`/`1`–`5` to reach the Measure panel. This
 | `w` | Start/stop recording metrics |
 | `e` | Export the current rate cache to a timestamped CSV file |
 | `S` | Capture a screenshot of the current TUI state |
+| `t` | Tick the selected plugin (Plugins panel) |
+| `R` | Reload plugins — rescan the plugin directories live, no restart (Plugins panel) |
 | `?` | Toggle the help overlay |
 | `q` / `Ctrl+C` | Quit |
+
+When a TUI plugin's output pane is focused (select it on the Plugins panel and press `l`/`Enter`), keystrokes are sent to the plugin as `key-action` events instead of driving the TUI — press `Esc` (or `←`/`h`) to return control to the list.
 
 ---
 

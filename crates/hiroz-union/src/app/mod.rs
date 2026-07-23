@@ -211,6 +211,35 @@ impl App {
         self.status_message_time = Some(Instant::now());
     }
 
+    /// Re-scan the plugin directories and reload plugins live, so a `.wasm`
+    /// dropped in while the TUI is running shows up without a restart. This
+    /// reinitializes the whole set (existing plugins get a fresh `startup`),
+    /// since the WASM host is rebuilt on reload.
+    #[cfg(feature = "wasm-plugins")]
+    pub fn reload_plugins(&mut self) {
+        match crate::plugin::wasm::load_plugins(self.core.clone()) {
+            Ok((plugins, failed)) => {
+                let loaded = plugins.len();
+                let failed_n = failed.len();
+                self.plugin_mgr.set_plugins(plugins);
+                self.plugin_mgr.failed = failed;
+                self.plugin_mgr.dispatch_startup();
+                self.plugin_mgr.selected_index = 0;
+                self.set_temp_status(if failed_n == 0 {
+                    format!("Reloaded plugins: {loaded} loaded")
+                } else {
+                    format!("Reloaded plugins: {loaded} loaded, {failed_n} failed")
+                });
+            }
+            Err(e) => self.set_temp_status(format!("Plugin reload failed: {e}")),
+        }
+    }
+
+    #[cfg(not(feature = "wasm-plugins"))]
+    pub fn reload_plugins(&mut self) {
+        self.set_temp_status("WASM plugin support not compiled in".to_string());
+    }
+
     /// Reset status message to default
     pub fn reset_status(&mut self) {
         self.status_message = DEFAULT_STATUS_MESSAGE.to_string();
@@ -322,9 +351,10 @@ impl App {
             }
             Panel::Plugins => {
                 if self.plugin_count() == 0 && self.plugin_mgr.failed.is_empty() {
-                    "No WASM plugins found. Set HU_PLUGIN_PATH to a dir with .wasm files | ?:help q:quit".to_string()
+                    "No plugins. Drop a .wasm in HU_PLUGIN_PATH then R:reload | ?:help q:quit"
+                        .to_string()
                 } else {
-                    "j/k:select t:tick plugin | 1-5:panels ?:help q:quit".to_string()
+                    "j/k:select t:tick R:reload | 1-5:panels ?:help q:quit".to_string()
                 }
             }
             _ => {
