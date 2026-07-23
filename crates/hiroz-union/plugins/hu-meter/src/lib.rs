@@ -1472,6 +1472,10 @@ impl HuMeter {
                         return;
                     }
                 }
+                if done {
+                    render::exit(0);
+                    self.mode = Mode::Done;
+                }
             }
             Mode::Done | Mode::Init => {}
         }
