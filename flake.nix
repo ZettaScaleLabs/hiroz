@@ -550,7 +550,15 @@
             huCommonArgs = {
               pname = "hu";
               version = "0.1.0";
-              src = craneLib.cleanCargoSource ./.;
+              # cleanCargoSource's default filter strips files down to what it
+              # infers each workspace member needs, but that inference isn't
+              # workspace-aware enough here: it leaves hiroz-tests (not even a
+              # dependency of hiroz-union) with zero source files, which makes
+              # its Cargo.toml invalid ("no targets specified") and fails
+              # workspace resolution before hiroz-union itself is even
+              # reached. pkgs.lib.cleanSource (just .git/ignored-file
+              # filtering) is coarser but correct for a workspace build.
+              src = pkgs.lib.cleanSource ./.;
               strictDeps = true;
               nativeBuildInputs = [
                 pkgs.pkg-config
