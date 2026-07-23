@@ -176,9 +176,16 @@ jobs:
           else
             cargo nextest run -p hiroz-tests --profile interop \
               --features "ros-interop,$FEATURES"
+            # All dynamic_subscriber tests are currently #[ignore]'d (ros2
+            # topic pub does not become graph-visible in CI's rmw_zenoh_cpp
+            # environment — confirmed independent of hiroz, see the ignore
+            # reason in headless_test.rs). --no-tests=warn keeps that state
+            # from hard-failing the job while nextest's own summary still
+            # surfaces it.
             cargo nextest run -p hiroz-union --profile interop \
               --features ros-interop \
-              -E 'test(dynamic_subscriber)'
+              -E 'test(dynamic_subscriber)' \
+              --no-tests=warn
           fi
 
       - uses: actions/setup-go@v5
