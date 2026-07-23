@@ -60,9 +60,14 @@ impl CoreEngine {
         config.insert_json5("connect/endpoints", &format!("[\"{}\"]", router_addr))?;
         config.insert_json5("scouting/multicast/enabled", "false")?;
 
-        let session = zenoh::open(config.clone())
-            .await
-            .map_err(|e| format!("Failed to initialize Zenoh session: {}", e))?;
+        let session = zenoh::open(config.clone()).await.map_err(|e| {
+            format!(
+                "could not connect to a Zenoh router at {router_addr}.\n\
+                 Start one with `hu router` (in another terminal), or point hu at an \
+                 existing router with `--connect <endpoint>` / HU_CONNECT.\n\
+                 underlying error: {e}"
+            )
+        })?;
         let session = Arc::new(session);
 
         // Initialize graph with RmwZenoh liveliness pattern
