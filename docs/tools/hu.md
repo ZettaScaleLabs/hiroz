@@ -298,12 +298,12 @@ hu meter info node /talker --json | jq '.publishers[].name'
 
 ---
 
-## Headless Mode
+## Stream Mode
 
-`--headless` streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal:
+`hu stream` streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal:
 
 ```bash
-hu --headless
+hu stream
 # node appeared:  /camera_driver
 # topic appeared: /camera/image_raw
 ```
@@ -311,7 +311,7 @@ hu --headless
 Add `--json` for structured output:
 
 ```bash
-hu --headless --json
+hu stream --json
 # {"type":"initial_state","nodes":[...],"topics":[...]}
 # {"type":"node_appeared","name":"/camera_driver"}
 # {"type":"topic_appeared","name":"/camera/image_raw","type_name":"sensor_msgs/msg/Image"}
@@ -320,21 +320,27 @@ hu --headless --json
 Add `--echo <TOPIC>` to also subscribe to a topic and interleave decoded messages. `--echo` can be repeated for multiple topics:
 
 ```bash
-hu --headless --json --echo /scan --echo /cmd_vel
+hu stream --json --echo /scan --echo /cmd_vel
 ```
+
+!!! note
+    `hu stream` replaces the deprecated `--headless` flag, which still works as a hidden alias for now.
 
 ---
 
 ## Web Mode
 
-`--web [PORT]` starts an HTTP server (default port 8080) that dispatches requests to `hu-web-plugin` WASM plugins. Requires `hu` built with the `web-plugins` feature:
+`hu web` starts an HTTP server (default port 8080) that dispatches requests to `hu-web-plugin` WASM plugins. Requires `hu` built with the `web-plugins` feature:
 
 ```bash
-hu --web          # listen on 0.0.0.0:8080
-hu --web 9090     # listen on 0.0.0.0:9090
+hu web                # listen on 0.0.0.0:8080
+hu web --port 9090    # listen on 0.0.0.0:9090
 ```
 
 Each web plugin is reachable at `/plugins/<name>/` and `/plugins/<name>/*path`. The plugin handles the full HTTP request/response cycle (see [hu Plugin Authoring Guide](hu-plugins.md)).
+
+!!! note
+    `hu web` replaces the deprecated `--web [PORT]` flag, which still works as a hidden alias for now.
 
 ---
 
@@ -356,13 +362,13 @@ Point every other `hu` command (and your ROS 2 / hiroz nodes) at it with `--conn
 |---|---|---|
 | `--connect <endpoint>` | `tcp/127.0.0.1:7447` | Zenoh router endpoint to connect to (also `HU_CONNECT`) |
 | `--domain <id>` | `0` | ROS 2 domain ID (also `HU_DOMAIN`) |
-| `--backend <name>` | `rmw-zenoh` | Select the graph/RMW backend (currently only `rmw-zenoh`). Not a mode switch — use `--headless`/`--web` for output mode |
-| `--headless` | — | Run in headless (no TUI) event-streaming mode |
-| `--json` | — | Structured JSON output — affects headless event streaming, `hu plugin list` output, and log formatting |
-| `--echo <TOPIC>` | — | Subscribe to topic and stream messages (headless, repeatable) |
-| `--web [PORT]` | — | Run web plugin server (requires `web-plugins` feature) |
+| `--backend <name>` | `rmw-zenoh` | Select the graph/RMW backend (currently only `rmw-zenoh`). Not a mode switch — pick a mode with the `tui`/`web`/`stream` subcommands |
+| `--json` | — | Structured JSON output — affects `hu stream` event streaming, `hu plugin list` output, and log formatting |
+| `--echo <TOPIC>` | — | Subscribe to topic and stream messages (`hu stream`, repeatable) |
 | `--export <path>` | — | Write a graph snapshot to a file and exit |
 | `--debug` | — | Enable verbose debug logging to stderr |
+
+The run mode is chosen by subcommand — `hu` (or `hu tui`) for the TUI, `hu web` for the HTTP server, `hu stream` for JSON streaming. The old `--web` / `--headless` flags still work as hidden, deprecated aliases.
 
 ---
 

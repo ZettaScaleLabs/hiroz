@@ -52,8 +52,8 @@ struct Cli {
     #[arg(long, value_enum, default_value = "rmw-zenoh", global = true)]
     backend: Backend,
 
-    /// Headless mode: JSON streaming to stdout
-    #[arg(long, global = true)]
+    /// Deprecated: use `hu stream`. JSON streaming to stdout.
+    #[arg(long, global = true, hide = true)]
     headless: bool,
 
     /// Output structured JSON logs
@@ -72,8 +72,8 @@ struct Cli {
     #[arg(long = "echo", value_name = "TOPIC", global = true)]
     echo_topics: Vec<String>,
 
-    /// Start the web plugin server on the given port (default: 8080)
-    #[arg(long, value_name = "PORT", global = true)]
+    /// Deprecated: use `hu web`. Start the web plugin server (default port 8080).
+    #[arg(long, value_name = "PORT", global = true, hide = true)]
     web: Option<Option<u16>>,
 
     #[command(subcommand)]
@@ -82,6 +82,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Launch the interactive TUI (this is also what bare `hu` does)
+    Tui,
+    /// Serve the web plugin UI over HTTP
+    Web {
+        /// Port to listen on (default 8080)
+        #[arg(long, value_name = "PORT")]
+        port: Option<u16>,
+    },
+    /// Stream graph and events as newline-delimited JSON, no TUI
+    Stream,
     /// Manage installed WASM plugins
     #[command(name = "plugin")]
     Plugin {
@@ -128,7 +138,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(cli.domain);
 
+    // Interactive/streaming run modes fall through to the shared engine setup
+    // below; Plugin/Router/External are terminal and return from the match.
+    let mut requested_mode: Option<RunMode> = None;
     match cli.command {
+        Some(Commands::Tui) => requested_mode = Some(RunMode::Tui),
+        Some(Commands::Web { port }) => requested_mode = Some(RunMode::Web(port)),
+        Some(Commands::Stream) => requested_mode = Some(RunMode::Stream),
         Some(Commands::Plugin {
             action: PluginAction::List,
         }) => {
@@ -195,18 +211,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         return export_and_exit(&core, &export_path).await;
     }
 
-    if let Some(port_opt) = cli.web {
-        require_router(&core, &router).await?;
-        let port = port_opt.unwrap_or(8080);
-        modes::web::run_web_mode(core, port).await?;
-    } else if cli.headless {
-        require_router(&core, &router).await?;
-        modes::headless::run_headless_mode(&core, cli.json, cli.echo_topics).await?;
-    } else {
-        run_tui_mode(core).await?;
+    // A mode subcommand wins; otherwise fall back to the deprecated --web /
+    // --headless flags, else the default TUI.
+    let mode = requested_mode.unwrap_or_else(|| {
+        if let Some(port_opt) = cli.web {
+            RunMode::Web(port_opt)
+        } else if cli.headless {
+            RunMode::Stream
+        } else {
+            RunMode::Tui
+        }
+    });
+
+    match mode {
+        RunMode::Web(port) => {
+            require_router(&core, &router).await?;
+            modes::web::run_web_mode(core, port.unwrap_or(8080)).await?;
+        }
+        RunMode::Stream => {
+            require_router(&core, &router).await?;
+            modes::headless::run_headless_mode(&core, cli.json, cli.echo_topics).await?;
+        }
+        RunMode::Tui => {
+            run_tui_mode(core).await?;
+        }
     }
 
     Ok(())
+}
+
+/// Resolved run mode after reconciling the mode subcommand, the deprecated
+/// mode flags, and the default. `Web` carries an optional port.
+enum RunMode {
+    Tui,
+    Web(Option<u16>),
+    Stream,
 }
 
 /// Non-interactive modes (CLI plugins, headless, web, export) need a live

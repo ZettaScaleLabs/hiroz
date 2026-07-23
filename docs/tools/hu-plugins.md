@@ -1,6 +1,6 @@
 # hu Plugin Authoring Guide
 
-`hu` supports third-party plugins compiled to [WebAssembly System Interface (WASI) Preview 2](https://github.com/WebAssembly/WASI) — a sandboxed, portable binary format. Plugins run as CLI commands (`hu <plugin-name> <args>`), as TUI panes (panel 5), or as web handlers (`hu --web`). They are loaded at startup from `$HU_PLUGIN_PATH` or `~/.local/share/hu/plugins/`.
+`hu` supports third-party plugins compiled to [WebAssembly System Interface (WASI) Preview 2](https://github.com/WebAssembly/WASI) — a sandboxed, portable binary format. Plugins run as CLI commands (`hu <plugin-name> <args>`), as TUI panes (panel 5), or as web handlers (`hu web`). They are loaded at startup from `$HU_PLUGIN_PATH` or `~/.local/share/hu/plugins/`.
 
 The plugin interface is defined using [WIT (WebAssembly Interface Types)](https://component-model.bytecodealliance.org/design/wit.html) — a typed IDL for describing host/guest contracts. You do not need to understand WIT deeply to write a plugin; `wit_bindgen` generates all the Rust boilerplate from it.
 
@@ -19,7 +19,7 @@ There are three WIT worlds — pick the one that matches your plugin's role:
 |---|---|---|
 | `hu-cli-plugin` | One-shot or streaming terminal tool (hz, bw, echo, bridge — bridge is a hypothetical example, not shipped) | `cli-event` — startup, tick, interrupt |
 | `hu-tui-plugin` | Tick-driven TUI pane with keybindings and topic navigation | `tui-event` — startup, tick, interrupt, key-action, topic-selected |
-| `hu-web-plugin` | HTTP request/response handler for `hu --web` | no events — stateless `handle(req) → response` |
+| `hu-web-plugin` | HTTP request/response handler for `hu web` | no events — stateless `handle(req) → response` |
 
 The `hu-plugin` world still exists as a compatibility alias for `hu-tui-plugin`. New plugins should use one of the three typed worlds above.
 

@@ -27,7 +27,7 @@ graph TD
         direction TB
         cli["hu-cli-plugin<br>terminal command"]
         tui["hu-tui-plugin<br>TUI pane"]
-        web["hu-web-plugin<br>hu --web handler"]
+        web["hu-web-plugin<br>hu web handler"]
     end
 
     builtin --> cli
@@ -48,7 +48,7 @@ The moving parts:
 - **Host commands** — native subcommands compiled into the binary, not plugins: `router` starts an embedded Zenoh router (see [Running a router](hu.md#running-a-router)), and `plugin` lists and validates installed plugins. These live outside the sandbox because they need host capabilities (binding a socket, reading the plugin directory) that a WASM guest is not granted.
 - **Built-in plugins** — `meter` (measurement: `hz`, `bw`, `delay`, `echo`, `pub`, `list`, `info`, service/action/param) and `monitor` (observation: `watch`, `graph`, `log`, `log-level`). They are plugins that happen to be compiled in.
 - **Third-party plugins** — any `.wasm` file in `$HU_PLUGIN_PATH` or `~/.local/share/hu/plugins/` becomes a `hu <name>` command with no registration step, no Python entry-points, and no shared runtime state.
-- **Three WIT worlds** — a plugin picks the role it plays: a one-shot/streaming CLI command (`hu-cli-plugin`), an interactive TUI pane (`hu-tui-plugin`), or an HTTP handler for `hu --web` (`hu-web-plugin`).
+- **Three WIT worlds** — a plugin picks the role it plays: a one-shot/streaming CLI command (`hu-cli-plugin`), an interactive TUI pane (`hu-tui-plugin`), or an HTTP handler for `hu web` (`hu-web-plugin`).
 - **Sandbox** — WASM plugins run sandboxed and capability-gated: a plugin only gets the host access (topic subscription, file, bag) it is explicitly granted. Host commands are the deliberate exception — they are trusted native code, which is exactly why `router` is one rather than a plugin.
 - **Transport** — everything speaks to a Zenoh router and reads the liveliness index; there is no `_ros2_daemon` and no DDS discovery.
 
