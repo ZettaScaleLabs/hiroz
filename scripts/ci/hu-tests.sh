@@ -38,5 +38,13 @@ export HU_PLUGIN_PATH="${TARGET_DIR}/wasm32-wasip2/debug"
 # just-built binary on PATH.
 export PATH="${TARGET_DIR}/debug:${PATH}"
 
-cargo test -p hiroz-tests --test hu_meter --features hu-meter-tests,jazzy
-cargo test -p hiroz-tests --test hu_monitor --features hu-monitor-tests,jazzy
+# Run strictly single-threaded (`--test-threads=1`). Each test spawns a Zenoh
+# router + a hiroz node + a `hu` subprocess (which loads wasmtime for the meter
+# plugin), and many assert on liveliness-graph discovery within a short window.
+# Under the default per-core parallelism on a 2-4 core CI runner, dozens of
+# these run at once and starve each other's CPU, so discovery times out and
+# ~40/61 tests fail (hu sees only itself). Serially, each test gets the whole
+# machine and discovery completes reliably — the total wall-clock is comparable
+# to the thrashing parallel run, which was already ~7-10 minutes.
+cargo test -p hiroz-tests --test hu_meter --features hu-meter-tests,jazzy -- --test-threads=1
+cargo test -p hiroz-tests --test hu_monitor --features hu-monitor-tests,jazzy -- --test-threads=1
