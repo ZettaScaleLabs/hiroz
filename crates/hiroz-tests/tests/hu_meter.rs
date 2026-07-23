@@ -1628,7 +1628,11 @@ fn test_hu_meter_hz_multi_topic() {
 
     thread::sleep(Duration::from_millis(500));
 
-    let (stdout, stderr) = run_hu_meter_timed(
+    // run_hu_meter (self-exit via --duration), not run_hu_meter_timed
+    // (blind sleep-then-SIGKILL): see test_hu_meter_bw_json_typed_fields's
+    // comment for why the kill-based helper can discard buffered output
+    // regardless of margin.
+    let out = run_hu_meter(
         router.endpoint(),
         &[
             "hz",
@@ -1639,10 +1643,9 @@ fn test_hu_meter_hz_multi_topic() {
             "--duration",
             "3",
         ],
-        4,
     );
-    let stdout = String::from_utf8_lossy(&stdout);
-    let stderr = String::from_utf8_lossy(&stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         stdout.contains("hz_multi_a") || stdout.contains("rate"),
         "Expected hz output for /hz_multi_a: {}\nstderr: {}",
@@ -1683,7 +1686,11 @@ fn test_hu_meter_bw_multi_topic() {
 
     thread::sleep(Duration::from_millis(500));
 
-    let (stdout, _stderr) = run_hu_meter_timed(
+    // run_hu_meter (self-exit via --duration), not run_hu_meter_timed
+    // (blind sleep-then-SIGKILL): see test_hu_meter_bw_json_typed_fields's
+    // comment for why the kill-based helper can discard buffered output
+    // regardless of margin.
+    let out = run_hu_meter(
         router.endpoint(),
         &[
             "bw",
@@ -1694,9 +1701,8 @@ fn test_hu_meter_bw_multi_topic() {
             "--duration",
             "2",
         ],
-        3,
     );
-    let stdout = String::from_utf8_lossy(&stdout);
+    let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         stdout.contains("bw_multi_a") || stdout.contains("B/s"),
         "Expected bw output for /bw_multi_a: {}",
@@ -2051,12 +2057,16 @@ fn test_hu_meter_hz_json_typed_fields() {
 
     thread::sleep(Duration::from_millis(400));
 
-    let (stdout_bytes, stderr_bytes) = run_hu_meter_timed(
+    // run_hu_meter (self-exit via --duration), not run_hu_meter_timed
+    // (blind sleep-then-SIGKILL): see test_hu_meter_bw_json_typed_fields's
+    // comment for why the kill-based helper can discard buffered output
+    // regardless of margin.
+    let out = run_hu_meter(
         router.endpoint(),
         &["hz", "/hz_typed_test", "--json", "--duration", "4"],
-        6,
     );
-    let stdout = String::from_utf8_lossy(&stdout_bytes);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr_bytes = out.stderr;
 
     // Each JSON line emitted by the typed path must have rate_hz and samples.
     // The tracker's subscriber is declared asynchronously, so the very first
