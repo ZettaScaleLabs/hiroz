@@ -386,7 +386,7 @@ jobs:
           if [ "$RUNNER_OS" == "Linux" ]; then
             source /tmp/nix-dev-env.sh
           fi
-          nu scripts/test-pure-rust.nu check-console
+          nu scripts/test-pure-rust.nu check-hu
         shell: bash
 
       - name: Check all examples
