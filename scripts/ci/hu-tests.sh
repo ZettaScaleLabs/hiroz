@@ -10,6 +10,13 @@ set -e
 # the workspace root, so a relative PATH entry here silently resolves to the
 # wrong directory.
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(pwd)/target}"
+# Normalize a caller-provided relative CARGO_TARGET_DIR (e.g. "target") to an
+# absolute path: the `${PATH}` entry built from it below is read by test
+# binaries whose CWD is the crate root, where a relative dir wouldn't resolve.
+case "$CARGO_TARGET_DIR" in
+  /*) ;;
+  *) CARGO_TARGET_DIR="$(pwd)/$CARGO_TARGET_DIR"; export CARGO_TARGET_DIR ;;
+esac
 
 # Build hu (the plugin host) and the WASM plugins.
 # Plugins are excluded from the workspace and must be built via --manifest-path.
