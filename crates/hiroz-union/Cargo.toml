@@ -29,7 +29,10 @@ tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 zenoh = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = { workspace = true }
-wasmtime = { version = "38", features = ["component-model"], optional = true }
+wasmtime = { version = "38", features = [
+  "component-model",
+  "cache",
+], optional = true }
 wasmtime-wasi = { version = "38", optional = true }
 axum = { version = "0.8", optional = true }
 dirs = "5"

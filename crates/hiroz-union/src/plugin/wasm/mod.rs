@@ -238,10 +238,27 @@ fn tui_to_plugin_event(e: TuiEvent) -> hu::plugin::types::PluginEvent {
 
 type LoadResult = (Vec<WasmPlugin>, Vec<(String, String)>);
 
-pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Result<LoadResult> {
+/// Build the wasmtime engine used to load plugins.
+///
+/// Enables epoch interruption (so a runaway guest can be preempted) plus the
+/// on-disk compilation cache. hu is a short-lived CLI that otherwise recompiles
+/// the same component on every invocation; the cache lets the 2nd..Nth process
+/// deserialize the previously compiled artifact instead of re-running cranelift.
+/// This matters most under the WASM test suite, which spawns ~40 `hu`
+/// subprocesses that each otherwise pay the full ~2.5s hu-meter compile.
+fn configured_wasm_engine() -> Result<Engine> {
     let mut engine_config = wasmtime::Config::default();
     engine_config.epoch_interruption(true);
-    let wasm_engine = Engine::new(&engine_config).context("creating WASM engine")?;
+    // A missing/unwritable cache dir must never be fatal — fall back to
+    // uncached compilation.
+    if let Ok(cache) = wasmtime::Cache::from_file(None) {
+        engine_config.cache(Some(cache));
+    }
+    Engine::new(&engine_config).context("creating WASM engine")
+}
+
+pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Result<LoadResult> {
+    let wasm_engine = configured_wasm_engine()?;
 
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
         let ticker_engine = wasm_engine.clone();
@@ -272,6 +289,68 @@ pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Result<LoadResult> {
                 failed.push((path_str, e.to_string()));
             }
         }
+    }
+
+    Ok((plugins, failed))
+}
+
+/// Like [`load_plugins`], but JIT-compiles only the plugin whose discovered
+/// name equals `name`.
+///
+/// A one-shot CLI command (`hu info`, `hu list`, `hu param`, ...) drives exactly
+/// one plugin. `load_plugins` compiles *every* installed `.wasm` — three, in the
+/// test image — and on a CPU-constrained runner (the 2-core `ubuntu-latest` CI
+/// box) that extra wasmtime compilation starves the liveliness-graph subscriber
+/// of CPU during startup, so the command's single graph read lands before the
+/// external tokens have been processed. Compiling just the one plugin the
+/// command needs removes that startup cost.
+pub fn load_plugin_named(engine_ref: Arc<CoreEngine>, name: &str) -> Result<LoadResult> {
+    let wasm_engine = configured_wasm_engine()?;
+
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        let ticker_engine = wasm_engine.clone();
+        handle.spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                ticker_engine.increment_epoch();
+            }
+        });
+    }
+
+    let mut plugins = Vec::new();
+    let mut failed: Vec<(String, String)> = Vec::new();
+
+    for (plugin_name, path) in discover_wasm_plugins() {
+        if plugin_name != name {
+            continue;
+        }
+        match load_one(&wasm_engine, &path, engine_ref.clone()) {
+            Ok(plugin) => {
+                tracing::info!(
+                    "Loaded WASM plugin '{}' ({}) from {}",
+                    plugin.manifest().name,
+                    plugin_kind_label(&plugin),
+                    path.display()
+                );
+                plugins.push(plugin);
+            }
+            Err(e) => {
+                let path_str = path.display().to_string();
+                tracing::warn!("Failed to load WASM plugin {path_str}: {e}");
+                failed.push((path_str, e.to_string()));
+            }
+        }
+    }
+
+    // `name` is matched against the *filename-derived* plugin name. A plugin
+    // whose manifest name differs from its filename stem would be missed here,
+    // yet the caller ultimately selects by `manifest().name` — so fall back to
+    // loading everything (the pre-optimization behavior) rather than reporting a
+    // real, installed plugin as "not found". The fast single-plugin path covers
+    // the normal case (filename stem == manifest name, as all shipped plugins
+    // use); the fallback only pays the full cost for a misnamed install.
+    if plugins.is_empty() {
+        return load_plugins(engine_ref);
     }
 
     Ok((plugins, failed))
