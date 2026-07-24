@@ -340,7 +340,7 @@
                   # Per-package AMENT_PREFIX_PATH: collapsed into one export so nix develop
                   # doesn't evaluate 26 separate shell statements (each increments SHLVL).
                   pkgs.lib.optionalString (rosEnvPaths != [ ]) ''
-                    export AMENT_PREFIX_PATH="$AMENT_PREFIX_PATH:${pkgs.lib.concatStringsSep ":" rosEnvPaths}"
+                    export AMENT_PREFIX_PATH="''${AMENT_PREFIX_PATH:+$AMENT_PREFIX_PATH:}${pkgs.lib.concatStringsSep ":" rosEnvPaths}"
                   ''
                 }
 
