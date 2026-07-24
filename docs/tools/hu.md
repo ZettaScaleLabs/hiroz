@@ -14,7 +14,7 @@ A few terms recur throughout this page:
 
 ## Installation
 
-### Pre-built Binary
+### Pre-built binary
 
 Download the latest release for your platform from the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases):
 
@@ -33,9 +33,9 @@ chmod +x hu
 
 `hu` has no ROS 2 dependency — it works with any [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) or hiroz deployment.
 
-The `meter` and `monitor` subcommands are WASM plugins loaded from the plugin path, not part of the binary. If your download doesn't include them, build them from source (below) and set `HU_PLUGIN_PATH`; verify with `hu plugin list`.
+**Note:** the `meter` and `monitor` subcommands are WASM plugins loaded from the plugin path, not part of the `hu` binary, and the reference plugins are **not yet bundled in the release artifacts**. To use them today you need the Rust toolchain with the `wasm32-wasip2` target, build the plugins from source (see below), and point `HU_PLUGIN_PATH` at them; verify with `hu plugin list`. The single-binary `hu` still gives you the TUI, `stream`, `router`, and `plugin` management commands with no ROS 2 install.
 
-### Build from Source
+### Build from source
 
 Requires Rust 1.85+ and the `wasm32-wasip2` target (used to build the plugins). With the Nix dev environment, enter the wasm-capable shell — it already has the target:
 
@@ -78,7 +78,7 @@ hu plugin list          # verify — should list `meter` and `monitor`
 
 If `hu plugin list` is empty, `hu meter`/`hu monitor` won't work — the plugins aren't being found on the path.
 
-## Quick Start
+## Quick start
 
 This walks through a real end-to-end session: a router, a talker/listener pair, and `hu` observing them. Run each step in its own terminal.
 
@@ -142,7 +142,7 @@ hu meter hz /chatter
 ```bash
 export HU_CONNECT=tcp/127.0.0.1:7447
 hu meter list topics      # no --connect needed
-hu monitor graph --once   # same session, same router
+hu monitor graph          # same session, same router
 ```
 
 ### More examples
@@ -253,7 +253,7 @@ Measurement and introspection:
 | Command | Description |
 |---|---|
 | `hu meter hz <topic>` | Publish rate (sliding window) |
-| `hu meter bw <topic>` | Bandwidth in bytes/sec |
+| `hu meter bw <topic>` | Bandwidth in KB/s |
 | `hu meter echo <topic>` | Print arriving messages |
 | `hu meter echo <topic> --raw` | Hex-dump raw CDR bytes, bypassing schema decode (requires the `access-raw-cdr` permission) |
 | `hu meter delay <topic>` | End-to-end latency |
@@ -290,7 +290,7 @@ Plugin management:
 
 ---
 
-## Multi-topic Rate Dashboard
+## Multi-topic rate dashboard
 
 For continuous monitoring of several topics at once, use the `hu` TUI. Select topics in the Topics panel and press `m` to add them to the Measure panel, which shows a live, per-second rate and bandwidth table for every topic you're tracking — all in one process, instead of one `ros2 topic hz` per topic:
 
@@ -300,7 +300,7 @@ hu
 
 Bare `hu` launches the TUI; use `Tab`/`1`–`5` to reach the Measure panel. This is the primary advantage over `ros2 topic hz`, which needs a separate terminal per topic and no combined view.
 
-### TUI Keybindings
+### TUI keybindings
 
 | Key | Action |
 |---|---|
@@ -323,7 +323,7 @@ When a TUI plugin's output pane is focused (select it on the Plugins panel and p
 
 ---
 
-## JSON Output
+## JSON output
 
 Every `hu meter` subcommand accepts `--json` for scripting:
 
@@ -335,7 +335,7 @@ hu meter info node /talker --json | jq '.publishers[].name'
 
 ---
 
-## Stream Mode
+## Stream mode
 
 `hu stream` streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal:
 
@@ -365,7 +365,7 @@ hu stream --json --echo /scan --echo /cmd_vel
 
 ---
 
-## Web Mode
+## Web mode
 
 `hu web` starts an HTTP server (default port 8080) that dispatches requests to `hu-web-plugin` WASM plugins. Requires `hu` built with the `web-plugins` feature:
 
@@ -393,7 +393,7 @@ hu router --config router.json5        # full JSON5/YAML config, overrides --lis
 
 Point every other `hu` command (and your ROS 2 / hiroz nodes) at it with `--connect` / `HU_CONNECT`. For production deployments, prefer the bundled [`rmw_zenohd`](https://github.com/ros2/rmw_zenoh) or a standalone `zenohd`.
 
-## Additional Flags
+## Additional flags
 
 | Flag | Default | Description |
 |---|---|---|
@@ -402,14 +402,26 @@ Point every other `hu` command (and your ROS 2 / hiroz nodes) at it with `--conn
 | `--backend <name>` | `rmw-zenoh` | Select the graph/RMW backend (currently only `rmw-zenoh`). Not a mode switch — pick a mode with the `tui`/`web`/`stream` subcommands |
 | `--json` | — | Structured JSON output — affects `hu stream` event streaming, `hu plugin list` output, and log formatting |
 | `--echo <TOPIC>` | — | Subscribe to topic and stream messages (`hu stream`, repeatable) |
-| `--export <path>` | — | Write a graph snapshot to a file and exit |
+| `--export <path>` | — | Write a graph snapshot to a file and exit (format from the extension — see below) |
 | `--debug` | — | Enable verbose debug logging to stderr |
+
+### Export formats
+
+`--export <path>` picks the output format from the file extension:
+
+| Extension | Output |
+|---|---|
+| `.json` | Pretty-printed graph snapshot (nodes, topics, services) |
+| `.dot` | Graphviz digraph — render with e.g. `dot -Tpng graph.dot -o graph.png` |
+| `.csv` | Flat CSV rows of the graph entities |
+
+Any other extension is rejected with an "Unsupported export format" error.
 
 The run mode is chosen by subcommand — `hu` (or `hu tui`) for the TUI, `hu web` for the HTTP server, `hu stream` for JSON streaming. The old `--web` / `--headless` flags still work as hidden, deprecated aliases.
 
 ---
 
-## Plugin Architecture
+## Plugin architecture
 
 `hu` is a plugin host. `meter` and `monitor` are not built-in subcommands — they are WASM plugins compiled to `wasm32-wasip2` and loaded at startup from `$HU_PLUGIN_PATH` and `~/.local/share/hu/plugins/`. The `hu` binary itself provides the native pieces the sandbox can't: the **frontends** that run and render plugins (`tui`, `web`, `stream`, and the one-shot CLI — each the host side of a WIT world), and the **management** commands `router` (binds a socket to serve an embedded Zenoh router) and `plugin` (lists/validates installed plugins). See the [platform overview](why-hu.md#the-ecosystem-at-a-glance) for how frontends, plugins, and management fit together.
 

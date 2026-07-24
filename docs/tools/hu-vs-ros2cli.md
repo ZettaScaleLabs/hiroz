@@ -41,7 +41,7 @@
 
 **At moderate rates (≤ 500 Hz, any payload size)** both tools report the same rate to within measurement noise — the Python overhead is not the limiting factor and the differential is under a few percent.
 
-**At high rates the Python GIL becomes the bottleneck.** The hiroz test suite measures this directly with `test_hz_python_saturation`: a `yield_now` publisher saturates the CPU to produce a burst stream; each tool is pinned to a separate CPU to isolate the measurement.
+**At high rates the Python GIL becomes the bottleneck.** We measured this with a `yield_now` publisher that saturates the CPU to produce a burst stream, with each tool pinned to a separate CPU to isolate the measurement.
 
 ```mermaid
 xychart-beta
@@ -51,7 +51,7 @@ xychart-beta
     bar [96829, 90971, 1398]
 ```
 
-*`hu` numbers measured from internal testing on a release binary, via `test_hz_python_saturation` in `hiroz-tests`. `ros2 topic hz` figure from a prior run on identical hardware; ros2 was not available in the benchmark shell. These are internal measurements, not a reproducible public benchmark — treat the specific numbers as illustrative of the order-of-magnitude gap rather than exact figures for your hardware.*
+*`hu` numbers measured from internal testing on a release binary. `ros2 topic hz` figure from a prior run on identical hardware; ros2 was not available in the benchmark shell. These are internal measurements, not a reproducible public benchmark — treat the specific numbers as illustrative of the order-of-magnitude gap rather than exact figures for your hardware.*
 
 | Metric | Measured value |
 |---|---|

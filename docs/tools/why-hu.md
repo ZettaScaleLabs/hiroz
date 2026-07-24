@@ -43,7 +43,7 @@ The moving parts:
 - **Frontends** — native, trusted runtimes. `tui` owns the terminal and renders tui-plugins as panes; `web` serves web-plugins as routes; `cli` runs one cli-plugin and exits; `stream` dumps core events as JSON. They are native (not plugins) because they need full host access — the terminal, the runtime, the sessions — which the sandbox withholds.
 - **Plugins** — `meter` (measurement: `hz`, `bw`, `delay`, `echo`, `pub`, `list`, `info`, service/action/param) and `monitor` (observation: `watch`, `graph`, `log`, `log-level`) are the reference plugins whose source ships in this repo; they are built to `.wasm` and installed into the plugin path. Any `.wasm` in `$HU_PLUGIN_PATH` or `~/.local/share/hu/plugins/` becomes a `hu <name>` command with no registration step, no Python entry-points, and no shared runtime state — `meter`/`monitor` are discovered the same way.
 - **Management** — `router` starts an embedded Zenoh router (see [Running a router](hu.md#running-a-router)); `plugin` lists and validates installed plugins. Native infrastructure, no graph involvement.
-- **Sandbox** — WASM plugins are capability-gated: a plugin only gets the host access (topic subscription, file, bag) it is explicitly granted. Frontends and management are the deliberate native exceptions.
+- **Sandbox** — WASM plugins are capability-gated: a plugin only gets the host access (topic subscribe/publish, service calls, raw-CDR access, metrics) it is explicitly granted. Frontends and management are the deliberate native exceptions.
 
 Read on for [why this design beats the Python-based tools](#the-problem-with-existing-cli-tools), the [full command reference](hu.md), and [how to write your own plugin](hu-plugins.md).
 
@@ -56,7 +56,7 @@ ROS 2 ships two standard toolsets: `ros2cli` for the terminal and `rqt` for the 
 | Pain point | ros2cli behavior | Effect on user |
 |---|---|---|
 | **Fragile daemon** | Spawns `_ros2_daemon` on first use; snapshots `ROS_DOMAIN_ID`/`RMW_IMPLEMENTATION` at startup ([ros2cli#1238](https://github.com/ros2/ros2cli/issues/1238), [#502](https://github.com/ros2/ros2cli/issues/502), [#934](https://github.com/ros2/ros2cli/issues/934)) | New terminal with different domain ID silently queries the wrong domain; daemon crashes on enterprise networks; WSL2/container health check fails; fix is always `pkill -f _ros2_daemon` |
-| **Inaccurate rate measurement** | `ros2 topic hz` deserializes every message in Python inside the GIL ([ros2cli#871](https://github.com/ros2/ros2cli/issues/871), [#1043](https://github.com/ros2/ros2cli/issues/1043)) | Saturates below ~1.4 kHz on a 64 kHz burst publisher (41× under-read); camera topics at 30 fps report 15–22 fps |
+| **Inaccurate rate measurement** | `ros2 topic hz` deserializes every message in Python inside the GIL ([ros2cli#871](https://github.com/ros2/ros2cli/issues/871), [#1043](https://github.com/ros2/ros2cli/issues/1043)) | Saturates near ~1,400 Hz on a ~97 kHz burst publisher (≥65× under-read); camera topics at 30 fps report 15–22 fps |
 | **No machine-readable output** | All `ros2` commands emit human-formatted text with no stable format | Parsing requires string-splitting on `/` and column counting; breaks across ROS 2 versions |
 | **Requires a full ROS 2 install** | Depends on RCL, Python stack, and sourced `setup.bash` | CI pipelines and developer laptops without a distro must carry a full Docker image |
 

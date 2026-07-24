@@ -60,8 +60,8 @@ impl CoreEngine {
         // mode adds ~1s of startup. That pushed hu's subscriber past the
         // short-lived-publisher windows in the CLI tests (`hu meter echo` ~500ms;
         // the plugin tick loop), so `echo`/`template` received nothing under
-        // peer mode — reproduced as a GitHub CI `WASM Plugin Tests` failure and
-        // isolated on whippet (peer job 3017 FAIL vs client job 3026 echo 6/6).
+        // peer mode — reproduced as a `WASM Plugin Tests` CI failure and isolated
+        // to peer vs client mode (peer mode fails; client mode receives all echoes).
         // Client mode is ready immediately and fits hu's role — a short-lived
         // CLI attaching to a known router, not a mesh participant.
         //

@@ -4,7 +4,7 @@
 //! request path stripped of the prefix. The plugin's `handle()` export returns
 //! an HTTP response that is forwarded to the caller.
 //!
-//! Enable with `--features web-plugins` and run with `hu --web [port]`.
+//! Enable with `--features web-plugins` and run with `hu web [--port PORT]`.
 
 #[cfg(feature = "web-plugins")]
 pub use inner::run_web_mode;

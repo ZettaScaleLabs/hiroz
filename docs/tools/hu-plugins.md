@@ -58,7 +58,7 @@ wit_bindgen::generate!({
     path: "wit/hu-plugin.wit",
 });
 
-use hu::plugin::types::{EventKind, Permission};
+use hu::plugin::types::EventKind;
 use hu::plugin::render;
 
 struct MyPlugin;
@@ -132,7 +132,7 @@ Start `hu` and press `5` to open the Plugins panel (TUI plugins), or run `hu my-
 
 ### 6. Run it end-to-end
 
-The shipped template (`crates/hiroz-union/plugins/hu-plugin-template/`) is exactly the crate above. Build it, point `HU_PLUGIN_PATH` at the output, and invoke it by its manifest name (`my-plugin`). Its `on_event` handler stores the `Startup` args and prints `hello from WASM!` on every `Tick` (`tick_ms = 1000`), so a running session emits one line per second until interrupted:
+The shipped template (`crates/hiroz-union/plugins/hu-plugin-template/`) is the crate above. Build it, point `HU_PLUGIN_PATH` at the output, and invoke it by its manifest name (`my-plugin`). Its `on_event` handler stores the `Startup` args and prints `hello from WASM!` on every `Tick` (`tick_ms = 1000`), so a running session emits one line per second until interrupted:
 
 ```sh
 cargo build --target wasm32-wasip2 --release \
@@ -145,7 +145,7 @@ hu my-plugin demo-arg
 # ^C
 ```
 
-This is the same path the integration suite drives in `test_hu_plugin_template_runtime_ticks` (`crates/hiroz-tests/tests/hu_meter.rs`), which runs `hu my-plugin`, lets the Tick loop fire, and asserts the `hello from WASM!` output — so the template's demonstrated example logic is verified at runtime, not just that the component loads.
+The integration suite validates this path in `test_hu_plugin_template_validate_and_discover` (`crates/hiroz-tests/tests/hu_meter.rs`), which builds the template, confirms the component loads, and discovers it by its manifest name. A companion test, `test_hu_plugin_template_runtime_ticks`, drives the live Tick loop but is currently `#[ignore]`d because capturing the streamed tick output is timing-dependent and unreliable in CI.
 
 ## WIT world boundary
 
@@ -175,17 +175,19 @@ flowchart LR
 | `list-topics()` | `list<topic-info>` — name, type-name, publisher/subscriber counts |
 | `list-nodes()` | `list<node-info>` — namespace and name |
 | `list-services()` | `list<service-info>` — name, type-name, server count |
+| `describe-node(namespace, name)` | `node-detail` — per-node endpoint detail (publishers, subscribers, services) |
 
 ### `ros` — subscriptions and measurement
 
 | Function | Description |
 |---|---|
 | `subscribe(topic)` | Returns a `subscription` resource; call `try-recv()` for the next JSON message |
+| `resolve-topic-ke(topic)` | Resolve a ROS topic name to its full RmwZenoh key expression (for use with `session` raw subscribe/publish) |
 | `measure-hz(topic, window-ms)` | Estimate publish rate (Hz) as a scalar `f64` |
 | `measure-hz-typed(topic, window-ms)` | Returns `hz-measurement { topic, rate-hz, sample-count }` |
 | `measure-bw(topic, window-ms)` | Estimate bandwidth (KB/s) as a scalar `f64` |
 | `measure-bw-typed(topic, window-ms)` | Returns `bw-measurement { topic, rate-kbps, sample-count }` |
-| `connect-service(name, type)` | Returns a `service-client` resource; call `call(request-json, timeout-ms)` |
+| `connect-service(name, type)` | Returns a `service-client` resource; call `call(request-json, timeout-ms)`, or `call-raw(payload, timeout-ms)` for raw CDR passthrough |
 | `encode-yaml-to-cdr(yaml, type-name)` | Encode a YAML string to CDR bytes for the given ROS type |
 
 Prefer the `*-typed` variants for new plugins — they carry topic name and sample count alongside the measurement and avoid a JSON round-trip.
@@ -197,6 +199,7 @@ Messages delivered by `subscribe` are JSON strings. CDR decoding is handled by t
 | Function | Description |
 |---|---|
 | `println(text)` | Append a line to the plugin's output buffer |
+| `eprintln(text)` | Append a line to the plugin's error output |
 | `set-title(title)` | Update the panel title (TUI mode) |
 | `emit-json(key, value)` | Shorthand for `println({"key":value})` |
 | `exit(code)` | Signal the host to flush output and exit with the given code (CLI mode only) |
@@ -216,7 +219,7 @@ The output buffer is a ring-buffer of 1000 lines. Old lines are discarded automa
 | `queryable` | `try-recv-query() → option<query>`, `reply(query, payload)` | Expose a Zenoh queryable (for service-server-like patterns) |
 | `querier` | `call(payload) → result<list<u8>, string>` | Synchronous Zenoh get (for service-client-like patterns) |
 
-All resources are declared by calling the corresponding host function: `raw-subscribe(ke)`, `raw-publisher(ke)`, `declare-liveliness(ke)`, `subscribe-liveliness(ke)`, `declare-queryable(ke)`, `querier(ke)`.
+These resources are not free functions on `raw-transport`; they are obtained from a `session-handle` (see the `session` interface below), whose methods declare each one: `raw-subscribe(ke)`, `raw-publisher(ke)`, `declare-liveliness(ke)`, `subscribe-liveliness(ke)`, `declare-queryable(ke)`, `open-querier(ke)`.
 
 ### `session` — named Zenoh sessions
 
@@ -232,7 +235,7 @@ Every plugin declares the host capabilities it needs in `required_permissions` (
 | `publish-topic` | `ros::publish(...)` (typed publish / `encode-yaml-to-cdr` publish path) |
 | `call-service` | `ros::connect-service(name, type)` and the resulting `service-client::call` |
 | `measure-metrics` | `ros::measure-hz`, `measure-hz-typed`, `measure-bw`, `measure-bw-typed` |
-| `access-raw-cdr` | all `raw-transport` host calls — `raw-subscribe`, `raw-publisher`, `declare-liveliness`, `subscribe-liveliness`, `declare-queryable`, `querier` |
+| `access-raw-cdr` | all `raw-transport` resources via `session-handle` — `raw-subscribe`, `raw-publisher`, `declare-liveliness`, `subscribe-liveliness`, `declare-queryable`, `open-querier` |
 | `open-session` | `session::get-session(name)` (named multi-session access) |
 
 `hu-meter`'s `echo <topic> --raw` mode reads raw CDR payloads through `raw-transport`, so it declares `access-raw-cdr` in its manifest.
@@ -301,7 +304,7 @@ Because discovery never loads the component, `hu plugin list` cannot distinguish
 
 ## Multi-session plugins (`session` interface)
 
-A plugin that needs two independent Zenoh connections — for example, one that forwards messages between two routers (Humble on port 7447 and Jazzy on port 7448) — declares both sessions in its manifest via `SessionRequirement { name, endpoint, mode }`. The host opens all declared sessions before the first `Startup` event, and the plugin retrieves each one with `session::get_session(name)`, which returns a `session-handle` exposing `raw-subscribe`, `raw-publisher`, `declare-liveliness`, `subscribe-liveliness`, and `declare-queryable` — the same primitives as `raw-transport`, but scoped to that named session rather than the shared host session.
+A plugin that needs two independent Zenoh connections — for example, one that forwards messages between two routers (Humble on port 7447 and Jazzy on port 7448) — declares both sessions in its manifest via `SessionRequirement { name, endpoint, mode }`. The host opens all declared sessions before the first `Startup` event, and the plugin retrieves each one with `session::get_session(name)`, which returns a `session-handle` exposing `raw-subscribe`, `raw-publisher`, `declare-liveliness`, `subscribe-liveliness`, `declare-queryable`, and `open-querier` — the `raw-transport` resource primitives, scoped to that named session rather than the shared host session.
 
 No such bridge plugin ships in this PR. For worked, compiling examples of manifest declaration, session/state handling, and event dispatch, see the reference implementations below — `hu-meter` in particular declares and drives a session end-to-end.
 

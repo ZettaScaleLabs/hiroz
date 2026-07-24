@@ -5,7 +5,7 @@
 // for measurements). The session interface provides named multi-session handles
 // with raw CDR passthrough for bridge plugins.
 //
-// Three worlds:
+// Four worlds:
 //   hu-cli-plugin  — one-shot / streaming CLI tools (hz, bw, echo, bridge)
 //   hu-tui-plugin  — tick-driven TUI panes with keybindings and topic navigation
 //   hu-web-plugin  — HTTP request/response handlers for the web UI server
