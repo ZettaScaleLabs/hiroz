@@ -84,9 +84,9 @@ fn test_hiroz_talker_to_hiroz_listener() {
 // nextest's hard 60s kill *simultaneously* when several run concurrently --
 // the runner can't keep up with that many RCL subprocesses starting at once.
 // nextest runs each test in its own process, so serial_test's in-process
-// static Mutex is a no-op here; the `rcl-interop` test-group in
-// .config/nextest.toml limits these 6 to one at a time relative to each
-// other, without slowing down the rest of the suite.
+// static Mutex is a no-op there; it serializes them only under `cargo test`
+// (single test binary). Under nextest, keep the interop suite from
+// oversubscribing by limiting the runner's parallelism in CI.
 #[test]
 fn test_rcl_talker_to_hiroz_listener() {
     if !check_ros2_available() {
@@ -333,6 +333,14 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
                     .child
                     .as_mut()
                     .and_then(|c| c.try_wait().ok().flatten());
+                // Terminate the server before joining the reader threads: they
+                // block on read_to_string until stdout/stderr hit EOF, which only
+                // happens once the child exits. In the alive-but-slow case (the
+                // one this diagnostic exists for) joining first would hang.
+                if let Some(c) = server_guard.child.as_mut() {
+                    let _ = c.kill();
+                    let _ = c.wait();
+                }
                 let stdout = stdout_handle.join().unwrap_or_default();
                 let stderr = stderr_handle.join().unwrap_or_default();
                 panic!(
