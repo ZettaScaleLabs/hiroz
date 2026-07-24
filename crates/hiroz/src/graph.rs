@@ -519,16 +519,19 @@ impl Graph {
     /// quiet, bounded by `timeout`.
     ///
     /// This is the barrier a one-shot command (`hu list`/`info`/`service`/
-    /// `param`) needs before it snapshots the graph. Unlike [`wait_settled`],
-    /// it never mistakes an empty-but-quiet graph for "settled": under CPU
+    /// `param`) needs before it snapshots the graph. Unlike a naive quiet-only
+    /// wait, it never mistakes an empty-but-quiet graph for "settled": under CPU
     /// contention an external liveliness token can take longer to propagate than
     /// any fixed quiet window, and returning early there is exactly what made
     /// these commands read an empty graph. `exclude` should list the caller's
     /// own session zids so its own echoed tokens don't satisfy the wait.
     ///
-    /// Returns `true` once an external entity is present and the graph has been
-    /// quiet for `quiet`; `false` if `timeout` elapsed with no external entity
-    /// (a genuinely empty graph — the command should then report "not found").
+    /// Returns `true` once an external entity is present and the graph has
+    /// *either* gone quiet for `quiet` *or* `timeout` elapsed while the entity
+    /// was still present (best-effort under contention — it does not guarantee a
+    /// full quiet window in that case). Returns `false` only if `timeout`
+    /// elapsed with no external entity at all (a genuinely empty graph — the
+    /// command should then report "not found").
     pub async fn wait_for_external_settled(
         &self,
         exclude: &[ZenohId],
