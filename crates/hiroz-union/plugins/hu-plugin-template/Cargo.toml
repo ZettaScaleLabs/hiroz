@@ -1,0 +1,15 @@
+[package]
+name = "hu-plugin-template"
+version = "0.1.0"
+edition = "2021"
+description = "Template / example for hu WASM plugins — compiled by CI to verify the authoring guide stays valid"
+
+[lib]
+crate-type = ["cdylib"]
+
+# Intentionally a standalone workspace so it mirrors what a third-party plugin
+# author would create outside the hiroz repo.
+[workspace]
+
+[dependencies]
+wit-bindgen = "0.46"
