@@ -39,12 +39,18 @@ export HU_PLUGIN_PATH="${TARGET_DIR}/wasm32-wasip2/debug"
 export PATH="${TARGET_DIR}/debug:${PATH}"
 
 # Run strictly single-threaded (`--test-threads=1`). Each test spawns a Zenoh
-# router + a hiroz node + a `hu` subprocess (which loads wasmtime for the meter
-# plugin), and many assert on liveliness-graph discovery within a short window.
-# Under the default per-core parallelism on a 2-4 core CI runner, dozens of
-# these run at once and starve each other's CPU, so discovery times out and
-# ~40/61 tests fail (hu sees only itself). Serially, each test gets the whole
-# machine and discovery completes reliably — the total wall-clock is comparable
-# to the thrashing parallel run, which was already ~7-10 minutes.
+# router + a hiroz node + a `hu` subprocess (which JIT-loads wasmtime for the
+# plugin). On the 2-core `ubuntu-latest` runner, default parallelism runs two
+# of these CPU-heavy tests at once and each already over-subscribes both cores
+# with its own subprocesses, starving hu's liveliness-graph discovery until it
+# times out (or deadlocks).
+#
+# The determinism work on this branch (Graph::wait_settled for one-shot
+# commands, pub_.wait_for_subscription on the publisher side) removed the
+# *timer*-based races and let the previously-quarantined one-shot tests be
+# un-ignored — but a condition-based wait still cannot manufacture CPU time
+# that isn't there. Serial execution gives each test the whole machine, which
+# is what discovery needs. Wall-clock is comparable either way: two CPU-bound
+# tests on 2 cores run at ~half speed each, so parallel ≈ serial here.
 cargo test -p hiroz-tests --test hu_meter --features hu-meter-tests,jazzy -- --test-threads=1
 cargo test -p hiroz-tests --test hu_monitor --features hu-monitor-tests,jazzy -- --test-threads=1
