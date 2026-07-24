@@ -1170,14 +1170,28 @@ impl ZNode {
             let entities = self
                 .graph
                 .get_entities_by_service(EndpointKind::Service, &qualified_service);
+            let mut saw_endpoint = false;
             let found = entities.iter().find_map(|entity| match entity.as_ref() {
-                Entity::Endpoint(endpoint) => endpoint.node.clone(),
+                Entity::Endpoint(endpoint) => {
+                    saw_endpoint = true;
+                    endpoint.node.clone()
+                }
                 _ => None,
             });
             match found {
                 Some(node) => break node,
                 None if std::time::Instant::now() < deadline => {
                     tokio::time::sleep(poll_interval).await;
+                }
+                None if saw_endpoint => {
+                    // A server exists but exposes no node identity, so we can't
+                    // issue the node-scoped type-description query. Distinguish
+                    // this from a genuinely absent server for easier debugging.
+                    return Err(DynamicError::SchemaNotFound(format!(
+                        "Service server(s) for {} are present but expose no node \
+                         identity; cannot query their schema",
+                        qualified_service
+                    )));
                 }
                 None => {
                     return Err(DynamicError::SchemaNotFound(format!(
