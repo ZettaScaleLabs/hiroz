@@ -104,8 +104,11 @@ nav:
           - Message Generation: user-guide/message-generation.md
           - Custom Messages: user-guide/custom-messages.md
           - Protobuf Serialization: user-guide/protobuf.md
-  - Tools:
-      - hiroz-console: tools/console.md
+  - hu Toolkit:
+      - Overview: tools/why-hu.md
+      - hu (Hiroz Union): tools/hu.md
+      - hu vs. ros2cli / rqt: tools/hu-vs-ros2cli.md
+      - hu Plugin Authoring: tools/hu-plugins.md
   - Language Bindings:
       - Python:
           - Quick Start: bindings/python-quick-start.md

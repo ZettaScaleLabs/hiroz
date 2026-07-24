@@ -9,7 +9,7 @@ Pre-built artifacts are available on the [Releases page](https://github.com/Zett
 
 | Artifact | Use case | Install |
 |---|---|---|
-| `hiroz-console` binary | Monitor any ROS 2 / hiroz system | [Console docs](../tools/console.md#installation) |
+| `hu` binary | Monitor and introspect any ROS 2 / hiroz system | [hu docs](../tools/hu.md#installation) |
 | `hiroz_py` Python wheel | Python pub/sub & services | [Python quick start](../bindings/python-quick-start.md) |
 | `libhiroz` Go library | Go pub/sub & services | [Go quick start](../bindings/go-quick-start.md) |
 
@@ -50,7 +50,7 @@ The router is a lightweight process that lets nodes find each other — think of
 **Terminal 1 — Start the Router:**
 
 ```bash
-cargo run --example zenoh_router
+hu router
 ```
 
 ### Run the Pub/Sub Example
@@ -91,7 +91,7 @@ Ready to build your own hiroz application? Follow these steps to create a new pr
 
 ### 1. Install the Zenoh Router
 
-Since you won't have access to the `zenoh_router` example outside the hiroz repository, you'll need to install a Zenoh router. Here are the quickest options:
+Outside the hiroz repository you'll need a Zenoh router — either the standalone `hu router` command (if you have the `hu` tool installed) or one of the quickest options below:
 
 **Option A: Using cargo (if you have Rust):**
 

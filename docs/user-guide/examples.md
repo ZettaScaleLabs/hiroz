@@ -14,10 +14,10 @@ All examples require a Zenoh router to be running first (see [Networking](./netw
 
 ## From the hiroz Repository
 
-If you're working in the hiroz repository, use the included router example:
+If you have the `hu` tool installed, start an embedded router with a single command:
 
 ```bash
-cargo run --example zenoh_router
+hu router
 ```
 
 ## From Your Own Project
@@ -62,7 +62,6 @@ Leave the router running in a separate terminal, then run any example from the h
 | `z_parameter_callback` | Validation callback flow for parameter changes | `cargo run --example z_parameter_callback` |
 | `z_parameter_yaml` | YAML parameter loading plus programmatic overrides | `cargo run --example z_parameter_yaml` |
 | `z_parameter_client` | Remote `ParameterClient` calls against a parameter server | `cargo run --example z_parameter_client` |
-| `zenoh_router` | Embedded Zenoh router for development without installing `zenohd` | `cargo run --example zenoh_router` |
 
 !!! tip
     For a detailed walkthrough of creating your own project with hiroz (not using the repository examples), see the [Quick Start](../getting-started/quick-start.md#option-2-create-your-own-project) guide.

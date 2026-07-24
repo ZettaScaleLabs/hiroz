@@ -79,11 +79,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix (Linux)
@@ -176,11 +176,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix (Linux)
@@ -234,11 +234,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix
@@ -311,11 +311,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix (Linux)
@@ -352,6 +352,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
+          target: wasm32-wasip2
           components: clippy, rustfmt
 
       - name: Install dependencies (macOS)
@@ -420,6 +421,56 @@ jobs:
           nu scripts/test-pure-rust.nu clippy-tests
         shell: bash
 
+  wasm-plugin-tests:
+    name: WASM Plugin Tests (ubuntu-latest)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          large-packages: true
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
+          swap-storage: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://hiroz.cachix.org
+            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: hiroz
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: ${{ github.event_name == 'pull_request' }}
+
+      - name: Setup nix environment
+        run: |
+          nix print-dev-env '.#pureRust-ci' --accept-flake-config > /tmp/nix-dev-env.sh
+          echo "export CI=true" >> /tmp/nix-dev-env.sh
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-latest-wasm-plugin-tests
+
+      - name: Run WASM plugin tests
+        run: |
+          source /tmp/nix-dev-env.sh
+          bash scripts/ci/hu-tests.sh
+
   go-tests:
     name: Go Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -483,11 +534,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix
@@ -600,11 +651,11 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           large-packages: true
-          tool-cache: false
-          android: false
-          dotnet: false
-          haskell: false
-          docker-images: false
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
           swap-storage: false
 
       - name: Install Nix

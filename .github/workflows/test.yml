@@ -57,14 +57,67 @@ jobs:
     container:
       image: ${{ matrix.image }}
     steps:
+      - name: Compute weekly cache key
+        id: cache-week
+        run: echo "week=$(date -u +%Y-W%V)" >> "$GITHUB_OUTPUT"
+
       - name: Cache apt packages
         uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives
           key: apt-${{ matrix.distro }}-v3-${{ hashFiles('.github/workflows/test.yml') }}
 
+      # `apt-get update`'s package-index fetch (not the package downloads
+      # themselves) is the actual bottleneck on this container's mirror --
+      # observed as low as ~900 B/s for a few hundred KB, costing several
+      # minutes per job even though installs run at a normal few hundred
+      # kB/s once the index is warm. Caching the index avoids refetching it
+      # every run. Keyed weekly (not indefinitely) so it can't go
+      # permanently stale; a cache miss just re-fetches, no failure mode.
+      - name: Cache apt package lists
+        uses: actions/cache@v4
+        with:
+          path: /var/lib/apt/lists
+          key: apt-lists-${{ matrix.distro }}-${{ steps.cache-week.outputs.week }}
+          restore-keys: |
+            apt-lists-${{ matrix.distro }}-
+
+      # GitHub-hosted runners run on Azure, but these ROS base images ship
+      # sources.list pointed at the generic archive.ubuntu.com/
+      # security.ubuntu.com endpoints, which have been observed as slow as
+      # ~75-900 B/s from these runners (vs. a normal few hundred kB/s) --
+      # apparently a mirror-selection/routing issue, not a bandwidth cap,
+      # since packages.ros.org in the same apt-get update is fast. Azure
+      # publishes a same-datacenter mirror that's dramatically faster from
+      # here. Handles both the legacy one-line sources.list format and the
+      # newer deb822 *.sources format (present on newer Ubuntu releases).
+      - name: Point apt at the Azure Ubuntu mirror
+        run: |
+          if [ -f /etc/apt/sources.list ]; then
+            sed -i \
+              -e 's|http://archive\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
+              -e 's|http://security\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
+              /etc/apt/sources.list
+          fi
+          # `compgen` is a bash builtin and this step runs under plain POSIX
+          # sh in these containers -- a glob that matches nothing just
+          # expands to the literal pattern string, so guard with `ls` (which
+          # every shell has) instead.
+          if ls /etc/apt/sources.list.d/*.sources > /dev/null 2>&1; then
+            sed -i \
+              -e 's|http://archive\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
+              -e 's|http://security\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
+              /etc/apt/sources.list.d/*.sources
+          fi
+
       - name: Install system dependencies
-        run: apt-get update && apt-get install -y nodejs
+        run: |
+          # jq is installed here (not left to taiki-e/install-action's own
+          # internal bootstrap in the "Install cargo-nextest" step below)
+          # specifically to avoid a second, fully independent apt-get
+          # update -- that redundant second index fetch was the entire cost
+          # of the cargo-nextest install step.
+          apt-get update && apt-get install -y nodejs jq
 
       - name: Install Nushell
         run: |
@@ -123,6 +176,16 @@ jobs:
           else
             cargo nextest run -p hiroz-tests --profile interop \
               --features "ros-interop,$FEATURES"
+            # All dynamic_subscriber tests are currently #[ignore]'d (ros2
+            # topic pub does not become graph-visible in CI's rmw_zenoh_cpp
+            # environment — confirmed independent of hiroz, see the ignore
+            # reason in headless_test.rs). --no-tests=warn keeps that state
+            # from hard-failing the job while nextest's own summary still
+            # surfaces it.
+            cargo nextest run -p hiroz-union --profile interop \
+              --features ros-interop \
+              -E 'test(dynamic_subscriber)' \
+              --no-tests=warn
           fi
 
       - uses: actions/setup-go@v5

@@ -488,7 +488,7 @@ The parameter examples are now split into focused binaries:
 
 ```bash
 # Start a Zenoh router first
-cargo run --example zenoh_router
+hu router
 
 # Local declare/get/set/undeclare flow
 cargo run --example z_parameter_declare

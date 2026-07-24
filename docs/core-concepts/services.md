@@ -236,7 +236,7 @@ A client that sends an addition request and prints the result. Full source: [`cr
 **Terminal 1 — Start Zenoh Router:**
 
 ```bash
-cargo run --example zenoh_router
+hu router
 ```
 
 **Terminal 2 — Start Server:**

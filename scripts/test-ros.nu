@@ -34,14 +34,30 @@ def run-ros-interop [] {
         return
     }
 
+    # Fail fast if the `run` verb plugin (ros2run) isn't installed in this
+    # devshell. `ros2 --version` and `ros2 pkg prefix <pkg>` both succeed
+    # even when `ros2run` is missing, so a package-set regression here was
+    # previously invisible until individual interop tests spawning
+    # `ros2 run ...` either hung for their full discovery timeout or, worse,
+    # silently false-passed (some only assert "the process eventually
+    # exited", which an instant `ros2: error: invalid choice: 'run'` also
+    # satisfies). Checking it once, up front, turns that into an immediate,
+    # unambiguous failure instead of a 60s+ timeout deep in an unrelated test.
+    let run_verb_check = (do -i { run-cmd "ros2 run --help" | complete })
+    if $run_verb_check.exit_code != 0 {
+        error make {
+            msg: "ros2 CLI is missing the 'run' verb (ros2run package not installed in this devshell) -- every `ros2 run ...`-based interop test would hang or false-pass. Add ros2run (and ros2launch) to the devshell's ROS package set."
+        }
+    }
+
     $env.RMW_IMPLEMENTATION = "rmw_zenoh_cpp"
     $env.RUSTFLAGS = "-D warnings"
 
     let distro = get-distro
     let cmd = if $distro == "humble" {
-        "cargo nextest run -p hiroz-tests --no-default-features --features ros-interop,humble"
+        "cargo nextest run -p hiroz-tests --profile interop --no-default-features --features ros-interop,humble"
     } else {
-        $"cargo nextest run -p hiroz-tests --features ros-interop,($distro)"
+        $"cargo nextest run -p hiroz-tests --profile interop --features ros-interop,($distro)"
     }
 
     # Pre-build with the same features nextest will use, so the build cache is
@@ -81,6 +97,13 @@ def get-test-map [] {
 
 def get-test-pipeline [] {
     [
+        # Reverted an earlier attempt to run run-ros-interop first: that made
+        # things worse, not better -- a pre-existing RCL-interop test with its
+        # own established retry-loop pattern (test_hiroz_add_two_ints_server_to_rcl_client,
+        # untouched by this branch) started hard-timing-out (60s) with the
+        # reordered pipeline, when it had never done so with clippy-rmw first.
+        # That result disproves the "clippy-rmw causes CPU starvation"
+        # hypothesis this reorder was based on -- back to the original order.
         "clippy-rmw"
         "run-ros-interop"
     ]

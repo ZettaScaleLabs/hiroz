@@ -225,7 +225,7 @@ while let Ok(msg) = subscriber.async_recv().await {
 **Terminal 1 — Start Zenoh Router:**
 
 ```bash
-cargo run --example zenoh_router
+hu router
 ```
 
 **Terminal 2 — Start Subscriber:**
