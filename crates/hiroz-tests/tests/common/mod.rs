@@ -138,8 +138,17 @@ impl TestRouter {
                     // sleep and usually proceeds much sooner; if the budget
                     // elapses without a successful connect, proceed anyway
                     // (best-effort).
+                    let probe_addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
                     for _ in 0..40 {
-                        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                        // connect_timeout caps each probe at 50ms; a plain
+                        // TcpStream::connect could block far longer on the OS
+                        // connect timeout and blow the ~2s budget.
+                        if std::net::TcpStream::connect_timeout(
+                            &probe_addr,
+                            Duration::from_millis(50),
+                        )
+                        .is_ok()
+                        {
                             break;
                         }
                         thread::sleep(Duration::from_millis(50));

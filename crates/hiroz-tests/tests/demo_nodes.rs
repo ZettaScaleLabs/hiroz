@@ -319,13 +319,22 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
     // rationale as the fibonacci RCL-server test below: this is discovery
     // latency, not response latency, so a longer fixed wait/timeout doesn't
     // reliably help under CI load.
-    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    // Budget of 40s (not the full nextest 60s kill): each
+    // run_add_two_ints_client attempt can itself block up to ~15s in its
+    // internal call_with_timeout, so a new attempt must only start when at
+    // least that worst-case window still fits before the hard kill. Starting
+    // at 40s leaves 40 + 15 = 55s < 60s of headroom.
+    let attempt_worst_case = Duration::from_secs(15);
+    let deadline = std::time::Instant::now() + Duration::from_secs(40);
     let result = loop {
         let ctx =
             create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
+        // Pre-check: don't begin another attempt if it could run past the
+        // deadline (and thus risk nextest's 60s hard kill).
+        let out_of_budget = std::time::Instant::now() + attempt_worst_case >= deadline;
         match demo_nodes::run_add_two_ints_client(ctx, 4, 7, false) {
             Ok(v) => break v,
-            Err(_) if std::time::Instant::now() < deadline => {
+            Err(_) if !out_of_budget => {
                 thread::sleep(Duration::from_millis(500));
             }
             Err(e) => {
