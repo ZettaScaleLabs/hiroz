@@ -2702,10 +2702,24 @@ fn test_hu_plugin_template_runtime_ticks() {
     // Allow a couple of tick intervals (tick_ms = 1000) to elapse, plus
     // headroom for the pre-Startup graph-settle wait in
     // modes/cli.rs::run_cli_plugin (1s) that delays the tick loop's first
-    // iteration -- 2600ms left too little margin for even one flushed tick
-    // once that settle wait is accounted for.
+    // iteration.
     thread::sleep(Duration::from_millis(5000));
-    let _ = child.kill();
+
+    // SIGINT, not child.kill() (SIGKILL): hu's CLI stdout is fully buffered
+    // when piped (not a TTY), so `println!` output only reaches the actual
+    // pipe on an explicit flush -- which run_cli_plugin only does after each
+    // tick or on its handled ctrl_c/Interrupt path (modes/cli.rs). A SIGKILL
+    // can't run any of that and reliably discarded already-ticked output
+    // regardless of how long this test waited beforehand (verified: even
+    // 5000ms still produced empty stdout). SIGINT is caught by the same
+    // ctrl_c handler ProcessGuard's Drop uses elsewhere in this file, which
+    // dispatches CliEvent::Interrupt and flushes before the process exits
+    // normally, so wait_with_output() actually gets what was printed.
+    nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(child.id() as i32),
+        nix::sys::signal::Signal::SIGINT,
+    )
+    .expect("failed to send SIGINT to template plugin");
     let out = child
         .wait_with_output()
         .expect("failed to wait on template plugin");
