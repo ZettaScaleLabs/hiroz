@@ -977,13 +977,13 @@ fn test_hu_meter_delay_basic() {
             let pub_ = node.create_pub::<Header>("/delay_test").build().unwrap();
             // Give delay subscriber time to connect
             tokio::time::sleep(Duration::from_millis(500)).await;
-            // 80, not 20: at 100ms/msg that's an 8s burst, comfortably
+            // 150, not 20: at 100ms/msg that's a 15s burst, comfortably
             // outlasting hu's own startup (session connect, node build,
             // TDS/ParameterService setup) plus the background schema-discovery
             // round trip ros::subscribe kicks off. A 20-message/2s burst
             // could end before hu's dyn sub was even ready, so hu observed
             // nothing regardless of how long it then waited.
-            for _ in 0..80 {
+            for _ in 0..150 {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default();
@@ -1004,10 +1004,13 @@ fn test_hu_meter_delay_basic() {
     // run_hu_meter (self-exit via --duration), not run_hu_meter_timed
     // (blind sleep-then-SIGKILL): `delay` didn't support --duration before;
     // added it (see cmd_delay/Mode::Delay in hu-meter's lib.rs) so this test
-    // can self-exit like the bw/hz ones.
+    // can self-exit like the bw/hz ones. --duration must stay >= the
+    // publisher's burst length above -- a shorter one lets hu self-exit
+    // before the burst (and hu's own slower-than-usual discovery) finishes,
+    // which is exactly what made this test intermittently see 0 messages.
     let out = run_hu_meter(
         router.endpoint(),
-        &["delay", "/delay_test", "--duration", "5"],
+        &["delay", "/delay_test", "--duration", "13"],
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
 
