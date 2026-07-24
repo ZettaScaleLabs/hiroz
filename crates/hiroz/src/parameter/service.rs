@@ -45,6 +45,11 @@ pub(crate) struct ParameterServiceConfig<'a> {
     pub counter: &'a GlobalCounter,
     pub clock: &'a crate::time::ZClock,
     pub overrides: HashMap<String, ParameterValue>,
+    /// This node's type description service, if enabled. When present, the six
+    /// built-in parameter services' Request/Response schemas are registered
+    /// with it so `ZNode::discover_service_schema` can resolve them (see
+    /// `wire_types::register_parameter_schemas`).
+    pub type_desc_service: Option<&'a crate::dynamic::TypeDescriptionService>,
 }
 
 struct ParameterState {
@@ -263,7 +268,12 @@ impl ParameterService {
             counter,
             clock,
             overrides,
+            type_desc_service,
         } = config;
+
+        if let Some(tds) = type_desc_service {
+            wire_types::register_parameter_schemas(tds);
+        }
         let node_entity = NodeEntity::new(
             0,
             session.zid(),
