@@ -26,9 +26,11 @@ pub async fn run_cli_plugin(
     // that reply hasn't necessarily landed yet the instant this function
     // resumes. One-shot commands (list/info) read the graph exactly once, at
     // Startup, with no tick loop to catch up on a later update; give the
-    // replay a brief window to land first so they don't systematically see
-    // an empty/incomplete graph.
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // replay a window to land first so they don't systematically see an
+    // empty/incomplete graph. 300ms wasn't enough under CI load (still
+    // observed "node not found" for entities published well before hu even
+    // started); widened to 1s.
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
     let exit_code = plugin
         .dispatch_cli_event(CliEvent::Startup(args))

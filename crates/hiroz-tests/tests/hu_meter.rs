@@ -2057,12 +2057,12 @@ fn test_hu_meter_hz_json_typed_fields() {
                 .create_pub::<RosString>("/hz_typed_test")
                 .build()
                 .unwrap();
-            // 100, not 40: at 100ms/msg that's a 10s burst, comfortably
+            // 150, not 40: at 100ms/msg that's a 15s burst, comfortably
             // outlasting hu's own startup plus the background
             // schema-discovery round trip -- see test_hu_meter_delay_basic's
             // comment for the same race. --duration must stay within this
             // window (see that same test's --duration/burst-length fix).
-            for _ in 0..100 {
+            for _ in 0..150 {
                 let _ = pub_.async_publish(&RosString { data: "x".into() }).await;
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
@@ -2077,7 +2077,7 @@ fn test_hu_meter_hz_json_typed_fields() {
     // regardless of margin.
     let out = run_hu_meter(
         router.endpoint(),
-        &["hz", "/hz_typed_test", "--json", "--duration", "8"],
+        &["hz", "/hz_typed_test", "--json", "--duration", "13"],
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr_bytes = out.stderr;
