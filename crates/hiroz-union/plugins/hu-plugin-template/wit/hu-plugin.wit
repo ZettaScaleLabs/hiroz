@@ -9,7 +9,6 @@
 //   hu-cli-plugin  — one-shot / streaming CLI tools (hz, bw, echo, bridge)
 //   hu-tui-plugin  — tick-driven TUI panes with keybindings and topic navigation
 //   hu-web-plugin  — HTTP request/response handlers for the web UI server
-//   hu-plugin      — legacy alias for hu-tui-plugin (v0.3 compatibility)
 
 package hu:plugin@0.1.0;
 
@@ -285,18 +284,4 @@ world hu-web-plugin {
 
     export manifest: func() -> plugin-manifest;
     export handle: func(req: http-request) -> http-response;
-}
-
-// Legacy alias for hu-tui-plugin. Keeps v0.3 plugins loadable.
-world hu-plugin {
-    use types.{plugin-manifest, plugin-event};
-
-    import graph;
-    import ros;
-    import raw-transport;
-    import session;
-    import render;
-
-    export manifest: func() -> plugin-manifest;
-    export on-event: func(event: plugin-event);
 }
