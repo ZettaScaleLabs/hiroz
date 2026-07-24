@@ -21,6 +21,15 @@ pub async fn run_cli_plugin(
         .find(|p| p.is_cli() && p.manifest().name == plugin_name)
         .ok_or_else(|| format!("CLI WASM plugin '{plugin_name}' not found"))?;
 
+    // The graph's liveliness subscriber (declared during CoreEngine::new)
+    // replays existing tokens asynchronously via zenoh's own history query --
+    // that reply hasn't necessarily landed yet the instant this function
+    // resumes. One-shot commands (list/info) read the graph exactly once, at
+    // Startup, with no tick loop to catch up on a later update; give the
+    // replay a brief window to land first so they don't systematically see
+    // an empty/incomplete graph.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
     let exit_code = plugin
         .dispatch_cli_event(CliEvent::Startup(args))
         .exit_code();
