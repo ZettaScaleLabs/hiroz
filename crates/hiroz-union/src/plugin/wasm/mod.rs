@@ -2,9 +2,8 @@
 //!
 //! Plugin world detection order at load time:
 //!   1. hu-cli-plugin  → PluginBindings::Cli
-//!   2. hu-tui-plugin  → PluginBindings::Tui
-//!   3. hu-web-plugin  → PluginBindings::Web  (feature = "web-plugins")
-//!   4. hu-plugin      → PluginBindings::Legacy  (v0.3 compat)
+//!   2. hu-web-plugin  → PluginBindings::Web  (feature = "web-plugins")
+//!   3. hu-tui-plugin  → PluginBindings::Tui  (fallback)
 
 pub mod host;
 pub mod state;
@@ -16,7 +15,7 @@ pub use host::web_bindgen::hu::plugin::web_types::{HttpRequest, HttpResponse};
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -32,7 +31,7 @@ use crate::core::engine::CoreEngine;
 
 #[cfg(feature = "web-plugins")]
 use self::host::web_bindgen;
-use self::host::{HuPlugin, cli_bindgen, tui_bindgen};
+use self::host::{HuTuiPlugin, cli_bindgen};
 use self::state::PluginState;
 
 // ─── Loaded plugin handle ─────────────────────────────────────────────────────
@@ -54,40 +53,16 @@ pub enum PluginBindings {
     /// Plugin compiled against `hu-cli-plugin` world.
     Cli(cli_bindgen::HuCliPlugin),
     /// Plugin compiled against `hu-tui-plugin` world (v0.1).
-    Tui(tui_bindgen::HuTuiPlugin),
+    Tui(HuTuiPlugin),
     /// Plugin compiled against `hu-web-plugin` world.
     #[cfg(feature = "web-plugins")]
     Web(web_bindgen::HuWebPlugin),
-    /// Plugin compiled against legacy `hu-plugin` world (v0.3 compat).
-    Legacy(HuPlugin),
 }
 
 /// Typed plugin handle.
 pub struct WasmPlugin {
     common: PluginCommon,
     bindings: PluginBindings,
-}
-
-/// Outcome of dispatching an event/request to a `WasmPlugin`.  Distinguishes
-/// "dispatch ran on a plugin of the wrong kind" (a programmer error at the
-/// call site) from "dispatch ran fine, no exit code yet" (normal steady
-/// state) — collapsing both to `None` made it impossible to tell them apart.
-pub enum DispatchOutcome {
-    /// The plugin handle was not of the kind this dispatch method targets.
-    WrongKind,
-    /// The dispatch call was made; the plugin may or may not have exited.
-    Ran { exit_code: Option<u32> },
-}
-
-impl DispatchOutcome {
-    /// Convenience accessor for call sites that don't care about the
-    /// wrong-kind/ran distinction and just want the exit code, if any.
-    pub fn exit_code(&self) -> Option<u32> {
-        match self {
-            DispatchOutcome::WrongKind => None,
-            DispatchOutcome::Ran { exit_code } => *exit_code,
-        }
-    }
 }
 
 impl WasmPlugin {
@@ -107,14 +82,10 @@ impl WasmPlugin {
         matches!(self.bindings, PluginBindings::Cli(_))
     }
 
-    /// A plugin that accepts `tui-event`s (the `hu-tui-plugin` world or its
-    /// `hu-plugin` legacy alias). Only these receive forwarded key-action /
-    /// topic-selected events.
+    /// A plugin that accepts `tui-event`s (the `hu-tui-plugin` world). Only
+    /// these receive forwarded key-action / topic-selected events.
     pub fn is_tui(&self) -> bool {
-        matches!(
-            self.bindings,
-            PluginBindings::Tui(_) | PluginBindings::Legacy(_)
-        )
+        matches!(self.bindings, PluginBindings::Tui(_))
     }
 
     #[cfg(feature = "web-plugins")]
@@ -125,9 +96,12 @@ impl WasmPlugin {
     /// Dispatch a CLI event to a `Cli` plugin.  Type-safe: `CliEvent` has no
     /// `key-action` or `topic-selected` variants so the compiler prevents TUI
     /// events from being sent down the CLI path.
-    pub fn dispatch_cli_event(&mut self, event: CliEvent) -> DispatchOutcome {
+    ///
+    /// Returns the plugin's exit code if one has been set (`None` also covers a
+    /// dispatch made against a non-CLI handle — a call-site programmer error).
+    pub fn dispatch_cli_event(&mut self, event: CliEvent) -> Option<u32> {
         let PluginBindings::Cli(bindings) = &mut self.bindings else {
-            return DispatchOutcome::WrongKind;
+            return None;
         };
         let store = &mut self.common.store;
         let manifest = &self.common.manifest;
@@ -137,9 +111,7 @@ impl WasmPlugin {
             if let Err(e) = bindings.call_on_event(&mut *store, &event) {
                 tracing::warn!("CLI plugin '{}' interrupt error: {e}", manifest.name);
             }
-            return DispatchOutcome::Ran {
-                exit_code: store.data().exit_code,
-            };
+            return store.data().exit_code;
         }
         // Event subscription filtering.
         if !manifest.subscribed_events.is_empty() {
@@ -156,39 +128,27 @@ impl WasmPlugin {
                 )
             });
             if !subscribed {
-                return DispatchOutcome::Ran {
-                    exit_code: store.data().exit_code,
-                };
+                return store.data().exit_code;
             }
         }
         store.set_epoch_deadline(30);
         if let Err(e) = bindings.call_on_event(&mut *store, &event) {
             tracing::warn!("CLI plugin '{}' error: {e}", manifest.name);
         }
-        DispatchOutcome::Ran {
-            exit_code: store.data().exit_code,
-        }
+        store.data().exit_code
     }
 
-    /// Dispatch a TUI event to a `Tui` or `Legacy` plugin.
-    pub fn dispatch_tui_event(&mut self, event: TuiEvent) -> DispatchOutcome {
+    /// Dispatch a TUI event to a `Tui` plugin. Returns the plugin's exit code if
+    /// set (`None` also covers a dispatch made against a non-TUI handle).
+    pub fn dispatch_tui_event(&mut self, event: TuiEvent) -> Option<u32> {
         let Self { common, bindings } = self;
         match bindings {
-            PluginBindings::Tui(bindings) => DispatchOutcome::Ran {
-                exit_code: dispatch_inner("TUI", &mut common.store, &common.manifest, |s| {
+            PluginBindings::Tui(bindings) => {
+                dispatch_inner("TUI", &mut common.store, &common.manifest, |s| {
                     bindings.call_on_event(s, &event)
-                }),
-            },
-            PluginBindings::Legacy(bindings) => {
-                // Convert TuiEvent → PluginEvent for the legacy world.
-                let pe = tui_to_plugin_event(event);
-                DispatchOutcome::Ran {
-                    exit_code: dispatch_inner("Legacy", &mut common.store, &common.manifest, |s| {
-                        bindings.call_on_event(s, &pe)
-                    }),
-                }
+                })
             }
-            _ => DispatchOutcome::WrongKind,
+            _ => None,
         }
     }
 
@@ -224,16 +184,6 @@ fn dispatch_inner(
     store.data().exit_code
 }
 
-fn tui_to_plugin_event(e: TuiEvent) -> hu::plugin::types::PluginEvent {
-    match e {
-        TuiEvent::Startup(args) => hu::plugin::types::PluginEvent::Startup(args),
-        TuiEvent::KeyAction(s) => hu::plugin::types::PluginEvent::KeyAction(s),
-        TuiEvent::TopicSelected(s) => hu::plugin::types::PluginEvent::TopicSelected(s),
-        TuiEvent::Tick => hu::plugin::types::PluginEvent::Tick,
-        TuiEvent::Interrupt => hu::plugin::types::PluginEvent::Interrupt,
-    }
-}
-
 // ─── Loader ──────────────────────────────────────────────────────────────────
 
 type LoadResult = (Vec<WasmPlugin>, Vec<(String, String)>);
@@ -257,22 +207,49 @@ fn configured_wasm_engine() -> Result<Engine> {
     Engine::new(&engine_config).context("creating WASM engine")
 }
 
-pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Result<LoadResult> {
-    let wasm_engine = configured_wasm_engine()?;
+/// Process-wide shared WASM engine.
+///
+/// A single engine (and thus a single epoch-ticker task) is shared for the
+/// process lifetime. Previously every `load_plugins`/`load_plugin_named` call
+/// built a fresh engine *and* spawned a new ticker loop holding a clone of it;
+/// the TUI's `reload_plugins` calls this repeatedly, so tickers accumulated
+/// unboundedly and each kept its engine alive forever. Sharing one engine keeps
+/// exactly one ticker alive for the process.
+static SHARED_WASM_ENGINE: OnceLock<Engine> = OnceLock::new();
 
-    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        let ticker_engine = wasm_engine.clone();
-        handle.spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                ticker_engine.increment_epoch();
-            }
-        });
+fn shared_wasm_engine() -> Result<Engine> {
+    if let Some(engine) = SHARED_WASM_ENGINE.get() {
+        return Ok(engine.clone());
     }
+    // Build a candidate up front so a construction error can propagate; only the
+    // engine that wins the `get_or_init` race gets its ticker spawned.
+    let candidate = configured_wasm_engine()?;
+    let engine = SHARED_WASM_ENGINE.get_or_init(|| {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let ticker_engine = candidate.clone();
+            handle.spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    ticker_engine.increment_epoch();
+                }
+            });
+        }
+        candidate
+    });
+    Ok(engine.clone())
+}
+
+/// Compile and instantiate the plugins found at `paths`, collecting per-path
+/// failures rather than aborting the whole load.
+fn load_from(
+    engine_ref: Arc<CoreEngine>,
+    paths: impl IntoIterator<Item = PathBuf>,
+) -> Result<LoadResult> {
+    let wasm_engine = shared_wasm_engine()?;
     let mut plugins = Vec::new();
     let mut failed: Vec<(String, String)> = Vec::new();
 
-    for path in iter_wasm_files() {
+    for path in paths {
         match load_one(&wasm_engine, &path, engine_ref.clone()) {
             Ok(plugin) => {
                 tracing::info!(
@@ -294,6 +271,10 @@ pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Result<LoadResult> {
     Ok((plugins, failed))
 }
 
+pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Result<LoadResult> {
+    load_from(engine_ref, iter_wasm_files())
+}
+
 /// Like [`load_plugins`], but JIT-compiles only the plugin whose discovered
 /// name equals `name`.
 ///
@@ -305,42 +286,13 @@ pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Result<LoadResult> {
 /// external tokens have been processed. Compiling just the one plugin the
 /// command needs removes that startup cost.
 pub fn load_plugin_named(engine_ref: Arc<CoreEngine>, name: &str) -> Result<LoadResult> {
-    let wasm_engine = configured_wasm_engine()?;
+    let paths: Vec<PathBuf> = discover_wasm_plugins()
+        .into_iter()
+        .filter(|(plugin_name, _)| plugin_name == name)
+        .map(|(_, path)| path)
+        .collect();
 
-    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        let ticker_engine = wasm_engine.clone();
-        handle.spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                ticker_engine.increment_epoch();
-            }
-        });
-    }
-
-    let mut plugins = Vec::new();
-    let mut failed: Vec<(String, String)> = Vec::new();
-
-    for (plugin_name, path) in discover_wasm_plugins() {
-        if plugin_name != name {
-            continue;
-        }
-        match load_one(&wasm_engine, &path, engine_ref.clone()) {
-            Ok(plugin) => {
-                tracing::info!(
-                    "Loaded WASM plugin '{}' ({}) from {}",
-                    plugin.manifest().name,
-                    plugin_kind_label(&plugin),
-                    path.display()
-                );
-                plugins.push(plugin);
-            }
-            Err(e) => {
-                let path_str = path.display().to_string();
-                tracing::warn!("Failed to load WASM plugin {path_str}: {e}");
-                failed.push((path_str, e.to_string()));
-            }
-        }
-    }
+    let (plugins, failed) = load_from(engine_ref.clone(), paths)?;
 
     // `name` is matched against the *filename-derived* plugin name. A plugin
     // whose manifest name differs from its filename stem would be missed here,
@@ -362,7 +314,6 @@ fn plugin_kind_label(p: &WasmPlugin) -> &'static str {
         PluginBindings::Tui(_) => "tui",
         #[cfg(feature = "web-plugins")]
         PluginBindings::Web(_) => "web",
-        PluginBindings::Legacy(_) => "legacy",
     }
 }
 
@@ -492,19 +443,14 @@ fn load_one(
         return Ok(plugin);
     }
 
-    // Probe TUI world (v0.1 hu-tui-plugin).
-    if let Ok(plugin) = try_load_tui(wasm_engine, &component, &work_dir, engine_ref.clone()) {
-        return Ok(plugin);
-    }
-
     // Probe Web world.
     #[cfg(feature = "web-plugins")]
     if let Ok(plugin) = try_load_web(wasm_engine, &component, &work_dir, engine_ref.clone()) {
         return Ok(plugin);
     }
 
-    // Fall back to legacy hu-plugin world (v0.3 compat).
-    try_load_legacy(wasm_engine, &component, &work_dir, engine_ref)
+    // Fall back to the TUI world (hu-tui-plugin).
+    try_load_tui(wasm_engine, &component, &work_dir, engine_ref)
         .with_context(|| format!("loading {}", path.display()))
 }
 
@@ -542,10 +488,9 @@ macro_rules! try_load {
 }
 
 try_load!(try_load_cli, cli_bindgen::HuCliPlugin, Cli);
-try_load!(try_load_tui, tui_bindgen::HuTuiPlugin, Tui);
+try_load!(try_load_tui, HuTuiPlugin, Tui);
 #[cfg(feature = "web-plugins")]
 try_load!(try_load_web, web_bindgen::HuWebPlugin, Web);
-try_load!(try_load_legacy, HuPlugin, Legacy);
 
 fn open_declared_sessions(
     store: &mut Store<PluginState>,
@@ -563,8 +508,12 @@ fn open_declared_sessions(
         config
             .insert_json5("mode", mode_str)
             .map_err(|e| anyhow::anyhow!("session '{name}': set mode: {e}"))?;
+        // Serialize the (untrusted) manifest endpoint through serde_json so any
+        // quotes/brackets are escaped rather than injected into the JSON5 config.
+        let endpoints_json = serde_json::to_string(&[endpoint.as_str()])
+            .map_err(|e| anyhow::anyhow!("session '{name}': encode endpoint: {e}"))?;
         config
-            .insert_json5("connect/endpoints", &format!("[\"{endpoint}\"]"))
+            .insert_json5("connect/endpoints", &endpoints_json)
             .map_err(|e| anyhow::anyhow!("session '{name}': set endpoint: {e}"))?;
         config
             .insert_json5("scouting/multicast/enabled", "false")

@@ -54,10 +54,6 @@ struct Cli {
     #[arg(long, value_enum, default_value = "rmw-zenoh", global = true)]
     backend: Backend,
 
-    /// Deprecated: use `hu stream`. JSON streaming to stdout.
-    #[arg(long, global = true, hide = true)]
-    headless: bool,
-
     /// Output structured JSON logs
     #[arg(long, global = true)]
     json: bool,
@@ -73,10 +69,6 @@ struct Cli {
     /// Topics to echo (subscribe and display messages)
     #[arg(long = "echo", value_name = "TOPIC", global = true)]
     echo_topics: Vec<String>,
-
-    /// Deprecated: use `hu web`. Start the web plugin server (default port 8080).
-    #[arg(long, value_name = "PORT", global = true, hide = true)]
-    web: Option<Option<u16>>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -185,29 +177,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Some(Commands::External(args)) => run_cli_frontend(args, core, &router).await?,
         // Plugin/Router are handled and returned above.
         Some(Commands::Plugin { .. }) | Some(Commands::Router { .. }) => unreachable!(),
-        // Default + the deprecated --export / --web / --headless flags.
+        // Default: bare `hu`, plus the deprecated `--export` flag.
         None => {
             if let Some(path) = cli.export {
                 frontend::launch(frontend::Export { path }, core, &router).await?
-            } else if let Some(port) = cli.web {
-                frontend::launch(
-                    frontend::Web {
-                        port: port.unwrap_or(8080),
-                    },
-                    core,
-                    &router,
-                )
-                .await?
-            } else if cli.headless {
-                frontend::launch(
-                    frontend::Stream {
-                        json: cli.json,
-                        echo: cli.echo_topics,
-                    },
-                    core,
-                    &router,
-                )
-                .await?
             } else {
                 frontend::launch(frontend::Tui, core, &router).await?
             }

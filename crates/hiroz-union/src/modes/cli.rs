@@ -69,9 +69,7 @@ pub async fn run_cli_plugin(
             .await;
     }
 
-    let exit_code = plugin
-        .dispatch_cli_event(CliEvent::Startup(args))
-        .exit_code();
+    let exit_code = plugin.dispatch_cli_event(CliEvent::Startup(args));
     flush_output(plugin);
     if let Some(code) = exit_code {
         return Ok(code);
@@ -91,7 +89,7 @@ pub async fn run_cli_plugin(
     // a Tick.
     if raw_tick_ms == 0 {
         let _ = sigint_rx.await;
-        let interrupt_code = plugin.dispatch_cli_event(CliEvent::Interrupt).exit_code();
+        let interrupt_code = plugin.dispatch_cli_event(CliEvent::Interrupt);
         flush_output(plugin);
         return Ok(interrupt_code.unwrap_or(130));
     }
@@ -101,19 +99,19 @@ pub async fn run_cli_plugin(
 
     loop {
         if sigint_rx.try_recv().is_ok() {
-            let interrupt_code = plugin.dispatch_cli_event(CliEvent::Interrupt).exit_code();
+            let interrupt_code = plugin.dispatch_cli_event(CliEvent::Interrupt);
             flush_output(plugin);
             if let Some(code) = interrupt_code {
                 return Ok(code);
             }
-            let code = plugin.dispatch_cli_event(CliEvent::Tick).exit_code();
+            let code = plugin.dispatch_cli_event(CliEvent::Tick);
             flush_output(plugin);
             return Ok(code.unwrap_or(130));
         }
 
         tokio::time::sleep(tick_interval).await;
 
-        let code = plugin.dispatch_cli_event(CliEvent::Tick).exit_code();
+        let code = plugin.dispatch_cli_event(CliEvent::Tick);
         flush_output(plugin);
         if let Some(c) = code {
             return Ok(c);

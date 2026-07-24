@@ -7,10 +7,11 @@ pub mod transport;
 
 use wasmtime::component::bindgen;
 
-// Legacy / TUI world — used for backward compat and for instantiating hu-plugin
-// (v0.3) components. All Host trait impls on PluginState live here.
+// TUI world — this bindgen also generates the shared `hu::plugin::*` interface
+// modules and their Host traits, which the CLI and web worlds below reuse via
+// `with:` directives. All Host trait impls on PluginState live here.
 bindgen!({
-    world: "hu-plugin",
+    world: "hu-tui-plugin",
     path: "wit/v0.1/hu-plugin.wit",
 });
 
@@ -20,24 +21,6 @@ pub mod cli_bindgen {
     use wasmtime::component::bindgen;
     bindgen!({
         world: "hu-cli-plugin",
-        path: "wit/v0.1/hu-plugin.wit",
-        with: {
-            "hu:plugin/types":         super::hu::plugin::types,
-            "hu:plugin/graph":         super::hu::plugin::graph,
-            "hu:plugin/ros":           super::hu::plugin::ros,
-            "hu:plugin/render":        super::hu::plugin::render,
-            "hu:plugin/raw-transport": super::hu::plugin::raw_transport,
-            "hu:plugin/session":       super::hu::plugin::session,
-        }
-    });
-}
-
-/// TUI-world bindings (new hu-tui-plugin world — same interfaces as legacy
-/// hu-plugin but exports on-event(tui-event) instead of on-event(plugin-event)).
-pub mod tui_bindgen {
-    use wasmtime::component::bindgen;
-    bindgen!({
-        world: "hu-tui-plugin",
         path: "wit/v0.1/hu-plugin.wit",
         with: {
             "hu:plugin/types":         super::hu::plugin::types,
