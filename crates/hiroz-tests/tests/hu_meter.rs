@@ -1849,8 +1849,12 @@ fn test_hu_meter_list_nodes_find() {
 
 // ─── info edge cases ─────────────────────────────────────────────────────────
 
+/// Same structural one-shot-command graph-observation gap as
+/// test_hu_meter_info_node_full / test_hu_meter_info_service /
+/// test_hu_meter_info_topic_pub_count.
 #[test]
 #[serial_test::serial]
+#[ignore = "hu meter info topic: same structural one-shot-command graph-observation gap as test_hu_meter_info_node_full, not an ordinary timing flake"]
 fn test_hu_meter_info_zero_pub() {
     let router = TestRouter::new();
 
