@@ -2699,8 +2699,12 @@ fn test_hu_plugin_template_runtime_ticks() {
         .spawn()
         .expect("failed to spawn hu my-plugin (template)");
 
-    // Allow a couple of tick intervals (tick_ms = 1000) to elapse.
-    thread::sleep(Duration::from_millis(2600));
+    // Allow a couple of tick intervals (tick_ms = 1000) to elapse, plus
+    // headroom for the pre-Startup graph-settle wait in
+    // modes/cli.rs::run_cli_plugin (1s) that delays the tick loop's first
+    // iteration -- 2600ms left too little margin for even one flushed tick
+    // once that settle wait is accounted for.
+    thread::sleep(Duration::from_millis(5000));
     let _ = child.kill();
     let out = child
         .wait_with_output()
