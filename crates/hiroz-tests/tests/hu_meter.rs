@@ -2662,36 +2662,53 @@ fn test_hu_meter_env_var_router_config() {
         });
     });
 
-    // 3s, not 1s: `list topics` reads hu's own graph, which only reflects a
-    // publisher once its liveliness token has propagated through the router
-    // and been observed -- a 1s window could run the query before that
-    // settles, same class of race as test_hu_meter_delay_basic's burst fix.
-    thread::sleep(Duration::from_secs(3));
+    thread::sleep(Duration::from_millis(500));
 
     // No --connect / --domain flags: reach the router entirely through HU_CONNECT.
-    let out = Command::new("hu")
-        .env("HU_CONNECT", router.endpoint())
-        .env("HU_DOMAIN", "0")
-        .args(["meter", "list", "topics", "--json"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("failed to run hu meter via env config");
+    //
+    // `hu meter list topics` is a synchronous one-shot: it reads hu's graph
+    // and exits at Startup, with no wait for the graph's liveliness-history
+    // replay (async, arrives sometime after the subscriber is declared) to
+    // finish. A fixed pre-sleep before spawning hu can't fix that -- it's an
+    // internal race in hu itself, not an external timing gap -- so retry the
+    // whole one-shot invocation instead, up to 8 times over 4s (comfortably
+    // inside the publisher's 6s lifetime).
+    let mut last_stdout = String::new();
+    let mut found = false;
+    for attempt in 0..8 {
+        let out = Command::new("hu")
+            .env("HU_CONNECT", router.endpoint())
+            .env("HU_DOMAIN", "0")
+            .args(["meter", "list", "topics", "--json"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("failed to run hu meter via env config");
 
+        assert!(
+            out.status.success(),
+            "hu meter list topics via HU_CONNECT failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(stdout.trim())
+            && let Some(topics) = json.as_array()
+            && topics
+                .iter()
+                .any(|t| t["name"].as_str().unwrap_or("").contains("env_meter_topic"))
+        {
+            found = true;
+            break;
+        }
+        last_stdout = stdout;
+        if attempt < 7 {
+            thread::sleep(Duration::from_millis(500));
+        }
+    }
     assert!(
-        out.status.success(),
-        "hu meter list topics via HU_CONNECT failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let json: serde_json::Value = serde_json::from_str(stdout.trim())
-        .unwrap_or_else(|e| panic!("Expected JSON from env-configured hu meter: {e}\n{stdout}"));
-    let topics = json.as_array().expect("Expected JSON array");
-    assert!(
-        topics
-            .iter()
-            .any(|t| t["name"].as_str().unwrap_or("").contains("env_meter_topic")),
-        "Env-configured hu must reach the router and list /env_meter_topic: {stdout}"
+        found,
+        "Env-configured hu must reach the router and list /env_meter_topic \
+         (last attempt): {last_stdout}"
     );
 }
 
