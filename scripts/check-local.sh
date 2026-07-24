@@ -63,11 +63,11 @@ fi
 # 6. Build all examples
 run_check "Examples build (cargo build --examples)" "cargo build --examples"
 
-# 7. hiroz-console clippy (if nushell available)
+# 7. hiroz-union (hu) clippy (if nushell available)
 if command -v nu &> /dev/null; then
-    run_check "Console clippy (check-console)" "nu scripts/test-pure-rust.nu check-console"
+    run_check "hu clippy (check-hu)" "nu scripts/test-pure-rust.nu check-hu"
 else
-    echo -e "${YELLOW}⚠${NC} Skipping console clippy (nushell not installed)"
+    echo -e "${YELLOW}⚠${NC} Skipping hu clippy (nushell not installed)"
     echo ""
 fi
 
