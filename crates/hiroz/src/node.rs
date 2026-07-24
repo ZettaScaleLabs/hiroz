@@ -1181,7 +1181,10 @@ impl ZNode {
             match found {
                 Some(node) => break node,
                 None if std::time::Instant::now() < deadline => {
-                    tokio::time::sleep(poll_interval).await;
+                    // Clamp the final sleep to the remaining time so the loop
+                    // never overshoots the deadline by up to poll_interval.
+                    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                    tokio::time::sleep(poll_interval.min(remaining)).await;
                 }
                 None if saw_endpoint => {
                     // A server exists but exposes no node identity, so we can't
