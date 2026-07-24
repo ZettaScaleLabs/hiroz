@@ -24,13 +24,21 @@ pub async fn run_cli_plugin(
     // The graph's liveliness subscriber (declared during CoreEngine::new)
     // replays existing tokens asynchronously via zenoh's own history query --
     // that reply hasn't necessarily landed yet the instant this function
-    // resumes. One-shot commands (list/info) read the graph exactly once, at
-    // Startup, with no tick loop to catch up on a later update; give the
-    // replay a window to land first so they don't systematically see an
-    // empty/incomplete graph. 300ms wasn't enough under CI load (still
+    // resumes. One-shot commands (list/info, tick_ms == 0) read the graph
+    // exactly once, at Startup, with no tick loop to catch up on a later
+    // update, so they need the replay to land first or they systematically see
+    // an empty/incomplete graph. 300ms wasn't enough under CI load (still
     // observed "node not found" for entities published well before hu even
     // started); widened to 1s.
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    //
+    // Tick plugins (tick_ms > 0), by contrast, re-read the graph on every Tick,
+    // so an early first read self-heals — the settle wait is pure dead time for
+    // them. Worse, on a constrained CI runner this fixed 1s (stacked on the 1s
+    // first-tick interval) consumed the whole `hu my-plugin` test window before
+    // a single tick could fire. So gate it on one-shot plugins only.
+    if plugin.manifest().tick_ms == 0 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
 
     let exit_code = plugin
         .dispatch_cli_event(CliEvent::Startup(args))
