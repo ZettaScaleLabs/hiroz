@@ -83,6 +83,26 @@ pub(crate) struct ServiceClientData {
     pub name: String,
 }
 
+// Abort the background tokio task when its owning handle drops. An `AbortHandle`
+// does *not* abort on drop by itself, so without these impls the spawned loops
+// leak across plugin reload/unload (each holds a session clone and otherwise
+// runs until the process exits).
+macro_rules! abort_on_drop {
+    ($ty:ty) => {
+        impl Drop for $ty {
+            fn drop(&mut self) {
+                self._abort.abort();
+            }
+        }
+    };
+}
+abort_on_drop!(SubscriptionData);
+abort_on_drop!(RawSubData);
+abort_on_drop!(LivelinessTokenData);
+abort_on_drop!(LivelinessSubData);
+abort_on_drop!(QueryableData);
+abort_on_drop!(RateTrackerData);
+
 // ─── Per-plugin state ────────────────────────────────────────────────────────
 
 pub struct PluginState {
@@ -154,7 +174,11 @@ impl PluginState {
             };
             while let Ok(sample) = sub.recv_async().await {
                 let size = sample.payload().to_bytes().len();
-                let _ = tx.send((Instant::now(), size));
+                // Stop once the tracker (receiver) is gone — otherwise this
+                // loop spins forever after the RateTrackerData is dropped.
+                if tx.send((Instant::now(), size)).is_err() {
+                    break;
+                }
             }
         });
         self.rate_trackers.insert(
