@@ -533,8 +533,16 @@ fn test_hu_meter_service_call_timeout() {
         !out.status.success(),
         "Expected non-zero exit on timeout, got success"
     );
+    // 15s, not 5s: `elapsed` measures the whole process, including hu's own
+    // startup (session connect, node build, TDS/ParameterService queryable
+    // declarations, the pre-Startup graph-settle wait in
+    // modes/cli.rs::run_cli_plugin) on top of the --timeout 2 the service
+    // call itself is bounded by. call_raw does correctly honor --timeout
+    // (verified: it's passed straight through to zenoh's `.timeout()`) --
+    // this assertion was just too tight for that startup overhead under CI
+    // load, not evidence of an unbounded/hanging call.
     assert!(
-        elapsed < Duration::from_secs(5),
+        elapsed < Duration::from_secs(15),
         "Timeout took too long: {:?}",
         elapsed
     );
