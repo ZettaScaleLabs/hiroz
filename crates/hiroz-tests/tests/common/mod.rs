@@ -1,4 +1,6 @@
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -131,7 +133,22 @@ impl TestRouter {
 
             match zenoh::open(config).wait() {
                 Ok(session) => {
-                    thread::sleep(Duration::from_millis(500));
+                    // Poll until the router's TCP listener accepts a connection,
+                    // up to a ~2s budget (40 * 50ms). This replaces a blind fixed
+                    // sleep and usually proceeds much sooner; if the budget
+                    // elapses without a successful connect, proceed anyway
+                    // (best-effort).
+                    for _ in 0..40 {
+                        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(50));
+                    }
+                    // TCP-accept only proves the listener is bound; the zenoh
+                    // router may still be finishing its routing/liveliness init.
+                    // A short floor (far below the old blind 500ms) covers that
+                    // window without paying the full fixed cost on every test.
+                    thread::sleep(Duration::from_millis(150));
                     println!("Zenoh router ready on {}", endpoint);
                     return Self {
                         port,
@@ -397,4 +414,74 @@ pub fn spawn_python_service_client(
         .expect("Failed to spawn Python service client");
 
     ProcessGuard::new(child, "python_service_client")
+}
+
+/// A background producer kept alive for exactly the lifetime of this guard.
+///
+/// On drop it flips a stop flag and joins the producer thread, which drops all
+/// held Zenoh entities (and their session) cleanly. Prefer this over a detached
+/// thread that sleeps a fixed duration: too short a sleep lets the entity vanish
+/// before `hu` reads it; too long leaves the producer's client session
+/// reconnect-spinning after the test's `TestRouter` drops, stealing CPU from
+/// later serial tests. Here the hold is exactly the test's scope — no guessed
+/// duration.
+#[allow(dead_code)]
+#[must_use = "binding must be kept alive (e.g. `let _producer = ...`); dropping it immediately tears the producer down"]
+pub struct ProducerGuard {
+    stop: Arc<AtomicBool>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl Drop for ProducerGuard {
+    fn drop(&mut self) {
+        // Signal the producer to stop holding; it then exits its loop and drops
+        // its entities + Zenoh session on its own thread. We deliberately do NOT
+        // join: dropping a Zenoh session can block (async close during Tokio
+        // runtime teardown), and blocking the test thread on that risks a hang.
+        // Detaching is enough for the goal — the producer stops its active work
+        // immediately (no lingering 40s hold, no reconnect-spin), and the
+        // teardown completes in the background (or is reaped at process exit).
+        self.stop.store(true, Ordering::Relaxed);
+        // Drop the JoinHandle without joining, detaching the thread.
+        self.handle.take();
+    }
+}
+
+/// Spawn a producer running `body` on a fresh Tokio runtime. `body` receives a
+/// stop flag it must poll: hold entities alive with
+/// `while !stop.load(Ordering::Relaxed) { tokio::time::sleep(..).await }`, or
+/// check it inside a service loop. The producer exits (dropping its entities)
+/// when the returned guard drops. `body` is `async` — it awaits rather than
+/// blocks — so any tasks it spawns (e.g. an action-server handler) keep running
+/// while it holds.
+#[allow(dead_code)]
+pub fn spawn_producer<Fut>(
+    body: impl FnOnce(Arc<AtomicBool>) -> Fut + Send + 'static,
+) -> ProducerGuard
+where
+    Fut: std::future::Future<Output = ()>,
+{
+    let stop = Arc::new(AtomicBool::new(false));
+    let s = stop.clone();
+    let handle = thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(body(s));
+    });
+    ProducerGuard {
+        stop,
+        handle: Some(handle),
+    }
+}
+
+/// Convenience for a passive producer: build entities up front, then hold them
+/// alive until the guard drops. `build` runs inside the Tokio runtime.
+#[allow(dead_code)]
+pub fn spawn_holder<T: Send + 'static>(
+    build: impl FnOnce() -> T + Send + 'static,
+) -> ProducerGuard {
+    spawn_producer(|stop| async move {
+        let _held = build();
+        while !stop.load(Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
 }

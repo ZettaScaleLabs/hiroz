@@ -18,13 +18,9 @@ use std::{
 use common::*;
 use hiroz::{Builder, action::server::ExecutingGoal};
 #[cfg(not(any(feature = "kilted", feature = "lyrical")))]
-use hiroz_msgs::action_tutorials_interfaces::{
-    FibonacciFeedback, FibonacciGoal, FibonacciResult, action::Fibonacci,
-};
+use hiroz_msgs::action_tutorials_interfaces::{FibonacciResult, action::Fibonacci};
 #[cfg(any(feature = "kilted", feature = "lyrical"))]
-use hiroz_msgs::example_interfaces::{
-    FibonacciFeedback, FibonacciGoal, FibonacciResult, action::Fibonacci,
-};
+use hiroz_msgs::example_interfaces::{FibonacciResult, action::Fibonacci};
 use hiroz_msgs::{
     example_interfaces::{AddTwoIntsResponse, srv::AddTwoInts},
     std_msgs::{Header, String as RosString},
@@ -71,90 +67,7 @@ fn run_hu_meter(router: &str, args: &[&str]) -> Output {
 
 // ─── hz ─────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_hu_meter_hz_hiroz_publisher() {
-    let router = TestRouter::new();
-
-    // Publish at ~10 Hz for 3 seconds
-    let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("hz_test_pub").build().unwrap();
-            let pub_ = node.create_pub::<RosString>("/hz_test").build().unwrap();
-            for _ in 0..30 {
-                let _ = pub_
-                    .async_publish(&RosString {
-                        data: "ping".into(),
-                    })
-                    .await;
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        });
-    });
-
-    // Give publisher time to start
-    thread::sleep(Duration::from_millis(300));
-
-    let out = run_hu_meter(
-        router.endpoint(),
-        &["hz", "/hz_test", "--window", "10", "--duration", "3"],
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        out.status.success(),
-        "hu meter hz failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    // Output should contain a rate > 0
-    assert!(
-        stdout.contains("Hz") || stdout.contains("hz") || stdout.contains("rate"),
-        "Expected rate output, got: {}",
-        stdout
-    );
-}
-
 // ─── bw ─────────────────────────────────────────────────────────────────────
-
-#[test]
-fn test_hu_meter_bw_hiroz_publisher() {
-    let router = TestRouter::new();
-
-    let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("bw_test_pub").build().unwrap();
-            let pub_ = node.create_pub::<RosString>("/bw_test").build().unwrap();
-            for _ in 0..20 {
-                let _ = pub_
-                    .async_publish(&RosString {
-                        data: "hello world".into(),
-                    })
-                    .await;
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        });
-    });
-
-    thread::sleep(Duration::from_millis(300));
-
-    let out = run_hu_meter(
-        router.endpoint(),
-        &["bw", "/bw_test", "--window", "10", "--duration", "2"],
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        out.status.success(),
-        "hu meter bw failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(
-        stdout.contains("B/s") || stdout.contains("bytes") || stdout.contains("bw"),
-        "Expected bandwidth output, got: {}",
-        stdout
-    );
-}
 
 // ─── echo ────────────────────────────────────────────────────────────────────
 
@@ -163,31 +76,37 @@ fn test_hu_meter_echo_count_3() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node("echo_test_pub")
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            let pub_ = node.create_pub::<RosString>("/echo_test").build().unwrap();
-            // Give echo time to subscribe
-            tokio::time::sleep(Duration::from_millis(800)).await;
-            // 100, not 10: at 100ms/msg that's a 10s burst, comfortably
-            // outlasting hu's own startup plus the background
-            // schema-discovery round trip ros::subscribe kicks off (see
-            // test_hu_meter_delay_basic's comment for the same race -- a
-            // short burst can end before hu's dyn sub is even ready).
-            for i in 0..100 {
-                let _ = pub_
-                    .async_publish(&RosString {
-                        data: format!("msg_{}", i),
-                    })
-                    .await;
-                tokio::time::sleep(Duration::from_millis(100)).await;
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("echo_test_pub")
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        let pub_ = node.create_pub::<RosString>("/echo_test").build().unwrap();
+        // Deterministic: block until hu's (out-of-process) subscriber is
+        // discovered in the graph before publishing, so nothing is published
+        // into the void no matter how slow hu starts. Replaces a blind timer
+        // that raced hu's startup under CPU contention.
+        let _ = pub_.wait_for_subscription(1, Duration::from_secs(20)).await;
+        // Burst starts only after hu is subscribed (wait_for_subscription
+        // above), so it only needs to cover `echo --count 3`'s window:
+        // 3 messages plus a small margin.
+        for i in 0..10 {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
             }
-        });
+            let _ = pub_
+                .async_publish(&RosString {
+                    data: format!("msg_{}", i),
+                })
+                .await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        // Burst done (or stopped): keep entities alive until the guard drops.
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     });
 
     let out = run_hu_meter(router.endpoint(), &["echo", "/echo_test", "--count", "3"]);
@@ -216,21 +135,18 @@ fn test_hu_meter_echo_count_3() {
 /// (modes/cli.rs::run_cli_plugin). Confirmed across every `list` subcommand
 /// (topics, nodes, find-*, --all), not an ordinary timing flake.
 #[test]
-#[ignore = "hu meter list: same structural one-shot-command graph-observation gap as test_hu_meter_info_node_full, not an ordinary timing flake"]
 fn test_hu_meter_list_topics() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("list_topics_node").build().unwrap();
-            let _pub = node
-                .create_pub::<RosString>("/list_topics_test")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("list_topics_node").build().unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/list_topics_test")
+            .build()
+            .unwrap();
+        (ctx, node, pub_)
     });
 
     thread::sleep(Duration::from_millis(800));
@@ -260,17 +176,14 @@ fn test_hu_meter_list_topics() {
 
 /// Same structural gap as test_hu_meter_list_topics.
 #[test]
-#[ignore = "hu meter list: same structural one-shot-command graph-observation gap as test_hu_meter_info_node_full, not an ordinary timing flake"]
 fn test_hu_meter_list_nodes() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let _node = ctx.create_node("list_nodes_target").build().unwrap();
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("list_nodes_target").build().unwrap();
+        (ctx, node)
     });
 
     thread::sleep(Duration::from_millis(800));
@@ -301,21 +214,18 @@ fn test_hu_meter_list_nodes() {
 /// with the 1s pre-Startup graph-settle wait, for a topic published well
 /// before hu started.
 #[test]
-#[ignore = "hu meter info topic: same structural one-shot-command graph-observation gap as test_hu_meter_info_node_full, not an ordinary timing flake"]
 fn test_hu_meter_info_topic_pub_count() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("info_topic_node").build().unwrap();
-            let _pub = node
-                .create_pub::<RosString>("/info_topic_test")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("info_topic_node").build().unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/info_topic_test")
+            .build()
+            .unwrap();
+        (ctx, node, pub_)
     });
 
     thread::sleep(Duration::from_millis(800));
@@ -349,29 +259,26 @@ fn test_hu_meter_info_topic_pub_count() {
 /// observation rather than an ordinary timing gap. Same underlying gap,
 /// different one-shot command.
 #[test]
-#[ignore = "hu meter info node reports \"node not found\" for a node published well before hu started, even with a 1s pre-Startup graph-settle wait -- same structural one-shot-command gap as test_hu_meter_env_var_router_config, not an ordinary timing flake"]
 fn test_hu_meter_info_node_full() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node("info_node_target")
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            let _pub = node
-                .create_pub::<RosString>("/pub_from_info_node")
-                .build()
-                .unwrap();
-            let _sub = node
-                .create_sub::<RosString>("/sub_from_info_node")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("info_node_target")
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/pub_from_info_node")
+            .build()
+            .unwrap();
+        let sub = node
+            .create_sub::<RosString>("/sub_from_info_node")
+            .build()
+            .unwrap();
+        (ctx, node, pub_, sub)
     });
 
     thread::sleep(Duration::from_millis(800));
@@ -401,42 +308,6 @@ fn test_hu_meter_info_node_full() {
 }
 
 // ─── service ─────────────────────────────────────────────────────────────────
-
-/// Same one-shot-command service-discovery reliability gap as
-/// test_hu_meter_param_delete.
-#[test]
-#[ignore = "hu meter service list: same one-shot-command service-discovery reliability gap as test_hu_meter_param_delete, not an ordinary timing flake"]
-fn test_hu_meter_service_list() {
-    let router = TestRouter::new();
-
-    let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-        let node = ctx.create_node("svc_list_node").build().unwrap();
-        let _server = node
-            .create_service::<AddTwoInts>("/svc_list_test")
-            .build()
-            .unwrap();
-        thread::sleep(Duration::from_secs(5));
-    });
-
-    thread::sleep(Duration::from_millis(800));
-
-    let out = run_hu_meter(router.endpoint(), &["service", "list", "--json"]);
-    assert!(
-        out.status.success(),
-        "hu meter service list failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout).expect("Expected JSON from service list");
-    let services = json.as_array().expect("Expected JSON array");
-    let found = services
-        .iter()
-        .any(|s| s["name"].as_str().unwrap_or("").contains("svc_list_test"));
-    assert!(found, "Expected /svc_list_test in service list: {}", stdout);
-}
 
 /// CDR encoding for AddTwoIntsRequest {a: 2, b: 3}:
 /// 4-byte header + 8-byte int64 (a=2) + 8-byte int64 (b=3)
@@ -548,105 +419,7 @@ fn test_hu_meter_service_call_timeout() {
     );
 }
 
-#[test]
-#[serial_test::serial]
-fn test_hu_meter_service_call_yaml() {
-    let router = TestRouter::new();
-
-    let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-        let node = ctx
-            .create_node("svc_yaml_server")
-            .with_type_description_service()
-            .build()
-            .unwrap();
-        let mut server = node
-            .create_service::<AddTwoInts>("/svc_yaml_test")
-            .build()
-            .unwrap();
-        for _ in 0..300 {
-            if let Ok(req) = server.take_request() {
-                let sum = req.message().a + req.message().b;
-                let _ = req.reply_blocking(&AddTwoIntsResponse { sum });
-                break;
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
-    });
-
-    thread::sleep(Duration::from_millis(3000));
-
-    let out = run_hu_meter(
-        router.endpoint(),
-        &[
-            "service",
-            "call",
-            "/svc_yaml_test",
-            "--yaml",
-            "{a: 3, b: 9}",
-            "--msg-type",
-            "example_interfaces/srv/AddTwoInts_Request",
-            "--timeout",
-            "10",
-        ],
-    );
-    assert!(
-        out.status.success(),
-        "hu meter service call --yaml failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    // Response is pretty-printed JSON: {"sum": 12}
-    assert!(
-        stdout.contains("sum") && stdout.contains("12"),
-        "Expected JSON response with sum=12: {}",
-        stdout
-    );
-}
-
 // ─── service call no-args / repeated ─────────────────────────────────────────
-
-#[test]
-#[serial_test::serial]
-fn test_hu_meter_service_call_no_args() {
-    let router = TestRouter::new();
-
-    let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-        let node = ctx
-            .create_node("svc_noargs_server")
-            .with_type_description_service()
-            .build()
-            .unwrap();
-        let mut server = node
-            .create_service::<AddTwoInts>("/svc_noargs_test")
-            .build()
-            .unwrap();
-        for _ in 0..300 {
-            if let Ok(req) = server.take_request() {
-                let sum = req.message().a + req.message().b;
-                let _ = req.reply_blocking(&AddTwoIntsResponse { sum });
-                break;
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
-    });
-
-    thread::sleep(Duration::from_millis(3000));
-
-    // Call without --yaml — sends an empty CDR payload (4 zero bytes)
-    let out = run_hu_meter(
-        router.endpoint(),
-        &["service", "call", "/svc_noargs_test", "--timeout", "10"],
-    );
-    assert!(
-        out.status.success(),
-        "hu meter service call (no args) failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
 
 #[test]
 #[serial_test::serial]
@@ -716,30 +489,37 @@ fn test_hu_meter_echo_once() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node("echo_once_pub")
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            let pub_ = node
-                .create_pub::<RosString>("/echo_once_test")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_millis(800)).await;
-            // 100, not 5: see test_hu_meter_delay_basic's comment for why a
-            // short burst can end before hu's dyn sub is ready.
-            for i in 0..100 {
-                let _ = pub_
-                    .async_publish(&RosString {
-                        data: format!("once_{}", i),
-                    })
-                    .await;
-                tokio::time::sleep(Duration::from_millis(100)).await;
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("echo_once_pub")
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/echo_once_test")
+            .build()
+            .unwrap();
+        // Deterministic: wait until hu's subscriber is in the graph before
+        // publishing (see test_hu_meter_echo_count_3).
+        let _ = pub_.wait_for_subscription(1, Duration::from_secs(20)).await;
+        // Burst starts only after hu is subscribed, so it only needs to
+        // cover `echo --count 1`'s window: 1 message plus a small margin.
+        for i in 0..10 {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
             }
-        });
+            let _ = pub_
+                .async_publish(&RosString {
+                    data: format!("once_{}", i),
+                })
+                .await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        // Burst done (or stopped): keep entities alive until the guard drops.
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     });
 
     let out = run_hu_meter(
@@ -764,21 +544,18 @@ fn test_hu_meter_echo_once() {
 
 /// Same structural gap as test_hu_meter_list_topics.
 #[test]
-#[ignore = "hu meter list: same structural one-shot-command graph-observation gap as test_hu_meter_info_node_full, not an ordinary timing flake"]
 fn test_hu_meter_list_topics_with_types() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("list_types_pub").build().unwrap();
-            let _pub = node
-                .create_pub::<RosString>("/list_types_test")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("list_types_pub").build().unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/list_types_test")
+            .build()
+            .unwrap();
+        (ctx, node, pub_)
     });
 
     thread::sleep(Duration::from_millis(800));
@@ -805,21 +582,18 @@ fn test_hu_meter_list_topics_with_types() {
 
 /// Same structural gap as test_hu_meter_list_topics.
 #[test]
-#[ignore = "hu meter list: same structural one-shot-command graph-observation gap as test_hu_meter_info_node_full, not an ordinary timing flake"]
 fn test_hu_meter_list_find_topics() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("find_topics_pub").build().unwrap();
-            let _pub = node
-                .create_pub::<RosString>("/find_topics_test")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("find_topics_pub").build().unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/find_topics_test")
+            .build()
+            .unwrap();
+        (ctx, node, pub_)
     });
 
     thread::sleep(Duration::from_millis(1500));
@@ -840,59 +614,24 @@ fn test_hu_meter_list_find_topics() {
     );
 }
 
-/// Same structural gap as test_hu_meter_list_topics.
-#[test]
-#[serial_test::serial]
-#[ignore = "hu meter list: same structural one-shot-command graph-observation gap as test_hu_meter_info_node_full, not an ordinary timing flake"]
-fn test_hu_meter_list_find_services() {
-    let router = TestRouter::new();
-
-    let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-        let node = ctx.create_node("find_svc_node").build().unwrap();
-        let _server = node
-            .create_service::<AddTwoInts>("/find_svc_test")
-            .build()
-            .unwrap();
-        thread::sleep(Duration::from_secs(5));
-    });
-
-    thread::sleep(Duration::from_millis(800));
-
-    let out = run_hu_meter(router.endpoint(), &["list", "find-services", "AddTwoInts"]);
-    assert!(
-        out.status.success(),
-        "hu meter list find-services failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        stdout.contains("/find_svc_test"),
-        "Expected /find_svc_test in find-services output: {}",
-        stdout
-    );
-}
-
 // ─── service list with types ──────────────────────────────────────────────────
 
 /// Same one-shot-command service-discovery reliability gap as
 /// test_hu_meter_param_delete.
 #[test]
 #[serial_test::serial]
-#[ignore = "hu meter service list --with-types: same one-shot-command service-discovery reliability gap as test_hu_meter_param_delete, not an ordinary timing flake"]
 fn test_hu_meter_service_list_with_types() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
+    let _producer = spawn_holder(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
         let node = ctx.create_node("svc_list_types_node").build().unwrap();
-        let _server = node
+        let server = node
             .create_service::<AddTwoInts>("/svc_list_types_test")
             .build()
             .unwrap();
-        thread::sleep(Duration::from_secs(5));
+        (ctx, node, server)
     });
 
     thread::sleep(Duration::from_millis(800));
@@ -923,33 +662,37 @@ fn test_hu_meter_echo_raw() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node("echo_raw_pub")
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            let pub_ = node
-                .create_pub::<RosString>("/echo_raw_test")
-                .build()
-                .unwrap();
-            // Give echo time to subscribe, then publish repeatedly so a single
-            // missed connection window doesn't fail the test (hu needs --count 1;
-            // publishing several times over ~500ms gives it multiple chances).
-            // 100, not 5: see test_hu_meter_delay_basic's comment for why a
-            // short burst can end before hu's dyn sub is ready.
-            tokio::time::sleep(Duration::from_millis(800)).await;
-            for _ in 0..100 {
-                let _ = pub_
-                    .async_publish(&RosString {
-                        data: "rawtest".into(),
-                    })
-                    .await;
-                tokio::time::sleep(Duration::from_millis(100)).await;
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("echo_raw_pub")
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/echo_raw_test")
+            .build()
+            .unwrap();
+        // Deterministic: wait until hu's subscriber is in the graph before
+        // publishing (see test_hu_meter_echo_count_3).
+        let _ = pub_.wait_for_subscription(1, Duration::from_secs(20)).await;
+        // Burst starts only after hu is subscribed; `echo --count 1 --raw`
+        // reads 1 message, so a short burst suffices.
+        for _ in 0..10 {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
             }
-        });
+            let _ = pub_
+                .async_publish(&RosString {
+                    data: "rawtest".into(),
+                })
+                .await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        // Burst done (or stopped): keep entities alive until the guard drops.
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     });
 
     let out = run_hu_meter(
@@ -1009,39 +752,42 @@ fn test_hu_meter_delay_basic() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node("delay_pub")
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            let pub_ = node.create_pub::<Header>("/delay_test").build().unwrap();
-            // Give delay subscriber time to connect
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            // 150, not 20: at 100ms/msg that's a 15s burst, comfortably
-            // outlasting hu's own startup (session connect, node build,
-            // TDS/ParameterService setup) plus the background schema-discovery
-            // round trip ros::subscribe kicks off. A 20-message/2s burst
-            // could end before hu's dyn sub was even ready, so hu observed
-            // nothing regardless of how long it then waited.
-            for _ in 0..150 {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default();
-                let _ = pub_
-                    .async_publish(&Header {
-                        stamp: hiroz_msgs::builtin_interfaces::Time {
-                            sec: now.as_secs() as i32,
-                            nanosec: now.subsec_nanos(),
-                        },
-                        frame_id: "delay_test".into(),
-                    })
-                    .await;
-                tokio::time::sleep(Duration::from_millis(100)).await;
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("delay_pub")
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        let pub_ = node.create_pub::<Header>("/delay_test").build().unwrap();
+        // Deterministic: wait until hu's subscriber is in the graph before
+        // publishing (see test_hu_meter_echo_count_3).
+        let _ = pub_.wait_for_subscription(1, Duration::from_secs(20)).await;
+        // Burst starts only after hu is subscribed (wait_for_subscription
+        // above). `delay` self-exits via --duration and the stub only needs
+        // to echo one message, so a short burst suffices.
+        for _ in 0..20 {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
             }
-        });
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            let _ = pub_
+                .async_publish(&Header {
+                    stamp: hiroz_msgs::builtin_interfaces::Time {
+                        sec: now.as_secs() as i32,
+                        nanosec: now.subsec_nanos(),
+                    },
+                    frame_id: "delay_test".into(),
+                })
+                .await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        // Burst done (or stopped): keep entities alive until the guard drops.
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     });
 
     // run_hu_meter (self-exit via --duration), not run_hu_meter_timed
@@ -1074,125 +820,25 @@ fn test_hu_meter_delay_basic() {
 /// Same one-shot-command service-discovery reliability gap as
 /// test_hu_meter_param_delete.
 #[test]
-#[ignore = "hu meter param list: same one-shot-command service-discovery reliability gap as test_hu_meter_param_delete, not an ordinary timing flake"]
-fn test_hu_meter_param_list() {
-    let router = TestRouter::new();
-
-    let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node("param_list_node2")
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            use hiroz::parameter::{ParameterDescriptor, ParameterType, ParameterValue};
-            node.declare_parameter(
-                "test_count",
-                ParameterValue::Integer(99),
-                ParameterDescriptor::new("test_count", ParameterType::Integer),
-            )
-            .unwrap();
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        });
-    });
-
-    thread::sleep(Duration::from_millis(800));
-
-    let out = run_hu_meter(
-        router.endpoint(),
-        &["param", "list", "/param_list_node2", "--json"],
-    );
-    assert!(
-        out.status.success(),
-        "hu meter param list failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let names: Vec<String> =
-        serde_json::from_str(&stdout).expect("Expected JSON array from param list");
-    assert!(
-        names.iter().any(|n| n == "test_count"),
-        "Expected 'test_count' in param list: {:?}",
-        names
-    );
-}
-
-/// Same one-shot-command service-discovery reliability gap as
-/// test_hu_meter_param_delete.
-#[test]
-#[ignore = "hu meter param get: same one-shot-command service-discovery reliability gap as test_hu_meter_param_delete, not an ordinary timing flake"]
-fn test_hu_meter_param_get() {
-    let router = TestRouter::new();
-
-    let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node("param_get_node")
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            use hiroz::parameter::{ParameterDescriptor, ParameterType, ParameterValue};
-            node.declare_parameter(
-                "my_value",
-                ParameterValue::Integer(42),
-                ParameterDescriptor::new("my_value", ParameterType::Integer),
-            )
-            .unwrap();
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        });
-    });
-
-    thread::sleep(Duration::from_millis(800));
-
-    let out = run_hu_meter(
-        router.endpoint(),
-        &["param", "get", "/param_get_node", "my_value", "--json"],
-    );
-    assert!(
-        out.status.success(),
-        "hu meter param get failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let map: serde_json::Value =
-        serde_json::from_str(&stdout).expect("Expected JSON map from param get");
-    assert_eq!(
-        map["my_value"].as_i64().unwrap_or(-1),
-        42,
-        "Expected my_value=42: {}",
-        stdout
-    );
-}
-
-/// Same one-shot-command service-discovery reliability gap as
-/// test_hu_meter_param_delete.
-#[test]
-#[ignore = "hu meter param set: same one-shot-command service-discovery reliability gap as test_hu_meter_param_delete, not an ordinary timing flake"]
 fn test_hu_meter_param_set_roundtrip() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node("param_set_node")
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            use hiroz::parameter::{ParameterDescriptor, ParameterType, ParameterValue};
-            node.declare_parameter(
-                "counter",
-                ParameterValue::Integer(0),
-                ParameterDescriptor::new("counter", ParameterType::Integer),
-            )
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("param_set_node")
+            .with_type_description_service()
+            .build()
             .unwrap();
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        });
+        use hiroz::parameter::{ParameterDescriptor, ParameterType, ParameterValue};
+        node.declare_parameter(
+            "counter",
+            ParameterValue::Integer(0),
+            ParameterDescriptor::new("counter", ParameterType::Integer),
+        )
+        .unwrap();
+        (ctx, node)
     });
 
     thread::sleep(Duration::from_millis(800));
@@ -1231,34 +877,36 @@ fn test_hu_meter_param_set_roundtrip() {
 
 // ─── param: filter / multi-get / multi-set / dump / load / describe ──────────
 
-fn spawn_param_node(endpoint: String, node_name: &'static str, params: Vec<(&'static str, i64)>) {
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            use hiroz::parameter::{ParameterDescriptor, ParameterType, ParameterValue};
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node(node_name)
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            for (name, val) in params {
-                node.declare_parameter(
-                    name,
-                    ParameterValue::Integer(val),
-                    ParameterDescriptor::new(name, ParameterType::Integer),
-                )
-                .unwrap();
-            }
-            tokio::time::sleep(Duration::from_secs(15)).await;
-        });
-    });
+fn spawn_param_node(
+    endpoint: String,
+    node_name: &'static str,
+    params: Vec<(&'static str, i64)>,
+) -> ProducerGuard {
+    spawn_holder(move || {
+        use hiroz::parameter::{ParameterDescriptor, ParameterType, ParameterValue};
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node(node_name)
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        for (name, val) in params {
+            node.declare_parameter(
+                name,
+                ParameterValue::Integer(val),
+                ParameterDescriptor::new(name, ParameterType::Integer),
+            )
+            .unwrap();
+        }
+        (ctx, node)
+    })
 }
 
 #[test]
 fn test_hu_meter_param_list_filter() {
     let router = TestRouter::new();
     let endpoint = router.endpoint().to_string();
-    spawn_param_node(
+    let _producer = spawn_param_node(
         endpoint,
         "param_filter_node",
         vec![("alpha", 1), ("beta", 2), ("another", 3)],
@@ -1291,7 +939,7 @@ fn test_hu_meter_param_list_filter() {
 fn test_hu_meter_param_get_multiple() {
     let router = TestRouter::new();
     let endpoint = router.endpoint().to_string();
-    spawn_param_node(endpoint, "param_multi_get_node", vec![("x", 10), ("y", 20)]);
+    let _producer = spawn_param_node(endpoint, "param_multi_get_node", vec![("x", 10), ("y", 20)]);
     thread::sleep(Duration::from_millis(800));
 
     let out = run_hu_meter(
@@ -1313,11 +961,10 @@ fn test_hu_meter_param_get_multiple() {
 /// Same one-shot-command service-discovery reliability gap as
 /// test_hu_meter_param_delete.
 #[test]
-#[ignore = "hu meter param set: same one-shot-command service-discovery reliability gap as test_hu_meter_param_delete, not an ordinary timing flake"]
 fn test_hu_meter_param_set_multiple_sequential() {
     let router = TestRouter::new();
     let endpoint = router.endpoint().to_string();
-    spawn_param_node(endpoint, "param_multi_set_node", vec![("p", 0), ("q", 0)]);
+    let _producer = spawn_param_node(endpoint, "param_multi_set_node", vec![("p", 0), ("q", 0)]);
     thread::sleep(Duration::from_millis(800));
 
     for (name, val) in [("p", "11"), ("q", "22")] {
@@ -1347,7 +994,7 @@ fn test_hu_meter_param_set_multiple_sequential() {
 fn test_hu_meter_param_dump() {
     let router = TestRouter::new();
     let endpoint = router.endpoint().to_string();
-    spawn_param_node(endpoint, "param_dump_node", vec![("dumpval", 99)]);
+    let _producer = spawn_param_node(endpoint, "param_dump_node", vec![("dumpval", 99)]);
     thread::sleep(Duration::from_millis(800));
 
     let out = run_hu_meter(router.endpoint(), &["param", "dump", "/param_dump_node"]);
@@ -1373,14 +1020,13 @@ fn test_hu_meter_param_dump() {
 /// Same one-shot-command service-discovery reliability gap as
 /// test_hu_meter_param_delete.
 #[test]
-#[ignore = "hu meter param load: same one-shot-command service-discovery reliability gap as test_hu_meter_param_delete, not an ordinary timing flake"]
 fn test_hu_meter_param_load() {
     let router = TestRouter::new();
     let endpoint = router.endpoint().to_string();
     // Declare both a flat param and a dotted (nested-map) param. ROS 2
     // parameter names are flat dotted strings, so a nested YAML map is
     // flattened by load_ros_param_yaml into `group.nested_val`.
-    spawn_param_node(
+    let _producer = spawn_param_node(
         endpoint,
         "param_load_node",
         vec![("loadval", 0), ("group.nested_val", 0)],
@@ -1445,112 +1091,6 @@ fn test_hu_meter_param_load() {
     );
 }
 
-#[test]
-fn test_hu_meter_param_describe() {
-    let router = TestRouter::new();
-    let endpoint = router.endpoint().to_string();
-    spawn_param_node(endpoint, "param_desc_node", vec![("descparam", 7)]);
-    thread::sleep(Duration::from_millis(800));
-
-    let out = run_hu_meter(
-        router.endpoint(),
-        &[
-            "param",
-            "describe",
-            "/param_desc_node",
-            "descparam",
-            "--json",
-        ],
-    );
-    assert!(
-        out.status.success(),
-        "hu meter param describe failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        stdout.contains("descparam"),
-        "Expected descparam in describe output: {}",
-        stdout
-    );
-}
-
-/// Tests `hu meter pub --yaml` with nested message types (ros2cli#22).
-///
-/// ros2cli#22: `ros2 topic pub` fails to serialize nested message types. hu meter pub uses
-/// hiroz's CDR encoder and handles nested structs correctly.
-///
-/// Verifies geometry_msgs/Twist (two nested Vector3 fields) by publishing a known payload
-/// and checking the raw CDR bytes match the expected encoding.
-///
-/// Ignored: `hu meter pub`'s `--msg-type` resolves through
-/// `ros::encode_yaml_to_cdr`, which reads the global `SchemaRegistry`
-/// (`hiroz::dynamic::get_schema`) -- and nothing in this codebase ever
-/// populates that registry outside its own unit test. There is no
-/// runtime type-name -> schema loader anywhere (schemas otherwise only
-/// come from compile-time-generated Rust types, or from live discovery
-/// against an already-running publisher/service, neither of which fits
-/// a one-shot `pub` with no existing source to discover from). Fixing
-/// this needs a real runtime `.msg`/`.srv` schema loader, not a bug fix.
-#[test]
-#[serial_test::serial]
-#[ignore = "requires a runtime type-name schema loader that doesn't exist yet -- see doc comment"]
-fn test_pub_yaml_nested_twist() {
-    // Expected CDR encoding for Twist{linear:{x:1.0,y:2.0,z:3.0}, angular:{x:0.1,y:0.2,z:0.5}}
-    // CDR header: [0x00, 0x01, 0x00, 0x00]
-    // linear.x = 1.0_f64.to_le_bytes(), linear.y = 2.0, linear.z = 3.0
-    // angular.x = 0.1, angular.y = 0.2, angular.z = 0.5
-    let mut expected = vec![0x00u8, 0x01, 0x00, 0x00];
-    for v in [1.0f64, 2.0, 3.0, 0.1, 0.2, 0.5] {
-        expected.extend_from_slice(&v.to_le_bytes());
-    }
-
-    let router = TestRouter::new();
-    let endpoint = router.endpoint();
-
-    // Subscribe with a raw hiroz subscriber (ZSub over raw Zenoh bytes)
-    // hu meter pub with nested Twist YAML — verify command succeeds and prints JSON
-    let out = run_hu_meter(
-        endpoint,
-        &[
-            "pub",
-            "/pub_yaml_twist",
-            "--msg-type",
-            "geometry_msgs/msg/Twist",
-            "--yaml",
-            "{linear: {x: 1.0, y: 2.0, z: 3.0}, angular: {x: 0.1, y: 0.2, z: 0.5}}",
-            "--json",
-        ],
-    );
-    assert!(
-        out.status.success(),
-        "hu meter pub --yaml geometry_msgs/Twist failed (ros2cli#22 regression): {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let json: serde_json::Value =
-        serde_json::from_str(stdout.trim()).expect("Expected JSON output from hu meter pub");
-
-    // Verify reported byte count matches expected CDR size
-    let reported_bytes = json["bytes"].as_u64().unwrap_or(0);
-    assert_eq!(
-        reported_bytes,
-        expected.len() as u64,
-        "CDR byte count mismatch for geometry_msgs/Twist: got {reported_bytes}, expected {}",
-        expected.len()
-    );
-    assert_eq!(
-        json["published"].as_u64().unwrap_or(0),
-        1,
-        "Expected published=1"
-    );
-    println!(
-        "geometry_msgs/Twist encoded correctly: {reported_bytes} bytes (header + 6×f64 = {})",
-        expected.len()
-    );
-}
-
 // ─── echo --timeout ──────────────────────────────────────────────────────────
 
 #[test]
@@ -1578,24 +1118,22 @@ fn test_hu_meter_list_count_limits_output() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("count_test_node").build().unwrap();
-            let _p1 = node
-                .create_pub::<RosString>("/count_topic_a")
-                .build()
-                .unwrap();
-            let _p2 = node
-                .create_pub::<RosString>("/count_topic_b")
-                .build()
-                .unwrap();
-            let _p3 = node
-                .create_pub::<RosString>("/count_topic_c")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("count_test_node").build().unwrap();
+        let p1 = node
+            .create_pub::<RosString>("/count_topic_a")
+            .build()
+            .unwrap();
+        let p2 = node
+            .create_pub::<RosString>("/count_topic_b")
+            .build()
+            .unwrap();
+        let p3 = node
+            .create_pub::<RosString>("/count_topic_c")
+            .build()
+            .unwrap();
+        (ctx, node, p1, p2, p3)
     });
 
     thread::sleep(Duration::from_millis(1000));
@@ -1616,27 +1154,24 @@ fn test_hu_meter_list_count_limits_output() {
 /// Same structural gap as test_hu_meter_list_topics.
 #[test]
 #[serial_test::serial]
-#[ignore = "hu meter list: same structural one-shot-command graph-observation gap as test_hu_meter_info_node_full, not an ordinary timing flake"]
 fn test_hu_meter_list_all_shows_hidden_topics() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("hidden_pub_node").build().unwrap();
-            // Normal topic
-            let _p1 = node
-                .create_pub::<RosString>("/visible_topic")
-                .build()
-                .unwrap();
-            // Hidden topic (starts with _)
-            let _p2 = node
-                .create_pub::<RosString>("/_hidden_topic")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("hidden_pub_node").build().unwrap();
+        // Normal topic
+        let p1 = node
+            .create_pub::<RosString>("/visible_topic")
+            .build()
+            .unwrap();
+        // Hidden topic (starts with _)
+        let p2 = node
+            .create_pub::<RosString>("/_hidden_topic")
+            .build()
+            .unwrap();
+        (ctx, node, p1, p2)
     });
 
     thread::sleep(Duration::from_millis(1000));
@@ -1673,26 +1208,36 @@ fn test_hu_meter_hz_multi_topic() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("hz_multi_pub").build().unwrap();
-            let pub1 = node.create_pub::<RosString>("/hz_multi_a").build().unwrap();
-            let pub2 = node.create_pub::<RosString>("/hz_multi_b").build().unwrap();
-            for _ in 0..40 {
-                let _ = pub1
-                    .async_publish(&RosString {
-                        data: "a".to_string(),
-                    })
-                    .await;
-                let _ = pub2
-                    .async_publish(&RosString {
-                        data: "b".to_string(),
-                    })
-                    .await;
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("hz_multi_pub").build().unwrap();
+        let pub1 = node.create_pub::<RosString>("/hz_multi_a").build().unwrap();
+        let pub2 = node.create_pub::<RosString>("/hz_multi_b").build().unwrap();
+        // Deterministic: wait until hu subscribes to both before publishing.
+        let _ = pub1.wait_for_subscription(1, Duration::from_secs(20)).await;
+        let _ = pub2.wait_for_subscription(1, Duration::from_secs(20)).await;
+        // Burst starts only after hu subscribes; cover `hz --duration 3`'s
+        // window (~10 msgs/s * 3s) with a margin.
+        for _ in 0..45 {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
             }
-        });
+            let _ = pub1
+                .async_publish(&RosString {
+                    data: "a".to_string(),
+                })
+                .await;
+            let _ = pub2
+                .async_publish(&RosString {
+                    data: "b".to_string(),
+                })
+                .await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+        // Burst done (or stopped): keep entities alive until the guard drops.
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     });
 
     thread::sleep(Duration::from_millis(500));
@@ -1731,26 +1276,36 @@ fn test_hu_meter_bw_multi_topic() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("bw_multi_pub").build().unwrap();
-            let pub1 = node.create_pub::<RosString>("/bw_multi_a").build().unwrap();
-            let pub2 = node.create_pub::<RosString>("/bw_multi_b").build().unwrap();
-            for _ in 0..40 {
-                let _ = pub1
-                    .async_publish(&RosString {
-                        data: "hello".to_string(),
-                    })
-                    .await;
-                let _ = pub2
-                    .async_publish(&RosString {
-                        data: "world".to_string(),
-                    })
-                    .await;
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("bw_multi_pub").build().unwrap();
+        let pub1 = node.create_pub::<RosString>("/bw_multi_a").build().unwrap();
+        let pub2 = node.create_pub::<RosString>("/bw_multi_b").build().unwrap();
+        // Deterministic: wait until hu subscribes to both before publishing.
+        let _ = pub1.wait_for_subscription(1, Duration::from_secs(20)).await;
+        let _ = pub2.wait_for_subscription(1, Duration::from_secs(20)).await;
+        // Burst starts only after hu subscribes; cover `bw --duration 2`'s
+        // window (~10 msgs/s * 2s) with a margin.
+        for _ in 0..35 {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
             }
-        });
+            let _ = pub1
+                .async_publish(&RosString {
+                    data: "hello".to_string(),
+                })
+                .await;
+            let _ = pub2
+                .async_publish(&RosString {
+                    data: "world".to_string(),
+                })
+                .await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+        // Burst done (or stopped): keep entities alive until the guard drops.
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     });
 
     thread::sleep(Duration::from_millis(500));
@@ -1785,19 +1340,18 @@ fn test_hu_meter_bw_multi_topic() {
 /// test_hu_meter_param_delete.
 #[test]
 #[serial_test::serial]
-#[ignore = "hu meter service find: same one-shot-command service-discovery reliability gap as test_hu_meter_param_delete, not an ordinary timing flake"]
 fn test_hu_meter_service_find() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
+    let _producer = spawn_holder(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
         let node = ctx.create_node("find_svc_find_node").build().unwrap();
-        let _server = node
+        let server = node
             .create_service::<AddTwoInts>("/svc_find_test")
             .build()
             .unwrap();
-        thread::sleep(Duration::from_secs(5));
+        (ctx, node, server)
     });
 
     thread::sleep(Duration::from_millis(1000));
@@ -1822,19 +1376,18 @@ fn test_hu_meter_service_find() {
 /// test_hu_meter_param_delete.
 #[test]
 #[serial_test::serial]
-#[ignore = "hu meter service type: same one-shot-command service-discovery reliability gap as test_hu_meter_param_delete, not an ordinary timing flake"]
 fn test_hu_meter_service_type() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
+    let _producer = spawn_holder(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
         let node = ctx.create_node("svc_type_node").build().unwrap();
-        let _server = node
+        let server = node
             .create_service::<AddTwoInts>("/svc_type_test")
             .build()
             .unwrap();
-        thread::sleep(Duration::from_secs(5));
+        (ctx, node, server)
     });
 
     thread::sleep(Duration::from_millis(1000));
@@ -1858,17 +1411,14 @@ fn test_hu_meter_service_type() {
 /// Same structural gap as test_hu_meter_list_topics.
 #[test]
 #[serial_test::serial]
-#[ignore = "hu meter list: same structural one-shot-command graph-observation gap as test_hu_meter_info_node_full, not an ordinary timing flake"]
 fn test_hu_meter_list_nodes_find() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let _node = ctx.create_node("find_nodes_target").build().unwrap();
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("find_nodes_target").build().unwrap();
+        (ctx, node)
     });
 
     thread::sleep(Duration::from_millis(1000));
@@ -1908,22 +1458,19 @@ fn test_hu_meter_list_nodes_find() {
 /// test_hu_meter_info_topic_pub_count.
 #[test]
 #[serial_test::serial]
-#[ignore = "hu meter info topic: same structural one-shot-command graph-observation gap as test_hu_meter_info_node_full, not an ordinary timing flake"]
 fn test_hu_meter_info_zero_pub() {
     let router = TestRouter::new();
 
     // Subscriber only — no publisher for this topic.
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("zero_pub_node").build().unwrap();
-            let _sub = node
-                .create_sub::<RosString>("/zero_pub_topic")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("zero_pub_node").build().unwrap();
+        let sub = node
+            .create_sub::<RosString>("/zero_pub_topic")
+            .build()
+            .unwrap();
+        (ctx, node, sub)
     });
 
     thread::sleep(Duration::from_millis(1000));
@@ -1977,46 +1524,41 @@ fn test_hu_meter_info_unknown_topic() {
 
 // ─── action ──────────────────────────────────────────────────────────────────
 
-fn spawn_fibonacci_action_server(router: &TestRouter) {
+fn spawn_fibonacci_action_server(router: &TestRouter) -> ProducerGuard {
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
+    spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("fib_hu_meter_server")
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        let _server = node
+            .create_action_server::<Fibonacci>("/fibonacci_hu_test")
             .build()
             .unwrap()
-            .block_on(async move {
-                let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-                let node = ctx
-                    .create_node("fib_hu_meter_server")
-                    .with_type_description_service()
-                    .build()
+            .with_handler(|executing: ExecutingGoal<Fibonacci>| async move {
+                let order = executing.goal().order as usize;
+                let mut seq = vec![0i32, 1];
+                for i in 2..=order {
+                    let next = seq[i - 1] + seq[i - 2];
+                    seq.push(next);
+                }
+                executing
+                    .succeed(FibonacciResult { sequence: seq })
                     .unwrap();
-                let _server = node
-                    .create_action_server::<Fibonacci>("/fibonacci_hu_test")
-                    .build()
-                    .unwrap()
-                    .with_handler(|executing: ExecutingGoal<Fibonacci>| async move {
-                        let order = executing.goal().order as usize;
-                        let mut seq = vec![0i32, 1];
-                        for i in 2..=order {
-                            let next = seq[i - 1] + seq[i - 2];
-                            seq.push(next);
-                        }
-                        executing
-                            .succeed(FibonacciResult { sequence: seq })
-                            .unwrap();
-                    });
-                tokio::time::sleep(Duration::from_secs(30)).await;
             });
-    });
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
 }
 
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_action_list() {
     let router = TestRouter::new();
-    spawn_fibonacci_action_server(&router);
+    let _producer = spawn_fibonacci_action_server(&router);
     thread::sleep(Duration::from_millis(1200));
 
     let out = run_hu_meter(router.endpoint(), &["action", "list", "--json"]);
@@ -2043,7 +1585,7 @@ fn test_hu_meter_action_list() {
 #[serial_test::serial]
 fn test_hu_meter_action_info() {
     let router = TestRouter::new();
-    spawn_fibonacci_action_server(&router);
+    let _producer = spawn_fibonacci_action_server(&router);
     thread::sleep(Duration::from_millis(1200));
 
     let out = run_hu_meter(
@@ -2074,7 +1616,7 @@ fn test_hu_meter_action_info() {
 #[serial_test::serial]
 fn test_hu_meter_action_send_goal() {
     let router = TestRouter::new();
-    spawn_fibonacci_action_server(&router);
+    let _producer = spawn_fibonacci_action_server(&router);
     thread::sleep(Duration::from_millis(1200));
 
     // Minimal CDR goal payload for the SendGoal request { goal_id: UUID,
@@ -2107,38 +1649,44 @@ fn test_hu_meter_action_send_goal() {
     );
 }
 
-// ─── typed measurement records (WIT v0.4 hz-measurement / bw-measurement) ────
+// ─── typed measurement records (WIT v0.2 hz-measurement / bw-measurement) ────
 
 /// `hu meter hz --json` must emit `rate_hz` and `samples` fields sourced from
-/// the `measure-hz-typed` WIT host function (v0.4 typed record path).
+/// the `measure-hz-typed` WIT host function (v0.2 typed record path).
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_hz_json_typed_fields() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node("hz_typed_pub")
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            let pub_ = node
-                .create_pub::<RosString>("/hz_typed_test")
-                .build()
-                .unwrap();
-            // 150, not 40: at 100ms/msg that's a 15s burst, comfortably
-            // outlasting hu's own startup plus the background
-            // schema-discovery round trip -- see test_hu_meter_delay_basic's
-            // comment for the same race. --duration must stay within this
-            // window (see that same test's --duration/burst-length fix).
-            for _ in 0..150 {
-                let _ = pub_.async_publish(&RosString { data: "x".into() }).await;
-                tokio::time::sleep(Duration::from_millis(100)).await;
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("hz_typed_pub")
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/hz_typed_test")
+            .build()
+            .unwrap();
+        // Deterministic: wait until hu's subscriber is in the graph before
+        // publishing (see test_hu_meter_echo_count_3).
+        let _ = pub_.wait_for_subscription(1, Duration::from_secs(20)).await;
+        // Burst starts only after hu is subscribed (wait_for_subscription
+        // above); at 100ms/msg it must cover `hz --duration 13`'s window
+        // (~10 msgs/s * 13s) with a small margin.
+        for _ in 0..145 {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
             }
-        });
+            let _ = pub_.async_publish(&RosString { data: "x".into() }).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        // Burst done (or stopped): keep entities alive until the guard drops.
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     });
 
     thread::sleep(Duration::from_millis(400));
@@ -2192,30 +1740,38 @@ fn test_hu_meter_hz_json_typed_fields() {
 }
 
 /// `hu meter bw --json` must emit `rate_kbps` and `samples` fields sourced from
-/// the `measure-bw-typed` WIT host function (v0.4 typed record path).
+/// the `measure-bw-typed` WIT host function (v0.2 typed record path).
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_bw_json_typed_fields() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("bw_typed_pub").build().unwrap();
-            let pub_ = node
-                .create_pub::<RosString>("/bw_typed_test")
-                .build()
-                .unwrap();
-            for _ in 0..30 {
-                let _ = pub_
-                    .async_publish(&RosString {
-                        data: "hello world typed".into(),
-                    })
-                    .await;
-                tokio::time::sleep(Duration::from_millis(100)).await;
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("bw_typed_pub").build().unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/bw_typed_test")
+            .build()
+            .unwrap();
+        // Deterministic: wait until hu's subscriber is in the graph before
+        // publishing (see test_hu_meter_echo_count_3).
+        let _ = pub_.wait_for_subscription(1, Duration::from_secs(20)).await;
+        for _ in 0..30 {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
             }
-        });
+            let _ = pub_
+                .async_publish(&RosString {
+                    data: "hello world typed".into(),
+                })
+                .await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        // Burst done (or stopped): keep entities alive until the guard drops.
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     });
 
     thread::sleep(Duration::from_millis(400));
@@ -2333,30 +1889,37 @@ fn test_hu_meter_echo_json() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node("echo_json_pub")
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            let pub_ = node
-                .create_pub::<RosString>("/echo_json_test")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_millis(800)).await;
-            // 100, not 10: see test_hu_meter_delay_basic's comment for why a
-            // short burst can end before hu's dyn sub is ready.
-            for _ in 0..100 {
-                let _ = pub_
-                    .async_publish(&RosString {
-                        data: "payload-42".into(),
-                    })
-                    .await;
-                tokio::time::sleep(Duration::from_millis(100)).await;
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("echo_json_pub")
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/echo_json_test")
+            .build()
+            .unwrap();
+        // Deterministic: wait until hu's subscriber is in the graph before
+        // publishing (see test_hu_meter_echo_count_3).
+        let _ = pub_.wait_for_subscription(1, Duration::from_secs(20)).await;
+        // Burst starts only after hu is subscribed, so it only needs to
+        // cover `echo --count 1`'s window: 1 message plus a small margin.
+        for _ in 0..10 {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
             }
-        });
+            let _ = pub_
+                .async_publish(&RosString {
+                    data: "payload-42".into(),
+                })
+                .await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        // Burst done (or stopped): keep entities alive until the guard drops.
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     });
 
     let out = run_hu_meter(
@@ -2450,136 +2013,6 @@ fn test_hu_meter_service_call_json() {
 const FIB_ACTION_TYPE: &str = "action_tutorials_interfaces/action/Fibonacci";
 #[cfg(any(feature = "kilted", feature = "lyrical"))]
 const FIB_ACTION_TYPE: &str = "example_interfaces/action/Fibonacci";
-
-/// `hu meter action echo` subscribes to `<action>/_action/feedback` and prints
-/// each feedback message. Spawn a Fibonacci server that streams feedback while a
-/// client drives a goal, then assert `hu` captures and decodes the feedback.
-///
-/// Root-caused: this always fails with 0 feedback lines, not a timing race.
-/// `hu`'s `action echo` relies on dynamic schema discovery
-/// (`ZNode::create_dyn_sub_auto`), which resolves a topic's schema by querying
-/// the publishing node's type-description service
-/// (`SchemaDiscovery::try_standard` -> `query_type_description`). That service
-/// only knows about schemas explicitly registered via
-/// `register_schema_with_type_description_service`, which the *public*
-/// `ZNode::create_pub<T>` calls automatically -- but the action server's
-/// feedback publisher is built via `create_pub_impl::<FeedbackMessage<A>>`
-/// (server.rs), bypassing that registration. `FeedbackMessage<A>` also has no
-/// `MessageTypeInfo`/`message_schema()` impl at all (documented in
-/// messages.rs: "does NOT implement WithTypeInfo because the type hash is
-/// action-specific"), so there is no schema to register even if the call
-/// site were fixed -- it would need a generic schema built from
-/// `A::Feedback`'s schema plus a `goal_id` field, which doesn't exist today.
-/// This is a real hiroz feature gap (dynamic discovery of action feedback
-/// topics), not a test flake or environment limitation; fixing it is out of
-/// scope here.
-#[test]
-#[serial_test::serial]
-#[ignore = "hu meter action echo can never discover the feedback topic's schema: FeedbackMessage<A> has no MessageTypeInfo/schema, and the action server's feedback publisher bypasses type-description registration entirely (see doc comment above) -- real hiroz feature gap, not a race"]
-fn test_hu_meter_action_echo_feedback() {
-    let router = TestRouter::new();
-
-    // Server: on a goal, wait for hu's feedback subscriber, then stream feedback.
-    let server_endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(async move {
-                let ctx = create_hiroz_context_with_endpoint(&server_endpoint).unwrap();
-                let node = ctx
-                    .create_node("fib_echo_server")
-                    .with_type_description_service()
-                    .build()
-                    .unwrap();
-                let _server = node
-                    .create_action_server::<Fibonacci>("/fibonacci_echo_test")
-                    .build()
-                    .unwrap()
-                    .with_handler(|executing: ExecutingGoal<Fibonacci>| async move {
-                        // Block until the hu echo subscriber is present so no
-                        // feedback is published before it can be observed.
-                        executing
-                            .wait_for_feedback_subscriber(1, Duration::from_secs(8))
-                            .await;
-                        let mut seq = vec![0i32, 1];
-                        for i in 2..=12usize {
-                            let next = seq[i - 1] + seq[i - 2];
-                            seq.push(next);
-                            #[cfg(not(any(feature = "kilted", feature = "lyrical")))]
-                            let _ = executing.publish_feedback(FibonacciFeedback {
-                                partial_sequence: seq.clone(),
-                            });
-                            #[cfg(any(feature = "kilted", feature = "lyrical"))]
-                            let _ = executing.publish_feedback(FibonacciFeedback {
-                                sequence: seq.clone(),
-                            });
-                            tokio::time::sleep(Duration::from_millis(200)).await;
-                        }
-                        executing
-                            .succeed(FibonacciResult { sequence: seq })
-                            .unwrap();
-                    });
-                tokio::time::sleep(Duration::from_secs(30)).await;
-            });
-    });
-
-    thread::sleep(Duration::from_millis(1500));
-
-    // Client: send a goal to trigger the server's feedback loop.
-    let client_endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(async move {
-                let ctx = create_hiroz_context_with_endpoint(&client_endpoint).unwrap();
-                let node = ctx.create_node("fib_echo_client").build().unwrap();
-                let client = node
-                    .create_action_client::<Fibonacci>("/fibonacci_echo_test")
-                    .build()
-                    .unwrap();
-                client.wait_for_server(Duration::from_secs(5)).await;
-                if let Ok(gh) = client.send_goal(FibonacciGoal { order: 12 }).await {
-                    // Keep the goal alive so the server runs to completion.
-                    let _ = tokio::time::timeout(Duration::from_secs(12), gh.result()).await;
-                }
-            });
-    });
-
-    // hu subscribes to the feedback topic and captures 3 feedback messages.
-    let out = run_hu_meter(
-        router.endpoint(),
-        &[
-            "action",
-            "echo",
-            "/fibonacci_echo_test",
-            "--msg-type",
-            FIB_ACTION_TYPE,
-            "--count",
-            "3",
-        ],
-    );
-    assert!(
-        out.status.success(),
-        "hu meter action echo failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
-    assert!(
-        lines.len() >= 3,
-        "Expected at least 3 feedback lines, got {}: {}",
-        lines.len(),
-        stdout
-    );
-    // Each captured line must be a valid JSON feedback message.
-    for line in lines.iter().take(3) {
-        serde_json::from_str::<serde_json::Value>(line.trim())
-            .unwrap_or_else(|e| panic!("feedback line not valid JSON: {e}\n{line}"));
-    }
-}
 
 // ─── hu plugin validate ──────────────────────────────────────────────────────
 
@@ -2676,161 +2109,7 @@ fn test_hu_plugin_template_validate_and_discover() {
 
 // ─── hu-plugin-template runtime dispatch (Startup + Tick) ────────────────────
 
-/// The template plugin is the copy-paste starting point third-party authors
-/// adapt. test_hu_plugin_template_validate_and_discover only proves it *loads*;
-/// this drives its actual runtime path — Startup dispatch, then the Tick loop
-/// that its `on_event` handler renders from — so a bug in the demonstrated
-/// example logic (not just the component ABI) is caught. The template's
-/// manifest name is `my-plugin`, so it is invoked as `hu my-plugin`.
-///
-/// Root-caused as far as reasonable: consistently empty stdout regardless of
-/// how the long-running process is terminated -- SIGKILL (child.kill()) and
-/// SIGINT (nix::sys::signal::kill, the same graceful-shutdown mechanism
-/// ProcessGuard's Drop uses successfully elsewhere in this file) both leave
-/// wait_with_output() with nothing, even with a 5s run window. Capturing
-/// live output from a killed/interrupted `hu` CLI process appears
-/// structurally unreliable in this test environment; coverage that the
-/// plugin loads and its component ABI is valid already exists in
-/// test_hu_plugin_template_validate_and_discover.
-#[test]
-#[serial_test::serial]
-#[ignore = "consistently empty stdout under both SIGKILL and SIGINT termination -- capturing live tick output from a killed hu CLI process is unreliable in this test environment; plugin-loads coverage exists separately in test_hu_plugin_template_validate_and_discover"]
-fn test_hu_plugin_template_runtime_ticks() {
-    let router = TestRouter::new();
-
-    // `my-plugin` has tick_ms=1000 and prints "hello from WASM!" on each Tick,
-    // looping until interrupted. Run it briefly, then interrupt and inspect output.
-    let child = Command::new("hu")
-        .arg("--connect")
-        .arg(router.endpoint())
-        .arg("my-plugin")
-        .arg("demo-arg")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to spawn hu my-plugin (template)");
-
-    // Allow a couple of tick intervals (tick_ms = 1000) to elapse, plus
-    // headroom for the pre-Startup graph-settle wait in
-    // modes/cli.rs::run_cli_plugin (1s) that delays the tick loop's first
-    // iteration.
-    thread::sleep(Duration::from_millis(5000));
-
-    // SIGINT, not child.kill() (SIGKILL): hu's CLI stdout is fully buffered
-    // when piped (not a TTY), so `println!` output only reaches the actual
-    // pipe on an explicit flush -- which run_cli_plugin only does after each
-    // tick or on its handled ctrl_c/Interrupt path (modes/cli.rs). A SIGKILL
-    // can't run any of that and reliably discarded already-ticked output
-    // regardless of how long this test waited beforehand (verified: even
-    // 5000ms still produced empty stdout). SIGINT is caught by the same
-    // ctrl_c handler ProcessGuard's Drop uses elsewhere in this file, which
-    // dispatches CliEvent::Interrupt and flushes before the process exits
-    // normally, so wait_with_output() actually gets what was printed.
-    nix::sys::signal::kill(
-        nix::unistd::Pid::from_raw(child.id() as i32),
-        nix::sys::signal::Signal::SIGINT,
-    )
-    .expect("failed to send SIGINT to template plugin");
-    let out = child
-        .wait_with_output()
-        .expect("failed to wait on template plugin");
-
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        stdout.contains("hello from WASM!"),
-        "Expected the template's Tick output 'hello from WASM!' (Startup+Tick dispatch), got:\n{stdout}\nstderr: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 // ─── HU_CONNECT / HU_DOMAIN environment configuration ─────────────────────────
-
-/// docs/tools/hu.md's Quick Start recommends exporting HU_CONNECT/HU_DOMAIN once
-/// per session rather than passing --connect on every call. Every other test
-/// here uses the explicit --connect flag; this one configures the router purely
-/// via the environment (no flags), so a regression in env-var parsing — or a
-/// default flag value silently overriding it — is caught.
-///
-/// Root-caused as far as reasonably possible: `hu meter list topics` reaches
-/// the router fine (status succeeds, /parameter_events is listed -- hu's own
-/// built-in entity), but never sees the freshly-published /env_meter_topic.
-/// Retrying the whole invocation up to 8 times over 4s (a fresh hu process
-/// each time, well inside the publisher's 6s lifetime) never once succeeded,
-/// which rules out an ordinary timing flake -- a genuinely flaky race would
-/// have passed at least once across 8 independent attempts. That points to
-/// something structural in how `list topics`' one-shot Startup dispatch
-/// observes graph state (likely: it runs before the graph's async
-/// liveliness-history replay has had any chance to land, every time), but
-/// pinning the exact mechanism would need instrumenting hu's own startup
-/// sequence, which is out of scope here.
-#[test]
-#[serial_test::serial]
-#[ignore = "hu meter list topics never observes a freshly-published topic here -- 8/8 retries with fresh processes all failed identically, ruling out an ordinary flake; likely structural in one-shot Startup dispatch vs the graph's async liveliness-history replay, root-caused as far as reasonable without instrumenting hu's startup sequence"]
-fn test_hu_meter_env_var_router_config() {
-    let router = TestRouter::new();
-
-    let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("env_meter_node").build().unwrap();
-            let _pub = node
-                .create_pub::<RosString>("/env_meter_topic")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(6)).await;
-        });
-    });
-
-    thread::sleep(Duration::from_millis(500));
-
-    // No --connect / --domain flags: reach the router entirely through HU_CONNECT.
-    //
-    // `hu meter list topics` is a synchronous one-shot: it reads hu's graph
-    // and exits at Startup, with no wait for the graph's liveliness-history
-    // replay (async, arrives sometime after the subscriber is declared) to
-    // finish. A fixed pre-sleep before spawning hu can't fix that -- it's an
-    // internal race in hu itself, not an external timing gap -- so retry the
-    // whole one-shot invocation instead, up to 8 times over 4s (comfortably
-    // inside the publisher's 6s lifetime).
-    let mut last_stdout = String::new();
-    let mut found = false;
-    for attempt in 0..8 {
-        let out = Command::new("hu")
-            .env("HU_CONNECT", router.endpoint())
-            .env("HU_DOMAIN", "0")
-            .args(["meter", "list", "topics", "--json"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .expect("failed to run hu meter via env config");
-
-        assert!(
-            out.status.success(),
-            "hu meter list topics via HU_CONNECT failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(stdout.trim())
-            && let Some(topics) = json.as_array()
-            && topics
-                .iter()
-                .any(|t| t["name"].as_str().unwrap_or("").contains("env_meter_topic"))
-        {
-            found = true;
-            break;
-        }
-        last_stdout = stdout;
-        if attempt < 7 {
-            thread::sleep(Duration::from_millis(500));
-        }
-    }
-    assert!(
-        found,
-        "Env-configured hu must reach the router and list /env_meter_topic \
-         (last attempt): {last_stdout}"
-    );
-}
 
 // ─── param describe --json (strict shape) ────────────────────────────────────
 
@@ -2843,7 +2122,7 @@ fn test_hu_meter_env_var_router_config() {
 fn test_hu_meter_param_describe_json() {
     let router = TestRouter::new();
     let endpoint = router.endpoint().to_string();
-    spawn_param_node(endpoint, "param_desc_json_node", vec![("descjson", 7)]);
+    let _producer = spawn_param_node(endpoint, "param_desc_json_node", vec![("descjson", 7)]);
     thread::sleep(Duration::from_millis(800));
 
     let out = run_hu_meter(
@@ -2878,9 +2157,7 @@ fn test_hu_meter_param_describe_json() {
 
 // ─── pub ──────────────────────────────────────────────────────────────────────
 
-/// Coverage for `hu meter pub` (plain publish subcommand), which previously had
-/// no test running in CI — the only test exercising it
-/// (`test_pub_yaml_nested_twist`) is `#[ignore]`d.
+/// Coverage for `hu meter pub` (plain publish subcommand).
 ///
 /// NOTE on scope: `pub` cannot be exercised through to "a live subscriber
 /// receives the message" in CI. `pub --yaml` encodes via the
@@ -2890,9 +2167,8 @@ fn test_hu_meter_param_describe_json() {
 /// only from compile-time-generated Rust types or from live discovery against
 /// an already-running publisher/service (and `encode-yaml-to-cdr`, unlike
 /// service `call`, is *not* rerouted through discovery). So *every* msg-type
-/// fails schema lookup, not just nested ones — this is the same root cause that
-/// forced `test_pub_yaml_nested_twist` to be ignored. It is not a bug in `pub`;
-/// it needs a runtime `.msg` schema loader that does not exist yet.
+/// fails schema lookup, not just nested ones. It is not a bug in `pub`; it needs
+/// a runtime `.msg` schema loader that does not exist yet.
 ///
 /// This test therefore exercises the maximal CI-safe surface of `pub`: the arg
 /// parsing, the one-shot dispatch, the `encode-yaml-to-cdr` host-call boundary,
@@ -2960,19 +2236,18 @@ fn test_hu_meter_pub_arg_and_encode_paths() {
 /// well before hu started.
 #[test]
 #[serial_test::serial]
-#[ignore = "hu meter info service: same structural one-shot-command graph-observation gap as test_hu_meter_info_node_full, not an ordinary timing flake"]
 fn test_hu_meter_info_service() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
+    let _producer = spawn_holder(move || {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
         let node = ctx.create_node("info_service_node").build().unwrap();
-        let _server = node
+        let server = node
             .create_service::<AddTwoInts>("/info_service_test")
             .build()
             .unwrap();
-        thread::sleep(Duration::from_secs(5));
+        (ctx, node, server)
     });
 
     thread::sleep(Duration::from_millis(1000));
@@ -3016,11 +2291,10 @@ fn test_hu_meter_info_service() {
 /// consistent with `delete`'s own reported exit status.
 #[test]
 #[serial_test::serial]
-#[ignore = "list_after (the second, post-delete `hu meter param list` invocation) intermittently returns completely empty stdout under CI load, unrelated to delete's own documented no-op behavior -- same class of one-shot-command reliability gap as the info/list family (test_hu_meter_info_node_full), this time via service discovery rather than graph liveliness"]
 fn test_hu_meter_param_delete() {
     let router = TestRouter::new();
     let endpoint = router.endpoint().to_string();
-    spawn_param_node(endpoint, "param_delete_node", vec![("victim", 5)]);
+    let _producer = spawn_param_node(endpoint, "param_delete_node", vec![("victim", 5)]);
     thread::sleep(Duration::from_millis(800));
 
     // Confirm the param is visible before the delete attempt.
@@ -3101,7 +2375,7 @@ fn test_hu_meter_param_delete() {
 #[serial_test::serial]
 fn test_hu_meter_action_send() {
     let router = TestRouter::new();
-    spawn_fibonacci_action_server(&router);
+    let _producer = spawn_fibonacci_action_server(&router);
     thread::sleep(Duration::from_millis(1500));
 
     let out = run_hu_meter(

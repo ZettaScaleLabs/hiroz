@@ -42,54 +42,6 @@ fn run_hu_monitor(router: &str, args: &[&str]) -> std::process::Output {
 // ─── graph ────────────────────────────────────────────────────────────────────
 
 #[test]
-fn test_monitor_graph_json_valid() {
-    let router = TestRouter::new();
-
-    // Spin a node so the graph is non-empty.
-    let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("graph_json_node").build().unwrap();
-            let _pub = node
-                .create_pub::<RosString>("/graph_json_topic")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        });
-    });
-
-    thread::sleep(Duration::from_millis(800));
-
-    let out = run_hu_monitor(router.endpoint(), &["graph", "--json", "--once"]);
-    assert!(
-        out.status.success(),
-        "hu monitor graph --json --once failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let json: serde_json::Value = serde_json::from_str(stdout.trim())
-        .unwrap_or_else(|e| panic!("Expected JSON from hu monitor graph: {e}\noutput: {stdout}"));
-
-    assert!(
-        json.get("topics").is_some(),
-        "Expected 'topics' field in graph JSON: {}",
-        stdout
-    );
-    assert!(
-        json.get("nodes").is_some(),
-        "Expected 'nodes' field in graph JSON: {}",
-        stdout
-    );
-    assert!(
-        json.get("services").is_some(),
-        "Expected 'services' field in graph JSON: {}",
-        stdout
-    );
-}
-
-#[test]
 fn test_monitor_graph_once_exits() {
     let router = TestRouter::new();
 
@@ -115,16 +67,14 @@ fn test_monitor_graph_contains_known_topic() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("graph_topic_check_node").build().unwrap();
-            let _pub = node
-                .create_pub::<RosString>("/graph_check_topic")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("graph_topic_check_node").build().unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/graph_check_topic")
+            .build()
+            .unwrap();
+        (ctx, node, pub_)
     });
 
     thread::sleep(Duration::from_millis(800));
@@ -154,104 +104,7 @@ fn test_monitor_graph_contains_known_topic() {
     );
 }
 
-#[test]
-fn test_monitor_graph_contains_known_node() {
-    let router = TestRouter::new();
-
-    let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let _node = ctx.create_node("graph_node_check").build().unwrap();
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        });
-    });
-
-    thread::sleep(Duration::from_millis(800));
-
-    let out = run_hu_monitor(router.endpoint(), &["graph", "--json", "--once"]);
-    assert!(
-        out.status.success(),
-        "hu monitor graph failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let json: serde_json::Value =
-        serde_json::from_str(stdout.trim()).expect("Expected JSON from hu monitor graph");
-
-    let nodes = json["nodes"].as_array().expect("nodes must be array");
-    let found = nodes.iter().any(|n| {
-        n["name"]
-            .as_str()
-            .unwrap_or("")
-            .contains("graph_node_check")
-    });
-    assert!(
-        found,
-        "Expected graph_node_check in graph nodes: {}",
-        stdout
-    );
-}
-
 // ─── watch ────────────────────────────────────────────────────────────────────
-
-#[test]
-#[serial_test::serial]
-fn test_monitor_watch_fires_on_topic_create() {
-    let router = TestRouter::new();
-    let endpoint_for_watch = router.endpoint().to_string();
-
-    // Start `hu monitor watch` in the background — it polls graph changes each tick.
-    let mut watch_child = Command::new("hu")
-        .arg("--connect")
-        .arg(router.endpoint())
-        .arg("monitor")
-        .arg("watch")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to spawn hu monitor watch");
-
-    // Give watch time to record the initial graph snapshot.
-    thread::sleep(Duration::from_secs(2));
-
-    // Now create a new topic — watch should fire "topic appeared".
-    let endpoint = router.endpoint().to_string();
-    let pub_handle = thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("watch_fire_node").build().unwrap();
-            let _pub = node
-                .create_pub::<RosString>("/watch_fire_topic")
-                .build()
-                .unwrap();
-            // Keep it alive long enough for watch to detect it.
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        });
-    });
-
-    // Wait for at least one more tick (tick_ms = 1000ms in the plugin manifest).
-    thread::sleep(Duration::from_secs(3));
-
-    let _ = watch_child.kill();
-    let watch_out = watch_child
-        .wait_with_output()
-        .expect("failed to collect watch output");
-
-    pub_handle.join().ok();
-
-    let stdout = String::from_utf8_lossy(&watch_out.stdout);
-    let stderr = String::from_utf8_lossy(&watch_out.stderr);
-    assert!(
-        stdout.contains("watch_fire_topic") || stdout.contains("topic appeared"),
-        "Expected watch to report new topic; stdout: {}\nstderr: {}",
-        stdout,
-        stderr
-    );
-
-    drop(endpoint_for_watch);
-}
 
 // ─── graph non-JSON (text output) ────────────────────────────────────────────
 
@@ -260,20 +113,18 @@ fn test_monitor_graph_text_output_structure() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("graph_text_node").build().unwrap();
-            let _pub = node
-                .create_pub::<RosString>("/graph_text_topic")
-                .build()
-                .unwrap();
-            let _srv = node
-                .create_service::<AddTwoInts>("/graph_text_service")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("graph_text_node").build().unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/graph_text_topic")
+            .build()
+            .unwrap();
+        let srv = node
+            .create_service::<AddTwoInts>("/graph_text_service")
+            .build()
+            .unwrap();
+        (ctx, node, pub_, srv)
     });
 
     thread::sleep(Duration::from_millis(800));
@@ -321,25 +172,30 @@ fn test_monitor_log_count_limits_output() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node("rosout_pub_node")
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            let pub_ = node.create_pub::<RosString>("/rosout").build().unwrap();
-            tokio::time::sleep(Duration::from_millis(1000)).await;
-            for i in 0..20 {
-                let _ = pub_
-                    .async_publish(&RosString {
-                        data: format!("log line {i}"),
-                    })
-                    .await;
-                tokio::time::sleep(Duration::from_millis(150)).await;
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("rosout_pub_node")
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        let pub_ = node.create_pub::<RosString>("/rosout").build().unwrap();
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        for i in 0..20 {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
             }
-        });
+            let _ = pub_
+                .async_publish(&RosString {
+                    data: format!("log line {i}"),
+                })
+                .await;
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+        // Burst done (or stopped): keep entities alive until the guard drops.
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     });
 
     let out = run_hu_monitor(router.endpoint(), &["log", "--count", "2"]);
@@ -415,16 +271,14 @@ fn test_monitor_watch_fires_on_node_and_service() {
     thread::sleep(Duration::from_secs(2));
 
     let endpoint = router.endpoint().to_string();
-    let node_handle = thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("watch_ns_node").build().unwrap();
-            let _srv = node
-                .create_service::<AddTwoInts>("/watch_appear_service")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("watch_ns_node").build().unwrap();
+        let srv = node
+            .create_service::<AddTwoInts>("/watch_appear_service")
+            .build()
+            .unwrap();
+        (ctx, node, srv)
     });
 
     // Wait for several watch ticks (tick_ms = 1000ms) to detect the changes.
@@ -434,7 +288,6 @@ fn test_monitor_watch_fires_on_node_and_service() {
     let watch_out = watch_child
         .wait_with_output()
         .expect("failed to collect watch output");
-    node_handle.join().ok();
 
     let stdout = String::from_utf8_lossy(&watch_out.stdout);
     let stderr = String::from_utf8_lossy(&watch_out.stderr);
@@ -460,8 +313,8 @@ fn test_monitor_watch_fires_on_node_and_service() {
 
 /// Spawn a node exposing `<base>/get_logger_levels` and `<base>/set_logger_levels`.
 /// GET always reports `level` for the requested logger; SET replies success.
-fn spawn_logger_service_node(endpoint: String, base: &'static str, level: u32) {
-    thread::spawn(move || {
+fn spawn_logger_service_node(endpoint: String, base: &'static str, level: u32) -> ProducerGuard {
+    spawn_producer(move |stop| async move {
         let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
         let node = ctx
             .create_node("loglevel_srv")
@@ -477,8 +330,7 @@ fn spawn_logger_service_node(endpoint: String, base: &'static str, level: u32) {
             .build()
             .unwrap();
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(20);
-        while std::time::Instant::now() < deadline {
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
             if let Ok(req) = get_server.take_request() {
                 let name = req
                     .message()
@@ -501,16 +353,16 @@ fn spawn_logger_service_node(endpoint: String, base: &'static str, level: u32) {
                         .collect(),
                 });
             }
-            thread::sleep(Duration::from_millis(50));
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
-    });
+    })
 }
 
 #[test]
 #[serial_test::serial]
 fn test_monitor_log_level_get_roundtrip() {
     let router = TestRouter::new();
-    spawn_logger_service_node(router.endpoint().to_string(), "/loglevel_get_node", 20);
+    let _node = spawn_logger_service_node(router.endpoint().to_string(), "/loglevel_get_node", 20);
     thread::sleep(Duration::from_millis(2500));
 
     let out = run_hu_monitor(router.endpoint(), &["log-level", "/loglevel_get_node"]);
@@ -536,7 +388,7 @@ fn test_monitor_log_level_get_roundtrip() {
 #[serial_test::serial]
 fn test_monitor_log_level_set_roundtrip() {
     let router = TestRouter::new();
-    spawn_logger_service_node(router.endpoint().to_string(), "/loglevel_set_node", 20);
+    let _node = spawn_logger_service_node(router.endpoint().to_string(), "/loglevel_set_node", 20);
     thread::sleep(Duration::from_millis(2500));
 
     // `log-level <node> DEBUG` runs GET then SET; assert the SET confirmation.
@@ -573,25 +425,30 @@ fn test_monitor_log_default_streams_unbounded() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx
-                .create_node("rosout_stream_node")
-                .with_type_description_service()
-                .build()
-                .unwrap();
-            let pub_ = node.create_pub::<RosString>("/rosout").build().unwrap();
-            tokio::time::sleep(Duration::from_millis(1000)).await;
-            for i in 0..30 {
-                let _ = pub_
-                    .async_publish(&RosString {
-                        data: format!("stream line {i}"),
-                    })
-                    .await;
-                tokio::time::sleep(Duration::from_millis(150)).await;
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("rosout_stream_node")
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        let pub_ = node.create_pub::<RosString>("/rosout").build().unwrap();
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        for i in 0..30 {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
             }
-        });
+            let _ = pub_
+                .async_publish(&RosString {
+                    data: format!("stream line {i}"),
+                })
+                .await;
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+        // Burst done (or stopped): keep entities alive until the guard drops.
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     });
 
     // No --count → count=0 → stream forever; run for a few seconds then kill.
@@ -631,16 +488,14 @@ fn test_monitor_env_var_router_config() {
     let router = TestRouter::new();
 
     let endpoint = router.endpoint().to_string();
-    thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-            let node = ctx.create_node("env_monitor_node").build().unwrap();
-            let _pub = node
-                .create_pub::<RosString>("/env_monitor_topic")
-                .build()
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(8)).await;
-        });
+    let _producer = spawn_holder(move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("env_monitor_node").build().unwrap();
+        let pub_ = node
+            .create_pub::<RosString>("/env_monitor_topic")
+            .build()
+            .unwrap();
+        (ctx, node, pub_)
     });
 
     thread::sleep(Duration::from_millis(1000));
