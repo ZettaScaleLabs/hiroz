@@ -399,6 +399,9 @@ fn generate_complete_rust_module(
     // Generate serialize_to_zbuf function
     let serialize_to_zbuf_fn = generate_serialize_to_zbuf(packages, services);
 
+    // Generate the direct-dispatch deserializer (mirror of serialize_to_zbuf).
+    let deserialize_direct_fn = generate_deserialize_direct(packages, services);
+
     // Generate Rust API wrappers
     let rust_api_wrappers = quote! {
         /// Serialize a Python message to CDR bytes
@@ -407,8 +410,12 @@ fn generate_complete_rust_module(
         }
 
         /// Deserialize CDR bytes to a Python message
+        ///
+        /// Dispatches through the direct Rust `match` rather than the Python
+        /// REGISTRY, mirroring `serialize_to_zbuf`. See
+        /// `generate_deserialize_direct` for why.
         pub fn deserialize_from_cdr(type_name: &str, py: Python, bytes: &[u8]) -> PyResult<PyObject> {
-            unsafe { deserialize_message(py, type_name, bytes) }
+            deserialize_direct(type_name, py, bytes)
         }
     };
 
@@ -441,6 +448,8 @@ fn generate_complete_rust_module(
         #helper_fns
 
         #serialize_to_zbuf_fn
+
+        #deserialize_direct_fn
 
         #rust_api_wrappers
     })
@@ -630,6 +639,91 @@ fn generate_helper_functions(
         }
 
         pub use helper_fns::{serialize_message, deserialize_message, list_registered_types, get_type_hash};
+    }
+}
+
+/// Generate `deserialize_direct` — the receive-side mirror of
+/// `serialize_to_zbuf`.
+///
+/// The send path already bypasses the Python REGISTRY with a plain Rust
+/// `match` on the type name. The receive path did not: `deserialize_message`
+/// resolved every single incoming message through
+/// `sys.modules["hiroz_py.hiroz_msgs"].REGISTRY[type_name]["deserialize"]` and
+/// then made a Python-level call. That is six Python C-API round trips plus two
+/// transient `PyString` allocations plus a `PyBytes` copy plus a tuple build,
+/// per message, all under the callback's re-acquired GIL — purely to reach a
+/// function whose identity is known at codegen time.
+///
+/// Measured on this host (12-joint JointState, inter-proc-local, half-trip
+/// p50): the send side costs 4.5 us of CDR encode while the receive side costs
+/// ~15 us fixed + ~0.55 us/field. The asymmetry is the registry walk, not the
+/// codec.
+fn generate_deserialize_direct(
+    packages: &BTreeMap<String, Vec<&ResolvedMessage>>,
+    services: &[ResolvedService],
+) -> TokenStream {
+    let mut match_arms = Vec::new();
+
+    for (package_name, package_msgs) in packages {
+        let package_ident = format_ident!("{}", package_name.replace('-', "_"));
+        for msg in package_msgs {
+            let full_name = format!("{}/msg/{}", package_name, msg.parsed.name);
+            let name_ident = format_ident!("{}", msg.parsed.name);
+            match_arms.push(quote! {
+                #full_name => {
+                    let (rust_msg, _): (ros::#package_ident::#name_ident, _) =
+                        hiroz_cdr::from_bytes::<_, hiroz_cdr::LittleEndian>(payload)
+                            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                    rust_msg.into_py_message(py)
+                }
+            });
+        }
+    }
+
+    for srv in services {
+        let package_ident = format_ident!("{}", srv.parsed.package.replace('-', "_"));
+
+        let req_full_name = format!("{}/srv/{}_Request", srv.parsed.package, srv.parsed.name);
+        let req_name_ident = format_ident!("{}Request", srv.parsed.name);
+        match_arms.push(quote! {
+            #req_full_name => {
+                let (rust_msg, _): (ros::#package_ident::#req_name_ident, _) =
+                    hiroz_cdr::from_bytes::<_, hiroz_cdr::LittleEndian>(payload)
+                        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                rust_msg.into_py_message(py)
+            }
+        });
+
+        let resp_full_name = format!("{}/srv/{}_Response", srv.parsed.package, srv.parsed.name);
+        let resp_name_ident = format_ident!("{}Response", srv.parsed.name);
+        match_arms.push(quote! {
+            #resp_full_name => {
+                let (rust_msg, _): (ros::#package_ident::#resp_name_ident, _) =
+                    hiroz_cdr::from_bytes::<_, hiroz_cdr::LittleEndian>(payload)
+                        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                rust_msg.into_py_message(py)
+            }
+        });
+    }
+
+    quote! {
+        /// Direct CDR deserialization - bypasses the Python registry.
+        pub fn deserialize_direct(type_name: &str, py: Python, bytes: &[u8]) -> PyResult<PyObject> {
+            use ::hiroz::python_bridge::IntoPyMessage;
+            // Skip 4-byte CDR encapsulation header
+            if bytes.len() < 4 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "CDR data too short: missing encapsulation header"
+                ));
+            }
+            let payload = &bytes[4..];
+            match type_name {
+                #(#match_arms)*
+                _ => Err(pyo3::exceptions::PyValueError::new_err(
+                    format!("Unknown message type: {}", type_name)
+                )),
+            }
+        }
     }
 }
 
