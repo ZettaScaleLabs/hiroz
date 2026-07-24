@@ -211,6 +211,9 @@ impl PluginState {
         window_ms: u32,
     ) -> Result<(usize, usize, f64), String> {
         self.require_perm(hu::plugin::types::Permission::MeasureMetrics)?;
+        if window_ms == 0 {
+            return Err("window_ms must be greater than zero".to_string());
+        }
         self.ensure_rate_tracker(topic)?;
         let tracker = self.rate_trackers.get_mut(topic).unwrap();
         tracker.drain_and_trim(window_ms);

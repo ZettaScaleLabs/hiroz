@@ -431,7 +431,12 @@ fn load_one(
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-    let plugin_stem = plugin_stem.strip_prefix("hu-").unwrap_or(plugin_stem);
+    // Discovery accepts both `hu-` and `hu_` filename prefixes, so strip either
+    // to keep `hu-meter.wasm` and `hu_meter.wasm` mapping to the same work dir.
+    let plugin_stem = plugin_stem
+        .strip_prefix("hu-")
+        .or_else(|| plugin_stem.strip_prefix("hu_"))
+        .unwrap_or(plugin_stem);
     let work_dir = plugin_work_dir(plugin_stem);
     std::fs::create_dir_all(&work_dir).ok();
 
