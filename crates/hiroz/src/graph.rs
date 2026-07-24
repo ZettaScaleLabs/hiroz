@@ -490,6 +490,90 @@ impl Graph {
         }
     }
 
+    /// True if the graph currently holds at least one entity whose owning node
+    /// zid is **not** in `exclude`.
+    ///
+    /// A process that opens more than one Zenoh session (e.g. `hu`, which runs
+    /// its liveliness graph on one session and its ROS node on another) sees its
+    /// *own* liveliness tokens echoed back through the graph. Passing all of the
+    /// process's own session zids as `exclude` lets a caller distinguish "the
+    /// graph reflects a genuinely external participant" from "the graph only
+    /// contains our own tokens" — which a plain emptiness check cannot do.
+    pub fn has_external_entity(&self, exclude: &[ZenohId]) -> bool {
+        let mut data = self.data.lock();
+        if !data.cached.is_empty() {
+            data.parse();
+        }
+        data.parsed.values().any(|entity| match &**entity {
+            Entity::Node(node) => !exclude.contains(&node.z_id),
+            Entity::Endpoint(endpoint) => match endpoint.node.as_ref() {
+                Some(node) => !exclude.contains(&node.z_id),
+                // An endpoint with no node identity carries no zid; it can only
+                // be external.
+                None => true,
+            },
+        })
+    }
+
+    /// Wait until the graph reflects an external participant and has then gone
+    /// quiet, bounded by `timeout`.
+    ///
+    /// This is the barrier a one-shot command (`hu list`/`info`/`service`/
+    /// `param`) needs before it snapshots the graph. Unlike [`wait_settled`],
+    /// it never mistakes an empty-but-quiet graph for "settled": under CPU
+    /// contention an external liveliness token can take longer to propagate than
+    /// any fixed quiet window, and returning early there is exactly what made
+    /// these commands read an empty graph. `exclude` should list the caller's
+    /// own session zids so its own echoed tokens don't satisfy the wait.
+    ///
+    /// Returns `true` once an external entity is present and the graph has been
+    /// quiet for `quiet`; `false` if `timeout` elapsed with no external entity
+    /// (a genuinely empty graph — the command should then report "not found").
+    pub async fn wait_for_external_settled(
+        &self,
+        exclude: &[ZenohId],
+        quiet: Duration,
+        timeout: Duration,
+    ) -> bool {
+        let deadline = tokio::time::Instant::now() + timeout;
+        // Phase 1: block until at least one external entity appears.
+        loop {
+            let notified = self.change_notify.notified();
+            tokio::pin!(notified);
+            if self.has_external_entity(exclude) {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            if tokio::time::timeout(remaining, &mut notified)
+                .await
+                .is_err()
+            {
+                return self.has_external_entity(exclude);
+            }
+        }
+        // Phase 2: an external entity is present; wait for the graph to go quiet
+        // so a multi-endpoint participant is fully reflected, capped at the
+        // deadline.
+        loop {
+            let notified = self.change_notify.notified();
+            tokio::pin!(notified);
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return true;
+            }
+            let quiet_window = quiet.min(remaining);
+            if tokio::time::timeout(quiet_window, &mut notified)
+                .await
+                .is_err()
+            {
+                return true;
+            }
+        }
+    }
+
     /// Create a new Graph with a custom liveliness subscription pattern and parser
     ///
     /// # Arguments
