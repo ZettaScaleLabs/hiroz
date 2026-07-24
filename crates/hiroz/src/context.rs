@@ -84,6 +84,7 @@ pub struct ZContextBuilder {
     shm_config: Option<Arc<crate::shm::ShmConfig>>,
     keyexpr_format: hiroz_protocol::KeyExprFormat,
     clock: Option<ZClock>,
+    session: Option<Arc<Session>>,
 }
 
 impl ZContextBuilder {
@@ -311,6 +312,18 @@ impl ZContextBuilder {
         self
     }
 
+    /// Reuse a pre-opened Zenoh session instead of opening a new one.
+    ///
+    /// When set, `build()` uses the provided session directly (skipping
+    /// `zenoh::open`), so the resulting context — and every node/graph created
+    /// from it — shares the caller's single session. The provided session is
+    /// assumed to already reflect the desired configuration; any `with_zenoh_config`
+    /// / config-file / override settings are ignored for session creation.
+    pub fn with_session(mut self, session: Arc<Session>) -> Self {
+        self.session = Some(session);
+        self
+    }
+
     /// Enable SHM with default pool size (10MB) and threshold (512 bytes). Also enables transport SHM on the session.
     ///
     /// # Example
@@ -501,54 +514,81 @@ impl Builder for ZContextBuilder {
         let has_config_file = builder.config_file.is_some();
         let has_env_config = std::env::var("ZENOH_SESSION_CONFIG_URI").is_ok();
 
-        let mut config = if let Some(config) = builder.zenoh_config {
-            config
-        } else if let Some(ref config_file) = builder.config_file {
-            // Use explicit config file
-            zenoh::Config::from_file(config_file)?
-        } else if let Ok(uri) = std::env::var("ZENOH_SESSION_CONFIG_URI") {
-            // Use environment variable config URI (same as rmw_zenoh_cpp)
-            zenoh::Config::from_file(uri)?
+        // A caller-provided session is used as-is (see the `session` branch
+        // below), so it must already have transport SHM enabled if SHM is
+        // wanted. `with_shm_config` only takes effect while *opening* a session,
+        // so combining it with `with_session` would leave `ZContext.shm_config`
+        // set while the session's transport has no SHM — SHM publishes would then
+        // fail at runtime with nothing surfaced here. Reject the combination.
+        if builder.session.is_some() && builder.shm_config.is_some() {
+            return Err(
+                "with_session is incompatible with with_shm_config: enable SHM on the \
+                 session before opening it, then pass it via with_session"
+                    .into(),
+            );
+        }
+
+        // If the caller provided a pre-opened session, reuse it directly and skip
+        // opening a new one (the provided session already reflects its config).
+        // Otherwise build a config and open a fresh session as before.
+        let session: Arc<Session> = if let Some(session) = builder.session {
+            debug!(
+                "[CTX] Reusing caller-provided Zenoh session: zid={}",
+                session.zid()
+            );
+            session
         } else {
-            // DEFAULT: Use ROS session config (requires router at localhost:7447)
-            // This is the key change - matching rmw_zenoh_cpp behavior
-            crate::config::session_config()?
-        };
-
-        // common_overrides disables transport SHM; re-enable it when an SHM provider is set.
-        if builder.shm_config.is_some() {
-            crate::config::enable_transport_shm(&mut config).map_err(|e| {
-                format!("Failed to enable transport shared memory for SHM config: {e}")
-            })?;
-            debug!("[CTX] SHM provider configured: enabled transport/shared_memory");
-        }
-
-        // Apply all JSON overrides
-        for (key, value) in builder.config_overrides {
-            let value_str = serde_json::to_string(&value)
-                .map_err(|e| format!("Failed to serialize value for key '{}': {}", key, e))?;
-
-            config.insert_json5(&key, &value_str).map_err(|e| {
-                format!(
-                    "Failed to apply config override '{}' = '{}': {}",
-                    key, value_str, e
-                )
-            })?;
-        }
-
-        // Open Zenoh session
-        let session = zenoh::open(config).wait()?;
-        debug!("[CTX] Zenoh session opened: zid={}", session.zid());
-
-        // Check if router is running when using default peer mode
-        if !has_custom_config && !has_config_file && !has_env_config {
-            let mut routers_zid = session.info().routers_zid().wait();
-            if routers_zid.next().is_none() {
-                warn!("[CTX] No routers connected");
+            let mut config = if let Some(config) = builder.zenoh_config {
+                config
+            } else if let Some(ref config_file) = builder.config_file {
+                // Use explicit config file
+                zenoh::Config::from_file(config_file)?
+            } else if let Ok(uri) = std::env::var("ZENOH_SESSION_CONFIG_URI") {
+                // Use environment variable config URI (same as rmw_zenoh_cpp)
+                zenoh::Config::from_file(uri)?
             } else {
-                debug!("[CTX] Connected to routers");
+                // DEFAULT: Use ROS session config (requires router at localhost:7447)
+                // This is the key change - matching rmw_zenoh_cpp behavior
+                crate::config::session_config()?
+            };
+
+            // common_overrides disables transport SHM; re-enable it when an SHM provider is set.
+            if builder.shm_config.is_some() {
+                crate::config::enable_transport_shm(&mut config).map_err(|e| {
+                    format!("Failed to enable transport shared memory for SHM config: {e}")
+                })?;
+                debug!("[CTX] SHM provider configured: enabled transport/shared_memory");
             }
-        }
+
+            // Apply all JSON overrides
+            for (key, value) in builder.config_overrides {
+                let value_str = serde_json::to_string(&value)
+                    .map_err(|e| format!("Failed to serialize value for key '{}': {}", key, e))?;
+
+                config.insert_json5(&key, &value_str).map_err(|e| {
+                    format!(
+                        "Failed to apply config override '{}' = '{}': {}",
+                        key, value_str, e
+                    )
+                })?;
+            }
+
+            // Open Zenoh session
+            let session = zenoh::open(config).wait()?;
+            debug!("[CTX] Zenoh session opened: zid={}", session.zid());
+
+            // Check if router is running when using default peer mode
+            if !has_custom_config && !has_config_file && !has_env_config {
+                let mut routers_zid = session.info().routers_zid().wait();
+                if routers_zid.next().is_none() {
+                    warn!("[CTX] No routers connected");
+                } else {
+                    debug!("[CTX] Connected to routers");
+                }
+            }
+
+            Arc::new(session)
+        };
 
         let domain_id = builder.domain_id;
         let graph = Arc::new(Graph::new(
@@ -558,7 +598,7 @@ impl Builder for ZContextBuilder {
         )?);
 
         Ok(ZContext {
-            session: Arc::new(session),
+            session,
             counter: Arc::new(GlobalCounter::default()),
             domain_id,
             namespace: builder.namespace,

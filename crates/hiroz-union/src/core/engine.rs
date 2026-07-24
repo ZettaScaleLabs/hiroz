@@ -74,7 +74,7 @@ impl CoreEngine {
         config.insert_json5("connect/endpoints", &format!("[\"{}\"]", router_addr))?;
         config.insert_json5("scouting/multicast/enabled", "false")?;
 
-        let session = zenoh::open(config.clone()).await.map_err(|e| {
+        let session = zenoh::open(config).await.map_err(|e| {
             format!(
                 "{}\nunderlying error: {e}",
                 router_connect_hint(router_addr)
@@ -101,14 +101,13 @@ impl CoreEngine {
         // Initialize metrics collector
         let metrics = Arc::new(Mutex::new(MetricsCollector::new()));
 
-        // KNOWN GAP: ZContextBuilder does not accept an existing Arc<Session>, so this opens a
-        // second independent Zenoh session alongside self.session. Graph liveliness runs on
-        // self.session; ZNode pub/sub uses the context's internal session. Under load the two
-        // sessions may observe liveliness events in different orders. Track as hiroz API gap:
-        // ZContextBuilder needs with_session(Arc<Session>) to share a single session.
+        // Share the single already-opened Zenoh session with the ROS context, so
+        // graph liveliness and ZNode pub/sub run on the same session (one session
+        // per hu process). `with_session` reuses `session` directly and skips a
+        // second `zenoh::open`.
         let context = hiroz::context::ZContextBuilder::default()
             .with_domain_id(domain_id)
-            .with_zenoh_config(config)
+            .with_session(session.clone())
             .build()
             .map_err(|e| format!("Failed to create ROS context: {}", e))?;
         let context = Arc::new(context);

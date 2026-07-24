@@ -14,11 +14,11 @@ pub async fn run_cli_plugin(
     plugin_name: &str,
     args: Vec<String>,
 ) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
-    // Capture the graph and this process's own session zids before `core` is
+    // Capture the graph and this process's own session zid before `core` is
     // moved into the loader, so one-shot commands can wait below for a
-    // *genuinely external* participant to appear. hu opens two Zenoh sessions
-    // (graph vs. ROS node — the CoreEngine KNOWN GAP), so both zids must be
-    // excluded or hu's own echoed liveliness tokens would satisfy the wait.
+    // *genuinely external* participant to appear. hu opens a single Zenoh
+    // session shared by its graph and its ROS node, so excluding that one zid
+    // is enough or hu's own echoed liveliness tokens would satisfy the wait.
     //
     // NOTE: WASM plugins can open their own raw `zenoh::Session`s
     // (`open_declared_sessions`), which are NOT in this list. That is only safe
@@ -27,7 +27,7 @@ pub async fn run_cli_plugin(
     // declares a liveliness token on its own session, add its zid here or the
     // barrier could settle on hu's own plugin session.
     let graph = core.graph.clone();
-    let own_zids = [core.session.zid(), core.node.session().zid()];
+    let own_zids = [core.session.zid()];
     let (mut plugins, _) = load_plugin_named(core, plugin_name)?;
     // Only CLI plugins are valid here.
     let plugin = plugins
