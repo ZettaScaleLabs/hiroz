@@ -7,6 +7,7 @@
     rust-overlay.url = "github:oxalica/rust-overlay";
     git-hooks.url = "github:cachix/git-hooks.nix";
     systems.url = "github:nix-systems/default";
+    crane.url = "github:ipetkov/crane";
   };
 
   outputs =
@@ -17,6 +18,7 @@
       rust-overlay,
       git-hooks,
       systems,
+      crane,
     }:
     nix-ros-overlay.inputs.flake-utils.lib.eachDefaultSystem (
       system:
@@ -31,6 +33,9 @@
           "lyrical" # (May 2026 - May 2031, LTS)
           "rolling" # continuous release, no EOL
         ];
+        # Only include distros present in the pinned nix-ros-overlay; newer distros
+        # (lyrical, rolling) may not be cached on the CI worker yet.
+        availableDistros = builtins.filter (d: builtins.hasAttr d pkgs.rosPackages) distros;
 
         pkgs = import nixpkgs {
           inherit system;
@@ -46,6 +51,22 @@
             "rust-analyzer"
             "llvm-tools-preview"
           ];
+        };
+
+        # crane splits the `hu` package build into a deps-only layer
+        # (cargoArtifacts, cacheable independently of workspace source changes)
+        # and the actual package build that reuses it -- unlike
+        # rustPlatform.buildRustPackage's single-phase build, a change to any
+        # workspace crate's own code doesn't invalidate the compiled-dependency
+        # cache, so cachix only needs to re-push the deps layer when Cargo.lock
+        # itself changes.
+        craneLib = (crane.mkLib pkgs).overrideToolchain (_: rustToolchain);
+
+        # CI-only toolchain — adds the wasm32-wasip2 sysroot for building WASM
+        # plugins. Kept separate so everyday `nix develop` shells don't pay the
+        # WASM sysroot download cost (~100-500 MB).
+        rustToolchainWasm = rustToolchain.override {
+          targets = [ "wasm32-wasip2" ];
         };
 
         rustfmtNightly = pkgs.rust-bin.nightly.latest.rustfmt;
@@ -86,6 +107,20 @@
               # Test-only message packages
               testMessages = with pkgs.rosPackages.${rosDistro}; [
                 test-msgs
+              ];
+
+              # CLI tools needed for interop tests (ros2 topic/param/node/service/run)
+              testCli = with pkgs.rosPackages.${rosDistro}; [
+                ros2cli
+                ros2topic
+                ros2node
+                ros2param
+                ros2service
+                ros2action
+                ros2pkg
+                ros2run
+                ros2launch
+                rmw-zenoh-cpp
               ];
 
               devExtras = with pkgs.rosPackages.${rosDistro}; [
@@ -142,11 +177,15 @@
               wrapPrograms = false;
             };
 
-            # Test environment with test messages (for all tests)
+            # Test environment with test messages and CLI tools (for all tests)
             testFull = pkgs.rosPackages.${rosDistro}.buildEnv {
-              paths = rosDeps.rcl ++ rosDeps.messages ++ rosDeps.testMessages;
+              paths = rosDeps.rcl ++ rosDeps.messages ++ rosDeps.testMessages ++ rosDeps.testCli;
               wrapPrograms = false;
             };
+
+            # Individual store paths for testFull — used to build a correct AMENT_PREFIX_PATH
+            # that preserves each package's own ament index (buildEnv merging drops index entries).
+            testFullPaths = rosDeps.rcl ++ rosDeps.messages ++ rosDeps.testMessages ++ rosDeps.testCli;
           };
 
         # Colcon configuration
@@ -260,6 +299,9 @@
             # Extra env vars set as mkShell attributes (exported by `nix print-dev-env`).
             extraEnvVars ? { },
             rosEnvPath ? null,
+            # Individual package store paths — when provided, each is added to AMENT_PREFIX_PATH
+            # separately so their ament indexes survive (buildEnv merging drops index entries).
+            rosEnvPaths ? [ ],
             pythonVersion ? pkgs.python3, # To determine site-packages path
             rosDistro ? null,
           }:
@@ -292,6 +334,14 @@
                     ''
                   else
                     ""
+                }
+
+                ${
+                  # Per-package AMENT_PREFIX_PATH: collapsed into one export so nix develop
+                  # doesn't evaluate 26 separate shell statements (each increments SHLVL).
+                  pkgs.lib.optionalString (rosEnvPaths != [ ]) ''
+                    export AMENT_PREFIX_PATH="$AMENT_PREFIX_PATH:${pkgs.lib.concatStringsSep ":" rosEnvPaths}"
+                  ''
                 }
 
                 ${extraShellHook}
@@ -340,18 +390,19 @@
               name = "hiroz-ci-${rosDistro}";
               packages = commonBuildInputs ++ pythonTools ++ docTools ++ testTools ++ [ rosEnv.testFull ];
               rosEnvPath = rosEnv.testFull;
+              rosEnvPaths = rosEnv.testFullPaths;
               pythonVersion = pythonVer;
               rosDistro = rosDistro;
               extraShellHook = '''';
             };
           };
 
-        # Generate shells for all distros
+        # Generate shells for available distros only
         allDistroShells = builtins.listToAttrs (
           builtins.map (distro: {
             name = distro;
             value = mkRosShells distro;
-          }) distros
+          }) availableDistros
         );
         # Pre-commit hooks configuration
         mkdocsPkg = builtins.elemAt docTools 1;
@@ -415,15 +466,50 @@
             '';
           };
 
-          # CI without ROS
+          # Pure-Rust dev shell WITH the wasm32-wasip2 target — for building the
+          # hu WASM plugins (meter/monitor, or your own) locally with the full
+          # dev toolchain (pre-commit, dev tools). Same as `pureRust` but the
+          # WASM-capable toolchain replaces the default one. Use this instead of
+          # a `*-ci` shell when developing plugins: `nix develop .#pureRust-wasm`
+          # then `cargo hu-plugins`. The default `pureRust` shell stays lean and
+          # does not fetch the wasm sysroot.
+          pureRust-wasm = mkDevShell {
+            name = "hiroz-pure-rust-wasm";
+            packages = [
+              rustfmt-nightly-bin
+              rustToolchainWasm
+            ]
+            ++ (builtins.filter (p: p != rustToolchain) commonBuildInputs)
+            ++ devTools
+            ++ pythonTools
+            ++ docTools
+            ++ testTools
+            ++ pre-commit-check.enabledPackages;
+            extraShellHook = preCommitGuard;
+            banner = ''
+              echo "🦀 hiroz development environment (pure Rust + wasm32-wasip2)"
+              echo "Rust: $(rustc --version)"
+              echo "Build plugins with: cargo hu-plugins"
+            '';
+          };
+
+          # CI without ROS — includes wasm32-wasip2 sysroot for WASM plugin builds.
+          # Uses rustToolchainWasm so the WASM target is only fetched in CI, not
+          # in the default developer shell.
           pureRust-ci = mkDevShell {
             name = "hiroz-ci-pure-rust";
-            packages = commonBuildInputs ++ pythonTools ++ docTools ++ testTools;
+            packages =
+              # Replace the default rustToolchain with the WASM-capable variant.
+              [ rustToolchainWasm ]
+              ++ (builtins.filter (p: p != rustToolchain) commonBuildInputs)
+              ++ pythonTools
+              ++ docTools
+              ++ testTools;
             extraShellHook = '''';
           };
 
-          # DEPRECATED: Bridge interop test environment (Jazzy + Humble via humble-ros2 wrapper).
-          # Moved to zetta-hiroz-toolkit (private). Will be removed in a future release.
+          # Bridge interop test environment (Jazzy + Humble side-by-side).
+          # Used by `cargo test -p hiroz-tests --features bridge-interop-tests,jazzy`.
           ros-bridge-interop =
             let
               humbleEnv = mkRosEnv "humble";
@@ -455,11 +541,20 @@
               extraEnvVars = {
                 HUMBLE_ROS2 = "${humbleRos2}/bin/humble-ros2";
               };
-              shellHook = ''
-                echo "WARNING: ros-bridge-interop is deprecated in this repo." >&2
-                echo "Use the shell from zetta-hiroz-toolkit instead." >&2
-              '';
             };
+
+          # CI shell for bridge interop tests.
+          # Same as ros-bridge-interop but with rustToolchain replaced by
+          # rustToolchainWasm (adds wasm32-wasip2 target for building WASM plugins).
+          # `hu` is NOT injected as a nix package here — buildRustPackage runs in a
+          # nix sandbox without the wasm32 sysroot and fails when the workspace had
+          # WASM plugin members. Build `hu` and WASM plugins inline in the CI command.
+          bridge-interop-ci = (self.devShells.${system}.ros-bridge-interop).overrideAttrs (old: {
+            nativeBuildInputs = [
+              rustToolchainWasm
+            ]
+            ++ (builtins.filter (p: p != rustToolchain) (old.nativeBuildInputs or [ ]));
+          });
 
         }
         # Add per-distro dev shells (ros-jazzy, ros-rolling, ...)
@@ -467,15 +562,50 @@
           builtins.map (distro: {
             name = "ros-${distro}";
             value = allDistroShells.${distro}.default;
-          }) distros
+          }) availableDistros
         ))
         # Add per-distro CI shells (ros-jazzy-ci, ros-rolling-ci, ...)
         // (builtins.listToAttrs (
           builtins.map (distro: {
             name = "ros-${distro}-ci";
             value = allDistroShells.${distro}.ci;
-          }) distros
+          }) availableDistros
         ));
+
+        packages =
+          let
+            huCommonArgs = {
+              pname = "hu";
+              version = "0.1.0";
+              # cleanCargoSource's default filter strips files down to what it
+              # infers each workspace member needs, but that inference isn't
+              # workspace-aware enough here: it leaves hiroz-tests (not even a
+              # dependency of hiroz-union) with zero source files, which makes
+              # its Cargo.toml invalid ("no targets specified") and fails
+              # workspace resolution before hiroz-union itself is even
+              # reached. pkgs.lib.cleanSource (just .git/ignored-file
+              # filtering) is coarser but correct for a workspace build.
+              src = pkgs.lib.cleanSource ./.;
+              strictDeps = true;
+              nativeBuildInputs = [
+                pkgs.pkg-config
+                pkgs.protobuf
+              ];
+              cargoExtraArgs = "-p hiroz-union --bin hu";
+              doCheck = false;
+              RUSTFLAGS = "";
+            };
+            huCargoArtifacts = craneLib.buildDepsOnly huCommonArgs;
+          in
+          rec {
+            hu = craneLib.buildPackage (
+              huCommonArgs
+              // {
+                cargoArtifacts = huCargoArtifacts;
+              }
+            );
+            default = hu;
+          };
 
         formatter = pkgs.nixfmt-rfc-style;
       }
