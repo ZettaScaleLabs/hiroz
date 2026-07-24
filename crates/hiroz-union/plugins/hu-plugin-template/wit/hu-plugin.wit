@@ -63,16 +63,6 @@ interface types {
         interrupt,
     }
 
-    // v0.3 alias — kept so existing binaries that declare plugin-event in their
-    // manifest type still link against a v0.3 host. New plugins use tui-event.
-    variant plugin-event {
-        startup(list<string>),
-        key-action(string),
-        topic-selected(string),
-        tick,
-        interrupt,
-    }
-
     record plugin-manifest {
         name: string,
         version: string,
