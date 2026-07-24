@@ -241,15 +241,22 @@ impl HuMonitor {
                 let node_name = node.clone();
                 let set_level = level.clone();
                 let svc_name = format!("{node_name}/get_logger_levels");
+                let mut failed = false;
                 match ros::connect_service(&svc_name, "rcl_interfaces/srv/GetLoggerLevels") {
                     Ok(client) => {
                         let req = format!(r#"{{"names": ["{node_name}"]}}"#);
                         match client.call(&req, 5000) {
                             Ok(resp) => render::println(&format!("log levels: {resp}")),
-                            Err(e) => render::eprintln(&format!("ERROR: {e}")),
+                            Err(e) => {
+                                render::eprintln(&format!("ERROR: {e}"));
+                                failed = true;
+                            }
                         }
                     }
-                    Err(e) => render::eprintln(&format!("ERROR: connect service: {e}")),
+                    Err(e) => {
+                        render::eprintln(&format!("ERROR: connect service: {e}"));
+                        failed = true;
+                    }
                 }
                 if let Some(lvl) = set_level {
                     let set_svc = format!("{node_name}/set_logger_levels");
@@ -261,15 +268,19 @@ impl HuMonitor {
                             );
                             match client.call(&req, 5000) {
                                 Ok(_) => render::println(&format!("set log level to {lvl}")),
-                                Err(e) => render::eprintln(&format!("ERROR: set level: {e}")),
+                                Err(e) => {
+                                    render::eprintln(&format!("ERROR: set level: {e}"));
+                                    failed = true;
+                                }
                             }
                         }
                         Err(e) => {
-                            render::eprintln(&format!("ERROR: connect set-level service: {e}"))
+                            render::eprintln(&format!("ERROR: connect set-level service: {e}"));
+                            failed = true;
                         }
                     }
                 }
-                render::exit(0);
+                render::exit(if failed { 1 } else { 0 });
                 self.mode = Mode::Done;
             }
             _ => {}
@@ -381,12 +392,18 @@ fn log_level_to_int(level: &str) -> u32 {
 
 // ─── Plugin entry points ──────────────────────────────────────────────────────
 //
-// WASM components are single-threaded (no threads, no Send/Sync required).
+// WASM components are single-threaded — there are no threads, so Sync is trivially safe.
+// The wit-bindgen generated resource handles (ros::Subscription, session handles, etc.)
+// do not implement Sync, but this is a false negative for single-threaded WASM.
 // Use OnceCell<RefCell<T>> to avoid unsafe static mut while staying no-std-safe.
 
 use std::cell::{OnceCell, RefCell};
 
 struct AssertSync<T>(T);
+// SAFETY: WASM components run on a single thread; no concurrent access to the
+// wrapped `static STATE` is possible, so asserting `Sync` cannot introduce a
+// data race. If the host ever runs plugins on multiple threads this must be
+// revisited (STATE would then need real synchronization).
 unsafe impl<T> Sync for AssertSync<T> {}
 
 static STATE: AssertSync<OnceCell<RefCell<HuMonitor>>> = AssertSync(OnceCell::new());

@@ -77,30 +77,37 @@ fn test_monitor_graph_contains_known_topic() {
         (ctx, node, pub_)
     });
 
-    thread::sleep(Duration::from_millis(800));
+    // Poll the graph (via repeated `--once` snapshots) until the topic becomes
+    // visible, rather than a single blind sleep that can flake on loaded runners.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut last_stdout = String::new();
+    let found = loop {
+        let out = run_hu_monitor(router.endpoint(), &["graph", "--json", "--once"]);
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(stdout.trim())
+                && let Some(topics) = json["topics"].as_array()
+                && topics.iter().any(|t| {
+                    t["name"]
+                        .as_str()
+                        .unwrap_or("")
+                        .contains("graph_check_topic")
+                })
+            {
+                break true;
+            }
+            last_stdout = stdout;
+        }
+        if std::time::Instant::now() >= deadline {
+            break false;
+        }
+        thread::sleep(Duration::from_millis(100));
+    };
 
-    let out = run_hu_monitor(router.endpoint(), &["graph", "--json", "--once"]);
-    assert!(
-        out.status.success(),
-        "hu monitor graph failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let json: serde_json::Value =
-        serde_json::from_str(stdout.trim()).expect("Expected JSON from hu monitor graph");
-
-    let topics = json["topics"].as_array().expect("topics must be array");
-    let found = topics.iter().any(|t| {
-        t["name"]
-            .as_str()
-            .unwrap_or("")
-            .contains("graph_check_topic")
-    });
     assert!(
         found,
-        "Expected /graph_check_topic in graph topics: {}",
-        stdout
+        "Expected /graph_check_topic in graph topics within timeout; last snapshot: {}",
+        last_stdout
     );
 }
 
