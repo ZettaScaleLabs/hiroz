@@ -1,6 +1,6 @@
 //! Minimal CLI plugin — mirrors the "Quick start" code in docs/tools/hu-plugins.md.
 //!
-//! This crate is compiled in CI (`check-console` step, `wasm32-wasip2` target)
+//! This crate is built in CI by the WASM plugin job (`wasm32-wasip2` target)
 //! to ensure the authoring guide stays valid as the WIT interface evolves.
 //! It is not shipped as part of the hiroz release.
 
