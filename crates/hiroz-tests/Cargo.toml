@@ -52,6 +52,7 @@ hu-meter-tests = [
   "hiroz-msgs/example_interfaces",
   "hiroz-msgs/action_tutorials_interfaces",
 ]
+hu-monitor-tests = ["ros-msgs", "hiroz-msgs/example_interfaces"]
 
 # ROS 2 distro compatibility - propagate to hiroz and hiroz-msgs
 humble = ["hiroz/humble", "hiroz-msgs/humble"]
