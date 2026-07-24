@@ -2662,7 +2662,11 @@ fn test_hu_meter_env_var_router_config() {
         });
     });
 
-    thread::sleep(Duration::from_millis(1000));
+    // 3s, not 1s: `list topics` reads hu's own graph, which only reflects a
+    // publisher once its liveliness token has propagated through the router
+    // and been observed -- a 1s window could run the query before that
+    // settles, same class of race as test_hu_meter_delay_basic's burst fix.
+    thread::sleep(Duration::from_secs(3));
 
     // No --connect / --domain flags: reach the router entirely through HU_CONNECT.
     let out = Command::new("hu")
