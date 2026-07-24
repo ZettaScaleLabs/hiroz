@@ -2519,7 +2519,7 @@
 <li><strong>Frontends</strong> — native, trusted runtimes. <code>tui</code> owns the terminal and renders tui-plugins as panes; <code>web</code> serves web-plugins as routes; <code>cli</code> runs one cli-plugin and exits; <code>stream</code> dumps core events as JSON. They are native (not plugins) because they need full host access — the terminal, the runtime, the sessions — which the sandbox withholds.</li>
 <li><strong>Plugins</strong> — <code>meter</code> (measurement: <code>hz</code>, <code>bw</code>, <code>delay</code>, <code>echo</code>, <code>pub</code>, <code>list</code>, <code>info</code>, service/action/param) and <code>monitor</code> (observation: <code>watch</code>, <code>graph</code>, <code>log</code>, <code>log-level</code>) are the reference plugins whose source ships in this repo; they are built to <code>.wasm</code> and installed into the plugin path. Any <code>.wasm</code> in <code>$HU_PLUGIN_PATH</code> or <code>~/.local/share/hu/plugins/</code> becomes a <code>hu &lt;name&gt;</code> command with no registration step, no Python entry-points, and no shared runtime state — <code>meter</code>/<code>monitor</code> are discovered the same way.</li>
 <li><strong>Management</strong> — <code>router</code> starts an embedded Zenoh router (see <a href="../hu/#running-a-router">Running a router</a>); <code>plugin</code> lists and validates installed plugins. Native infrastructure, no graph involvement.</li>
-<li><strong>Sandbox</strong> — WASM plugins are capability-gated: a plugin only gets the host access (topic subscription, file, bag) it is explicitly granted. Frontends and management are the deliberate native exceptions.</li>
+<li><strong>Sandbox</strong> — WASM plugins are capability-gated: a plugin only gets the host access (topic subscribe/publish, service calls, raw-CDR access, metrics) it is explicitly granted. Frontends and management are the deliberate native exceptions.</li>
 </ul>
 <p>Read on for <a href="#the-problem-with-existing-cli-tools">why this design beats the Python-based tools</a>, the <a href="../hu/">full command reference</a>, and <a href="../hu-plugins/">how to write your own plugin</a>.</p>
 <hr />
@@ -2542,7 +2542,7 @@
 <tr>
 <td><strong>Inaccurate rate measurement</strong></td>
 <td><code>ros2 topic hz</code> deserializes every message in Python inside the GIL (<a href="https://github.com/ros2/ros2cli/issues/871">ros2cli#871</a>, <a href="https://github.com/ros2/ros2cli/issues/1043">#1043</a>)</td>
-<td>Saturates below ~1.4 kHz on a 64 kHz burst publisher (41× under-read); camera topics at 30 fps report 15–22 fps</td>
+<td>Saturates near ~1,400 Hz on a ~97 kHz burst publisher (≥65× under-read); camera topics at 30 fps report 15–22 fps</td>
 </tr>
 <tr>
 <td><strong>No machine-readable output</strong></td>

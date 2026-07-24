@@ -2970,7 +2970,7 @@
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;wit/hu-plugin.wit&quot;</span><span class="p">,</span>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="p">});</span>
 </span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="k">use</span><span class="w"> </span><span class="n">hu</span><span class="p">::</span><span class="n">plugin</span><span class="p">::</span><span class="n">types</span><span class="p">::{</span><span class="n">EventKind</span><span class="p">,</span><span class="w"> </span><span class="n">Permission</span><span class="p">};</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="k">use</span><span class="w"> </span><span class="n">hu</span><span class="p">::</span><span class="n">plugin</span><span class="p">::</span><span class="n">types</span><span class="p">::</span><span class="n">EventKind</span><span class="p">;</span>
 </span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="k">use</span><span class="w"> </span><span class="n">hu</span><span class="p">::</span><span class="n">plugin</span><span class="p">::</span><span class="n">render</span><span class="p">;</span>
 </span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
 </span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="k">struct</span><span class="w"> </span><span class="nc">MyPlugin</span><span class="p">;</span>
@@ -3027,7 +3027,7 @@
 </span></code></pre></div>
 <p>Start <code>hu</code> and press <code>5</code> to open the Plugins panel (TUI plugins), or run <code>hu my-plugin &lt;args&gt;</code> from the terminal (CLI plugins). If <code>hu</code> is already running in the TUI, you don't need to restart it — copy the <code>.wasm</code> into a plugin directory and press <code>R</code> on the Plugins panel to rescan and load it live.</p>
 <h3 id="6-run-it-end-to-end">6. Run it end-to-end<a class="headerlink" href="#6-run-it-end-to-end" title="Permanent link">&para;</a></h3>
-<p>The shipped template (<code>crates/hiroz-union/plugins/hu-plugin-template/</code>) is exactly the crate above. Build it, point <code>HU_PLUGIN_PATH</code> at the output, and invoke it by its manifest name (<code>my-plugin</code>). Its <code>on_event</code> handler stores the <code>Startup</code> args and prints <code>hello from WASM!</code> on every <code>Tick</code> (<code>tick_ms = 1000</code>), so a running session emits one line per second until interrupted:</p>
+<p>The shipped template (<code>crates/hiroz-union/plugins/hu-plugin-template/</code>) is the crate above. Build it, point <code>HU_PLUGIN_PATH</code> at the output, and invoke it by its manifest name (<code>my-plugin</code>). Its <code>on_event</code> handler stores the <code>Startup</code> args and prints <code>hello from WASM!</code> on every <code>Tick</code> (<code>tick_ms = 1000</code>), so a running session emits one line per second until interrupted:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--target<span class="w"> </span>wasm32-wasip2<span class="w"> </span>--release<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--manifest-path<span class="w"> </span>crates/hiroz-union/plugins/hu-plugin-template/Cargo.toml
 </span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
@@ -3037,7 +3037,7 @@
 </span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># hello from WASM!</span>
 </span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="c1"># ^C</span>
 </span></code></pre></div>
-<p>This is the same path the integration suite drives in <code>test_hu_plugin_template_runtime_ticks</code> (<code>crates/hiroz-tests/tests/hu_meter.rs</code>), which runs <code>hu my-plugin</code>, lets the Tick loop fire, and asserts the <code>hello from WASM!</code> output — so the template's demonstrated example logic is verified at runtime, not just that the component loads.</p>
+<p>The integration suite validates this path in <code>test_hu_plugin_template_validate_and_discover</code> (<code>crates/hiroz-tests/tests/hu_meter.rs</code>), which builds the template, confirms the component loads, and discovers it by its manifest name. A companion test, <code>test_hu_plugin_template_runtime_ticks</code>, drives the live Tick loop but is currently <code>#[ignore]</code>d because capturing the streamed tick output is timing-dependent and unreliable in CI.</p>
 <h2 id="wit-world-boundary">WIT world boundary<a class="headerlink" href="#wit-world-boundary" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>flowchart LR
     subgraph Host["Host (hu binary)"]
@@ -3075,6 +3075,10 @@
 <td><code>list-services()</code></td>
 <td><code>list&lt;service-info&gt;</code> — name, type-name, server count</td>
 </tr>
+<tr>
+<td><code>describe-node(namespace, name)</code></td>
+<td><code>node-detail</code> — per-node endpoint detail (publishers, subscribers, services)</td>
+</tr>
 </tbody>
 </table>
 <h3 id="ros-subscriptions-and-measurement"><code>ros</code> — subscriptions and measurement<a class="headerlink" href="#ros-subscriptions-and-measurement" title="Permanent link">&para;</a></h3>
@@ -3089,6 +3093,10 @@
 <tr>
 <td><code>subscribe(topic)</code></td>
 <td>Returns a <code>subscription</code> resource; call <code>try-recv()</code> for the next JSON message</td>
+</tr>
+<tr>
+<td><code>resolve-topic-ke(topic)</code></td>
+<td>Resolve a ROS topic name to its full RmwZenoh key expression (for use with <code>session</code> raw subscribe/publish)</td>
 </tr>
 <tr>
 <td><code>measure-hz(topic, window-ms)</code></td>
@@ -3108,7 +3116,7 @@
 </tr>
 <tr>
 <td><code>connect-service(name, type)</code></td>
-<td>Returns a <code>service-client</code> resource; call <code>call(request-json, timeout-ms)</code></td>
+<td>Returns a <code>service-client</code> resource; call <code>call(request-json, timeout-ms)</code>, or <code>call-raw(payload, timeout-ms)</code> for raw CDR passthrough</td>
 </tr>
 <tr>
 <td><code>encode-yaml-to-cdr(yaml, type-name)</code></td>
@@ -3130,6 +3138,10 @@
 <tr>
 <td><code>println(text)</code></td>
 <td>Append a line to the plugin's output buffer</td>
+</tr>
+<tr>
+<td><code>eprintln(text)</code></td>
+<td>Append a line to the plugin's error output</td>
 </tr>
 <tr>
 <td><code>set-title(title)</code></td>
@@ -3189,7 +3201,7 @@
 </tr>
 </tbody>
 </table>
-<p>All resources are declared by calling the corresponding host function: <code>raw-subscribe(ke)</code>, <code>raw-publisher(ke)</code>, <code>declare-liveliness(ke)</code>, <code>subscribe-liveliness(ke)</code>, <code>declare-queryable(ke)</code>, <code>querier(ke)</code>.</p>
+<p>These resources are not free functions on <code>raw-transport</code>; they are obtained from a <code>session-handle</code> (see the <code>session</code> interface below), whose methods declare each one: <code>raw-subscribe(ke)</code>, <code>raw-publisher(ke)</code>, <code>declare-liveliness(ke)</code>, <code>subscribe-liveliness(ke)</code>, <code>declare-queryable(ke)</code>, <code>open-querier(ke)</code>.</p>
 <h3 id="session-named-zenoh-sessions"><code>session</code> — named Zenoh sessions<a class="headerlink" href="#session-named-zenoh-sessions" title="Permanent link">&para;</a></h3>
 <p>For bridge plugins and other low-level use: declare sessions in your manifest and retrieve them via <code>session::get-session(name)</code>. The returned <code>session-handle</code> exposes the same raw subscribe, publish, liveliness, queryable, and querier primitives as <code>raw-transport</code>, but on a separately opened session — useful when a plugin needs two independent Zenoh connections (e.g. Humble and Jazzy router endpoints).</p>
 <h3 id="permission-host-call-gating"><code>permission</code> — host-call gating<a class="headerlink" href="#permission-host-call-gating" title="Permanent link">&para;</a></h3>
@@ -3220,7 +3232,7 @@
 </tr>
 <tr>
 <td><code>access-raw-cdr</code></td>
-<td>all <code>raw-transport</code> host calls — <code>raw-subscribe</code>, <code>raw-publisher</code>, <code>declare-liveliness</code>, <code>subscribe-liveliness</code>, <code>declare-queryable</code>, <code>querier</code></td>
+<td>all <code>raw-transport</code> resources via <code>session-handle</code> — <code>raw-subscribe</code>, <code>raw-publisher</code>, <code>declare-liveliness</code>, <code>subscribe-liveliness</code>, <code>declare-queryable</code>, <code>open-querier</code></td>
 </tr>
 <tr>
 <td><code>open-session</code></td>
@@ -3274,7 +3286,7 @@
 <p><code>hu</code> searches both locations in order for <code>*.wasm</code> files. Discovery is a pure filename scan: the name is derived from the filename (stripping a leading <code>hu_</code> or <code>hu-</code>), and the component is <strong>not</strong> instantiated and its <code>manifest()</code> is <strong>not</strong> called at this stage. Files named <code>hu-&lt;name&gt;.wasm</code> (or <code>hu_&lt;name&gt;.wasm</code>) register as <code>&lt;name&gt;</code>. Run <code>hu plugin list</code> to see the discovered plugins and their paths.</p>
 <p>Because discovery never loads the component, <code>hu plugin list</code> cannot distinguish a valid plugin from a corrupt or ABI-mismatched one — there is no <code>failed</code> status. A plugin's manifest and ABI are only validated lazily, when you actually invoke its subcommand; a mismatch or missing export surfaces as an error at that point, not at <code>plugin list</code> time. Use <code>hu plugin validate &lt;path&gt;</code> to check a specific artifact ahead of time.</p>
 <h2 id="multi-session-plugins-session-interface">Multi-session plugins (<code>session</code> interface)<a class="headerlink" href="#multi-session-plugins-session-interface" title="Permanent link">&para;</a></h2>
-<p>A plugin that needs two independent Zenoh connections — for example, one that forwards messages between two routers (Humble on port 7447 and Jazzy on port 7448) — declares both sessions in its manifest via <code>SessionRequirement { name, endpoint, mode }</code>. The host opens all declared sessions before the first <code>Startup</code> event, and the plugin retrieves each one with <code>session::get_session(name)</code>, which returns a <code>session-handle</code> exposing <code>raw-subscribe</code>, <code>raw-publisher</code>, <code>declare-liveliness</code>, <code>subscribe-liveliness</code>, and <code>declare-queryable</code> — the same primitives as <code>raw-transport</code>, but scoped to that named session rather than the shared host session.</p>
+<p>A plugin that needs two independent Zenoh connections — for example, one that forwards messages between two routers (Humble on port 7447 and Jazzy on port 7448) — declares both sessions in its manifest via <code>SessionRequirement { name, endpoint, mode }</code>. The host opens all declared sessions before the first <code>Startup</code> event, and the plugin retrieves each one with <code>session::get_session(name)</code>, which returns a <code>session-handle</code> exposing <code>raw-subscribe</code>, <code>raw-publisher</code>, <code>declare-liveliness</code>, <code>subscribe-liveliness</code>, <code>declare-queryable</code>, and <code>open-querier</code> — the <code>raw-transport</code> resource primitives, scoped to that named session rather than the shared host session.</p>
 <p>No such bridge plugin ships in this PR. For worked, compiling examples of manifest declaration, session/state handling, and event dispatch, see the reference implementations below — <code>hu-meter</code> in particular declares and drives a session end-to-end.</p>
 <h2 id="environment">Environment<a class="headerlink" href="#environment" title="Permanent link">&para;</a></h2>
 <p>Plugins can read environment variables from the <code>hu</code> process (<code>HU_CONNECT</code>, <code>HU_DOMAIN</code>, and any others set in the shell). Filesystem and network access are not available. Only install plugins you trust.</p>

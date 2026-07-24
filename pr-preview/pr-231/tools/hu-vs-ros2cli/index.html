@@ -2848,13 +2848,13 @@
 <p><code>ros2 topic hz</code> deserializes every message in Python before counting it. This is a known bottleneck: see ros2cli <a href="https://github.com/ros2/ros2cli/issues/871">#871</a>, <a href="https://github.com/ros2/ros2cli/issues/1043">#1043</a>, <a href="https://github.com/ros2/ros2cli/issues/843">#843</a>.</p>
 <p><code>hu meter hz</code> subscribes at the raw Zenoh byte layer. It records arrival timestamps from the transport without deserializing any payload.</p>
 <p><strong>At moderate rates (≤ 500 Hz, any payload size)</strong> both tools report the same rate to within measurement noise — the Python overhead is not the limiting factor and the differential is under a few percent.</p>
-<p><strong>At high rates the Python GIL becomes the bottleneck.</strong> The hiroz test suite measures this directly with <code>test_hz_python_saturation</code>: a <code>yield_now</code> publisher saturates the CPU to produce a burst stream; each tool is pinned to a separate CPU to isolate the measurement.</p>
+<p><strong>At high rates the Python GIL becomes the bottleneck.</strong> We measured this with a <code>yield_now</code> publisher that saturates the CPU to produce a burst stream, with each tool pinned to a separate CPU to isolate the measurement.</p>
 <pre class="mermaid"><code>xychart-beta
     title "Rate measurement: ~97 kHz burst publisher"
     x-axis ["Ground truth", "hu meter hz", "ros2 topic hz"]
     y-axis "Measured rate (Hz)" 0 --&gt; 100000
     bar [96829, 90971, 1398]</code></pre>
-<p><em><code>hu</code> numbers measured from internal testing on a release binary, via <code>test_hz_python_saturation</code> in <code>hiroz-tests</code>. <code>ros2 topic hz</code> figure from a prior run on identical hardware; ros2 was not available in the benchmark shell. These are internal measurements, not a reproducible public benchmark — treat the specific numbers as illustrative of the order-of-magnitude gap rather than exact figures for your hardware.</em></p>
+<p><em><code>hu</code> numbers measured from internal testing on a release binary. <code>ros2 topic hz</code> figure from a prior run on identical hardware; ros2 was not available in the benchmark shell. These are internal measurements, not a reproducible public benchmark — treat the specific numbers as illustrative of the order-of-magnitude gap rather than exact figures for your hardware.</em></p>
 <table>
 <thead>
 <tr>
