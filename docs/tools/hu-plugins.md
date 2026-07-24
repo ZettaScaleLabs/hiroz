@@ -135,7 +135,9 @@ Start `hu` and press `5` to open the Plugins panel (TUI plugins), or run `hu my-
 The shipped template (`crates/hiroz-union/plugins/hu-plugin-template/`) is the crate above. Build it, point `HU_PLUGIN_PATH` at the output, and invoke it by its manifest name (`my-plugin`). Its `on_event` handler stores the `Startup` args and prints `hello from WASM!` on every `Tick` (`tick_ms = 1000`), so a running session emits one line per second until interrupted:
 
 ```sh
-cargo build --target wasm32-wasip2 --release \
+# CARGO_TARGET_DIR pins the output dir; a standalone --manifest-path build
+# otherwise writes under the plugin crate's own target/ directory.
+CARGO_TARGET_DIR=target cargo build --target wasm32-wasip2 --release \
   --manifest-path crates/hiroz-union/plugins/hu-plugin-template/Cargo.toml
 
 export HU_PLUGIN_PATH=target/wasm32-wasip2/release

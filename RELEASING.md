@@ -52,7 +52,7 @@ This pushes `v0.0.0-smoke-test`, waits for all CI jobs to pass (builds, smoke te
 The CI pipeline exercises:
 
 - All wheel builds (jazzy + humble × x86_64 Linux, aarch64 Linux, aarch64 macOS)
-- All binary builds (`hu`, `hu-meter`, `hu-monitor`)
+- The `hu` binary build, plus the `hu-meter` / `hu-monitor` WASM plugins (`hu_meter.wasm` / `hu_monitor.wasm`, `wasm32-wasip2` target)
 - All Go library builds (`libhiroz` static + shared)
 - Python smoke test: install into venv, `import hiroz_py`
 - Binary smoke test: `--help` + 3-second runtime check (no crash)

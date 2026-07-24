@@ -16,20 +16,13 @@ A few terms recur throughout this page:
 
 ### Pre-built binary
 
-Download the latest release for your platform from the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases):
+**Forthcoming.** Pre-built `hu` binaries are not yet published by the release workflow — the current [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases) does not include a standalone `hu` artifact. Until they land, build from source (see below). Planned artifact names, once the release job builds them:
 
 | Platform | File |
 |---|---|
 | Linux x86_64 | `bin-hu-x86_64-linux` |
 | Linux aarch64 | `bin-hu-aarch64-linux` |
 | macOS aarch64 | `bin-hu-aarch64-macos` |
-
-```bash
-# Linux x86_64 example — replace <version> and filename for your platform
-curl -Lo hu https://github.com/ZettaScaleLabs/hiroz/releases/download/<version>/bin-hu-x86_64-linux
-chmod +x hu
-./hu --help
-```
 
 `hu` has no ROS 2 dependency — it works with any [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) or hiroz deployment.
 
