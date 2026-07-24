@@ -337,8 +337,9 @@
                 }
 
                 ${
-                  # Per-package AMENT_PREFIX_PATH: collapsed into one export so nix develop
-                  # doesn't evaluate 26 separate shell statements (each increments SHLVL).
+                  # Per-package AMENT_PREFIX_PATH: collapsed into one export to keep the
+                  # shellHook small — one export instead of 26 separate shell statements,
+                  # which reduces shellHook size and nix develop's eval cost.
                   pkgs.lib.optionalString (rosEnvPaths != [ ]) ''
                     export AMENT_PREFIX_PATH="''${AMENT_PREFIX_PATH:+$AMENT_PREFIX_PATH:}${pkgs.lib.concatStringsSep ":" rosEnvPaths}"
                   ''
@@ -489,7 +490,7 @@
             banner = ''
               echo "🦀 hiroz development environment (pure Rust + wasm32-wasip2)"
               echo "Rust: $(rustc --version)"
-              echo "Build plugins with: cargo hu-plugins"
+              echo "wasm32-wasip2 target available for WASM plugin builds"
             '';
           };
 
