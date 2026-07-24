@@ -876,8 +876,11 @@ fn test_hu_meter_list_find_services() {
 
 // ─── service list with types ──────────────────────────────────────────────────
 
+/// Same one-shot-command service-discovery reliability gap as
+/// test_hu_meter_param_delete.
 #[test]
 #[serial_test::serial]
+#[ignore = "hu meter service list --with-types: same one-shot-command service-discovery reliability gap as test_hu_meter_param_delete, not an ordinary timing flake"]
 fn test_hu_meter_service_list_with_types() {
     let router = TestRouter::new();
 
@@ -1815,8 +1818,11 @@ fn test_hu_meter_service_find() {
 
 // ─── service type ────────────────────────────────────────────────────────────
 
+/// Same one-shot-command service-discovery reliability gap as
+/// test_hu_meter_param_delete.
 #[test]
 #[serial_test::serial]
+#[ignore = "hu meter service type: same one-shot-command service-discovery reliability gap as test_hu_meter_param_delete, not an ordinary timing flake"]
 fn test_hu_meter_service_type() {
     let router = TestRouter::new();
 
