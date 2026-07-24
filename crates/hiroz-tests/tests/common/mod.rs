@@ -418,9 +418,11 @@ pub fn spawn_python_service_client(
 
 /// A background producer kept alive for exactly the lifetime of this guard.
 ///
-/// On drop it flips a stop flag and joins the producer thread, which drops all
-/// held Zenoh entities (and their session) cleanly. Prefer this over a detached
-/// thread that sleeps a fixed duration: too short a sleep lets the entity vanish
+/// On drop it flips a stop flag and detaches the producer thread (no join, so a
+/// producer wedged in a blocking recv can't hang teardown); the thread drops all
+/// held Zenoh entities (and their session) cleanly once it observes the flag.
+/// Prefer this over a detached thread that sleeps a fixed duration: too short a
+/// sleep lets the entity vanish
 /// before `hu` reads it; too long leaves the producer's client session
 /// reconnect-spinning after the test's `TestRouter` drops, stealing CPU from
 /// later serial tests. Here the hold is exactly the test's scope — no guessed
