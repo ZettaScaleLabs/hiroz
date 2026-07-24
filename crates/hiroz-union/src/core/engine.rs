@@ -71,7 +71,9 @@ impl CoreEngine {
         // are long-lived, so the startup cost is invisible to them.)
         let mut config = zenoh::Config::default();
         config.insert_json5("mode", "\"client\"")?;
-        config.insert_json5("connect/endpoints", &format!("[\"{}\"]", router_addr))?;
+        let endpoints_json = serde_json::to_string(&[router_addr])
+            .map_err(|e| format!("failed to serialize router endpoint: {e}"))?;
+        config.insert_json5("connect/endpoints", &endpoints_json)?;
         config.insert_json5("scouting/multicast/enabled", "false")?;
 
         let session = zenoh::open(config.clone()).await.map_err(|e| {

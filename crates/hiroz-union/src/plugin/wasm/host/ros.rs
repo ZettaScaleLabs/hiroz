@@ -409,23 +409,29 @@ fn json_to_dynamic_value(
     match ty {
         FieldType::Bool => Ok(DynamicValue::Bool(value.as_bool().ok_or("expected bool")?)),
         FieldType::Int8 => Ok(DynamicValue::Int8(
-            value.as_i64().ok_or("expected i8")? as i8
+            i8::try_from(value.as_i64().ok_or("expected i8")?)
+                .map_err(|_| "value out of range for i8")?,
         )),
         FieldType::Int16 => Ok(DynamicValue::Int16(
-            value.as_i64().ok_or("expected i16")? as i16
+            i16::try_from(value.as_i64().ok_or("expected i16")?)
+                .map_err(|_| "value out of range for i16")?,
         )),
         FieldType::Int32 => Ok(DynamicValue::Int32(
-            value.as_i64().ok_or("expected i32")? as i32
+            i32::try_from(value.as_i64().ok_or("expected i32")?)
+                .map_err(|_| "value out of range for i32")?,
         )),
         FieldType::Int64 => Ok(DynamicValue::Int64(value.as_i64().ok_or("expected i64")?)),
         FieldType::Uint8 => Ok(DynamicValue::Uint8(
-            value.as_u64().ok_or("expected u8")? as u8
+            u8::try_from(value.as_u64().ok_or("expected u8")?)
+                .map_err(|_| "value out of range for u8")?,
         )),
         FieldType::Uint16 => Ok(DynamicValue::Uint16(
-            value.as_u64().ok_or("expected u16")? as u16
+            u16::try_from(value.as_u64().ok_or("expected u16")?)
+                .map_err(|_| "value out of range for u16")?,
         )),
         FieldType::Uint32 => Ok(DynamicValue::Uint32(
-            value.as_u64().ok_or("expected u32")? as u32
+            u32::try_from(value.as_u64().ok_or("expected u32")?)
+                .map_err(|_| "value out of range for u32")?,
         )),
         FieldType::Uint64 => Ok(DynamicValue::Uint64(value.as_u64().ok_or("expected u64")?)),
         FieldType::Float32 => Ok(DynamicValue::Float32(
