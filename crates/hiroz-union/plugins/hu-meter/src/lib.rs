@@ -1288,8 +1288,10 @@ fn get_param_values(node: &str, names: &[String]) -> Result<Vec<String>, String>
 }
 
 /// Extracts the ROS2 `rcl_interfaces/ParameterValue` union's active field as a
-/// JSON literal, based on its `type` discriminant
-/// (1=bool, 2=integer, 3=double, 4=string, everything else falls back to raw JSON).
+/// JSON literal, based on its `type` discriminant (1=bool, 2=integer,
+/// 3=double, 4=string, 5=byte_array, 6=bool_array, 7=integer_array,
+/// 8=double_array, 9=string_array). Any other discriminant falls back to the
+/// raw JSON value.
 fn param_value_literal(v: &serde_json::Value) -> String {
     let ty = v["type"].as_u64().unwrap_or(0);
     let field = match ty {
@@ -1302,7 +1304,9 @@ fn param_value_literal(v: &serde_json::Value) -> String {
         7 => &v["integer_array_value"],
         8 => &v["double_array_value"],
         9 => &v["string_array_value"],
-        _ => return "null".to_string(),
+        // Unknown/extended discriminant: fall back to the raw JSON value so
+        // newer ParameterValue variants aren't silently hidden as "null".
+        _ => return v.to_string(),
     };
     if field.is_null() {
         "null".to_string()
@@ -1346,35 +1350,25 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 
 /// Extract a dot-separated field path from a JSON string.
 /// E.g. "header.stamp.sec" on `{"header":{"stamp":{"sec":42,...},...},...}` → "42".
-/// Falls back to "(field not found)" when the path does not resolve.
+/// Descends into nested objects segment by segment using serde_json; a leaf
+/// string is returned unquoted, any other leaf (number/bool/object/array) as
+/// its raw JSON. Falls back to "(field not found)" when the path does not
+/// resolve, or "(invalid JSON)" when the input does not parse.
 fn extract_field(json: &str, path: &str) -> String {
-    let mut current = json;
+    let value: serde_json::Value = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(e) => return format!("(invalid JSON: {e})"),
+    };
+    let mut current = &value;
     for segment in path.split('.') {
-        let key = format!("\"{}\":", segment);
-        let Some(pos) = current.find(&key) else {
-            return format!("(field '{segment}' not found in path '{path}')");
-        };
-        // Advance past the key
-        current = current[pos + key.len()..].trim_start();
-        // If the value starts with '{', keep current pointing at the object for next segment
-        // Otherwise the value ends at the next ',' or '}'
+        match current.get(segment) {
+            Some(next) => current = next,
+            None => return format!("(field '{segment}' not found in path '{path}')"),
+        }
     }
-    // Extract the scalar value: everything up to the first unquoted ',' or '}'
-    let trimmed = current.trim_start();
-    if trimmed.starts_with('"') {
-        // String value — find closing quote
-        let inner = &trimmed[1..];
-        let end = inner.find('"').unwrap_or(inner.len());
-        inner[..end].to_string()
-    } else if trimmed.starts_with('{') || trimmed.starts_with('[') {
-        // Nested object/array — return as-is up to depth 0 (simplified: just the raw head)
-        trimmed.to_string()
-    } else {
-        // Number / bool / null
-        let end = trimmed
-            .find(|c: char| c == ',' || c == '}' || c == ']')
-            .unwrap_or(trimmed.len());
-        trimmed[..end].to_string()
+    match current {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
     }
 }
 

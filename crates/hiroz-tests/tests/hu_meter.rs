@@ -2,10 +2,12 @@
 //! Integration tests for hu-meter CLI commands.
 //!
 //! Each test spawns a hiroz node (publisher, service server, or parameter server)
-//! in a background thread, then runs `hu-meter` as a subprocess and checks output.
+//! in a background thread, then runs the `hu` host binary with the `meter`
+//! plugin as a subprocess (`hu --connect <router> meter …`) and checks output.
 //!
 //! Requires: `--features hu-meter-tests,ros-msgs,jazzy` (or other distro).
-//! The `hu-meter` binary must be on PATH or reachable via CARGO_BIN_EXE_hu_meter.
+//! The `hu` binary must be on PATH, and HU_PLUGIN_PATH must point at a directory
+//! containing the compiled `hu_meter.wasm` (target `wasm32-wasip2`).
 
 mod common;
 
