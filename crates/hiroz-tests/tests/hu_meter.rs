@@ -2688,8 +2688,8 @@ fn test_hu_plugin_template_runtime_ticks() {
     let router = TestRouter::new();
 
     // `my-plugin` has tick_ms=1000 and prints "hello from WASM!" on each Tick,
-    // looping until interrupted. Run it briefly, then kill and inspect output.
-    let mut child = Command::new("hu")
+    // looping until interrupted. Run it briefly, then interrupt and inspect output.
+    let child = Command::new("hu")
         .arg("--connect")
         .arg(router.endpoint())
         .arg("my-plugin")
