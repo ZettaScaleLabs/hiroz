@@ -76,7 +76,13 @@ impl HuMonitor {
                     graph::list_topics().into_iter().map(|t| t.name).collect();
                 let nodes: Vec<String> = graph::list_nodes()
                     .into_iter()
-                    .map(|n| format!("{}{}", n.namespace, n.name))
+                    .map(|n| {
+                        if n.namespace == "/" {
+                            format!("/{}", n.name)
+                        } else {
+                            format!("{}/{}", n.namespace, n.name)
+                        }
+                    })
                     .collect();
                 let services: Vec<String> =
                     graph::list_services().into_iter().map(|s| s.name).collect();
@@ -144,7 +150,13 @@ impl HuMonitor {
                     graph::list_topics().into_iter().map(|t| t.name).collect();
                 let cur_nodes: Vec<String> = graph::list_nodes()
                     .into_iter()
-                    .map(|n| format!("{}{}", n.namespace, n.name))
+                    .map(|n| {
+                        if n.namespace == "/" {
+                            format!("/{}", n.name)
+                        } else {
+                            format!("{}/{}", n.namespace, n.name)
+                        }
+                    })
                     .collect();
                 let cur_services: Vec<String> =
                     graph::list_services().into_iter().map(|s| s.name).collect();
@@ -297,7 +309,12 @@ fn print_graph_snapshot(json: bool) {
         render::println("  (none)");
     }
     for n in &nodes {
-        render::println(&format!("  {}{}", n.namespace, n.name));
+        let full = if n.namespace == "/" {
+            format!("/{}", n.name)
+        } else {
+            format!("{}/{}", n.namespace, n.name)
+        };
+        render::println(&format!("  {}", full));
     }
 
     render::println("Services:");
