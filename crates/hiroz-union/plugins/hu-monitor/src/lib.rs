@@ -98,11 +98,22 @@ impl HuMonitor {
                 self.mode = Mode::Done;
             }
             "log" => {
-                let count = parse_flag_usize(&args, "--count").unwrap_or(0);
+                // An absent `--count` defaults to 0 (unbounded streaming). A
+                // present-but-unparseable `--count` is a user error — fail fast
+                // instead of silently streaming forever.
+                let count = match parse_count_flag(&args) {
+                    Ok(c) => c,
+                    Err(msg) => {
+                        render::eprintln(&format!("ERROR: {msg}"));
+                        render::exit(1);
+                        self.mode = Mode::Done;
+                        return;
+                    }
+                };
                 let sub = match ros::subscribe("/rosout") {
                     Ok(s) => Some(s),
                     Err(e) => {
-                        render::println(&format!("ERROR: failed to subscribe to /rosout: {e}"));
+                        render::eprintln(&format!("ERROR: failed to subscribe to /rosout: {e}"));
                         render::exit(1);
                         self.mode = Mode::Done;
                         return;
@@ -118,7 +129,7 @@ impl HuMonitor {
                 let node = match args.get(1) {
                     Some(n) => n.clone(),
                     None => {
-                        render::println("ERROR: log-level requires a node name");
+                        render::eprintln("ERROR: log-level requires a node name");
                         render::exit(1);
                         self.mode = Mode::Done;
                         return;
@@ -132,7 +143,7 @@ impl HuMonitor {
                 };
             }
             other => {
-                render::println(&format!("ERROR: unknown subcommand '{other}'"));
+                render::eprintln(&format!("ERROR: unknown subcommand '{other}'"));
                 render::exit(1);
                 self.mode = Mode::Done;
             }
@@ -161,33 +172,43 @@ impl HuMonitor {
                 let cur_services: Vec<String> =
                     graph::list_services().into_iter().map(|s| s.name).collect();
 
+                // Set-based membership so each tick's diff is O(n) rather than
+                // O(n^2) from repeated Vec::contains scans.
+                use std::collections::HashSet;
+                let prev_topic_set: HashSet<&String> = prev_topics.iter().collect();
+                let cur_topic_set: HashSet<&String> = cur_topics.iter().collect();
+                let prev_node_set: HashSet<&String> = prev_nodes.iter().collect();
+                let cur_node_set: HashSet<&String> = cur_nodes.iter().collect();
+                let prev_service_set: HashSet<&String> = prev_services.iter().collect();
+                let cur_service_set: HashSet<&String> = cur_services.iter().collect();
+
                 for t in &cur_topics {
-                    if !prev_topics.contains(t) {
+                    if !prev_topic_set.contains(t) {
                         render::println(&format!("topic appeared:   {t}"));
                     }
                 }
                 for t in prev_topics.iter() {
-                    if !cur_topics.contains(t) {
+                    if !cur_topic_set.contains(t) {
                         render::println(&format!("topic removed:    {t}"));
                     }
                 }
                 for n in &cur_nodes {
-                    if !prev_nodes.contains(n) {
+                    if !prev_node_set.contains(n) {
                         render::println(&format!("node appeared:    {n}"));
                     }
                 }
                 for n in prev_nodes.iter() {
-                    if !cur_nodes.contains(n) {
+                    if !cur_node_set.contains(n) {
                         render::println(&format!("node removed:     {n}"));
                     }
                 }
                 for s in &cur_services {
-                    if !prev_services.contains(s) {
+                    if !prev_service_set.contains(s) {
                         render::println(&format!("service appeared: {s}"));
                     }
                 }
                 for s in prev_services.iter() {
-                    if !cur_services.contains(s) {
+                    if !cur_service_set.contains(s) {
                         render::println(&format!("service removed:  {s}"));
                     }
                 }
@@ -225,10 +246,10 @@ impl HuMonitor {
                         let req = format!(r#"{{"names": ["{node_name}"]}}"#);
                         match client.call(&req, 5000) {
                             Ok(resp) => render::println(&format!("log levels: {resp}")),
-                            Err(e) => render::println(&format!("ERROR: {e}")),
+                            Err(e) => render::eprintln(&format!("ERROR: {e}")),
                         }
                     }
-                    Err(e) => render::println(&format!("ERROR: connect service: {e}")),
+                    Err(e) => render::eprintln(&format!("ERROR: connect service: {e}")),
                 }
                 if let Some(lvl) = set_level {
                     let set_svc = format!("{node_name}/set_logger_levels");
@@ -240,11 +261,11 @@ impl HuMonitor {
                             );
                             match client.call(&req, 5000) {
                                 Ok(_) => render::println(&format!("set log level to {lvl}")),
-                                Err(e) => render::println(&format!("ERROR: set level: {e}")),
+                                Err(e) => render::eprintln(&format!("ERROR: set level: {e}")),
                             }
                         }
                         Err(e) => {
-                            render::println(&format!("ERROR: connect set-level service: {e}"))
+                            render::eprintln(&format!("ERROR: connect set-level service: {e}"))
                         }
                     }
                 }
@@ -329,10 +350,22 @@ fn print_graph_snapshot(json: bool) {
     }
 }
 
-fn parse_flag_usize(args: &[String], flag: &str) -> Option<usize> {
-    args.windows(2)
-        .find(|w| w[0] == flag)
-        .and_then(|w| w[1].parse().ok())
+/// Parse the `--count` flag for the `log` subcommand.
+///
+/// Returns `Ok(0)` when the flag is entirely absent (0 == unbounded streaming,
+/// the historical default). Returns `Err` when the flag is present but its
+/// value is missing or not a valid `usize`, so the caller can fail fast rather
+/// than silently streaming forever.
+fn parse_count_flag(args: &[String]) -> Result<usize, String> {
+    let Some(pos) = args.iter().position(|a| a == "--count") else {
+        return Ok(0);
+    };
+    match args.get(pos + 1) {
+        Some(v) => v
+            .parse()
+            .map_err(|_| format!("invalid --count value '{v}'")),
+        None => Err("--count requires a value".to_string()),
+    }
 }
 
 fn log_level_to_int(level: &str) -> u32 {
