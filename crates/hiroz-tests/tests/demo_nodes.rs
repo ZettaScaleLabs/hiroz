@@ -77,6 +77,16 @@ fn test_hiroz_talker_to_hiroz_listener() {
     );
 }
 
+// These 6 tests each spawn a real `ros2 run demo_nodes_cpp ...` subprocess
+// (a full RCL/rclcpp C++ node). The `interop` nextest profile runs with
+// test-threads=8 so the other 8 hiroz-only tests in this file stay parallel,
+// but observed CI failures show all of the RCL-spawning tests hitting
+// nextest's hard 60s kill *simultaneously* when several run concurrently --
+// the runner can't keep up with that many RCL subprocesses starting at once.
+// nextest runs each test in its own process, so serial_test's in-process
+// static Mutex is a no-op here; the `rcl-interop` test-group in
+// .config/nextest.toml limits these 6 to one at a time relative to each
+// other, without slowing down the rest of the suite.
 #[test]
 fn test_rcl_talker_to_hiroz_listener() {
     if !check_ros2_available() {
@@ -94,27 +104,14 @@ fn test_rcl_talker_to_hiroz_listener() {
     let received = Arc::new(Mutex::new(Vec::new()));
     let received_clone = received.clone();
 
-    // Start hiroz listener in a thread using the example code
-    let router_endpoint = router.endpoint().to_string();
-    let listener_handle = thread::spawn(move || {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let ctx = create_hiroz_context_with_endpoint(&router_endpoint)
-                .expect("Failed to create hiroz context");
-
-            // Use the actual listener example code with timeout
-            let messages =
-                demo_nodes::run_listener(ctx, "chatter", Some(3), Some(Duration::from_secs(15)))
-                    .await
-                    .expect("Listener failed");
-
-            let mut received = received_clone.lock().unwrap();
-            *received = messages;
-        });
-    });
-
-    wait_for_ready(Duration::from_secs(2));
-
-    // Start RCL talker
+    // Start the RCL talker FIRST. demo_nodes_cpp talker publishes continuously
+    // (1 Hz, forever until killed), so bringing it up before the listener
+    // decouples the listener's receive window from runner stalls: under CI load
+    // the gap between spawning the talker and the listener actually starting can
+    // exceed several seconds, and if the listener's fixed-wall-clock timeout were
+    // already ticking it could expire before the talker was discovered. Since the
+    // talker keeps publishing, the listener only needs its window to overlap the
+    // talker's steady stream — not to race a one-shot burst.
     let talker = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "talker"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
@@ -126,6 +123,28 @@ fn test_rcl_talker_to_hiroz_listener() {
         .expect("Failed to start RCL talker");
 
     let _talker_guard = ProcessGuard::new(talker, "RCL talker");
+
+    wait_for_ready(Duration::from_secs(5));
+
+    // Start hiroz listener in a thread using the example code. The 60s window is
+    // generous on purpose: it must survive discovery latency spikes on loaded /
+    // self-hosted runners (this step runs right after the job's clippy step).
+    let router_endpoint = router.endpoint().to_string();
+    let listener_handle = thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let ctx = create_hiroz_context_with_endpoint(&router_endpoint)
+                .expect("Failed to create hiroz context");
+
+            // Use the actual listener example code with timeout
+            let messages =
+                demo_nodes::run_listener(ctx, "chatter", Some(3), Some(Duration::from_secs(60)))
+                    .await
+                    .expect("Listener failed");
+
+            let mut received = received_clone.lock().unwrap();
+            *received = messages;
+        });
+    });
 
     listener_handle.join().expect("Listener thread panicked");
 
@@ -264,31 +283,65 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
 
     println!("\n=== Test: RCL demo_nodes_cpp add_two_ints server -> hiroz client ===");
 
-    // Start RCL server
-    let server = Command::new("ros2")
+    // Start RCL server. stdout/stderr are piped (not discarded) so that if
+    // discovery never completes we can tell whether the process is still
+    // alive-but-slow or has actually exited/errored -- silently discarding
+    // its output here was hiding that distinction entirely (this is how the
+    // missing-ros2run-verb regression was originally found).
+    let mut server = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "add_two_ints_server"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .process_group(0)
         .spawn()
         .expect("Failed to start RCL server");
 
-    let _server_guard = ProcessGuard::new(server, "RCL add_two_ints server");
+    let mut server_stdout = server.stdout.take().expect("stdout was piped");
+    let mut server_stderr = server.stderr.take().expect("stderr was piped");
+    let stdout_handle = thread::spawn(move || {
+        let mut buf = String::new();
+        let _ = std::io::Read::read_to_string(&mut server_stdout, &mut buf);
+        buf
+    });
+    let stderr_handle = thread::spawn(move || {
+        let mut buf = String::new();
+        let _ = std::io::Read::read_to_string(&mut server_stderr, &mut buf);
+        buf
+    });
+
+    let mut server_guard = ProcessGuard::new(server, "RCL add_two_ints server");
 
     wait_for_ready(Duration::from_secs(3));
 
-    // Start hiroz client in a thread using the example code
-    let client_handle = thread::spawn(move || -> i64 {
+    // Retry until the server's queryable is actually discovered -- same
+    // rationale as the fibonacci RCL-server test below: this is discovery
+    // latency, not response latency, so a longer fixed wait/timeout doesn't
+    // reliably help under CI load.
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    let result = loop {
         let ctx =
             create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
-
-        // Use the actual client example code
-        demo_nodes::run_add_two_ints_client(ctx, 4, 7, false).expect("Client failed")
-    });
-
-    let result = client_handle.join().expect("Client thread panicked");
+        match demo_nodes::run_add_two_ints_client(ctx, 4, 7, false) {
+            Ok(v) => break v,
+            Err(_) if std::time::Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(500));
+            }
+            Err(e) => {
+                let exit_status = server_guard
+                    .child
+                    .as_mut()
+                    .and_then(|c| c.try_wait().ok().flatten());
+                let stdout = stdout_handle.join().unwrap_or_default();
+                let stderr = stderr_handle.join().unwrap_or_default();
+                panic!(
+                    "Client failed: {e} (process exit status: {exit_status:?})\n\
+                     stdout:\n{stdout}\nstderr:\n{stderr}"
+                );
+            }
+        }
+    };
     assert_eq!(result, 11, "Expected 4 + 7 = 11");
 
     println!(
@@ -311,6 +364,8 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
 
     println!("\n=== Test: hiroz add_two_ints server -> RCL demo_nodes_cpp client ===");
 
+    let (tx, rx) = std::sync::mpsc::channel();
+
     // Start hiroz server in a thread using the example code
     let router_endpoint = router.endpoint().to_string();
     let server_handle = thread::spawn(move || {
@@ -318,13 +373,18 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
             .expect("Failed to create hiroz context");
 
         // Use the actual server example code (handle one request)
-        demo_nodes::run_add_two_ints_server(ctx, Some(1)).expect("Server failed");
+        let result = demo_nodes::run_add_two_ints_server(ctx, Some(1));
+        let _ = tx.send(()); // Signal completion
+        result.expect("Server failed");
     });
 
-    wait_for_ready(Duration::from_secs(2));
+    // Generous discovery buffer: the RCL client is a one-shot external
+    // process with no retry of its own, so the server's queryable must
+    // already be discoverable by the time it starts.
+    wait_for_ready(Duration::from_secs(5));
 
     // Start RCL client
-    let client = Command::new("ros2")
+    let mut client = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "add_two_ints_client"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
@@ -334,15 +394,44 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
         .spawn()
         .expect("Failed to start RCL client");
 
+    // Bound the wait on the RCL client's own exit instead of a fixed sleep,
+    // so a slow-to-discover run fails fast with a clear message rather than
+    // hanging the hiroz server thread (blocked on its one expected request)
+    // until nextest's hard kill.
+    let client_deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let client_status = loop {
+        if let Some(status) = client.try_wait().expect("Failed to poll RCL client") {
+            break Some(status);
+        }
+        if std::time::Instant::now() >= client_deadline {
+            break None;
+        }
+        thread::sleep(Duration::from_millis(200));
+    };
     let _client_guard = ProcessGuard::new(client, "RCL add_two_ints client");
+    // Check the exit status is actually success, not just that the process
+    // exited -- an instantly-failing `ros2 run` (e.g. missing verb plugin,
+    // bad args) also "exits within 30s" and would otherwise false-pass here.
+    match client_status {
+        None => panic!(
+            "RCL add_two_ints client did not exit within 30s (likely failed to discover the hiroz server)"
+        ),
+        Some(status) if !status.success() => {
+            panic!("RCL add_two_ints client exited with failure status {status:?}")
+        }
+        Some(_) => {}
+    }
 
-    // Wait for the client to complete
-    wait_for_ready(Duration::from_secs(3));
-
-    // Stop the server
-    server_handle.join().expect("Server thread panicked");
-
-    println!("Test passed: RCL client called hiroz server");
+    // Wait for server to signal completion (with timeout)
+    match rx.recv_timeout(Duration::from_secs(5)) {
+        Ok(_) => {
+            server_handle.join().expect("Server thread panicked");
+            println!("Test passed: RCL client called hiroz server");
+        }
+        Err(_) => {
+            println!("Test passed: RCL client called hiroz server (server still cleaning up)");
+        }
+    }
 }
 
 #[test]
@@ -372,18 +461,28 @@ fn test_rcl_fibonacci_action_server_to_hiroz_client() {
 
     let _server_guard = ProcessGuard::new(server, "RCL fibonacci action server");
 
-    wait_for_ready(Duration::from_secs(5));
+    wait_for_ready(Duration::from_secs(3));
 
-    // Start hiroz client in a thread
+    // Retry until the action server's queryables are actually discovered --
+    // same rationale as the add_two_ints RCL-server test above: this is
+    // discovery latency, not response latency, so a longer fixed wait/
+    // timeout doesn't reliably help under CI load.
     let client_handle = thread::spawn(move || -> Vec<i32> {
-        let ctx =
-            create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
-
-        // Use the actual client example code
-        tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(async { demo_nodes::run_fibonacci_action_client(ctx, 2).await })
-            .expect("Client failed")
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            let ctx =
+                create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
+            let result = tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(async { demo_nodes::run_fibonacci_action_client(ctx, 2).await });
+            match result {
+                Ok(v) => break v,
+                Err(_) if std::time::Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(500));
+                }
+                Err(e) => panic!("Client failed: {e}"),
+            }
+        }
     });
 
     let result = client_handle.join().expect("Client thread panicked");

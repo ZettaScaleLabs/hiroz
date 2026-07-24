@@ -32,30 +32,37 @@ fn ros2_cmd(rmw_env: &str) -> Command {
     cmd
 }
 
-/// Wait until `ros2 node list` shows the given node name, or panic after timeout.
-fn wait_for_node(node_name: &str, rmw_env: &str, timeout: Duration) {
+/// Wait until the node is visible in hiroz's own graph (populated in the
+/// background by its liveliness subscriber), or panic after timeout.
+///
+/// Previously this spawned `ros2 node list` in a loop -- each invocation is
+/// an external CLI process with its own internal discovery spin-time on top
+/// of the sleep between attempts, which made the wait itself slow and
+/// non-deterministic rather than reacting to an actual discovery event.
+/// Polling the graph directly checks already-live in-memory state with no
+/// process spawn or network round-trip per check.
+fn wait_for_node(node_name: &str, router: &TestRouter, timeout: Duration) {
+    let ctx = create_hiroz_context_with_router(router).expect("Failed to create hiroz context");
     let start = Instant::now();
     loop {
-        let output = ros2_cmd(rmw_env)
-            .args(["node", "list", "--spin-time", SPIN_TIME, "--no-daemon"])
-            .output()
-            .expect("Failed to run ros2 node list");
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.contains(node_name) {
+        if ctx
+            .graph()
+            .get_node_names()
+            .iter()
+            .any(|(name, _ns)| name == node_name)
+        {
             println!("Node {} discovered after {:?}", node_name, start.elapsed());
             return;
         }
 
         if start.elapsed() > timeout {
-            let stderr = String::from_utf8_lossy(&output.stderr);
             panic!(
-                "Timed out waiting for node {} after {:?}\nstdout: {}\nstderr: {}",
-                node_name, timeout, stdout, stderr
+                "Timed out waiting for node {} after {:?}",
+                node_name, timeout
             );
         }
 
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_millis(20));
     }
 }
 
@@ -85,7 +92,7 @@ fn test_ros2_param_list_on_hiroz_node() {
         thread::sleep(Duration::from_secs(30));
     });
 
-    wait_for_node("param_list_node", &rmw_env, Duration::from_secs(15));
+    wait_for_node("param_list_node", &router, Duration::from_secs(45));
 
     let output = ros2_cmd(&rmw_env)
         .args([
@@ -140,7 +147,7 @@ fn test_ros2_param_get_set_on_hiroz_node() {
         thread::sleep(Duration::from_secs(60));
     });
 
-    wait_for_node("param_getset_node", &rmw_env, Duration::from_secs(15));
+    wait_for_node("param_getset_node", &router, Duration::from_secs(45));
 
     // Get initial value
     let output = ros2_cmd(&rmw_env)
@@ -251,7 +258,7 @@ fn test_hiroz_reads_rclcpp_node_params() {
 
     let _guard = ProcessGuard::new(server, "rclcpp_param_node");
 
-    wait_for_node("rclcpp_param_node", &rmw_env, Duration::from_secs(15));
+    wait_for_node("rclcpp_param_node", &router, Duration::from_secs(45));
 
     let output = ros2_cmd(&rmw_env)
         .args([
