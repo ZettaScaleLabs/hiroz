@@ -149,7 +149,9 @@ interface ros {
     }
 
     resource service-client {
-        call: func(request-json: string, timeout-ms: u32) -> result<string, plugin-error>;
+        // `request` accepts either a JSON object or flow-YAML request body;
+        // the host (parse_yaml_or_json) parses whichever form is given.
+        call: func(request: string, timeout-ms: u32) -> result<string, plugin-error>;
         // Raw CDR passthrough — bypasses schema-based JSON encode/decode.
         // Used for callers that already have an exact CDR payload (e.g. hex
         // bytes from a CLI --payload flag) rather than a JSON request body.

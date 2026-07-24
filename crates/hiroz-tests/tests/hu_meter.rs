@@ -23,7 +23,7 @@ use hiroz_msgs::action_tutorials_interfaces::{FibonacciResult, action::Fibonacci
 use hiroz_msgs::example_interfaces::{FibonacciResult, action::Fibonacci};
 use hiroz_msgs::{
     example_interfaces::{AddTwoIntsResponse, srv::AddTwoInts},
-    std_msgs::{Header, String as RosString},
+    std_msgs::String as RosString,
 };
 
 /// Run `hu meter <args>` with a specific router endpoint.
@@ -128,12 +128,10 @@ fn test_hu_meter_echo_count_3() {
 
 // ─── list ────────────────────────────────────────────────────────────────────
 
-/// Same structural one-shot-command graph-observation gap as
-/// test_hu_meter_info_node_full / test_hu_meter_env_var_router_config: `hu
-/// meter list ... --json` fails to see entities published well before hu
-/// started, even with a 1s pre-Startup graph-settle wait
-/// (modes/cli.rs::run_cli_plugin). Confirmed across every `list` subcommand
-/// (topics, nodes, find-*, --all), not an ordinary timing flake.
+/// Discovery-timing-sensitive: the publisher is created before hu starts, so
+/// the ~800ms sleep gives hu's startup graph replay (the 1s pre-Startup
+/// graph-settle wait in modes/cli.rs::run_cli_plugin) time to observe the
+/// entity under CI load before this one-shot `list` command reads the graph.
 #[test]
 fn test_hu_meter_list_topics() {
     let router = TestRouter::new();
@@ -174,7 +172,9 @@ fn test_hu_meter_list_topics() {
     );
 }
 
-/// Same structural gap as test_hu_meter_list_topics.
+/// Discovery-timing-sensitive: the entity is created before hu starts, so the
+/// ~800ms sleep gives hu's startup graph replay time to observe it under CI
+/// load before this one-shot command runs.
 #[test]
 fn test_hu_meter_list_nodes() {
     let router = TestRouter::new();
@@ -209,10 +209,10 @@ fn test_hu_meter_list_nodes() {
 
 // ─── info ────────────────────────────────────────────────────────────────────
 
-/// Same structural one-shot-command graph-observation gap as
-/// test_hu_meter_info_node_full / test_hu_meter_info_service: fails even
-/// with the 1s pre-Startup graph-settle wait, for a topic published well
-/// before hu started.
+/// Discovery-timing-sensitive: the publisher is created before hu starts, so
+/// the ~800ms sleep gives hu's startup graph replay (1s pre-Startup
+/// graph-settle wait in modes/cli.rs::run_cli_plugin) time to observe the
+/// topic under CI load before this one-shot `info` command reads the graph.
 #[test]
 fn test_hu_meter_info_topic_pub_count() {
     let router = TestRouter::new();
@@ -250,14 +250,10 @@ fn test_hu_meter_info_topic_pub_count() {
     );
 }
 
-/// Root-caused as far as reasonable: `hu meter info node` reports "node not
-/// found" for a node published well before hu started, even after widening
-/// the pre-Startup graph-replay settle wait to 1s (see
-/// modes/cli.rs::run_cli_plugin) -- widening it further didn't help either,
-/// which (like test_hu_meter_env_var_router_config's exhaustive-retry
-/// evidence) points to something structural in one-shot commands' graph
-/// observation rather than an ordinary timing gap. Same underlying gap,
-/// different one-shot command.
+/// Discovery-timing-sensitive: the node (and its pub/sub) is created before hu
+/// starts, so the ~800ms sleep gives hu's startup graph replay (1s pre-Startup
+/// graph-settle wait in modes/cli.rs::run_cli_plugin) time to observe it under
+/// CI load before this one-shot `info node` command reads the graph.
 #[test]
 fn test_hu_meter_info_node_full() {
     let router = TestRouter::new();
@@ -542,7 +538,9 @@ fn test_hu_meter_echo_once() {
 
 // ─── list with-types / find-topics / find-services ───────────────────────────
 
-/// Same structural gap as test_hu_meter_list_topics.
+/// Discovery-timing-sensitive: the entity is created before hu starts, so the
+/// ~800ms sleep gives hu's startup graph replay time to observe it under CI
+/// load before this one-shot command runs.
 #[test]
 fn test_hu_meter_list_topics_with_types() {
     let router = TestRouter::new();
@@ -580,7 +578,9 @@ fn test_hu_meter_list_topics_with_types() {
     );
 }
 
-/// Same structural gap as test_hu_meter_list_topics.
+/// Discovery-timing-sensitive: the entity is created before hu starts, so the
+/// ~800ms sleep gives hu's startup graph replay time to observe it under CI
+/// load before this one-shot command runs.
 #[test]
 fn test_hu_meter_list_find_topics() {
     let router = TestRouter::new();
@@ -616,8 +616,9 @@ fn test_hu_meter_list_find_topics() {
 
 // ─── service list with types ──────────────────────────────────────────────────
 
-/// Same one-shot-command service-discovery reliability gap as
-/// test_hu_meter_param_delete.
+/// Discovery-timing-sensitive: the service/param node is created before hu
+/// starts, so the sleep gives hu's startup graph replay time to observe it
+/// under CI load before this one-shot command runs.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_service_list_with_types() {
@@ -745,80 +746,11 @@ fn test_hu_meter_echo_raw_wildcard_fallback() {
     );
 }
 
-// ─── delay ────────────────────────────────────────────────────────────────────
-
-#[test]
-fn test_hu_meter_delay_basic() {
-    let router = TestRouter::new();
-
-    let endpoint = router.endpoint().to_string();
-    let _producer = spawn_producer(move |stop| async move {
-        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
-        let node = ctx
-            .create_node("delay_pub")
-            .with_type_description_service()
-            .build()
-            .unwrap();
-        let pub_ = node.create_pub::<Header>("/delay_test").build().unwrap();
-        // Deterministic: wait until hu's subscriber is in the graph before
-        // publishing (see test_hu_meter_echo_count_3).
-        let _ = pub_.wait_for_subscription(1, Duration::from_secs(20)).await;
-        // Burst starts only after hu is subscribed (wait_for_subscription
-        // above). `delay` self-exits via --duration and the stub only needs
-        // to echo one message, so a short burst suffices.
-        for _ in 0..20 {
-            if stop.load(std::sync::atomic::Ordering::Relaxed) {
-                break;
-            }
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default();
-            let _ = pub_
-                .async_publish(&Header {
-                    stamp: hiroz_msgs::builtin_interfaces::Time {
-                        sec: now.as_secs() as i32,
-                        nanosec: now.subsec_nanos(),
-                    },
-                    frame_id: "delay_test".into(),
-                })
-                .await;
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        // Burst done (or stopped): keep entities alive until the guard drops.
-        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    });
-
-    // run_hu_meter (self-exit via --duration), not run_hu_meter_timed
-    // (blind sleep-then-SIGKILL): `delay` didn't support --duration before;
-    // added it (see cmd_delay/Mode::Delay in hu-meter's lib.rs) so this test
-    // can self-exit like the bw/hz ones. --duration must stay >= the
-    // publisher's burst length above -- a shorter one lets hu self-exit
-    // before the burst (and hu's own slower-than-usual discovery) finishes,
-    // which is exactly what made this test intermittently see 0 messages.
-    let out = run_hu_meter(
-        router.endpoint(),
-        &["delay", "/delay_test", "--duration", "13"],
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-
-    // `extract_delay_note` (hu-meter's lib.rs) is an explicitly-documented
-    // stub -- "A real impl would parse the JSON; here we just report the raw
-    // message" -- so it always emits "(raw) {json}", never "delay"/"mean"/
-    // "Waiting". Assert on what the stub actually produces (a message on the
-    // topic, echoed) rather than measurement text no code path emits.
-    assert!(
-        stdout.contains("(raw)") && stdout.contains("delay_test"),
-        "Expected a raw echoed message from the delay subscriber, got: {}",
-        stdout
-    );
-}
-
 // ─── param ───────────────────────────────────────────────────────────────────
 
-/// Same one-shot-command service-discovery reliability gap as
-/// test_hu_meter_param_delete.
+/// Discovery-timing-sensitive: the service/param node is created before hu
+/// starts, so the sleep gives hu's startup graph replay time to observe it
+/// under CI load before this one-shot command runs.
 #[test]
 fn test_hu_meter_param_set_roundtrip() {
     let router = TestRouter::new();
@@ -958,8 +890,9 @@ fn test_hu_meter_param_get_multiple() {
     assert_eq!(map["y"].as_i64().unwrap_or(-1), 20, "y should be 20");
 }
 
-/// Same one-shot-command service-discovery reliability gap as
-/// test_hu_meter_param_delete.
+/// Discovery-timing-sensitive: the service/param node is created before hu
+/// starts, so the sleep gives hu's startup graph replay time to observe it
+/// under CI load before this one-shot command runs.
 #[test]
 fn test_hu_meter_param_set_multiple_sequential() {
     let router = TestRouter::new();
@@ -1017,8 +950,9 @@ fn test_hu_meter_param_dump() {
     );
 }
 
-/// Same one-shot-command service-discovery reliability gap as
-/// test_hu_meter_param_delete.
+/// Discovery-timing-sensitive: the service/param node is created before hu
+/// starts, so the sleep gives hu's startup graph replay time to observe it
+/// under CI load before this one-shot command runs.
 #[test]
 fn test_hu_meter_param_load() {
     let router = TestRouter::new();
@@ -1151,7 +1085,9 @@ fn test_hu_meter_list_count_limits_output() {
 
 // ─── list --all ──────────────────────────────────────────────────────────────
 
-/// Same structural gap as test_hu_meter_list_topics.
+/// Discovery-timing-sensitive: the entity is created before hu starts, so the
+/// ~800ms sleep gives hu's startup graph replay time to observe it under CI
+/// load before this one-shot command runs.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_list_all_shows_hidden_topics() {
@@ -1248,15 +1184,7 @@ fn test_hu_meter_hz_multi_topic() {
     // regardless of margin.
     let out = run_hu_meter(
         router.endpoint(),
-        &[
-            "hz",
-            "/hz_multi_a",
-            "/hz_multi_b",
-            "--window",
-            "10",
-            "--duration",
-            "3",
-        ],
+        &["hz", "/hz_multi_a", "/hz_multi_b", "--duration", "3"],
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -1316,15 +1244,7 @@ fn test_hu_meter_bw_multi_topic() {
     // regardless of margin.
     let out = run_hu_meter(
         router.endpoint(),
-        &[
-            "bw",
-            "/bw_multi_a",
-            "/bw_multi_b",
-            "--window",
-            "10",
-            "--duration",
-            "2",
-        ],
+        &["bw", "/bw_multi_a", "/bw_multi_b", "--duration", "2"],
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
@@ -1336,8 +1256,9 @@ fn test_hu_meter_bw_multi_topic() {
 
 // ─── service find ────────────────────────────────────────────────────────────
 
-/// Same one-shot-command service-discovery reliability gap as
-/// test_hu_meter_param_delete.
+/// Discovery-timing-sensitive: the service/param node is created before hu
+/// starts, so the sleep gives hu's startup graph replay time to observe it
+/// under CI load before this one-shot command runs.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_service_find() {
@@ -1372,8 +1293,9 @@ fn test_hu_meter_service_find() {
 
 // ─── service type ────────────────────────────────────────────────────────────
 
-/// Same one-shot-command service-discovery reliability gap as
-/// test_hu_meter_param_delete.
+/// Discovery-timing-sensitive: the service/param node is created before hu
+/// starts, so the sleep gives hu's startup graph replay time to observe it
+/// under CI load before this one-shot command runs.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_service_type() {
@@ -1408,7 +1330,9 @@ fn test_hu_meter_service_type() {
 
 // ─── list nodes find ─────────────────────────────────────────────────────────
 
-/// Same structural gap as test_hu_meter_list_topics.
+/// Discovery-timing-sensitive: the entity is created before hu starts, so the
+/// ~800ms sleep gives hu's startup graph replay time to observe it under CI
+/// load before this one-shot command runs.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_list_nodes_find() {
@@ -1453,9 +1377,9 @@ fn test_hu_meter_list_nodes_find() {
 
 // ─── info edge cases ─────────────────────────────────────────────────────────
 
-/// Same structural one-shot-command graph-observation gap as
-/// test_hu_meter_info_node_full / test_hu_meter_info_service /
-/// test_hu_meter_info_topic_pub_count.
+/// Discovery-timing-sensitive: the subscriber is created before hu starts, so
+/// the ~1s sleep gives hu's startup graph replay time to observe it under CI
+/// load before this one-shot `info` command reads the graph.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_info_zero_pub() {
@@ -2006,14 +1930,6 @@ fn test_hu_meter_service_call_json() {
     );
 }
 
-// ─── action echo (feedback streaming) ────────────────────────────────────────
-
-/// Full action type string (distro-dependent) used for `--msg-type`.
-#[cfg(not(any(feature = "kilted", feature = "lyrical")))]
-const FIB_ACTION_TYPE: &str = "action_tutorials_interfaces/action/Fibonacci";
-#[cfg(any(feature = "kilted", feature = "lyrical"))]
-const FIB_ACTION_TYPE: &str = "example_interfaces/action/Fibonacci";
-
 // ─── hu plugin validate ──────────────────────────────────────────────────────
 
 /// Locate a compiled plugin .wasm under HU_PLUGIN_PATH by artifact stem.
@@ -2155,74 +2071,6 @@ fn test_hu_meter_param_describe_json() {
     );
 }
 
-// ─── pub ──────────────────────────────────────────────────────────────────────
-
-/// Coverage for `hu meter pub` (plain publish subcommand).
-///
-/// NOTE on scope: `pub` cannot be exercised through to "a live subscriber
-/// receives the message" in CI. `pub --yaml` encodes via the
-/// `encode-yaml-to-cdr` WIT host function, which resolves the message schema
-/// from the global `SchemaRegistry` (`hiroz::dynamic::get_schema`). Nothing in
-/// this codebase populates that registry at runtime — schemas otherwise come
-/// only from compile-time-generated Rust types or from live discovery against
-/// an already-running publisher/service (and `encode-yaml-to-cdr`, unlike
-/// service `call`, is *not* rerouted through discovery). So *every* msg-type
-/// fails schema lookup, not just nested ones. It is not a bug in `pub`; it needs
-/// a runtime `.msg` schema loader that does not exist yet.
-///
-/// This test therefore exercises the maximal CI-safe surface of `pub`: the arg
-/// parsing, the one-shot dispatch, the `encode-yaml-to-cdr` host-call boundary,
-/// and the error-rendering/exit paths. A regression that breaks argument
-/// handling, panics the plugin, or hangs the command is caught here even though
-/// the happy encode-and-receive path is not yet reachable.
-#[test]
-#[serial_test::serial]
-fn test_hu_meter_pub_arg_and_encode_paths() {
-    let router = TestRouter::new();
-
-    // (a) Missing --msg-type: `pub` must reject with a clear error and a
-    //     non-zero exit, not silently no-op or crash.
-    let out = run_hu_meter(router.endpoint(), &["pub", "/pub_no_type_topic"]);
-    assert!(
-        !out.status.success(),
-        "hu meter pub without --msg-type should exit non-zero"
-    );
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("msg-type"),
-        "Expected a --msg-type-required error, got stderr: {stderr}\nstdout: {}",
-        String::from_utf8_lossy(&out.stdout)
-    );
-
-    // (b) With --msg-type + --yaml but no schema in the registry: the
-    //     encode-yaml-to-cdr host call must surface a clean "not found"
-    //     encode error and exit non-zero — again, no panic/hang.
-    let out = run_hu_meter(
-        router.endpoint(),
-        &[
-            "pub",
-            "/pub_string_topic",
-            "--msg-type",
-            "std_msgs/msg/String",
-            "--yaml",
-            "{data: hello}",
-        ],
-    );
-    assert!(
-        !out.status.success(),
-        "hu meter pub with an unresolvable schema should exit non-zero"
-    );
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(
-        combined.contains("encode error") || combined.contains("not found"),
-        "Expected a schema-not-found encode error from `pub`, got: {combined}"
-    );
-}
-
 // ─── info service ─────────────────────────────────────────────────────────────
 
 /// Coverage for `hu meter info service <name>`. `info`'s topic and node targets
@@ -2230,10 +2078,10 @@ fn test_hu_meter_pub_arg_and_encode_paths() {
 /// but the service branch of `cmd_info` was untested. Spawns a live service
 /// server and asserts the reported server count and name.
 ///
-/// Same structural one-shot-command gap as test_hu_meter_info_node_full /
-/// test_hu_meter_env_var_router_config: fails even with the 1s pre-Startup
-/// graph-settle wait (modes/cli.rs::run_cli_plugin), for a service published
-/// well before hu started.
+/// Discovery-timing-sensitive: the service server is created before hu starts,
+/// so the ~1s sleep gives hu's startup graph replay (1s pre-Startup
+/// graph-settle wait in modes/cli.rs::run_cli_plugin) time to observe it under
+/// CI load before this one-shot `info service` command reads the graph.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_info_service() {
@@ -2274,135 +2122,5 @@ fn test_hu_meter_info_service() {
     assert!(
         json["servers"].as_u64().unwrap_or(0) >= 1,
         "Expected at least 1 service server: {stdout}"
-    );
-}
-
-// ─── param delete ─────────────────────────────────────────────────────────────
-
-/// Coverage for `hu meter param delete <node> <name>`, previously untested.
-///
-/// Rather than assume `delete` succeeds (hiroz's parameter server exposes the
-/// standard six rcl_interfaces services — describe/get/get_types/list/set/
-/// set_atomically — but **not** a `delete_parameters` service, so `delete`
-/// against a hiroz node cannot actually remove the parameter), this test
-/// asserts the *invariant* that matters for catching a "silently claims success
-/// but no-ops" or "crashes" regression: the `delete` command must terminate
-/// deterministically, and the parameter's post-delete presence must be
-/// consistent with `delete`'s own reported exit status.
-#[test]
-#[serial_test::serial]
-fn test_hu_meter_param_delete() {
-    let router = TestRouter::new();
-    let endpoint = router.endpoint().to_string();
-    let _producer = spawn_param_node(endpoint, "param_delete_node", vec![("victim", 5)]);
-    thread::sleep(Duration::from_millis(800));
-
-    // Confirm the param is visible before the delete attempt.
-    let list_before = run_hu_meter(
-        router.endpoint(),
-        &["param", "list", "/param_delete_node", "--json"],
-    );
-    let before: Vec<String> =
-        serde_json::from_str(String::from_utf8_lossy(&list_before.stdout).trim())
-            .expect("Expected JSON array from param list (before)");
-    assert!(
-        before.iter().any(|n| n == "victim"),
-        "Expected 'victim' present before delete: {before:?}"
-    );
-
-    // Attempt the delete. Must terminate (the host `call` has a bounded 5s
-    // timeout) — never hang or crash the test harness.
-    let del = run_hu_meter(
-        router.endpoint(),
-        &["param", "delete", "/param_delete_node", "victim"],
-    );
-    let delete_succeeded = del.status.success();
-
-    // Post-delete presence must agree with the reported outcome.
-    let list_after = run_hu_meter(
-        router.endpoint(),
-        &["param", "list", "/param_delete_node", "--json"],
-    );
-    let after: Vec<String> =
-        serde_json::from_str(String::from_utf8_lossy(&list_after.stdout).trim())
-            .expect("Expected JSON array from param list (after)");
-    let still_present = after.iter().any(|n| n == "victim");
-
-    if delete_succeeded {
-        assert!(
-            !still_present,
-            "delete reported success but 'victim' is still present — silent no-op: {after:?}"
-        );
-    } else {
-        assert!(
-            still_present,
-            "delete reported failure but 'victim' vanished — inconsistent state: {after:?}"
-        );
-    }
-}
-
-// ─── action send (JSON goal) ──────────────────────────────────────────────────
-
-/// Coverage for `hu meter action send <name> <type> <goal-json>` — the
-/// user-facing JSON-goal form. Only `action send-goal` (raw hex CDR payload) was
-/// tested (`test_hu_meter_action_send_goal`); `send` has its own distinct code
-/// path (JSON → discovered-schema encode, then a follow-up get_result call).
-///
-/// NOTE on scope: unlike service `call` (whose Request/Response schemas the
-/// hiroz service server always registers with the node's
-/// `TypeDescriptionService` when `.with_type_description_service()` is set),
-/// `ZActionServerBuilder`/`ExecutingGoal` never register a schema for the
-/// SendGoal/GetResult wrapper messages — confirmed by grepping
-/// `crates/hiroz/src/action/server.rs` for `register_schema`/
-/// `TypeDescriptionService` (no hits) and `action/mod.rs`'s
-/// `send_goal_type_info()`/`get_result_type_info()` (type *names* only, no
-/// schema registration). So `cmd_action`'s `"send"` arm — which calls
-/// `ros::connect_service(..).call(..)`, and thus always goes through
-/// `ZNode::discover_service_schema` — cannot resolve a Request schema against
-/// *any* hiroz action server today, hiroz-to-hiroz included; this is a
-/// pre-existing gap in `hiroz`'s action-server type-description wiring, not a
-/// bug in `hu meter action send` itself or in this test's setup. This is the
-/// same class of gap as `pub`'s (see `test_hu_meter_pub_arg_and_encode_paths`
-/// above) — schema discovery is the blocker, not the CLI command under test.
-///
-/// This test therefore exercises the maximal CI-safe surface of `action
-/// send`: arg parsing, the `send_goal` service-client connect + discovery
-/// call, and the clean non-zero-exit/error-message path when discovery fails
-/// — proving the command doesn't panic or hang even though the happy
-/// encode-and-get-result path isn't reachable without a hiroz-core fix to
-/// register action SendGoal/GetResult schemas.
-#[test]
-#[serial_test::serial]
-fn test_hu_meter_action_send() {
-    let router = TestRouter::new();
-    let _producer = spawn_fibonacci_action_server(&router);
-    thread::sleep(Duration::from_millis(1500));
-
-    let out = run_hu_meter(
-        router.endpoint(),
-        &[
-            "action",
-            "send",
-            "/fibonacci_hu_test",
-            FIB_ACTION_TYPE,
-            "{\"order\": 3}",
-            "--timeout",
-            "10",
-        ],
-    );
-    assert!(
-        !out.status.success(),
-        "hu meter action send should fail cleanly (no SendGoal schema registered by \
-         any hiroz action server today) rather than succeed or hang: {}",
-        String::from_utf8_lossy(&out.stdout)
-    );
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(
-        combined.contains("schema discovery") || combined.contains("not registered"),
-        "Expected a schema-discovery error from `action send`, got: {combined}"
     );
 }

@@ -4,7 +4,6 @@ wit_bindgen::generate!({
 });
 
 
-use hu::plugin::session::RawPublisher;
 use hu::plugin::types::{EventKind, Permission};
 use hu::plugin::{graph, render, ros};
 
@@ -46,20 +45,6 @@ enum Mode {
         count: usize,
         printed: usize,
     },
-    /// Delay measurement (header stamp vs receive time) — requires JSON with header.stamp
-    Delay {
-        topic: String,
-        sub: Option<ros::Subscription>,
-    },
-    /// Repeated publish with rate/times support
-    Pub {
-        pub_: RawPublisher,
-        cdr: Vec<u8>,
-        topic: String,
-        interval_ticks: u32,
-        times_remaining: u32,
-        ticks_since_last: u32,
-    },
     /// Subscribe to action feedback topic
     ActionEcho {
         sub: Option<ros::Subscription>,
@@ -96,18 +81,14 @@ impl HuMeter {
 
         let Some(subcmd) = args.first() else {
             render::println("Usage: hu meter <subcommand> [args]");
-            render::println("  hz <topic> [--duration <s>] [--window <n>]");
+            render::println("  hz <topic> [--duration <s>]");
             render::println("  bw <topic> [--duration <s>]");
             render::println("  echo <topic> [--count <n>] [--field <path>]");
-            render::println("  delay <topic>");
             render::println("  list topics|nodes|services [--find <type>]");
             render::println("  info topic|node|service <name>");
-            render::println(
-                "  pub <topic> --msg-type <type> --yaml <yaml> [--rate <Hz>] [--times <n>]",
-            );
-            render::println("  service <name> <type> <request-json>");
-            render::println("  param list|get|set|delete <node> [<param>] [<value>]");
-            render::println("  action send|echo <name> <type> [<goal-json>]");
+            render::println("  service list|find|type|call <name> [--yaml <yaml>|--payload <hex>]");
+            render::println("  param list|get|set|dump|describe|load <node> [<param>] [<value>]");
+            render::println("  action list|info|send-goal|echo <name> [args]");
             render::exit(1);
             self.mode = Mode::Done;
             return;
@@ -117,7 +98,6 @@ impl HuMeter {
             "hz" => self.cmd_hz(&args[1..]),
             "bw" => self.cmd_bw(&args[1..]),
             "echo" => self.cmd_echo(&args[1..]),
-            "delay" => self.cmd_delay(&args[1..]),
             "list" => {
                 self.cmd_list(&args[1..]);
                 self.mode = Mode::Done;
@@ -125,10 +105,6 @@ impl HuMeter {
             "info" => {
                 self.cmd_info(&args[1..]);
                 self.mode = Mode::Done;
-            }
-            "pub" => {
-                self.cmd_pub(&args[1..]);
-                // cmd_pub sets mode itself (Done or Pub)
             }
             "service" => {
                 self.cmd_service(&args[1..]);
@@ -140,8 +116,9 @@ impl HuMeter {
             }
             "action" => {
                 self.cmd_action(&args[1..]);
-                // cmd_action sets mode itself for "echo"; for "send" it finishes in startup
-                // Only set Done if mode is still Init (i.e. "send" completed or errored)
+                // cmd_action sets mode itself for "echo"; the one-shot arms
+                // (list/info/send-goal) finish in startup. Only set Done if
+                // mode is still Init (i.e. a one-shot arm completed or errored).
                 if matches!(self.mode, Mode::Init) {
                     self.mode = Mode::Done;
                 }
@@ -155,9 +132,9 @@ impl HuMeter {
     }
 
     fn cmd_hz(&mut self, args: &[String]) {
-        let (topic, duration_ticks, _window) = parse_topic_duration_window(args);
+        let (topic, duration_ticks) = parse_topic_duration(args);
         let Some(topic) = topic else {
-            render::println("Usage: hu meter hz <topic> [--duration <s>] [--window <n>]");
+            render::println("Usage: hu meter hz <topic> [--duration <s>]");
             render::exit(1);
             self.mode = Mode::Done;
             return;
@@ -179,7 +156,7 @@ impl HuMeter {
     }
 
     fn cmd_bw(&mut self, args: &[String]) {
-        let (topic, duration_ticks, _window) = parse_topic_duration_window(args);
+        let (topic, duration_ticks) = parse_topic_duration(args);
         let Some(topic) = topic else {
             render::println("Usage: hu meter bw <topic> [--duration <s>]");
             render::exit(1);
@@ -276,34 +253,6 @@ impl HuMeter {
             count,
             printed: 0,
             field,
-        };
-    }
-
-    fn cmd_delay(&mut self, args: &[String]) {
-        let Some(topic) = args.first().cloned() else {
-            render::println("Usage: hu meter delay <topic> [--duration <s>]");
-            render::exit(1);
-            self.mode = Mode::Done;
-            return;
-        };
-        // Optional self-exit, same as hz/bw/echo: with no --duration this
-        // stays 0 (never done), matching the prior always-running behavior.
-        self.duration_ticks = flag_value(args, "--duration")
-            .and_then(|v| v.parse::<f64>().ok())
-            .map(|s| s.ceil().max(1.0) as u32)
-            .unwrap_or(0);
-        let sub = match ros::subscribe(&topic) {
-            Ok(s) => s,
-            Err(e) => {
-                render::eprintln(&format!("Failed to subscribe to {topic}: {e}"));
-                render::exit(1);
-                self.mode = Mode::Done;
-                return;
-            }
-        };
-        self.mode = Mode::Delay {
-            topic,
-            sub: Some(sub),
         };
     }
 
@@ -543,99 +492,6 @@ impl HuMeter {
                 render::println("Usage: hu meter info topic|node|service <name>");
                 render::exit(1);
             }
-        }
-    }
-
-    fn cmd_pub(&mut self, args: &[String]) {
-        let Some(topic) = args.first().cloned() else {
-            render::println("Usage: hu meter pub <topic> --msg-type <type> --yaml <yaml> [--rate <Hz>] [--times <n>]");
-            render::exit(1);
-            self.mode = Mode::Done;
-            return;
-        };
-        let msg_type = flag_value(args, "--msg-type").unwrap_or_default();
-        let yaml = flag_value(args, "--yaml").unwrap_or_else(|| "{}".to_string());
-        let rate: f64 = flag_value(args, "--rate")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0.0);
-        let times: u32 = flag_value(args, "--times")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(1);
-
-        if msg_type.is_empty() {
-            render::eprintln("--msg-type is required");
-            render::exit(1);
-            self.mode = Mode::Done;
-            return;
-        }
-
-        let cdr = match ros::encode_yaml_to_cdr(&yaml, &msg_type) {
-            Ok(b) => b,
-            Err(e) => {
-                render::println(&format!("encode error: {e}"));
-                render::exit(1);
-                self.mode = Mode::Done;
-                return;
-            }
-        };
-
-        let sess = match hu::plugin::session::get_session("default") {
-            Ok(s) => s,
-            Err(e) => {
-                render::eprintln(&format!("failed to get default session: {e}"));
-                render::exit(1);
-                self.mode = Mode::Done;
-                return;
-            }
-        };
-        let pub_ = match sess.raw_publisher(&topic) {
-            Ok(p) => p,
-            Err(e) => {
-                render::eprintln(&format!("failed to declare publisher on {topic}: {e}"));
-                render::exit(1);
-                self.mode = Mode::Done;
-                return;
-            }
-        };
-
-        // If rate > 0 or times > 1, use tick-based repeated publish
-        if rate > 0.0 || times > 1 {
-            // tick_ms = 1000 ms; interval_ticks = max(1, round(1.0 / rate)) when rate > 0
-            let interval_ticks = if rate > 0.0 {
-                let t = (1.0 / rate).round() as u32;
-                if t == 0 {
-                    1
-                } else {
-                    t
-                }
-            } else {
-                0 // will publish each tick up to times_remaining
-            };
-            self.mode = Mode::Pub {
-                pub_,
-                cdr,
-                topic,
-                interval_ticks,
-                times_remaining: times,
-                ticks_since_last: interval_ticks, // start ready to publish on first tick
-            };
-        } else {
-            // One-shot publish (original behaviour)
-            let cdr_len = cdr.len();
-            if let Err(e) = pub_.publish(&cdr) {
-                render::println(&format!("publish error: {e}"));
-                render::exit(1);
-            } else {
-                if self.json {
-                    render::println(&format!(
-                        "{{\"published\":1,\"bytes\":{cdr_len},\"topic\":\"{topic}\"}}"
-                    ));
-                } else {
-                    render::println(&format!("Published to {topic}"));
-                }
-                render::exit(0);
-            }
-            self.mode = Mode::Done;
         }
     }
 
@@ -960,55 +816,6 @@ impl HuMeter {
                     }
                 }
             }
-            "delete" => {
-                let param_name = match args.get(2) {
-                    Some(n) => n.clone(),
-                    None => {
-                        render::println("ERROR: parameter name required");
-                        render::exit(1);
-                        return;
-                    }
-                };
-                let svc = format!("{node}/delete_parameters");
-                let client = match ros::connect_service(&svc, "rcl_interfaces/srv/DeleteParameters")
-                {
-                    Ok(c) => c,
-                    Err(e) => {
-                        render::eprintln(&format!("ERROR: connect to {svc}: {e}"));
-                        render::exit(1);
-                        return;
-                    }
-                };
-                let req = format!(r#"{{"names":["{param_name}"]}}"#);
-                match client.call(&req, 5000) {
-                    Ok(resp) => {
-                        // resp: {"results":[{"successful":true/false,"reason":"..."}]}
-                        if resp.contains("\"successful\":true") {
-                            if self.json {
-                                render::println(&resp);
-                            } else {
-                                render::println(&format!(
-                                    "Deleted parameter '{param_name}' from {node}"
-                                ));
-                            }
-                            render::exit(0);
-                        } else {
-                            if self.json {
-                                render::println(&resp);
-                            } else {
-                                render::println(&format!(
-                                    "Failed to delete parameter '{param_name}': {resp}"
-                                ));
-                            }
-                            render::exit(1);
-                        }
-                    }
-                    Err(e) => {
-                        render::eprintln(&format!("ERROR: {e}"));
-                        render::exit(1);
-                    }
-                }
-            }
             "load" => {
                 // The host CLI (main.rs) reads and parses the YAML file --
                 // WASM plugins have no filesystem host interface -- and
@@ -1060,7 +867,7 @@ impl HuMeter {
             other => {
                 render::eprintln(&format!("unknown param subcommand: {other}"));
                 render::println(
-                    "Usage: hu meter param list|get|set|delete|dump|describe <node> [<param>] [<value>]",
+                    "Usage: hu meter param list|get|set|dump|describe|load <node> [<param>] [<value>]",
                 );
                 render::exit(1);
             }
@@ -1068,13 +875,13 @@ impl HuMeter {
     }
 
     fn cmd_action(&mut self, args: &[String]) {
-        // hu meter action send <name> <type> <goal-json>
+        // hu meter action list|info|send-goal <name> [args]
         // hu meter action echo <name> --msg-type <action_type> [--count <n>]
         let subcmd = match args.first() {
             Some(s) => s.as_str(),
             None => {
-                render::println("Usage: hu meter action send|echo <name> <type> [<goal-json>]");
-                render::println("  Example: hu meter action send /fibonacci example_interfaces/action/Fibonacci '{\"order\":5}'");
+                render::println("Usage: hu meter action list|info|send-goal|echo <name> [args]");
+                render::println("  Example: hu meter action send-goal /fibonacci --payload <hex>");
                 render::println("  Example: hu meter action echo /fibonacci --msg-type example_interfaces/action/Fibonacci");
                 render::exit(1);
                 return;
@@ -1195,14 +1002,14 @@ impl HuMeter {
                         return;
                     }
                 };
-                let action_type = match flag_value(args, "--msg-type") {
-                    Some(t) => t,
-                    None => {
-                        render::println("ERROR: --msg-type required");
-                        render::exit(1);
-                        return;
-                    }
-                };
+                // --msg-type is part of the documented `action echo` surface;
+                // require it even though feedback is decoded via the discovered
+                // schema (ros::subscribe), not from this type name.
+                if flag_value(args, "--msg-type").is_none() {
+                    render::println("ERROR: --msg-type required");
+                    render::exit(1);
+                    return;
+                }
                 let count = flag_value(args, "--count")
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(0usize);
@@ -1216,8 +1023,6 @@ impl HuMeter {
                     .map(|s| s.ceil().max(1.0) as u32)
                     .unwrap_or(DEFAULT_ACTION_ECHO_TIMEOUT_TICKS);
                 let feedback_topic = format!("{action_name}/_action/feedback");
-                // feedback type is <ActionType>_FeedbackMessage
-                let _feedback_type = format!("{action_type}_FeedbackMessage");
                 let sub = match ros::subscribe(&feedback_topic) {
                     Ok(s) => s,
                     Err(e) => {
@@ -1232,82 +1037,11 @@ impl HuMeter {
                     printed: 0,
                 };
             }
-            "send" => {
-                let (action_name, action_type, goal_json) =
-                    match (args.get(1), args.get(2), args.get(3)) {
-                        (Some(n), Some(t), Some(g)) => (n.clone(), t.clone(), g.clone()),
-                        _ => {
-                            render::println(
-                                "Usage: hu meter action send <name> <type> <goal-json>",
-                            );
-                            render::exit(1);
-                            return;
-                        }
-                    };
-                let timeout_ms: u32 = flag_value(args, "--timeout")
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(30000);
-
-                // ROS 2 action send_goal is a service at <action_name>/_action/send_goal
-                // with type <ActionType>_SendGoal. The request wraps goal with a 16-byte UUID.
-                let send_goal_svc = format!("{action_name}/_action/send_goal");
-                let send_goal_type = format!("{action_type}_SendGoal");
-                // Use a fixed deterministic UUID (all zeros except last byte = 1)
-                let uuid_arr = "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]";
-                let send_req = format!(r#"{{"goal_id":{{"uuid":{uuid_arr}}},"goal":{goal_json}}}"#);
-                let client = match ros::connect_service(&send_goal_svc, &send_goal_type) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        render::eprintln(&format!("ERROR: connect to {send_goal_svc}: {e}"));
-                        render::exit(1);
-                        return;
-                    }
-                };
-                let accepted = match client.call(&send_req, 5000) {
-                    Ok(resp) => {
-                        render::println(&format!("Goal response: {resp}"));
-                        // Parse "accepted" field if present
-                        resp.contains("\"accepted\":true")
-                    }
-                    Err(e) => {
-                        render::eprintln(&format!("ERROR: send_goal failed: {e}"));
-                        render::exit(1);
-                        return;
-                    }
-                };
-
-                if !accepted {
-                    render::println("Goal was rejected by the action server");
-                    render::exit(1);
-                    return;
-                }
-
-                // Poll for result via <action_name>/_action/get_result
-                let get_result_svc = format!("{action_name}/_action/get_result");
-                let get_result_type = format!("{action_type}_GetResult");
-                let result_req = format!(r#"{{"goal_id":{{"uuid":{uuid_arr}}}}}"#);
-                let result_client = match ros::connect_service(&get_result_svc, &get_result_type) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        render::eprintln(&format!("ERROR: connect to {get_result_svc}: {e}"));
-                        render::exit(1);
-                        return;
-                    }
-                };
-                match result_client.call(&result_req, timeout_ms) {
-                    Ok(resp) => {
-                        render::println(&format!("Result: {resp}"));
-                        render::exit(0);
-                    }
-                    Err(e) => {
-                        render::eprintln(&format!("ERROR: get_result failed: {e}"));
-                        render::exit(1);
-                    }
-                }
-            }
             other => {
                 render::eprintln(&format!("unknown action subcommand: {other}"));
-                render::println("Usage: hu meter action send|echo <name> <type> [<goal-json>]");
+                render::println(
+                    "Usage: hu meter action list|info|send-goal|echo <name> [args]",
+                );
                 render::exit(1);
             }
         }
@@ -1419,52 +1153,6 @@ impl HuMeter {
                     self.mode = Mode::Done;
                 }
             }
-            Mode::Delay { topic, sub } => {
-                let Some(s) = sub.as_ref() else {
-                    return;
-                };
-                while let Some(json_msg) = s.try_recv() {
-                    // Try to extract header.stamp.sec + nanosec from JSON
-                    let delay_note = extract_delay_note(&json_msg);
-                    let t = topic.clone();
-                    render::println(&format!("[{t}] {delay_note}"));
-                }
-                if done {
-                    render::exit(0);
-                    self.mode = Mode::Done;
-                }
-            }
-            Mode::Pub {
-                pub_,
-                cdr,
-                topic,
-                interval_ticks,
-                times_remaining,
-                ticks_since_last,
-            } => {
-                *ticks_since_last += 1;
-                let ready = if *interval_ticks == 0 {
-                    true // no rate limit: publish each tick
-                } else {
-                    *ticks_since_last >= *interval_ticks
-                };
-                if ready && *times_remaining > 0 {
-                    *ticks_since_last = 0;
-                    if let Err(e) = pub_.publish(cdr) {
-                        render::println(&format!("publish error: {e}"));
-                        render::exit(1);
-                        self.mode = Mode::Done;
-                        return;
-                    }
-                    let t = topic.clone();
-                    render::println(&format!("Published to {t}"));
-                    *times_remaining -= 1;
-                    if *times_remaining == 0 {
-                        render::exit(0);
-                        self.mode = Mode::Done;
-                    }
-                }
-            }
             Mode::ActionEcho {
                 sub,
                 count,
@@ -1507,7 +1195,7 @@ fn flag_value(args: &[String], flag: &str) -> Option<String> {
     None
 }
 
-fn parse_topic_duration_window(args: &[String]) -> (Option<String>, u32, usize) {
+fn parse_topic_duration(args: &[String]) -> (Option<String>, u32) {
     let topic = args.first().filter(|a| !a.starts_with('-')).cloned();
     let duration_s: f64 = flag_value(args, "--duration")
         .and_then(|v| v.parse().ok())
@@ -1518,10 +1206,7 @@ fn parse_topic_duration_window(args: &[String]) -> (Option<String>, u32, usize) 
     } else {
         0
     };
-    let window = flag_value(args, "--window")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(100usize);
-    (topic, duration_ticks, window)
+    (topic, duration_ticks)
 }
 
 fn is_hidden(name: &str) -> bool {
@@ -1691,12 +1376,6 @@ fn extract_field(json: &str, path: &str) -> String {
             .unwrap_or(trimmed.len());
         trimmed[..end].to_string()
     }
-}
-
-fn extract_delay_note(json: &str) -> String {
-    // Naive: look for "sec" and "nanosec" fields in the JSON string.
-    // A real impl would parse the JSON; here we just report the raw message.
-    format!("(raw) {json}")
 }
 
 // ─── Plugin entry points ──────────────────────────────────────────────────────
