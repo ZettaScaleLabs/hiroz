@@ -1242,7 +1242,12 @@ fn infer_param_value_json(v: &serde_json::Value) -> (u8, String) {
             (2, format!(r#""integer_value":{n}"#))
         }
         serde_json::Value::Number(n) => (3, format!(r#""double_value":{n}"#)),
-        serde_json::Value::String(s) => infer_param_value(s),
+        serde_json::Value::String(s) => {
+            // An explicit JSON string stays a string — do NOT re-infer its
+            // content (a quoted "true" or "55" must remain a string_value).
+            let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
+            (4, format!(r#""string_value":"{escaped}""#))
+        }
         other => infer_param_value(&other.to_string()),
     }
 }
