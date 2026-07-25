@@ -249,8 +249,30 @@ fn impl_into_py_message(input: &DeriveInput) -> syn::Result<TokenStream2> {
         impl ::hiroz::python_bridge::IntoPyMessage for #name {
             fn into_py_message(&self, py: ::pyo3::Python) -> ::pyo3::PyResult<::pyo3::PyObject> {
                 use ::pyo3::types::{PyAnyMethods, PyDictMethods, PyModuleMethods};
-                let module = ::pyo3::types::PyModule::import_bound(py, #module_path)?;
-                let class = module.getattr(#name_str)?;
+
+                // The msgspec class is fixed at codegen time, but this used to
+                // re-resolve it on EVERY message:
+                //
+                //     PyModule::import_bound(py, "<module>")  ->  getattr("<Name>")
+                //
+                // `import_bound` builds a transient `PyUnicode` from the module
+                // path and walks the import machinery; `getattr` builds another
+                // `PyUnicode`. Both run under the subscriber callback's
+                // re-acquired GIL, once per *nested* message — a `JointState`
+                // pays it three times (JointState, Header, Time). Measured on
+                // this host at ~1.9 us per call, which is the fixed,
+                // payload-independent component of the receive-side cost.
+                //
+                // `GILOnceCell` resolves the class once per interpreter and
+                // hands back a borrowed reference thereafter.
+                static CLASS: ::pyo3::sync::GILOnceCell<::pyo3::Py<::pyo3::PyAny>> =
+                    ::pyo3::sync::GILOnceCell::new();
+                let class = CLASS
+                    .get_or_try_init(py, || -> ::pyo3::PyResult<::pyo3::Py<::pyo3::PyAny>> {
+                        let module = ::pyo3::types::PyModule::import_bound(py, #module_path)?;
+                        Ok(module.getattr(#name_str)?.unbind())
+                    })?
+                    .bind(py);
 
                 let kwargs = ::pyo3::types::PyDict::new_bound(py);
                 #(#field_constructions)*
@@ -540,17 +562,17 @@ fn generate_field_construction(
             {
                 let zbuf_view = ::hiroz::zbuf_view::ZBufView::new(self.#field_name.clone());
                 let py_view = ::pyo3::Py::new(py, zbuf_view)?;
-                kwargs.set_item(#field_name_str, py_view)?;
+                kwargs.set_item(::pyo3::intern!(py, #field_name_str), py_view)?;
             }
         });
     }
 
     match classify_type(field_type) {
         TypeClass::Primitive => Ok(quote! {
-            kwargs.set_item(#field_name_str, self.#field_name)?;
+            kwargs.set_item(::pyo3::intern!(py, #field_name_str), self.#field_name)?;
         }),
         TypeClass::String => Ok(quote! {
-            kwargs.set_item(#field_name_str, &self.#field_name)?;
+            kwargs.set_item(::pyo3::intern!(py, #field_name_str), &self.#field_name)?;
         }),
         TypeClass::Vec(inner) => {
             let inner_class = classify_type(&inner);
@@ -558,11 +580,11 @@ fn generate_field_construction(
                 TypeClass::Primitive if is_u8_type(&inner) => Ok(quote! {
                     {
                         let py_bytes = ::pyo3::types::PyBytes::new_bound(py, &self.#field_name);
-                        kwargs.set_item(#field_name_str, py_bytes)?;
+                        kwargs.set_item(::pyo3::intern!(py, #field_name_str), py_bytes)?;
                     }
                 }),
                 TypeClass::Primitive | TypeClass::String => Ok(quote! {
-                    kwargs.set_item(#field_name_str, &self.#field_name)?;
+                    kwargs.set_item(::pyo3::intern!(py, #field_name_str), &self.#field_name)?;
                 }),
                 _ => Ok(quote! {
                     {
@@ -573,7 +595,7 @@ fn generate_field_construction(
                                 <#inner as ::hiroz::python_bridge::IntoPyMessage>::into_py_message(item, py)?
                             )?;
                         }
-                        kwargs.set_item(#field_name_str, py_list)?;
+                        kwargs.set_item(::pyo3::intern!(py, #field_name_str), py_list)?;
                     }
                 }),
             }
@@ -582,7 +604,7 @@ fn generate_field_construction(
             let inner_class = classify_type(&inner);
             match inner_class {
                 TypeClass::Primitive | TypeClass::String => Ok(quote! {
-                    kwargs.set_item(#field_name_str, self.#field_name.to_vec())?;
+                    kwargs.set_item(::pyo3::intern!(py, #field_name_str), self.#field_name.to_vec())?;
                 }),
                 _ => Ok(quote! {
                     {
@@ -593,14 +615,14 @@ fn generate_field_construction(
                                 <#inner as ::hiroz::python_bridge::IntoPyMessage>::into_py_message(item, py)?
                             )?;
                         }
-                        kwargs.set_item(#field_name_str, py_list)?;
+                        kwargs.set_item(::pyo3::intern!(py, #field_name_str), py_list)?;
                     }
                 }),
             }
         }
         TypeClass::Nested => Ok(quote! {
             kwargs.set_item(
-                #field_name_str,
+                ::pyo3::intern!(py, #field_name_str),
                 <#field_type as ::hiroz::python_bridge::IntoPyMessage>::into_py_message(&self.#field_name, py)?
             )?;
         }),
@@ -609,7 +631,7 @@ fn generate_field_construction(
                 use ::zenoh_buffers::buffer::SplitBuffer;
                 let bytes = self.#field_name.contiguous();
                 let py_bytes = ::pyo3::types::PyBytes::new_bound(py, bytes.as_ref());
-                kwargs.set_item(#field_name_str, py_bytes)?;
+                kwargs.set_item(::pyo3::intern!(py, #field_name_str), py_bytes)?;
             }
         }),
     }
