@@ -56,9 +56,15 @@ fn wait_for_node(node_name: &str, router: &TestRouter, timeout: Duration) {
         }
 
         if start.elapsed() > timeout {
+            let discovered: Vec<String> = ctx
+                .graph()
+                .get_node_names()
+                .iter()
+                .map(|(name, ns)| format!("{ns}/{name}"))
+                .collect();
             panic!(
-                "Timed out waiting for node {} after {:?}",
-                node_name, timeout
+                "Timed out waiting for node {} after {:?}; nodes currently discovered: {:?}",
+                node_name, timeout, discovered
             );
         }
 

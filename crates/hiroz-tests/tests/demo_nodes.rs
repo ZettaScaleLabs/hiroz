@@ -401,7 +401,7 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
     wait_for_ready(Duration::from_secs(5));
 
     // Start RCL client
-    let mut client = Command::new("ros2")
+    let client = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "add_two_ints_client"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
@@ -411,13 +411,24 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
         .spawn()
         .expect("Failed to start RCL client");
 
+    // Wrap the child in its ProcessGuard *before* any reaping so the guard owns
+    // it throughout. Polling `try_wait` on a separate handle and only then
+    // handing the (already-reaped) child to a fresh guard would let the guard's
+    // Drop signal a process group whose PID may have been recycled. Poll through
+    // the guard's own handle instead.
+    let mut client_guard = ProcessGuard::new(client, "RCL add_two_ints client");
+
     // Bound the wait on the RCL client's own exit instead of a fixed sleep,
     // so a slow-to-discover run fails fast with a clear message rather than
     // hanging the hiroz server thread (blocked on its one expected request)
     // until nextest's hard kill.
     let client_deadline = std::time::Instant::now() + Duration::from_secs(30);
     let client_status = loop {
-        if let Some(status) = client.try_wait().expect("Failed to poll RCL client") {
+        let child = client_guard
+            .child
+            .as_mut()
+            .expect("client child owned by guard");
+        if let Some(status) = child.try_wait().expect("Failed to poll RCL client") {
             break Some(status);
         }
         if std::time::Instant::now() >= client_deadline {
@@ -425,7 +436,6 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
         }
         thread::sleep(Duration::from_millis(200));
     };
-    let _client_guard = ProcessGuard::new(client, "RCL add_two_ints client");
     // Check the exit status is actually success, not just that the process
     // exited -- an instantly-failing `ros2 run` (e.g. missing verb plugin,
     // bad args) also "exits within 30s" and would otherwise false-pass here.
