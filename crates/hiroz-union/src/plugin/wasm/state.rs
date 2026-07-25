@@ -13,6 +13,10 @@ use crate::core::engine::CoreEngine;
 use super::host::hu;
 use hu::plugin::types::Permission;
 
+/// Upper bound on buffered rate-tracker arrivals per topic. Caps host memory
+/// on high-rate topics; anything beyond this window is stale and dropped.
+const RATE_TRACKER_CHANNEL_CAP: usize = 16_384;
+
 // ─── Subscription tracking (ros interface) ────────────────────────────────────
 
 pub(crate) struct SubscriptionData {
@@ -162,7 +166,12 @@ impl PluginState {
         let topic_stripped = topic.trim_start_matches('/').to_string();
         let ke = format!("{domain_id}/{topic_stripped}/**");
         let session = self.engine.session.clone();
-        let (tx, rx) = flume::unbounded::<(Instant, usize)>();
+        // Bounded so a high-rate topic (or infrequent `measure` calls that drain
+        // the tracker slowly) can't grow host memory without bound / OOM. The
+        // window is trimmed on every measurement anyway, so a backlog beyond this
+        // cap is already stale; best-effort send drops the newest arrival when
+        // full rather than blocking the subscriber task.
+        let (tx, rx) = flume::bounded::<(Instant, usize)>(RATE_TRACKER_CHANNEL_CAP);
         let ke_clone = ke.clone();
         let handle = tokio::spawn(async move {
             let sub = match session.declare_subscriber(&ke_clone).await {
@@ -174,10 +183,13 @@ impl PluginState {
             };
             while let Ok(sample) = sub.recv_async().await {
                 let size = sample.payload().to_bytes().len();
-                // Stop once the tracker (receiver) is gone — otherwise this
-                // loop spins forever after the RateTrackerData is dropped.
-                if tx.send((Instant::now(), size)).is_err() {
-                    break;
+                match tx.try_send((Instant::now(), size)) {
+                    Ok(()) => {}
+                    // Channel full: drop this arrival (best-effort) and keep going.
+                    Err(flume::TrySendError::Full(_)) => {}
+                    // Stop once the tracker (receiver) is gone — otherwise this
+                    // loop spins forever after the RateTrackerData is dropped.
+                    Err(flume::TrySendError::Disconnected(_)) => break,
                 }
             }
         });

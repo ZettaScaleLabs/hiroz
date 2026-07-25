@@ -225,14 +225,29 @@ fn shared_wasm_engine() -> Result<Engine> {
     // engine that wins the `get_or_init` race gets its ticker spawned.
     let candidate = configured_wasm_engine()?;
     let engine = SHARED_WASM_ENGINE.get_or_init(|| {
+        let ticker_engine = candidate.clone();
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            let ticker_engine = candidate.clone();
             handle.spawn(async move {
                 loop {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     ticker_engine.increment_epoch();
                 }
             });
+        } else {
+            // No Tokio runtime in this context. Epoch interruption would be
+            // silently disabled (the epoch would never advance, so a runaway
+            // plugin could not be preempted). Fall back to a dedicated OS
+            // thread that increments the epoch on the same cadence, so
+            // preemption keeps working regardless of the caller's runtime.
+            std::thread::Builder::new()
+                .name("hu-wasm-epoch".into())
+                .spawn(move || {
+                    loop {
+                        std::thread::sleep(Duration::from_millis(100));
+                        ticker_engine.increment_epoch();
+                    }
+                })
+                .ok();
         }
         candidate
     });
@@ -349,12 +364,36 @@ fn iter_wasm_files() -> impl Iterator<Item = PathBuf> {
         .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("wasm"))
 }
 
+/// Sanitize a filename-derived plugin stem for safe use as a single path
+/// segment. The stem comes straight from an on-disk filename, so a crafted
+/// name like `hu-..\.wasm` would otherwise yield a stem of `..` and let the
+/// per-plugin work dir escape its base (path traversal). Keep only a safe
+/// `[A-Za-z0-9_-]` set (path separators and dots become `_`), and never let
+/// the result be empty or a `.`/`..` traversal component.
+fn sanitize_plugin_stem(plugin_stem: &str) -> String {
+    let cleaned: String = plugin_stem
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if cleaned.is_empty() || cleaned.chars().all(|c| c == '.') {
+        "unknown".to_string()
+    } else {
+        cleaned
+    }
+}
+
 fn plugin_work_dir(plugin_stem: &str) -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("hu")
         .join("plugin-work")
-        .join(plugin_stem)
+        .join(sanitize_plugin_stem(plugin_stem))
 }
 
 type StateAndStore = (
@@ -501,6 +540,22 @@ fn open_declared_sessions(
     store: &mut Store<PluginState>,
     manifest: &hu::plugin::types::PluginManifest,
 ) -> Result<()> {
+    // The manifest is untrusted: opening a session triggers an outbound Zenoh
+    // connection, so it must be gated exactly like the runtime `open_session`
+    // host call (see host/transport.rs). Refuse to open *any* declared session
+    // unless the plugin was granted `OpenSession` — otherwise a plugin could
+    // trigger network connections it never declared a permission for.
+    if !manifest.sessions.is_empty()
+        && !manifest
+            .required_permissions
+            .contains(&hu::plugin::types::Permission::OpenSession)
+    {
+        anyhow::bail!(
+            "plugin declares {} session(s) but did not request the OpenSession permission",
+            manifest.sessions.len()
+        );
+    }
+
     for req in &manifest.sessions {
         let name = req.name.clone();
         let endpoint = req.endpoint.clone();
