@@ -487,6 +487,33 @@ fn parameter_descriptor_schema()
         .build()
 }
 
+/// Schema for the `rcl_interfaces/msg/ParameterEvent` message that is
+/// implicitly published on `/parameter_events` by every parameterized node.
+fn parameter_event_schema()
+-> std::result::Result<std::sync::Arc<MessageSchema>, crate::dynamic::DynamicError> {
+    let parameter = parameter_schema()?;
+    let stamp = MessageSchema::builder("builtin_interfaces/msg/Time")
+        .field("sec", FieldType::Int32)
+        .field("nanosec", FieldType::Uint32)
+        .build()?;
+    MessageSchema::builder("rcl_interfaces/msg/ParameterEvent")
+        .field("stamp", FieldType::Message(stamp))
+        .field("node", FieldType::String)
+        .field(
+            "new_parameters",
+            FieldType::Sequence(Box::new(FieldType::Message(parameter.clone()))),
+        )
+        .field(
+            "changed_parameters",
+            FieldType::Sequence(Box::new(FieldType::Message(parameter.clone()))),
+        )
+        .field(
+            "deleted_parameters",
+            FieldType::Sequence(Box::new(FieldType::Message(parameter))),
+        )
+        .build()
+}
+
 fn set_parameters_result_schema()
 -> std::result::Result<std::sync::Arc<MessageSchema>, crate::dynamic::DynamicError> {
     MessageSchema::builder("rcl_interfaces/msg/SetParametersResult")
@@ -607,4 +634,8 @@ pub(crate) fn register_parameter_schemas(tds: &TypeDescriptionService) {
             .field("result", FieldType::Message(result))
             .build()
     }));
+
+    // The implicitly-published `/parameter_events` topic
+    // (`rcl_interfaces/msg/ParameterEvent`).
+    register(parameter_event_schema());
 }
