@@ -259,10 +259,19 @@ impl HuMonitor {
                     }
                 }
                 if let Some(lvl) = set_level {
+                    let lvl_num = match log_level_to_int(&lvl) {
+                        Some(n) => n,
+                        None => {
+                            render::eprintln(&format!(
+                                "ERROR: unknown log level '{lvl}' (expected one of DEBUG, INFO, WARN, ERROR, FATAL)"
+                            ));
+                            render::exit(1);
+                            return;
+                        }
+                    };
                     let set_svc = format!("{node_name}/set_logger_levels");
                     match ros::connect_service(&set_svc, "rcl_interfaces/srv/SetLoggerLevels") {
                         Ok(client) => {
-                            let lvl_num = log_level_to_int(&lvl);
                             let req = format!(
                                 r#"{{"levels": [{{"name": "{node_name}", "level": {lvl_num}}}]}}"#
                             );
@@ -381,14 +390,16 @@ fn parse_count_flag(args: &[String]) -> Result<usize, String> {
     }
 }
 
-fn log_level_to_int(level: &str) -> u32 {
+/// Maps a ROS log level name to its numeric value. Returns `None` for an
+/// unknown level so the caller can reject it rather than silently defaulting.
+fn log_level_to_int(level: &str) -> Option<u32> {
     match level.to_uppercase().as_str() {
-        "DEBUG" => 10,
-        "INFO" => 20,
-        "WARN" | "WARNING" => 30,
-        "ERROR" => 40,
-        "FATAL" => 50,
-        _ => 20,
+        "DEBUG" => Some(10),
+        "INFO" => Some(20),
+        "WARN" | "WARNING" => Some(30),
+        "ERROR" => Some(40),
+        "FATAL" => Some(50),
+        _ => None,
     }
 }
 
