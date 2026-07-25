@@ -461,19 +461,19 @@ impl Drop for ProducerGuard {
             // make a later "entity never appeared" failure baffling. Since the
             // thread is finished, `join()` returns immediately (still
             // non-blocking), so we can observe and surface the panic.
-            if handle.is_finished() {
-                if let Err(panic) = handle.join() {
-                    let msg = panic
-                        .downcast_ref::<&str>()
-                        .map(|s| s.to_string())
-                        .or_else(|| panic.downcast_ref::<String>().cloned())
-                        .unwrap_or_else(|| "<non-string panic payload>".to_string());
-                    eprintln!(
-                        "WARNING: test producer thread exited early (before teardown) \
-                         with a panic: {msg}. Downstream 'entity not discovered' \
-                         failures in this test are likely caused by this."
-                    );
-                }
+            if handle.is_finished()
+                && let Err(panic) = handle.join()
+            {
+                let msg = panic
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "<non-string panic payload>".to_string());
+                eprintln!(
+                    "WARNING: test producer thread exited early (before teardown) \
+                     with a panic: {msg}. Downstream 'entity not discovered' \
+                     failures in this test are likely caused by this."
+                );
             }
             // Otherwise: drop the JoinHandle without joining, detaching the
             // still-running thread (its Zenoh-session teardown can block, and we
