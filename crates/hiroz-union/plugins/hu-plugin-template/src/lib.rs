@@ -17,7 +17,11 @@ struct MyPlugin;
 impl Guest for MyPlugin {
     fn manifest() -> PluginManifest {
         PluginManifest {
-            name: "my-plugin".to_string(),
+            // Set `name` to your built artifact's file stem: hu's fast-path
+            // loader resolves `hu <name>` by matching against `<name>.wasm`.
+            // This template builds to `hu_plugin_template.wasm`, so rename this
+            // (and the crate) together when you fork it.
+            name: "hu_plugin_template".to_string(),
             version: "0.1.0".to_string(),
             description: "My first hu plugin".to_string(),
             bindings: vec![],
