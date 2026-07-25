@@ -182,7 +182,7 @@ impl HuMeter {
     fn cmd_echo(&mut self, args: &[String]) {
         let Some(topic) = args.first().cloned() else {
             render::println(
-                "Usage: hu meter echo <topic> [--count <n>] [--field <path>] [--timeout <s>]",
+                "Usage: hu meter echo <topic> [--count <n>] [--field <path>] [--timeout <s>] [--raw]",
             );
             render::exit(1);
             self.mode = Mode::Done;
@@ -295,8 +295,9 @@ impl HuMeter {
                         topics
                             .iter()
                             .map(|t| format!(
-                                "{{\"name\":\"{}\",\"type\":\"{}\"}}",
-                                t.name, t.type_name
+                                "{{\"name\":{},\"type\":{}}}",
+                                json_str(&t.name),
+                                json_str(&t.type_name)
                             ))
                             .collect::<Vec<_>>()
                             .join(",")
@@ -1234,6 +1235,13 @@ fn infer_param_value(s: &str) -> (u8, String) {
     // tabs, etc.) are escaped correctly and the request stays valid JSON.
     let quoted = serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string());
     (4, format!(r#""string_value":{quoted}"#))
+}
+
+/// Serialize a string as a JSON string literal (with surrounding quotes),
+/// escaping quotes, backslashes, and control characters so the emitted
+/// `--json` output stays valid JSON regardless of topic/type contents.
+fn json_str(s: &str) -> String {
+    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string())
 }
 
 /// Same as `infer_param_value` but from an already-typed JSON value (as
