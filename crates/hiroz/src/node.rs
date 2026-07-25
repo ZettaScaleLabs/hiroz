@@ -438,10 +438,13 @@ impl ZNode {
     /// Create a service for the given service name.
     ///
     /// `T::Request` and `T::Response` must implement [`WithTypeInfo`] (enforced by
-    /// the trait bounds below). Type information is always populated with this
-    /// node's type-description service so schema discovery (e.g. by hiroz-union's
-    /// WASM plugin host) can resolve the Request/Response schemas via live
-    /// `get_type_description` queries.
+    /// the trait bounds below). When this node's type-description service is
+    /// enabled *and* the Request/Response types carry a runtime schema (as
+    /// `hiroz-codegen`-generated ROS 2 message types do), both are registered with
+    /// that service so schema discovery (e.g. by hiroz-union's WASM plugin host)
+    /// can resolve the Request/Response schemas via live `get_type_description`
+    /// queries. Registration is therefore conditional: if the service is disabled
+    /// or a type carries no runtime schema, discovery for it will not resolve.
     ///
     /// The service name will be qualified according to ROS 2 rules:
     /// - Absolute service names (starting with '/') are used as-is
