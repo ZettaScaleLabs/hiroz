@@ -239,7 +239,7 @@ fn shared_wasm_engine() -> Result<Engine> {
             // plugin could not be preempted). Fall back to a dedicated OS
             // thread that increments the epoch on the same cadence, so
             // preemption keeps working regardless of the caller's runtime.
-            std::thread::Builder::new()
+            if let Err(e) = std::thread::Builder::new()
                 .name("hu-wasm-epoch".into())
                 .spawn(move || {
                     loop {
@@ -247,7 +247,15 @@ fn shared_wasm_engine() -> Result<Engine> {
                         ticker_engine.increment_epoch();
                     }
                 })
-                .ok();
+            {
+                // Without the ticker the epoch never advances, so runaway
+                // plugins cannot be preempted. Surface the loss rather than
+                // silently disabling preemption.
+                tracing::warn!(
+                    error = %e,
+                    "failed to spawn hu-wasm-epoch ticker thread; WASM plugin preemption is disabled"
+                );
+            }
         }
         candidate
     });
