@@ -1,5 +1,10 @@
 // hu plugin interface v0.1
 //
+// VENDORED COPY — do not edit in isolation. The canonical source is
+// crates/hiroz-union/wit/v0.1/hu-plugin.wit; this file is a verbatim copy kept
+// here so the template compiles as a standalone crate. Keep the two in sync:
+// any change to the canonical WIT must be mirrored here (and vice versa).
+//
 // Host-proxied model: the host (hu) owns Zenoh sessions. The ros interface
 // proxies one shared session (JSON-decoded for dynamic messages; typed records
 // for measurements). The session interface provides named multi-session handles
