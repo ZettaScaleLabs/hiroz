@@ -244,7 +244,7 @@ impl HuMonitor {
                 let mut failed = false;
                 match ros::connect_service(&svc_name, "rcl_interfaces/srv/GetLoggerLevels") {
                     Ok(client) => {
-                        let req = format!(r#"{{"names": ["{node_name}"]}}"#);
+                        let req = serde_json::json!({ "names": [node_name] }).to_string();
                         match client.call(&req, 5000) {
                             Ok(resp) => render::println(&format!("log levels: {resp}")),
                             Err(e) => {
@@ -294,34 +294,36 @@ fn print_graph_snapshot(json: bool) {
     let services = graph::list_services();
 
     if json {
-        let topics_json: Vec<String> = topics
-            .iter()
-            .map(|t| {
-                format!(
-                    r#"{{"name":"{}","type":"{}","publishers":{},"subscribers":{}}}"#,
-                    t.name, t.type_name, t.publishers, t.subscribers
-                )
-            })
-            .collect();
-        let nodes_json: Vec<String> = nodes
-            .iter()
-            .map(|n| format!(r#"{{"namespace":"{}","name":"{}"}}"#, n.namespace, n.name))
-            .collect();
-        let services_json: Vec<String> = services
-            .iter()
-            .map(|s| {
-                format!(
-                    r#"{{"name":"{}","type":"{}","servers":{}}}"#,
-                    s.name, s.type_name, s.servers
-                )
-            })
-            .collect();
-        render::println(&format!(
-            r#"{{"topics":[{}],"nodes":[{}],"services":[{}]}}"#,
-            topics_json.join(","),
-            nodes_json.join(","),
-            services_json.join(",")
-        ));
+        // Serialize via serde_json so string fields (topic/service names,
+        // namespaces, type names) are properly escaped — a name containing
+        // `"` or `\` must not corrupt the output.
+        let out = serde_json::json!({
+            "topics": topics
+                .iter()
+                .map(|t| serde_json::json!({
+                    "name": t.name,
+                    "type": t.type_name,
+                    "publishers": t.publishers,
+                    "subscribers": t.subscribers,
+                }))
+                .collect::<Vec<_>>(),
+            "nodes": nodes
+                .iter()
+                .map(|n| serde_json::json!({
+                    "namespace": n.namespace,
+                    "name": n.name,
+                }))
+                .collect::<Vec<_>>(),
+            "services": services
+                .iter()
+                .map(|s| serde_json::json!({
+                    "name": s.name,
+                    "type": s.type_name,
+                    "servers": s.servers,
+                }))
+                .collect::<Vec<_>>(),
+        });
+        render::println(&out.to_string());
         return;
     }
 
