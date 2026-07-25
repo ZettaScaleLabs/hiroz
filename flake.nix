@@ -445,8 +445,11 @@
 
         # Development shells
         devShells = {
-          # Default: first distro in the list with ROS
-          default = allDistroShells.${builtins.head distros}.default;
+          # Default: first *available* distro (present in the pinned overlay).
+          # Must pick from availableDistros — allDistroShells is built from that
+          # filtered list, so using the unfiltered `distros` here could reference
+          # a distro that was filtered out and doesn't exist in allDistroShells.
+          default = allDistroShells.${builtins.head availableDistros}.default;
 
           # Without ROS
           pureRust = mkDevShell {
