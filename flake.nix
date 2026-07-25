@@ -449,7 +449,11 @@
           # Must pick from availableDistros — allDistroShells is built from that
           # filtered list, so using the unfiltered `distros` here could reference
           # a distro that was filtered out and doesn't exist in allDistroShells.
-          default = allDistroShells.${builtins.head availableDistros}.default;
+          default =
+            if availableDistros == [ ] then
+              throw "hiroz: none of the supported ROS distros (${builtins.concatStringsSep ", " distros}) are present in the pinned nix-ros-overlay; use the `.#pureRust` dev shell, or update the overlay pin so at least one distro is available."
+            else
+              allDistroShells.${builtins.head availableDistros}.default;
 
           # Without ROS
           pureRust = mkDevShell {
