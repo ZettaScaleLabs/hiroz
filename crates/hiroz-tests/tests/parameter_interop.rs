@@ -60,7 +60,13 @@ fn wait_for_node(node_name: &str, router: &TestRouter, timeout: Duration) {
                 .graph()
                 .get_node_names()
                 .iter()
-                .map(|(name, ns)| format!("{ns}/{name}"))
+                .map(|(name, ns)| {
+                    if ns == "/" {
+                        format!("/{name}")
+                    } else {
+                        format!("{ns}/{name}")
+                    }
+                })
                 .collect();
             panic!(
                 "Timed out waiting for node {} after {:?}; nodes currently discovered: {:?}",
