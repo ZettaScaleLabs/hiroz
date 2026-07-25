@@ -99,10 +99,10 @@ jobs:
               -e 's|http://security\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
               /etc/apt/sources.list
           fi
-          # `compgen` is a bash builtin and this step runs under plain POSIX
-          # sh in these containers -- a glob that matches nothing just
-          # expands to the literal pattern string, so guard with `ls` (which
-          # every shell has) instead.
+          # A glob that matches nothing expands to the literal pattern string
+          # (nullglob is off by default), so guard with `ls` (which every shell
+          # has) rather than relying on the match -- keeps this robust even if
+          # the step's shell changes.
           if ls /etc/apt/sources.list.d/*.sources > /dev/null 2>&1; then
             sed -i \
               -e 's|http://archive\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
