@@ -639,7 +639,9 @@ impl HuMeter {
         let subcmd = match args.first() {
             Some(s) => s.as_str(),
             None => {
-                render::println("Usage: hu meter param list|get|set <node> [<param>] [<value>]");
+                render::println(
+                    "Usage: hu meter param list|get|set|dump|describe|load <node> [<param>] [<value>]",
+                );
                 render::exit(1);
                 return;
             }
@@ -1228,8 +1230,10 @@ fn infer_param_value(s: &str) -> (u8, String) {
     if let Ok(f) = s.parse::<f64>() {
         return (3, format!(r#""double_value":{f}"#));
     }
-    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
-    (4, format!(r#""string_value":"{escaped}""#))
+    // Use serde_json to serialize the string so control characters (newlines,
+    // tabs, etc.) are escaped correctly and the request stays valid JSON.
+    let quoted = serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string());
+    (4, format!(r#""string_value":{quoted}"#))
 }
 
 /// Same as `infer_param_value` but from an already-typed JSON value (as
@@ -1245,8 +1249,8 @@ fn infer_param_value_json(v: &serde_json::Value) -> (u8, String) {
         serde_json::Value::String(s) => {
             // An explicit JSON string stays a string — do NOT re-infer its
             // content (a quoted "true" or "55" must remain a string_value).
-            let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
-            (4, format!(r#""string_value":"{escaped}""#))
+            let quoted = serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string());
+            (4, format!(r#""string_value":{quoted}"#))
         }
         other => infer_param_value(&other.to_string()),
     }
