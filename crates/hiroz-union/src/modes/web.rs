@@ -64,8 +64,12 @@ mod inner {
             .route("/plugins/{name}", any(handle_plugin_request_root))
             .with_state(state);
 
-        let listener = TcpListener::bind(("0.0.0.0", port)).await?;
-        tracing::info!("hu web server listening on http://0.0.0.0:{port}");
+        // Bind to loopback by default so the plugin HTTP surface is not exposed
+        // on all interfaces. Set `HU_WEB_BIND` (e.g. `0.0.0.0`) to opt into
+        // binding on a wider address.
+        let host = std::env::var("HU_WEB_BIND").unwrap_or_else(|_| "127.0.0.1".to_string());
+        let listener = TcpListener::bind((host.as_str(), port)).await?;
+        tracing::info!("hu web server listening on http://{host}:{port}");
         axum::serve(listener, app).await?;
         Ok(())
     }
