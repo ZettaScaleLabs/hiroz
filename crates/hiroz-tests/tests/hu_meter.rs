@@ -86,14 +86,11 @@ fn test_hu_meter_echo_count_3() {
             .build()
             .unwrap();
         let pub_ = node.create_pub::<RosString>("/echo_test").build().unwrap();
-        // Deterministic: block until hu's (out-of-process) subscriber is
-        // discovered in the graph before publishing, so nothing is published
-        // into the void no matter how slow hu starts. Replaces a blind timer
-        // that raced hu's startup under CPU contention.
+        // Deterministic: block until hu's out-of-process subscriber is in the
+        // graph before publishing, so no message is lost no matter how slow hu
+        // starts (replaces a blind timer that raced startup under CPU load).
         let _ = pub_.wait_for_subscription(1, Duration::from_secs(20)).await;
-        // Burst starts only after hu is subscribed (wait_for_subscription
-        // above), so it only needs to cover `echo --count 3`'s window:
-        // 3 messages plus a small margin.
+        // Burst runs only after hu subscribed; covers `echo --count 3`'s window.
         for i in 0..10 {
             if stop.load(std::sync::atomic::Ordering::Relaxed) {
                 break;
@@ -130,10 +127,7 @@ fn test_hu_meter_echo_count_3() {
 
 // ─── list ────────────────────────────────────────────────────────────────────
 
-/// Discovery-timing-sensitive: the publisher is created before hu starts, so
-/// the ~800ms sleep gives hu's startup graph replay (the 1s pre-Startup
-/// graph-settle wait in modes/cli.rs::run_cli_plugin) time to observe the
-/// entity under CI load before this one-shot `list` command reads the graph.
+/// Discovery-timing-sensitive: publisher created before hu starts; the ~800ms sleep covers hu's pre-Startup graph-settle wait (modes/cli.rs::run_cli_plugin) so the entity is observed before this one-shot `list` reads the graph.
 #[test]
 fn test_hu_meter_list_topics() {
     let router = TestRouter::new();
@@ -174,9 +168,7 @@ fn test_hu_meter_list_topics() {
     );
 }
 
-/// Discovery-timing-sensitive: the entity is created before hu starts, so the
-/// ~800ms sleep gives hu's startup graph replay time to observe it under CI
-/// load before this one-shot command runs.
+/// Discovery-timing-sensitive: entity created before hu starts; the ~800ms sleep lets hu's startup graph replay observe it under CI load before this one-shot command reads the graph.
 #[test]
 fn test_hu_meter_list_nodes() {
     let router = TestRouter::new();
@@ -211,10 +203,7 @@ fn test_hu_meter_list_nodes() {
 
 // ─── info ────────────────────────────────────────────────────────────────────
 
-/// Discovery-timing-sensitive: the publisher is created before hu starts, so
-/// the ~800ms sleep gives hu's startup graph replay (1s pre-Startup
-/// graph-settle wait in modes/cli.rs::run_cli_plugin) time to observe the
-/// topic under CI load before this one-shot `info` command reads the graph.
+/// Discovery-timing-sensitive: publisher created before hu starts; the ~800ms sleep covers hu's pre-Startup graph-settle wait (modes/cli.rs::run_cli_plugin) so the topic is observed before this one-shot `info` reads the graph.
 #[test]
 fn test_hu_meter_info_topic_pub_count() {
     let router = TestRouter::new();
@@ -252,10 +241,7 @@ fn test_hu_meter_info_topic_pub_count() {
     );
 }
 
-/// Discovery-timing-sensitive: the node (and its pub/sub) is created before hu
-/// starts, so the ~800ms sleep gives hu's startup graph replay (1s pre-Startup
-/// graph-settle wait in modes/cli.rs::run_cli_plugin) time to observe it under
-/// CI load before this one-shot `info node` command reads the graph.
+/// Discovery-timing-sensitive: node (and its pub/sub) created before hu starts; the ~800ms sleep covers hu's pre-Startup graph-settle wait (modes/cli.rs::run_cli_plugin) so it is observed before this one-shot `info node` reads the graph.
 #[test]
 fn test_hu_meter_info_node_full() {
     let router = TestRouter::new();
@@ -402,14 +388,10 @@ fn test_hu_meter_service_call_timeout() {
         !out.status.success(),
         "Expected non-zero exit on timeout, got success"
     );
-    // 15s, not 5s: `elapsed` measures the whole process, including hu's own
-    // startup (session connect, node build, TDS/ParameterService queryable
-    // declarations, the pre-Startup graph-settle wait in
-    // modes/cli.rs::run_cli_plugin) on top of the --timeout 2 the service
-    // call itself is bounded by. call_raw does correctly honor --timeout
-    // (verified: it's passed straight through to zenoh's `.timeout()`) --
-    // this assertion was just too tight for that startup overhead under CI
-    // load, not evidence of an unbounded/hanging call.
+    // 15s, not 5s: `elapsed` covers whole-process startup (session connect, node
+    // build, queryable declarations, pre-Startup graph-settle) on top of the
+    // --timeout 2 bounding the call itself. call_raw honors --timeout (passed to
+    // zenoh's .timeout()); the loose bound just absorbs startup overhead under CI.
     assert!(
         elapsed < Duration::from_secs(15),
         "Timeout took too long: {:?}",
@@ -540,9 +522,7 @@ fn test_hu_meter_echo_once() {
 
 // ─── list with-types / find-topics / find-services ───────────────────────────
 
-/// Discovery-timing-sensitive: the entity is created before hu starts, so the
-/// ~800ms sleep gives hu's startup graph replay time to observe it under CI
-/// load before this one-shot command runs.
+/// Discovery-timing-sensitive: entity created before hu starts; the ~800ms sleep lets hu's startup graph replay observe it under CI load before this one-shot command reads the graph.
 #[test]
 fn test_hu_meter_list_topics_with_types() {
     let router = TestRouter::new();
@@ -580,9 +560,7 @@ fn test_hu_meter_list_topics_with_types() {
     );
 }
 
-/// Discovery-timing-sensitive: the entity is created before hu starts, so the
-/// ~800ms sleep gives hu's startup graph replay time to observe it under CI
-/// load before this one-shot command runs.
+/// Discovery-timing-sensitive: entity created before hu starts; the ~800ms sleep lets hu's startup graph replay observe it under CI load before this one-shot command reads the graph.
 #[test]
 fn test_hu_meter_list_find_topics() {
     let router = TestRouter::new();
@@ -618,9 +596,7 @@ fn test_hu_meter_list_find_topics() {
 
 // ─── service list with types ──────────────────────────────────────────────────
 
-/// Discovery-timing-sensitive: the service/param node is created before hu
-/// starts, so the sleep gives hu's startup graph replay time to observe it
-/// under CI load before this one-shot command runs.
+/// Discovery-timing-sensitive: service/param node created before hu starts; the sleep lets hu's startup graph replay observe it under CI load before this one-shot command reads the graph.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_service_list_with_types() {
@@ -750,9 +726,7 @@ fn test_hu_meter_echo_raw_wildcard_fallback() {
 
 // ─── param ───────────────────────────────────────────────────────────────────
 
-/// Discovery-timing-sensitive: the service/param node is created before hu
-/// starts, so the sleep gives hu's startup graph replay time to observe it
-/// under CI load before this one-shot command runs.
+/// Discovery-timing-sensitive: service/param node created before hu starts; the sleep lets hu's startup graph replay observe it under CI load before this one-shot command reads the graph.
 #[test]
 fn test_hu_meter_param_set_roundtrip() {
     let router = TestRouter::new();
@@ -892,9 +866,7 @@ fn test_hu_meter_param_get_multiple() {
     assert_eq!(map["y"].as_i64().unwrap_or(-1), 20, "y should be 20");
 }
 
-/// Discovery-timing-sensitive: the service/param node is created before hu
-/// starts, so the sleep gives hu's startup graph replay time to observe it
-/// under CI load before this one-shot command runs.
+/// Discovery-timing-sensitive: service/param node created before hu starts; the sleep lets hu's startup graph replay observe it under CI load before this one-shot command reads the graph.
 #[test]
 fn test_hu_meter_param_set_multiple_sequential() {
     let router = TestRouter::new();
@@ -952,9 +924,7 @@ fn test_hu_meter_param_dump() {
     );
 }
 
-/// Discovery-timing-sensitive: the service/param node is created before hu
-/// starts, so the sleep gives hu's startup graph replay time to observe it
-/// under CI load before this one-shot command runs.
+/// Discovery-timing-sensitive: service/param node created before hu starts; the sleep lets hu's startup graph replay observe it under CI load before this one-shot command reads the graph.
 #[test]
 fn test_hu_meter_param_load() {
     let router = TestRouter::new();
@@ -1087,9 +1057,7 @@ fn test_hu_meter_list_count_limits_output() {
 
 // ─── list --all ──────────────────────────────────────────────────────────────
 
-/// Discovery-timing-sensitive: the entity is created before hu starts, so the
-/// ~800ms sleep gives hu's startup graph replay time to observe it under CI
-/// load before this one-shot command runs.
+/// Discovery-timing-sensitive: entity created before hu starts; the ~800ms sleep lets hu's startup graph replay observe it under CI load before this one-shot command reads the graph.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_list_all_shows_hidden_topics() {
@@ -1180,10 +1148,9 @@ fn test_hu_meter_hz_multi_topic() {
 
     thread::sleep(Duration::from_millis(500));
 
-    // run_hu_meter (self-exit via --duration), not run_hu_meter_timed
-    // (blind sleep-then-SIGKILL): see test_hu_meter_bw_json_typed_fields's
-    // comment for why the kill-based helper can discard buffered output
-    // regardless of margin.
+    // Self-exit via --duration (run_hu_meter), not run_hu_meter_timed's
+    // sleep-then-SIGKILL: see test_hu_meter_bw_json_typed_fields for why a hard
+    // kill can discard buffered output regardless of margin.
     let out = run_hu_meter(
         router.endpoint(),
         &["hz", "/hz_multi_a", "/hz_multi_b", "--duration", "3"],
@@ -1240,10 +1207,9 @@ fn test_hu_meter_bw_multi_topic() {
 
     thread::sleep(Duration::from_millis(500));
 
-    // run_hu_meter (self-exit via --duration), not run_hu_meter_timed
-    // (blind sleep-then-SIGKILL): see test_hu_meter_bw_json_typed_fields's
-    // comment for why the kill-based helper can discard buffered output
-    // regardless of margin.
+    // Self-exit via --duration (run_hu_meter), not run_hu_meter_timed's
+    // sleep-then-SIGKILL: see test_hu_meter_bw_json_typed_fields for why a hard
+    // kill can discard buffered output regardless of margin.
     let out = run_hu_meter(
         router.endpoint(),
         &["bw", "/bw_multi_a", "/bw_multi_b", "--duration", "2"],
@@ -1258,9 +1224,7 @@ fn test_hu_meter_bw_multi_topic() {
 
 // ─── service find ────────────────────────────────────────────────────────────
 
-/// Discovery-timing-sensitive: the service/param node is created before hu
-/// starts, so the sleep gives hu's startup graph replay time to observe it
-/// under CI load before this one-shot command runs.
+/// Discovery-timing-sensitive: service/param node created before hu starts; the sleep lets hu's startup graph replay observe it under CI load before this one-shot command reads the graph.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_service_find() {
@@ -1295,9 +1259,7 @@ fn test_hu_meter_service_find() {
 
 // ─── service type ────────────────────────────────────────────────────────────
 
-/// Discovery-timing-sensitive: the service/param node is created before hu
-/// starts, so the sleep gives hu's startup graph replay time to observe it
-/// under CI load before this one-shot command runs.
+/// Discovery-timing-sensitive: service/param node created before hu starts; the sleep lets hu's startup graph replay observe it under CI load before this one-shot command reads the graph.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_service_type() {
@@ -1332,9 +1294,7 @@ fn test_hu_meter_service_type() {
 
 // ─── list nodes find ─────────────────────────────────────────────────────────
 
-/// Discovery-timing-sensitive: the entity is created before hu starts, so the
-/// ~800ms sleep gives hu's startup graph replay time to observe it under CI
-/// load before this one-shot command runs.
+/// Discovery-timing-sensitive: entity created before hu starts; the ~800ms sleep lets hu's startup graph replay observe it under CI load before this one-shot command reads the graph.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_list_nodes_find() {
@@ -1379,9 +1339,7 @@ fn test_hu_meter_list_nodes_find() {
 
 // ─── info edge cases ─────────────────────────────────────────────────────────
 
-/// Discovery-timing-sensitive: the subscriber is created before hu starts, so
-/// the ~1s sleep gives hu's startup graph replay time to observe it under CI
-/// load before this one-shot `info` command reads the graph.
+/// Discovery-timing-sensitive: subscriber created before hu starts; the ~1s sleep lets hu's startup graph replay observe it under CI load before this one-shot `info` reads the graph.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_info_zero_pub() {
@@ -1617,10 +1575,9 @@ fn test_hu_meter_hz_json_typed_fields() {
 
     thread::sleep(Duration::from_millis(400));
 
-    // run_hu_meter (self-exit via --duration), not run_hu_meter_timed
-    // (blind sleep-then-SIGKILL): see test_hu_meter_bw_json_typed_fields's
-    // comment for why the kill-based helper can discard buffered output
-    // regardless of margin.
+    // Self-exit via --duration (run_hu_meter), not run_hu_meter_timed's
+    // sleep-then-SIGKILL: see test_hu_meter_bw_json_typed_fields for why a hard
+    // kill can discard buffered output regardless of margin.
     let out = run_hu_meter(
         router.endpoint(),
         &["hz", "/hz_typed_test", "--json", "--duration", "13"],
@@ -1702,15 +1659,11 @@ fn test_hu_meter_bw_json_typed_fields() {
 
     thread::sleep(Duration::from_millis(400));
 
-    // run_hu_meter (waits for hu's own --duration self-exit), not
-    // run_hu_meter_timed (blind sleep-then-SIGKILL): a plugin's render::println
-    // output is buffered host-side (see render.rs's output_lines) and only
-    // flushed to the real stdout pipe at points outside this WASM call
-    // boundary. A hard SIGKILL from run_hu_meter_timed can land between a
-    // tick and that flush, discarding buffered output regardless of how much
-    // margin the kill timeout has -- which is why widening it alone didn't
-    // help. Self-exit avoids the race entirely (matches the already-passing
-    // test_hu_meter_bw_hiroz_publisher, which uses the same helper).
+    // Self-exit via --duration (run_hu_meter), not run_hu_meter_timed's blind
+    // sleep-then-SIGKILL: plugin render::println output is buffered host-side
+    // (render.rs output_lines) and flushed outside the WASM call boundary, so a
+    // hard kill can land between a tick and the flush and drop buffered output
+    // regardless of kill margin. Self-exit avoids the race.
     let out = run_hu_meter(
         router.endpoint(),
         &["bw", "/bw_typed_test", "--json", "--duration", "2"],
@@ -2080,10 +2033,7 @@ fn test_hu_meter_param_describe_json() {
 /// but the service branch of `cmd_info` was untested. Spawns a live service
 /// server and asserts the reported server count and name.
 ///
-/// Discovery-timing-sensitive: the service server is created before hu starts,
-/// so the ~1s sleep gives hu's startup graph replay (1s pre-Startup
-/// graph-settle wait in modes/cli.rs::run_cli_plugin) time to observe it under
-/// CI load before this one-shot `info service` command reads the graph.
+/// Discovery-timing-sensitive: service server created before hu starts; the ~1s sleep covers hu's pre-Startup graph-settle wait (modes/cli.rs::run_cli_plugin) so it is observed before this one-shot `info service` reads the graph.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_info_service() {

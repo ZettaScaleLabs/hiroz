@@ -1391,9 +1391,8 @@ fn extract_field(json: &str, path: &str) -> String {
 
 // ─── Plugin entry points ──────────────────────────────────────────────────────
 //
-// WASM components are single-threaded — there are no threads, so Sync is trivially safe.
-// The wit-bindgen generated resource handles (ros::Subscription, session::RawPublisher, etc.)
-// do not implement Sync, but this is a false negative for single-threaded WASM.
+// wit-bindgen resource handles (ros::Subscription, etc.) aren't Sync, but WASM
+// components are single-threaded, so wrapping state in AssertSync is safe.
 struct AssertSync<T>(T);
 // SAFETY: WASM components run on a single thread; no concurrent access is possible.
 unsafe impl<T> Sync for AssertSync<T> {}
