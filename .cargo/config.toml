@@ -1,7 +1,4 @@
-# Convenience aliases. This file only adds `[alias]` entries — it does not
-# change build flags, targets, or RUSTFLAGS for normal `cargo` invocations.
+# Aliases only — no change to build flags, targets, or RUSTFLAGS.
 [alias]
-# Build the hu WASM plugins (meter + monitor) from the repo root without
-# remembering the manifest path and target. Append --release for an optimized
-# build. See docs/tools/hu-plugins.md.
+# Build the hu WASM plugins from the repo root (append --release to optimize).
 hu-plugins = "build --manifest-path crates/hiroz-union/plugins/Cargo.toml --target wasm32-wasip2 --workspace"
