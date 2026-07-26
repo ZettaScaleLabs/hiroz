@@ -169,10 +169,9 @@ fn test_monitor_graph_text_output_structure() {
 
 // ─── log (/rosout subscription, --count) ─────────────────────────────────────
 
-/// `hu monitor log --count <n>` subscribes to /rosout and must stop after
-/// exactly <n> messages rather than streaming forever. hiroz core does not ship
-/// rcl_interfaces/msg/Log, so a String publisher stands in on /rosout purely to
-/// exercise the subscribe + --count-limit + clean-exit code path.
+/// `hu monitor log --count <n>` must stop after exactly <n> /rosout messages.
+/// hiroz core lacks rcl_interfaces/msg/Log, so a String publisher stands in to
+/// exercise the subscribe + count-limit + clean-exit path.
 #[test]
 #[serial_test::serial]
 fn test_monitor_log_count_limits_output() {
@@ -221,11 +220,9 @@ fn test_monitor_log_count_limits_output() {
 
 // ─── log-level (get/set via rcl_interfaces service) ──────────────────────────
 
-/// `hu monitor log-level <node>` connects to `<node>/get_logger_levels`. hiroz
-/// core does not implement logger-level services, so this asserts the command's
-/// graceful-failure path: it must terminate promptly (no hang) and emit an
-/// ERROR rather than panicking or blocking when the service is absent. This
-/// guards the LogLevel dispatch + connect-service host call + clean-exit path.
+/// `hu monitor log-level <node>` connects to `<node>/get_logger_levels`. With no
+/// such service present, it must fail gracefully — exit promptly with an ERROR,
+/// no hang or panic — guarding the LogLevel dispatch + connect-service path.
 #[test]
 #[serial_test::serial]
 fn test_monitor_log_level_reports_missing_service() {
@@ -255,10 +252,9 @@ fn test_monitor_log_level_reports_missing_service() {
 
 // ─── watch: node + service appearance ────────────────────────────────────────
 
-/// The watch diffing loop reports node and service appearance the same way it
-/// reports topics. test_monitor_watch_fires_on_topic_create only covers topics;
-/// this covers the node-appeared and service-appeared branches (lib.rs diffing),
-/// including the namespace+name concatenation for nodes.
+/// Covers the node-appeared and service-appeared branches of the watch diffing
+/// loop (test_monitor_watch_fires_on_topic_create only covers topics), including
+/// the namespace+name concatenation for nodes.
 #[test]
 #[serial_test::serial]
 fn test_monitor_watch_fires_on_node_and_service() {
@@ -310,13 +306,9 @@ fn test_monitor_watch_fires_on_node_and_service() {
 
 // ─── log-level GET/SET success paths (real logger services) ──────────────────
 //
-// hiroz core does not ship logger-level services, so these tests stand up a
-// node that exposes real `rcl_interfaces/srv/GetLoggerLevels` and
-// `SetLoggerLevels` servers (generated from hiroz-codegen/assets). This lets
-// `hu monitor log-level` exercise its actual get_logger_levels/set_logger_levels
-// service-call logic end-to-end — the GET-then-SET success paths that the
-// docs advertise as worked examples — instead of only the missing-service
-// error branch covered by test_monitor_log_level_reports_missing_service.
+// hiroz core ships no logger-level services, so these tests stand up a node with
+// real GetLoggerLevels/SetLoggerLevels servers, exercising log-level's GET-then-SET
+// success paths end-to-end (vs. the missing-service error branch above).
 
 /// Spawn a node exposing `<base>/get_logger_levels` and `<base>/set_logger_levels`.
 /// GET always reports `level` for the requested logger; SET replies success.
@@ -421,11 +413,9 @@ fn test_monitor_log_level_set_roundtrip() {
 
 // ─── log default (unbounded) streaming: count defaults to 0 ──────────────────
 
-/// `hu monitor log` with no `--count` uses count=0, which means "stream every
-/// /rosout message indefinitely" (not "zero and exit"). Publish a burst, let it
-/// run, kill it, and assert it printed *more than one* line — proving 0 is
-/// unlimited streaming, so a regression flipping the default to exit-immediately
-/// would be caught.
+/// `hu monitor log` with no `--count` uses count=0 = stream indefinitely (not
+/// "zero and exit"). Publish a burst, kill it, assert it printed >1 line, so a
+/// regression flipping the default to exit-immediately would be caught.
 #[test]
 #[serial_test::serial]
 fn test_monitor_log_default_streams_unbounded() {
@@ -484,11 +474,9 @@ fn test_monitor_log_default_streams_unbounded() {
 
 // ─── HU_CONNECT / HU_DOMAIN environment configuration ─────────────────────────
 
-/// docs/tools/hu.md's Quick Start recommends exporting HU_CONNECT/HU_DOMAIN
-/// once per session instead of passing --connect each time. Every other test
-/// uses the explicit --connect flag; this one omits the flags entirely and
-/// configures the router via the environment, so a regression in the env-var
-/// parsing (or a default flag value silently winning) would be caught.
+/// Configures the router via HU_CONNECT/HU_DOMAIN env vars (the Quick Start's
+/// recommended per-session setup) instead of the --connect flag every other test
+/// uses, catching a regression in env-var parsing or a default flag winning.
 #[test]
 #[serial_test::serial]
 fn test_monitor_env_var_router_config() {

@@ -405,18 +405,15 @@ fn log_level_to_int(level: &str) -> Option<u32> {
 
 // ─── Plugin entry points ──────────────────────────────────────────────────────
 //
-// WASM components are single-threaded — there are no threads, so Sync is trivially safe.
-// The wit-bindgen generated resource handles (ros::Subscription, session handles, etc.)
-// do not implement Sync, but this is a false negative for single-threaded WASM.
-// Use OnceCell<RefCell<T>> to avoid unsafe static mut while staying no-std-safe.
+// wit-bindgen resource handles (ros::Subscription, etc.) aren't Sync, but WASM
+// components are single-threaded; OnceCell<RefCell<T>> holds state without unsafe
+// static mut.
 
 use std::cell::{OnceCell, RefCell};
 
 struct AssertSync<T>(T);
-// SAFETY: WASM components run on a single thread; no concurrent access to the
-// wrapped `static STATE` is possible, so asserting `Sync` cannot introduce a
-// data race. If the host ever runs plugins on multiple threads this must be
-// revisited (STATE would then need real synchronization).
+// SAFETY: single-threaded WASM — no concurrent access to `static STATE` is
+// possible. Must be revisited if the host ever runs plugins on multiple threads.
 unsafe impl<T> Sync for AssertSync<T> {}
 
 static STATE: AssertSync<OnceCell<RefCell<HuMonitor>>> = AssertSync(OnceCell::new());
