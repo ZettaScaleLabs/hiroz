@@ -1,15 +1,9 @@
-//! Tests for [`ZNode::discover_service_schema`].
+//! Tests for [`ZNode::discover_service_schema`], no-server path: with no node
+//! serving the name, discovery must fail with [`DynamicError::SchemaNotFound`]
+//! after the graph-poll timeout rather than hang or panic.
 //!
-//! These focus on the no-server path, which needs no external service: when no
-//! node serves the requested service name, discovery must fail with
-//! [`DynamicError::SchemaNotFound`] once the graph-poll timeout elapses rather
-//! than hanging or panicking.
-//!
-//! A full happy-path test (successful Request/Response schema resolution) is
-//! intentionally omitted here: it requires a live service server whose node
-//! exposes a working `~get_type_description` service, which is covered by the
-//! higher-level hiroz-union / hu-meter integration paths rather than a unit
-//! test in this crate.
+//! The happy path needs a live server exposing `~get_type_description` and is
+//! covered by the hiroz-union / hu-meter integration tests instead.
 
 #![cfg(feature = "ros-msgs")]
 
