@@ -387,25 +387,13 @@ impl ZMessage for WireParameterEvent {
 // Type-description-service schema registration
 // ============================================================================
 //
-// Unlike codegen'd message/service types (whose `create_pub`/`create_service`
-// callers auto-register a runtime schema via `MessageTypeInfo::message_schema`),
-// these rcl_interfaces wire types are hand-written and don't implement
-// `MessageTypeInfo` at all -- and `ParameterService` builds its `ZServer`s
-// directly rather than through `ZNode::create_service`, so there's no generic
-// hook that would register them either way. Every hiroz node declares these
-// six parameter services implicitly, so without an explicit registration here
-// `ZNode::discover_service_schema` (and anything else that queries
-// `~get_type_description` for one of these types) always fails with
-// "not registered" -- this is the concrete manifestation of the schema-registry
-// gap for the built-in parameter/description services (as opposed to
-// user-defined services, which get registered automatically via the
-// `create_service<T>` auto-registration path).
-//
-// Type names follow the same `{pkg}/msg/{Name}Request`/`{pkg}/msg/{Name}Response`
-// convention `hiroz-codegen` uses for generated service Request/Response types
-// (see `hiroz-codegen`'s `parser/srv.rs` + `generator/rust.rs`), so a discovery
-// query built from a service's `pkg/srv/Name` type name resolves the same way
-// for both codegen'd and built-in services.
+// These rcl_interfaces wire types are hand-written (no `MessageTypeInfo`), and
+// `ParameterService` builds its `ZServer`s directly rather than via
+// `ZNode::create_service`, so nothing auto-registers their schemas. Every hiroz
+// node has these six parameter services, so without explicit registration here
+// `ZNode::discover_service_schema` for them always fails. Type names use the same
+// `{pkg}/msg/{Name}Request`/`Response` convention as codegen'd services, so
+// discovery resolves both the same way.
 
 fn floating_point_range_schema()
 -> std::result::Result<std::sync::Arc<MessageSchema>, crate::dynamic::DynamicError> {
@@ -534,10 +522,8 @@ fn list_parameters_result_schema()
 /// parameter services with `tds`, so `ZNode::discover_service_schema` can
 /// resolve them for this node.
 ///
-/// Best-effort: schema-building failures are logged and skipped rather than
-/// failing node startup, matching `register_schema_with_type_description_service`'s
-/// existing warn-and-continue behavior for the same reason (a schema-registration
-/// failure shouldn't take down an otherwise-working node).
+/// Best-effort: build/registration failures are logged and skipped rather than
+/// failing node startup (matches `register_schema_with_type_description_service`).
 pub(crate) fn register_parameter_schemas(tds: &TypeDescriptionService) {
     let register = |result: std::result::Result<
         std::sync::Arc<MessageSchema>,

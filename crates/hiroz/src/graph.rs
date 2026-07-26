@@ -490,15 +490,10 @@ impl Graph {
         }
     }
 
-    /// True if the graph currently holds at least one entity whose owning node
-    /// zid is **not** in `exclude`.
-    ///
-    /// A process that opens more than one Zenoh session (e.g. `hu`, which runs
-    /// its liveliness graph on one session and its ROS node on another) sees its
-    /// *own* liveliness tokens echoed back through the graph. Passing all of the
-    /// process's own session zids as `exclude` lets a caller distinguish "the
-    /// graph reflects a genuinely external participant" from "the graph only
-    /// contains our own tokens" — which a plain emptiness check cannot do.
+    /// True if the graph holds any entity whose owning node zid is not in
+    /// `exclude`. A multi-session process (e.g. `hu`) sees its own tokens echoed
+    /// back; passing its own session zids as `exclude` distinguishes a genuine
+    /// external participant from only-our-own-tokens, which emptiness cannot.
     pub fn has_external_entity(&self, exclude: &[ZenohId]) -> bool {
         let mut data = self.data.lock();
         if !data.cached.is_empty() {
@@ -508,30 +503,22 @@ impl Graph {
             Entity::Node(node) => !exclude.contains(&node.z_id),
             Entity::Endpoint(endpoint) => match endpoint.node.as_ref() {
                 Some(node) => !exclude.contains(&node.z_id),
-                // An endpoint with no node identity carries no zid; it can only
-                // be external.
+                // No node identity means no zid to match — treat as external.
                 None => true,
             },
         })
     }
 
-    /// Wait until the graph reflects an external participant and has then gone
-    /// quiet, bounded by `timeout`.
+    /// Barrier for one-shot commands (`hu list`/`info`/`service`/`param`) before
+    /// they snapshot the graph. Waits for an external participant to appear, then
+    /// for the graph to go quiet — a quiet-only wait can mistake a not-yet-populated
+    /// graph for "settled" under CPU contention. `exclude` = caller's own session
+    /// zids, so echoed self-tokens don't satisfy the wait.
     ///
-    /// This is the barrier a one-shot command (`hu list`/`info`/`service`/
-    /// `param`) needs before it snapshots the graph. Unlike a naive quiet-only
-    /// wait, it never mistakes an empty-but-quiet graph for "settled": under CPU
-    /// contention an external liveliness token can take longer to propagate than
-    /// any fixed quiet window, and returning early there is exactly what made
-    /// these commands read an empty graph. `exclude` should list the caller's
-    /// own session zids so its own echoed tokens don't satisfy the wait.
-    ///
-    /// Returns `true` once an external entity is present and the graph has
-    /// *either* gone quiet for `quiet` *or* `timeout` elapsed while the entity
-    /// was still present (best-effort under contention — it does not guarantee a
-    /// full quiet window in that case). Returns `false` only if `timeout`
-    /// elapsed with no external entity at all (a genuinely empty graph — the
-    /// command should then report "not found").
+    /// Returns `true` once an external entity is present and the graph has either
+    /// gone quiet for `quiet` or `timeout` elapsed with it still present (best-effort
+    /// under contention). Returns `false` only if `timeout` elapsed with no external
+    /// entity (genuinely empty — caller should report "not found").
     pub async fn wait_for_external_settled(
         &self,
         exclude: &[ZenohId],

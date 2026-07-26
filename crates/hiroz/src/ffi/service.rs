@@ -68,10 +68,8 @@ impl RawServiceClient {
         request: &[u8],
         timeout: Duration,
     ) -> Result<Vec<u8>, crate::error::Error> {
-        // Use a fresh channel per call so a call can never observe a reply
-        // meant for a different call — a client-wide shared channel would let
-        // a straggling/late reply for call N-1 sit queued and be dequeued by
-        // call N's recv instead of N's own (still in-flight) reply.
+        // Fresh channel per call: a shared channel could hand a late reply from
+        // a prior call to this call's recv.
         let (tx, rx) = flume::bounded(1);
         let attachment = self.new_attachment();
 
@@ -91,13 +89,9 @@ impl RawServiceClient {
             .map_err(|e| crate::error::Error::Other(format!("Failed to send query: {}", e)))?;
 
         let sample = rx.recv_timeout(timeout).map_err(|e| match e {
-            // `Disconnected` fires immediately (not after `timeout`) when no
-            // queryable matches: zenoh finalizes the query right away and
-            // drops the callback (and with it, `tx`) with no reply ever
-            // sent. From the caller's perspective this is indistinguishable
-            // from "no response arrived" — map it to the same Timeout error
-            // rather than a generic failure so callers can rely on
-            // is_timeout()/ErrorCodeServiceTimeout for "service unavailable".
+            // No matching queryable drops `tx` immediately (Disconnected), which
+            // is indistinguishable from "no reply arrived" — map both to Timeout
+            // so callers can treat it as "service unavailable" via is_timeout().
             flume::RecvTimeoutError::Timeout | flume::RecvTimeoutError::Disconnected => {
                 crate::error::Error::Timeout(timeout)
             }

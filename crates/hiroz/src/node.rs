@@ -437,14 +437,11 @@ impl ZNode {
 
     /// Create a service for the given service name.
     ///
-    /// `T::Request` and `T::Response` must implement [`WithTypeInfo`] (enforced by
-    /// the trait bounds below). When this node's type-description service is
-    /// enabled *and* the Request/Response types carry a runtime schema (as
-    /// `hiroz-codegen`-generated ROS 2 message types do), both are registered with
-    /// that service so schema discovery (e.g. by hiroz-union's WASM plugin host)
-    /// can resolve the Request/Response schemas via live `get_type_description`
-    /// queries. Registration is therefore conditional: if the service is disabled
-    /// or a type carries no runtime schema, discovery for it will not resolve.
+    /// If the type-description service is enabled and the Request/Response types
+    /// carry a runtime schema (generated ROS 2 message types do), both are
+    /// registered with it so [`discover_service_schema`](ZNode::discover_service_schema)
+    /// can resolve them via live `get_type_description` queries; otherwise
+    /// discovery for this service won't resolve.
     ///
     /// The service name will be qualified according to ROS 2 rules:
     /// - Absolute service names (starting with '/') are used as-is
@@ -457,12 +454,9 @@ impl ZNode {
         T::Response: WithTypeInfo,
     {
         debug!("[NOD] Creating service: name={}", name);
-        // Mirror create_pub<T>'s auto-registration: if the Request/Response types
-        // carry a runtime schema (generated ROS 2 message types do), register both
-        // with this node's type description service so `discover_service_schema`
-        // (used by hiroz-union's WASM plugin host, among others) can resolve them
-        // via live `get_type_description` queries instead of requiring callers to
-        // pre-populate the (otherwise-unpopulated) global SchemaRegistry.
+        // Mirror create_pub<T>'s auto-registration so discover_service_schema can
+        // resolve Request/Response via get_type_description instead of the
+        // (otherwise-empty) global SchemaRegistry.
         if let Some(schema) = T::Request::message_schema() {
             self.register_schema_with_type_description_service(&schema);
         }
@@ -1114,40 +1108,22 @@ impl ZNode {
 
     /// Resolve a service's request and response schemas via live discovery.
     ///
-    /// Mirrors [`discover_topic_schema`](ZNode::discover_topic_schema): rather than
-    /// reading from the (always-empty, for services) global `SchemaRegistry`, this
-    /// finds a node currently serving `service_name` in the graph and queries that
-    /// node's own `~get_type_description` service twice — once for
-    /// `request_type_name`, once for `response_type_name`. This is the same
-    /// `GetTypeDescription` protocol topic pub/sub already relies on
-    /// (`query_type_description`); it just keys off a service's graph entity
-    /// instead of a topic's publisher list.
-    ///
-    /// Type hash validation is skipped (empty `type_hash` on the query) since the
-    /// caller here generally only has the *service's* composite hash, not the
-    /// hashes of the Request/Response types individually.
+    /// Service analogue of [`discover_topic_schema`](ZNode::discover_topic_schema):
+    /// finds a node serving `service_name` in the graph and queries its
+    /// `~get_type_description` service for `request_type_name` and
+    /// `response_type_name`. Type-hash validation is skipped (the caller usually
+    /// only has the service's composite hash, not the per-type hashes).
     ///
     /// # Arguments
     ///
-    /// * `service_name` - The service name (qualified using the same ROS 2 rules
-    ///   as [`create_service`](ZNode::create_service)/[`create_client`](ZNode::create_client)).
-    /// * `request_type_name` - The Request type's registered schema name.
-    ///   `hiroz-codegen`-generated services register these as
-    ///   `"{pkg}/msg/{Name}Request"` (e.g.
-    ///   `"example_interfaces/msg/AddTwoIntsRequest"`) -- Request/Response are
-    ///   ordinary generated messages, not a `/srv/`-namespaced schema. See
-    ///   `hiroz_union`'s `service_request_response_type_names` helper, which
-    ///   derives this from a service's `pkg/srv/Name` type name.
-    /// * `response_type_name` - The Response type's registered schema name,
-    ///   analogous to `request_type_name` (e.g.
-    ///   `"example_interfaces/msg/AddTwoIntsResponse"`).
-    /// * `timeout` - Per-phase timeout. Applied independently to (1) the initial
-    ///   graph poll that waits for the service's liveliness entry to appear and
-    ///   (2) each of the two sequential underlying `get_type_description` calls,
-    ///   so the total worst-case latency is up to `3 * timeout` -- callers with a
-    ///   tight overall call budget should pass a short, fixed timeout here rather
-    ///   than reusing the full call timeout (see hu-meter's discovery timeout
-    ///   handling).
+    /// * `service_name` - Qualified per the same ROS 2 rules as
+    ///   [`create_service`](ZNode::create_service)/[`create_client`](ZNode::create_client).
+    /// * `request_type_name` / `response_type_name` - The Request/Response schema
+    ///   names, which codegen registers as `"{pkg}/msg/{Name}Request"` /
+    ///   `"{pkg}/msg/{Name}Response"` (e.g. `"example_interfaces/msg/AddTwoIntsRequest"`),
+    ///   not `/srv/`-namespaced. See hiroz-union's `service_request_response_type_names`.
+    /// * `timeout` - Per-phase: applied independently to the graph poll and each of
+    ///   the two sequential `get_type_description` calls, so worst-case is `3 * timeout`.
     pub async fn discover_service_schema(
         &self,
         service_name: &str,
@@ -1161,12 +1137,9 @@ impl ZNode {
                     DynamicError::SchemaNotFound(format!("Failed to qualify service name: {error}"))
                 })?;
 
-        // The service server's liveliness token may not have reached this
-        // node's graph yet (graph population is async, independent of the
-        // caller's own setup). Poll briefly rather than failing on the first
-        // miss -- same tolerance connect_service's key-expression resolution
-        // gets implicitly via its wildcard fallback, which this lookup has no
-        // equivalent for since it needs a concrete node identity to query.
+        // The server's liveliness token may not have reached our graph yet
+        // (async population); poll briefly rather than failing on the first miss,
+        // since we need a concrete node identity to query.
         let poll_interval = Duration::from_millis(100);
         let deadline = std::time::Instant::now() + timeout;
         let node = loop {
