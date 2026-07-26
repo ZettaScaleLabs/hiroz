@@ -7,6 +7,7 @@
     rust-overlay.url = "github:oxalica/rust-overlay";
     git-hooks.url = "github:cachix/git-hooks.nix";
     systems.url = "github:nix-systems/default";
+    crane.url = "github:ipetkov/crane";
   };
 
   outputs =
@@ -17,6 +18,7 @@
       rust-overlay,
       git-hooks,
       systems,
+      crane,
     }:
     nix-ros-overlay.inputs.flake-utils.lib.eachDefaultSystem (
       system:
@@ -31,6 +33,9 @@
           "lyrical" # (May 2026 - May 2031, LTS)
           "rolling" # continuous release, no EOL
         ];
+        # Only include distros present in the pinned nix-ros-overlay; newer distros
+        # (lyrical, rolling) may not be cached on the CI worker yet.
+        availableDistros = builtins.filter (d: builtins.hasAttr d pkgs.rosPackages) distros;
 
         pkgs = import nixpkgs {
           inherit system;
@@ -47,6 +52,10 @@
             "llvm-tools-preview"
           ];
         };
+
+        # crane: caches the deps layer separately from the package build, so
+        # only a Cargo.lock change re-pushes deps to cachix.
+        craneLib = (crane.mkLib pkgs).overrideToolchain (_: rustToolchain);
 
         # CI-only toolchain with the wasm32-wasip2 sysroot; kept separate so
         # everyday shells skip the ~100-500 MB sysroot download.
@@ -92,6 +101,20 @@
               # Test-only message packages
               testMessages = with pkgs.rosPackages.${rosDistro}; [
                 test-msgs
+              ];
+
+              # CLI tools needed for interop tests (ros2 topic/param/node/service/run)
+              testCli = with pkgs.rosPackages.${rosDistro}; [
+                ros2cli
+                ros2topic
+                ros2node
+                ros2param
+                ros2service
+                ros2action
+                ros2pkg
+                ros2run
+                ros2launch
+                rmw-zenoh-cpp
               ];
 
               devExtras = with pkgs.rosPackages.${rosDistro}; [
@@ -148,11 +171,15 @@
               wrapPrograms = false;
             };
 
-            # Test environment with test messages (for all tests)
+            # Test environment with test messages and CLI tools (for all tests)
             testFull = pkgs.rosPackages.${rosDistro}.buildEnv {
-              paths = rosDeps.rcl ++ rosDeps.messages ++ rosDeps.testMessages;
+              paths = rosDeps.rcl ++ rosDeps.messages ++ rosDeps.testMessages ++ rosDeps.testCli;
               wrapPrograms = false;
             };
+
+            # Per-package store paths for testFull's AMENT_PREFIX_PATH
+            # (buildEnv merging drops each package's ament index).
+            testFullPaths = rosDeps.rcl ++ rosDeps.messages ++ rosDeps.testMessages ++ rosDeps.testCli;
           };
 
         # Colcon configuration
@@ -266,6 +293,9 @@
             # Extra env vars set as mkShell attributes (exported by `nix print-dev-env`).
             extraEnvVars ? { },
             rosEnvPath ? null,
+            # Each added to AMENT_PREFIX_PATH separately so ament indexes
+            # survive (buildEnv merging drops them).
+            rosEnvPaths ? [ ],
             pythonVersion ? pkgs.python3, # To determine site-packages path
             rosDistro ? null,
           }:
@@ -298,6 +328,14 @@
                     ''
                   else
                     ""
+                }
+
+                ${
+                  # Per-package AMENT_PREFIX_PATH in one export (smaller
+                  # shellHook, faster `nix develop` eval).
+                  pkgs.lib.optionalString (rosEnvPaths != [ ]) ''
+                    export AMENT_PREFIX_PATH="''${AMENT_PREFIX_PATH:+$AMENT_PREFIX_PATH:}${pkgs.lib.concatStringsSep ":" rosEnvPaths}"
+                  ''
                 }
 
                 ${extraShellHook}
@@ -346,18 +384,19 @@
               name = "hiroz-ci-${rosDistro}";
               packages = commonBuildInputs ++ pythonTools ++ docTools ++ testTools ++ [ rosEnv.testFull ];
               rosEnvPath = rosEnv.testFull;
+              rosEnvPaths = rosEnv.testFullPaths;
               pythonVersion = pythonVer;
               rosDistro = rosDistro;
               extraShellHook = '''';
             };
           };
 
-        # Generate shells for all distros
+        # Generate shells for available distros only
         allDistroShells = builtins.listToAttrs (
           builtins.map (distro: {
             name = distro;
             value = mkRosShells distro;
-          }) distros
+          }) availableDistros
         );
         # Pre-commit hooks configuration
         mkdocsPkg = builtins.elemAt docTools 1;
@@ -399,8 +438,14 @@
 
         # Development shells
         devShells = {
-          # Default: first distro in the list with ROS
-          default = allDistroShells.${builtins.head distros}.default;
+          # Default = first available distro. Must use availableDistros
+          # (allDistroShells is built from it; unfiltered `distros` could name a
+          # distro that isn't present).
+          default =
+            if availableDistros == [ ] then
+              throw "hiroz: none of the supported ROS distros (${builtins.concatStringsSep ", " distros}) are present in the pinned nix-ros-overlay; use the `.#pureRust` dev shell, or update the overlay pin so at least one distro is available."
+            else
+              allDistroShells.${builtins.head availableDistros}.default;
 
           # Without ROS
           pureRust = mkDevShell {
@@ -460,8 +505,8 @@
             extraShellHook = '''';
           };
 
-          # DEPRECATED: Bridge interop test environment (Jazzy + Humble via humble-ros2 wrapper).
-          # Moved to zetta-hiroz-toolkit (private). Will be removed in a future release.
+          # Bridge interop test environment (Jazzy + Humble side-by-side).
+          # Used by `cargo test -p hiroz-tests --features bridge-interop-tests,jazzy`.
           ros-bridge-interop =
             let
               humbleEnv = mkRosEnv "humble";
@@ -493,11 +538,18 @@
               extraEnvVars = {
                 HUMBLE_ROS2 = "${humbleRos2}/bin/humble-ros2";
               };
-              shellHook = ''
-                echo "WARNING: ros-bridge-interop is deprecated in this repo." >&2
-                echo "Use the shell from zetta-hiroz-toolkit instead." >&2
-              '';
             };
+
+          # CI shell for bridge interop tests.
+          # Like ros-bridge-interop but wasm-capable. `hu` isn't a nix package
+          # here — buildRustPackage's sandbox lacks the wasm sysroot; build
+          # hu/plugins inline in the CI command instead.
+          bridge-interop-ci = (self.devShells.${system}.ros-bridge-interop).overrideAttrs (old: {
+            nativeBuildInputs = [
+              rustToolchainWasm
+            ]
+            ++ (builtins.filter (p: p != rustToolchain) (old.nativeBuildInputs or [ ]));
+          });
 
         }
         # Add per-distro dev shells (ros-jazzy, ros-rolling, ...)
@@ -505,15 +557,45 @@
           builtins.map (distro: {
             name = "ros-${distro}";
             value = allDistroShells.${distro}.default;
-          }) distros
+          }) availableDistros
         ))
         # Add per-distro CI shells (ros-jazzy-ci, ros-rolling-ci, ...)
         // (builtins.listToAttrs (
           builtins.map (distro: {
             name = "ros-${distro}-ci";
             value = allDistroShells.${distro}.ci;
-          }) distros
+          }) availableDistros
         ));
+
+        packages =
+          let
+            huCommonArgs = {
+              pname = "hu";
+              version = "0.1.0";
+              # Use cleanSource, not craneLib.cleanCargoSource: the latter
+              # strips hiroz-tests to zero source files ("no targets specified")
+              # and breaks workspace resolution.
+              src = pkgs.lib.cleanSource ./.;
+              strictDeps = true;
+              nativeBuildInputs = [
+                pkgs.pkg-config
+                pkgs.protobuf
+              ];
+              cargoExtraArgs = "-p hiroz-union --bin hu";
+              doCheck = false;
+              RUSTFLAGS = "";
+            };
+            huCargoArtifacts = craneLib.buildDepsOnly huCommonArgs;
+          in
+          rec {
+            hu = craneLib.buildPackage (
+              huCommonArgs
+              // {
+                cargoArtifacts = huCargoArtifacts;
+              }
+            );
+            default = hu;
+          };
 
         formatter = pkgs.nixfmt-rfc-style;
       }
