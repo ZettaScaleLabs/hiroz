@@ -67,13 +67,9 @@ jobs:
           path: /var/cache/apt/archives
           key: apt-${{ matrix.distro }}-v3-${{ hashFiles('.github/workflows/test.yml') }}
 
-      # `apt-get update`'s package-index fetch (not the package downloads
-      # themselves) is the actual bottleneck on this container's mirror --
-      # observed as low as ~900 B/s for a few hundred KB, costing several
-      # minutes per job even though installs run at a normal few hundred
-      # kB/s once the index is warm. Caching the index avoids refetching it
-      # every run. Keyed weekly (not indefinitely) so it can't go
-      # permanently stale; a cache miss just re-fetches, no failure mode.
+      # The apt package-index fetch (not the downloads) is the mirror bottleneck
+      # here (~900 B/s), costing minutes per job. Cache the index; keyed weekly
+      # so it can't go permanently stale — a miss just re-fetches.
       - name: Cache apt package lists
         uses: actions/cache@v4
         with:
@@ -82,15 +78,10 @@ jobs:
           restore-keys: |
             apt-lists-${{ matrix.distro }}-
 
-      # GitHub-hosted runners run on Azure, but these ROS base images ship
-      # sources.list pointed at the generic archive.ubuntu.com/
-      # security.ubuntu.com endpoints, which have been observed as slow as
-      # ~75-900 B/s from these runners (vs. a normal few hundred kB/s) --
-      # apparently a mirror-selection/routing issue, not a bandwidth cap,
-      # since packages.ros.org in the same apt-get update is fast. Azure
-      # publishes a same-datacenter mirror that's dramatically faster from
-      # here. Handles both the legacy one-line sources.list format and the
-      # newer deb822 *.sources format (present on newer Ubuntu releases).
+      # GitHub runners are on Azure, but the ROS base images point at the
+      # generic archive/security.ubuntu.com endpoints, which are slow from here
+      # (~75-900 B/s). Repoint to Azure's same-datacenter mirror. Handles both
+      # the legacy one-line sources.list and the newer deb822 *.sources format.
       - name: Point apt at the Azure Ubuntu mirror
         run: |
           if [ -f /etc/apt/sources.list ]; then
@@ -99,10 +90,8 @@ jobs:
               -e 's|http://security\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
               /etc/apt/sources.list
           fi
-          # A glob that matches nothing expands to the literal pattern string
-          # (nullglob is off by default), so guard with `ls` (which every shell
-          # has) rather than relying on the match -- keeps this robust even if
-          # the step's shell changes.
+          # Guard with `ls`: with nullglob off, a non-matching glob expands to
+          # the literal pattern, so don't rely on the match itself.
           if ls /etc/apt/sources.list.d/*.sources > /dev/null 2>&1; then
             sed -i \
               -e 's|http://archive\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
@@ -112,11 +101,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          # jq is installed here (not left to taiki-e/install-action's own
-          # internal bootstrap in the "Install cargo-nextest" step below)
-          # specifically to avoid a second, fully independent apt-get
-          # update -- that redundant second index fetch was the entire cost
-          # of the cargo-nextest install step.
+          # Install jq here so taiki-e/install-action's cargo-nextest step
+          # below doesn't trigger a second, redundant apt-get update for it.
           apt-get update && apt-get install -y nodejs jq
 
       - name: Install Nushell
@@ -176,12 +162,9 @@ jobs:
           else
             cargo nextest run -p hiroz-tests --profile interop \
               --features "ros-interop,$FEATURES"
-            # All dynamic_subscriber tests are currently #[ignore]'d (ros2
-            # topic pub does not become graph-visible in CI's rmw_zenoh_cpp
-            # environment — confirmed independent of hiroz, see the ignore
-            # reason in headless_test.rs). --no-tests=warn keeps that state
-            # from hard-failing the job while nextest's own summary still
-            # surfaces it.
+            # dynamic_subscriber tests are all #[ignore]'d in CI (ros2 topic
+            # pub isn't graph-visible under CI's rmw_zenoh_cpp — see
+            # headless_test.rs). --no-tests=warn keeps that from failing the job.
             cargo nextest run -p hiroz-union --profile interop \
               --features ros-interop \
               -E 'test(dynamic_subscriber)' \

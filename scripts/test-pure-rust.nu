@@ -39,12 +39,10 @@ def check-hu [] {
     run-cmd "cargo check -p hiroz-union"
     run-cmd "cargo clippy -p hiroz-union -- -D warnings"
     log-step "Build WASM plugins (wasm32-wasip2)"
-    # These steps need the wasm32-wasip2 sysroot. CI runs this in `.#pureRust-ci`
-    # (which includes it); for a local run, enter `.#pureRust-wasm` first — the
-    # default `.#pureRust` shell intentionally omits the sysroot to stay lean.
-    # hu-meter and hu-monitor share a workspace — single dep resolution pass.
+    # Needs the wasm32-wasip2 sysroot: CI uses `.#pureRust-ci`; locally enter
+    # `.#pureRust-wasm` (the default `.#pureRust` shell omits it to stay lean).
     run-cmd "cargo build --manifest-path crates/hiroz-union/plugins/Cargo.toml --target wasm32-wasip2 --workspace"
-    # hu-plugin-template stays standalone to mirror a third-party plugin author's setup.
+    # Standalone build to mirror a third-party plugin author's setup.
     run-cmd "cargo build --manifest-path crates/hiroz-union/plugins/hu-plugin-template/Cargo.toml --target wasm32-wasip2"
 }
 
@@ -55,9 +53,8 @@ def clippy-hiroz-py [] {
 
 def clippy-tests [] {
     log-step "Clippy (hiroz-tests, interop features)"
-    # Every feature gate that hides a test file must appear here, or that file is
-    # compiled by the test jobs but never linted. hu-meter-tests / hu-monitor-tests
-    # gate the plugin suites; without them ~2.3k lines go unchecked.
+    # Every test-gating feature must be listed or its file is never linted;
+    # hu-meter-tests / hu-monitor-tests gate the plugin suites (~2.3k lines).
     run-cmd "cargo clippy -p hiroz-tests --all-targets --features ros-interop,hu-meter-tests,hu-monitor-tests,jazzy -- -D warnings"
 }
 
