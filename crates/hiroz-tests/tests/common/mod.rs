@@ -133,16 +133,13 @@ impl TestRouter {
 
             match zenoh::open(config).wait() {
                 Ok(session) => {
-                    // Poll until the router's TCP listener accepts a connection,
-                    // up to a ~2s budget (40 * 50ms). This replaces a blind fixed
-                    // sleep and usually proceeds much sooner; if the budget
-                    // elapses without a successful connect, proceed anyway
-                    // (best-effort).
+                    // Poll the router's TCP listener (40 * 50ms, ~2s budget)
+                    // instead of a blind fixed sleep; proceed anyway if it
+                    // never accepts (best-effort).
                     let probe_addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
                     for _ in 0..40 {
-                        // connect_timeout caps each probe at 50ms; a plain
-                        // TcpStream::connect could block far longer on the OS
-                        // connect timeout and blow the ~2s budget.
+                        // connect_timeout caps each probe at 50ms; plain connect
+                        // could block on the OS timeout and blow the budget.
                         if std::net::TcpStream::connect_timeout(
                             &probe_addr,
                             Duration::from_millis(50),
@@ -153,10 +150,8 @@ impl TestRouter {
                         }
                         thread::sleep(Duration::from_millis(50));
                     }
-                    // TCP-accept only proves the listener is bound; the zenoh
-                    // router may still be finishing its routing/liveliness init.
-                    // A short floor (far below the old blind 500ms) covers that
-                    // window without paying the full fixed cost on every test.
+                    // TCP-accept only proves the listener is bound; short floor
+                    // covers the router's remaining routing/liveliness init.
                     thread::sleep(Duration::from_millis(150));
                     println!("Zenoh router ready on {}", endpoint);
                     return Self {
@@ -425,17 +420,13 @@ pub fn spawn_python_service_client(
     ProcessGuard::new(child, "python_service_client")
 }
 
-/// A background producer kept alive for exactly the lifetime of this guard.
-///
-/// On drop it flips a stop flag and detaches the producer thread (no join, so a
-/// producer wedged in a blocking recv can't hang teardown); the thread drops all
-/// held Zenoh entities (and their session) cleanly once it observes the flag.
-/// Prefer this over a detached thread that sleeps a fixed duration: too short a
-/// sleep lets the entity vanish
-/// before `hu` reads it; too long leaves the producer's client session
-/// reconnect-spinning after the test's `TestRouter` drops, stealing CPU from
-/// later serial tests. Here the hold is exactly the test's scope — no guessed
-/// duration.
+/// Holds a background producer (Zenoh entities) alive for exactly this guard's
+/// lifetime. On drop it sets a stop flag and detaches the thread (no join, so a
+/// producer blocked in recv can't hang teardown); the thread then drops its
+/// entities and session. Preferred over a fixed-duration sleep: too short and
+/// the entity vanishes before `hu` reads it; too long and the producer's client
+/// session reconnect-spins after `TestRouter` drops, stealing CPU from later
+/// serial tests.
 #[allow(dead_code)]
 #[must_use = "binding must be kept alive (e.g. `let _producer = ...`); dropping it immediately tears the producer down"]
 pub struct ProducerGuard {
@@ -445,22 +436,15 @@ pub struct ProducerGuard {
 
 impl Drop for ProducerGuard {
     fn drop(&mut self) {
-        // Signal the producer to stop holding; it then exits its loop and drops
-        // its entities + Zenoh session on its own thread. We deliberately do NOT
-        // join: dropping a Zenoh session can block (async close during Tokio
-        // runtime teardown), and blocking the test thread on that risks a hang.
-        // Detaching is enough for the goal — the producer stops its active work
-        // immediately (no lingering 40s hold, no reconnect-spin), and the
-        // teardown completes in the background (or is reaped at process exit).
+        // Signal stop, then detach: dropping a Zenoh session can block (async
+        // close during Tokio teardown), so joining here risks hanging the test
+        // thread. Detaching still stops the producer's active work immediately.
         self.stop.store(true, Ordering::Relaxed);
         if let Some(handle) = self.handle.take() {
-            // A well-behaved producer is still running (holding its entities)
-            // right up until we set `stop`, so it will normally NOT be finished
-            // here. If it *is* already finished, the producer exited early —
-            // typically a panic — which would otherwise be swallowed silently and
-            // make a later "entity never appeared" failure baffling. Since the
-            // thread is finished, `join()` returns immediately (still
-            // non-blocking), so we can observe and surface the panic.
+            // Normally still running until we set `stop`. If already finished,
+            // the producer exited early (usually a panic) — surface it: join()
+            // on a finished thread returns immediately, and the panic would
+            // otherwise be swallowed and misdiagnosed as "entity never appeared".
             if handle.is_finished()
                 && let Err(panic) = handle.join()
             {
@@ -475,20 +459,17 @@ impl Drop for ProducerGuard {
                      failures in this test are likely caused by this."
                 );
             }
-            // Otherwise: drop the JoinHandle without joining, detaching the
-            // still-running thread (its Zenoh-session teardown can block, and we
-            // must not block the test thread on it).
+            // Otherwise detach: the still-running thread's session teardown can
+            // block, and must not block the test thread.
         }
     }
 }
 
-/// Spawn a producer running `body` on a fresh Tokio runtime. `body` receives a
-/// stop flag it must poll: hold entities alive with
-/// `while !stop.load(Ordering::Relaxed) { tokio::time::sleep(..).await }`, or
-/// check it inside a service loop. The producer exits (dropping its entities)
-/// when the returned guard drops. `body` is `async` — it awaits rather than
-/// blocks — so any tasks it spawns (e.g. an action-server handler) keep running
-/// while it holds.
+/// Spawn a producer running `body` on a fresh Tokio runtime. `body` must poll
+/// the stop flag to hold entities alive (e.g.
+/// `while !stop.load(Ordering::Relaxed) { tokio::time::sleep(..).await }`) and
+/// exits, dropping them, when the returned guard drops. `body` is async, so
+/// tasks it spawns (e.g. an action-server handler) keep running while it holds.
 #[allow(dead_code)]
 pub fn spawn_producer<Fut>(
     body: impl FnOnce(Arc<AtomicBool>) -> Fut + Send + 'static,

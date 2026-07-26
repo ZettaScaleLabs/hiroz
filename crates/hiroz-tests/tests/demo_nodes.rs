@@ -77,16 +77,11 @@ fn test_hiroz_talker_to_hiroz_listener() {
     );
 }
 
-// These 6 tests each spawn a real `ros2 run demo_nodes_cpp ...` subprocess
-// (a full RCL/rclcpp C++ node). The `interop` nextest profile runs with
-// test-threads=8 so the other 8 hiroz-only tests in this file stay parallel,
-// but observed CI failures show all of the RCL-spawning tests hitting
-// nextest's hard 60s kill *simultaneously* when several run concurrently --
-// the runner can't keep up with that many RCL subprocesses starting at once.
-// nextest runs each test in its own process, so serial_test's in-process
-// static Mutex is a no-op there; it serializes them only under `cargo test`
-// (single test binary). Under nextest, keep the interop suite from
-// oversubscribing by limiting the runner's parallelism in CI.
+// The RCL-spawning interop tests each launch a real `ros2 run demo_nodes_cpp`
+// C++ node. Running many concurrently oversubscribes the runner and they all
+// hit nextest's 60s hard kill at once. serial_test's in-process Mutex only
+// serializes under `cargo test` (one binary); nextest runs each test in its
+// own process, so parallelism must be capped via the runner config in CI.
 #[test]
 fn test_rcl_talker_to_hiroz_listener() {
     if !check_ros2_available() {
@@ -104,14 +99,9 @@ fn test_rcl_talker_to_hiroz_listener() {
     let received = Arc::new(Mutex::new(Vec::new()));
     let received_clone = received.clone();
 
-    // Start the RCL talker FIRST. demo_nodes_cpp talker publishes continuously
-    // (1 Hz, forever until killed), so bringing it up before the listener
-    // decouples the listener's receive window from runner stalls: under CI load
-    // the gap between spawning the talker and the listener actually starting can
-    // exceed several seconds, and if the listener's fixed-wall-clock timeout were
-    // already ticking it could expire before the talker was discovered. Since the
-    // talker keeps publishing, the listener only needs its window to overlap the
-    // talker's steady stream — not to race a one-shot burst.
+    // Start the talker first: it publishes continuously (1 Hz until killed), so
+    // the listener's window only needs to overlap that steady stream rather than
+    // race a startup burst while its fixed timeout ticks through CI-load stalls.
     let talker = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "talker"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
@@ -126,9 +116,8 @@ fn test_rcl_talker_to_hiroz_listener() {
 
     wait_for_ready(Duration::from_secs(5));
 
-    // Start hiroz listener in a thread using the example code. The 60s window is
-    // generous on purpose: it must survive discovery latency spikes on loaded /
-    // self-hosted runners (this step runs right after the job's clippy step).
+    // Start hiroz listener via the example code. 60s window absorbs discovery
+    // latency spikes on loaded self-hosted runners.
     let router_endpoint = router.endpoint().to_string();
     let listener_handle = thread::spawn(move || {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
@@ -283,11 +272,9 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
 
     println!("\n=== Test: RCL demo_nodes_cpp add_two_ints server -> hiroz client ===");
 
-    // Start RCL server. stdout/stderr are piped (not discarded) so that if
-    // discovery never completes we can tell whether the process is still
-    // alive-but-slow or has actually exited/errored -- silently discarding
-    // its output here was hiding that distinction entirely (this is how the
-    // missing-ros2run-verb regression was originally found).
+    // Pipe stdout/stderr (not discard) so a discovery failure can be told apart
+    // as alive-but-slow vs exited/errored — discarding output hid the
+    // missing-ros2run-verb regression.
     let mut server = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "add_two_ints_server"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
@@ -315,22 +302,16 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
 
     wait_for_ready(Duration::from_secs(3));
 
-    // Retry until the server's queryable is actually discovered -- same
-    // rationale as the fibonacci RCL-server test below: this is discovery
-    // latency, not response latency, so a longer fixed wait/timeout doesn't
-    // reliably help under CI load.
-    // Budget of 40s (not the full nextest 60s kill): each
-    // run_add_two_ints_client attempt can itself block up to ~15s in its
-    // internal call_with_timeout, so a new attempt must only start when at
-    // least that worst-case window still fits before the hard kill. Starting
-    // at 40s leaves 40 + 15 = 55s < 60s of headroom.
+    // Retry until the server's queryable is discovered — discovery latency, not
+    // response latency, so a longer fixed timeout doesn't help under load.
+    // Budget 40s (not the 60s kill): each attempt can block ~15s internally, so
+    // 40 + 15 = 55s < 60s keeps headroom before the hard kill.
     let attempt_worst_case = Duration::from_secs(15);
     let deadline = std::time::Instant::now() + Duration::from_secs(40);
     let result = loop {
         let ctx =
             create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
-        // Pre-check: don't begin another attempt if it could run past the
-        // deadline (and thus risk nextest's 60s hard kill).
+        // Don't start an attempt that could run past the deadline (60s kill).
         let out_of_budget = std::time::Instant::now() + attempt_worst_case >= deadline;
         match demo_nodes::run_add_two_ints_client(ctx, 4, 7, false) {
             Ok(v) => break v,
@@ -342,10 +323,9 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
                     .child
                     .as_mut()
                     .and_then(|c| c.try_wait().ok().flatten());
-                // Terminate the server before joining the reader threads: they
-                // block on read_to_string until stdout/stderr hit EOF, which only
-                // happens once the child exits. In the alive-but-slow case (the
-                // one this diagnostic exists for) joining first would hang.
+                // Kill the server before joining readers: read_to_string blocks
+                // until EOF (child exit), so joining first would hang in the
+                // alive-but-slow case.
                 if let Some(c) = server_guard.child.as_mut() {
                     let _ = c.kill();
                     let _ = c.wait();
@@ -395,9 +375,8 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
         result.expect("Server failed");
     });
 
-    // Generous discovery buffer: the RCL client is a one-shot external
-    // process with no retry of its own, so the server's queryable must
-    // already be discoverable by the time it starts.
+    // One-shot RCL client with no retry: the server's queryable must be
+    // discoverable before it starts.
     wait_for_ready(Duration::from_secs(5));
 
     // Start RCL client
@@ -411,17 +390,13 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
         .spawn()
         .expect("Failed to start RCL client");
 
-    // Wrap the child in its ProcessGuard *before* any reaping so the guard owns
-    // it throughout. Polling `try_wait` on a separate handle and only then
-    // handing the (already-reaped) child to a fresh guard would let the guard's
-    // Drop signal a process group whose PID may have been recycled. Poll through
-    // the guard's own handle instead.
+    // Guard owns the child throughout; poll try_wait through the guard's own
+    // handle. Reaping via a separate handle first could let Drop later signal a
+    // recycled PID's process group.
     let mut client_guard = ProcessGuard::new(client, "RCL add_two_ints client");
 
-    // Bound the wait on the RCL client's own exit instead of a fixed sleep,
-    // so a slow-to-discover run fails fast with a clear message rather than
-    // hanging the hiroz server thread (blocked on its one expected request)
-    // until nextest's hard kill.
+    // Bound on the client's actual exit, not a fixed sleep: a slow-to-discover
+    // run fails fast instead of hanging the server thread until the hard kill.
     let client_deadline = std::time::Instant::now() + Duration::from_secs(30);
     let client_status = loop {
         let child = client_guard
@@ -436,9 +411,8 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
         }
         thread::sleep(Duration::from_millis(200));
     };
-    // Check the exit status is actually success, not just that the process
-    // exited -- an instantly-failing `ros2 run` (e.g. missing verb plugin,
-    // bad args) also "exits within 30s" and would otherwise false-pass here.
+    // Require success, not just exit: an instantly-failing `ros2 run` (missing
+    // verb, bad args) also exits within 30s and would false-pass.
     match client_status {
         None => panic!(
             "RCL add_two_ints client did not exit within 30s (likely failed to discover the hiroz server)"
@@ -490,10 +464,8 @@ fn test_rcl_fibonacci_action_server_to_hiroz_client() {
 
     wait_for_ready(Duration::from_secs(3));
 
-    // Retry until the action server's queryables are actually discovered --
-    // same rationale as the add_two_ints RCL-server test above: this is
-    // discovery latency, not response latency, so a longer fixed wait/
-    // timeout doesn't reliably help under CI load.
+    // Retry until the action server's queryables are discovered — discovery
+    // latency, not response latency, so a longer fixed timeout doesn't help.
     let client_handle = thread::spawn(move || -> Vec<i32> {
         let deadline = std::time::Instant::now() + Duration::from_secs(60);
         loop {

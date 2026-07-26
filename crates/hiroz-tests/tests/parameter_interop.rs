@@ -32,15 +32,10 @@ fn ros2_cmd(rmw_env: &str) -> Command {
     cmd
 }
 
-/// Wait until the node is visible in hiroz's own graph (populated in the
-/// background by its liveliness subscriber), or panic after timeout.
-///
-/// Previously this spawned `ros2 node list` in a loop -- each invocation is
-/// an external CLI process with its own internal discovery spin-time on top
-/// of the sleep between attempts, which made the wait itself slow and
-/// non-deterministic rather than reacting to an actual discovery event.
-/// Polling the graph directly checks already-live in-memory state with no
-/// process spawn or network round-trip per check.
+/// Wait until the node appears in hiroz's own graph (populated by its liveliness
+/// subscriber), or panic after timeout. Polls in-memory state directly — no
+/// per-check process spawn or round-trip, unlike the previous `ros2 node list`
+/// loop whose own CLI spin-time made the wait slow and non-deterministic.
 fn wait_for_node(node_name: &str, router: &TestRouter, timeout: Duration) {
     let ctx = create_hiroz_context_with_router(router).expect("Failed to create hiroz context");
     let start = Instant::now();
