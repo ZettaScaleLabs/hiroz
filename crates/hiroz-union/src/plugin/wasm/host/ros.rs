@@ -150,17 +150,12 @@ impl hu::plugin::ros::Host for PluginState {
         Ok(total_bytes as f64 / 1024.0 / window_s)
     }
 
-    // NOTE: still reads the global (structurally never-populated) SchemaRegistry --
-    // NOT rerouted to discovery like HostServiceClient::call. This is a topic-pub
-    // path (only caller is `hu meter pub`'s --msg-type/--yaml, via
-    // encode-yaml-to-cdr), and the discovery mechanism that would fix it
-    // (discover_topic_schema) is keyed by *topic*, not type name -- but this WIT
-    // function's signature is `(yaml, type-name)` with no topic parameter to key
-    // a discovery query on. Fixing this properly needs a WIT interface change
-    // (add a topic param, or a topic-keyed variant) across all plugin copies of
-    // wit/hu-plugin.wit, which is out of scope here. Left as a known, disclosed
-    // gap (see pr-readiness.md's `pub_yaml_nested_twist` note) rather than
-    // reroute to the wrong discovery primitive.
+    // NOTE: reads the global (structurally never-populated) SchemaRegistry
+    // rather than live discovery like HostServiceClient::call. This is a
+    // topic-pub path (`hu meter pub --msg-type/--yaml`), but the WIT signature
+    // is `(yaml, type-name)` with no topic to key a discovery query on. Fixing
+    // it properly needs a WIT change across all plugin copies — out of scope.
+    // Known, disclosed gap (see pr-readiness.md `pub_yaml_nested_twist`).
     fn encode_yaml_to_cdr(&mut self, yaml: String, type_name: String) -> Result<Vec<u8>, String> {
         self.require_perm(hu::plugin::types::Permission::PublishTopic)?;
         let schema = get_schema(&type_name)
@@ -224,12 +219,11 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         let session = data.session.clone();
         let ke = data.ke.clone();
         let service_name = data.name.clone();
-        // `data.type_name` is the *service*-level type (e.g.
-        // "example_interfaces/srv/AddTwoInts" or "rcl_interfaces/srv/GetParameters"),
-        // not a Request/Response message type name. Resolve the actual
-        // Request/Response schemas via live discovery instead of the
-        // (structurally never-populated for services) global SchemaRegistry --
-        // see ZNode::discover_service_schema.
+        // `data.type_name` is the service-level type (e.g.
+        // "example_interfaces/srv/AddTwoInts"), not a Request/Response message
+        // type. Resolve the actual schemas via live discovery, not the
+        // (never-populated for services) SchemaRegistry — see
+        // ZNode::discover_service_schema.
         let (req_type, resp_type) = service_request_response_type_names(&data.type_name);
         let node = self.engine.node.clone();
 
@@ -251,12 +245,10 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         let req_msg = json_to_dynamic_message(&req_value, &req_schema)?;
         let req_cdr = serialize_cdr(&req_msg).map_err(|e| e.to_string())?;
 
-        // The hiroz service queryable handler requires an RMW-style attachment
-        // (sequence number + timestamp + writer GID) on every query -- it's how
-        // `take_request`/`reply` correlate requests to responses -- see
-        // `ZClient::call_sample` in hiroz/src/service.rs for the reference
-        // client, and `ZServer`'s query handling, which errors on a missing
-        // attachment. A raw query without one is silently never answered.
+        // The hiroz service queryable requires an RMW-style attachment (seqnum
+        // + timestamp + writer GID) on every query to correlate request and
+        // response; without one the query is silently never answered. See
+        // `ZClient::call_sample` / `ZServer` in hiroz/src/service.rs.
         let gid: hiroz::GidArray = session.zid().to_le_bytes();
         let sn = self.alloc_rep() as i64;
         let attachment = hiroz::attachment::Attachment::new(sn, gid);
@@ -333,21 +325,14 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
 }
 
 /// Derive a service's Request/Response type names from its service-level type
-/// name, matching the naming convention `hiroz-codegen` uses for generated
-/// service message types (`generate_service_impl`/`parse_srv_string`): the
-/// Request/Response structs are generated as ordinary messages named
-/// `{Name}Request`/`{Name}Response` in the *same package*, registered under
-/// `{pkg}/msg/{Name}Request` (note: `/msg/`, not `/srv/` -- services don't get
-/// their own schema namespace, their Request/Response are just messages).
+/// name, matching `hiroz-codegen`'s convention: `{Name}Request`/`{Name}Response`
+/// registered as ordinary messages under `{pkg}/msg/` (services get no schema
+/// namespace of their own).
 ///
-/// `service_type` may arrive in any of the shapes actually seen in practice:
-/// the abstract service type (`"pkg/srv/Name"`, e.g. from
-/// `ServiceTypeInfo::service_type_info()`), the request-side type already
-/// (`"pkg/srv/Name_Request"`, e.g. a caller-supplied `--msg-type`), or the
-/// raw DDS-mangled request/service type as reported by the graph
-/// (`"pkg::srv::dds_::Name_Request_"` / `"pkg::srv::dds_::Name_"`). All are
-/// normalized down to the bare `pkg/srv/Name` service type before deriving
-/// Request/Response names, so the two suffixes are never double-appended.
+/// `service_type` may arrive as the abstract service type (`pkg/srv/Name`), a
+/// request-side type (`pkg/srv/Name_Request`), or the DDS-mangled graph form
+/// (`pkg::srv::dds_::Name_Request_` / `pkg::srv::dds_::Name_`). All normalize to
+/// bare `pkg/srv/Name` first, so suffixes are never double-appended.
 fn service_request_response_type_names(service_type: &str) -> (String, String) {
     let normalized = service_type.replace("dds_::", "").replace("::", "/");
     let normalized = normalized.strip_suffix('_').unwrap_or(&normalized);
@@ -369,13 +354,10 @@ fn service_request_response_type_names(service_type: &str) -> (String, String) {
 
 // ─── YAML/JSON→CDR helpers ───────────────────────────────────────────────────
 
-/// Parse a request/pub body that may be either strict JSON (quoted keys) or
-/// flow-style YAML (unquoted keys, e.g. `{a: 1, b: 2}`) — both are common in
-/// CLI-supplied `--yaml`/request strings, and `--yaml`-named flags in
-/// particular are documented as accepting YAML, not JSON. YAML is a JSON
-/// superset for our purposes, so try JSON first (fast path, and gives JSON's
-/// error messages when the caller really did pass invalid JSON) and fall
-/// back to a YAML parse re-expressed as `serde_json::Value`.
+/// Parse a request/pub body that may be strict JSON or flow-style YAML (e.g.
+/// `{a: 1, b: 2}`) — both are common in CLI `--yaml`/request strings. YAML is a
+/// JSON superset here, so try JSON first (fast path, better errors on real
+/// invalid JSON) and fall back to YAML re-expressed as `serde_json::Value`.
 fn parse_yaml_or_json(input: &str) -> Result<serde_json::Value, String> {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
         return Ok(v);

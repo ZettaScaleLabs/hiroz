@@ -45,10 +45,9 @@ pub struct PluginCommon {
     store: Store<PluginState>,
 }
 
-/// Per-world generated bindings.  Keeping only the bindings type per-variant
-/// (instead of duplicating `manifest`/`output_lines`/`title`/`store` on each
-/// arm) means the host dispatcher still cannot accidentally send a TUI event
-/// to a CLI plugin, but the shared bookkeeping lives in one place.
+/// Per-world generated bindings. Only the bindings type varies per variant;
+/// shared bookkeeping lives in `PluginCommon`. Preserves the type safety that a
+/// TUI event cannot be dispatched to a CLI plugin.
 pub enum PluginBindings {
     /// Plugin compiled against `hu-cli-plugin` world.
     Cli(cli_bindgen::HuCliPlugin),
@@ -93,12 +92,9 @@ impl WasmPlugin {
         matches!(self.bindings, PluginBindings::Web(_))
     }
 
-    /// Dispatch a CLI event to a `Cli` plugin.  Type-safe: `CliEvent` has no
-    /// `key-action` or `topic-selected` variants so the compiler prevents TUI
-    /// events from being sent down the CLI path.
-    ///
-    /// Returns the plugin's exit code if one has been set (`None` also covers a
-    /// dispatch made against a non-CLI handle — a call-site programmer error).
+    /// Dispatch a CLI event to a `Cli` plugin. `CliEvent` lacks TUI-only
+    /// variants, so the compiler bars TUI events on this path. Returns the exit
+    /// code if set (`None` also for a dispatch against a non-CLI handle).
     pub fn dispatch_cli_event(&mut self, event: CliEvent) -> Option<u32> {
         let PluginBindings::Cli(bindings) = &mut self.bindings else {
             return None;
@@ -188,14 +184,11 @@ fn dispatch_inner(
 
 type LoadResult = (Vec<WasmPlugin>, Vec<(String, String)>);
 
-/// Build the wasmtime engine used to load plugins.
-///
-/// Enables epoch interruption (so a runaway guest can be preempted) plus the
-/// on-disk compilation cache. hu is a short-lived CLI that otherwise recompiles
-/// the same component on every invocation; the cache lets the 2nd..Nth process
-/// deserialize the previously compiled artifact instead of re-running cranelift.
-/// This matters most under the WASM test suite, which spawns ~40 `hu`
-/// subprocesses that each otherwise pay the full ~2.5s hu-meter compile.
+/// Build the wasmtime engine used to load plugins. Enables epoch interruption
+/// (to preempt a runaway guest) and the on-disk compile cache — hu is a
+/// short-lived CLI, so caching lets repeat invocations deserialize the artifact
+/// instead of re-running cranelift (~2.5s per hu-meter compile; the WASM test
+/// suite spawns ~40 such subprocesses).
 fn configured_wasm_engine() -> Result<Engine> {
     let mut engine_config = wasmtime::Config::default();
     engine_config.epoch_interruption(true);
@@ -207,14 +200,11 @@ fn configured_wasm_engine() -> Result<Engine> {
     Engine::new(&engine_config).context("creating WASM engine")
 }
 
-/// Process-wide shared WASM engine.
-///
-/// A single engine (and thus a single epoch-ticker task) is shared for the
-/// process lifetime. Previously every `load_plugins`/`load_plugin_named` call
-/// built a fresh engine *and* spawned a new ticker loop holding a clone of it;
-/// the TUI's `reload_plugins` calls this repeatedly, so tickers accumulated
-/// unboundedly and each kept its engine alive forever. Sharing one engine keeps
-/// exactly one ticker alive for the process.
+/// Process-wide shared WASM engine (and its single epoch-ticker task). Building
+/// a fresh engine per `load_plugins` call would spawn a new ticker each time —
+/// the TUI's `reload_plugins` loops, so tickers (each holding an engine clone)
+/// would leak unboundedly. Sharing one engine keeps exactly one ticker per
+/// process.
 static SHARED_WASM_ENGINE: OnceLock<Engine> = OnceLock::new();
 
 fn shared_wasm_engine() -> Result<Engine> {
@@ -234,11 +224,9 @@ fn shared_wasm_engine() -> Result<Engine> {
                 }
             });
         } else {
-            // No Tokio runtime in this context. Epoch interruption would be
-            // silently disabled (the epoch would never advance, so a runaway
-            // plugin could not be preempted). Fall back to a dedicated OS
-            // thread that increments the epoch on the same cadence, so
-            // preemption keeps working regardless of the caller's runtime.
+            // No Tokio runtime here: without a ticker the epoch never advances
+            // and runaway plugins can't be preempted. Fall back to a dedicated
+            // OS thread incrementing the epoch on the same cadence.
             if let Err(e) = std::thread::Builder::new()
                 .name("hu-wasm-epoch".into())
                 .spawn(move || {
@@ -248,9 +236,8 @@ fn shared_wasm_engine() -> Result<Engine> {
                     }
                 })
             {
-                // Without the ticker the epoch never advances, so runaway
-                // plugins cannot be preempted. Surface the loss rather than
-                // silently disabling preemption.
+                // No ticker means no preemption; surface the loss rather than
+                // silently disabling it.
                 tracing::warn!(
                     error = %e,
                     "failed to spawn hu-wasm-epoch ticker thread; WASM plugin preemption is disabled"
@@ -299,15 +286,11 @@ pub fn load_plugins(engine_ref: Arc<CoreEngine>) -> Result<LoadResult> {
 }
 
 /// Like [`load_plugins`], but JIT-compiles only the plugin whose discovered
-/// name equals `name`.
-///
-/// A one-shot CLI command (`hu info`, `hu list`, `hu param`, ...) drives exactly
-/// one plugin. `load_plugins` compiles *every* installed `.wasm` — three, in the
-/// test image — and on a CPU-constrained runner (the 2-core `ubuntu-latest` CI
-/// box) that extra wasmtime compilation starves the liveliness-graph subscriber
-/// of CPU during startup, so the command's single graph read lands before the
-/// external tokens have been processed. Compiling just the one plugin the
-/// command needs removes that startup cost.
+/// name equals `name`. A one-shot CLI command drives exactly one plugin;
+/// compiling every installed `.wasm` on a CPU-constrained CI runner starves the
+/// liveliness-graph subscriber during startup, so the command's single graph
+/// read lands before external tokens are processed. Compiling just the needed
+/// plugin removes that startup cost.
 pub fn load_plugin_named(engine_ref: Arc<CoreEngine>, name: &str) -> Result<LoadResult> {
     let paths: Vec<PathBuf> = discover_wasm_plugins()
         .into_iter()
@@ -317,13 +300,11 @@ pub fn load_plugin_named(engine_ref: Arc<CoreEngine>, name: &str) -> Result<Load
 
     let (plugins, failed) = load_from(engine_ref.clone(), paths)?;
 
-    // `name` is matched against the *filename-derived* plugin name. A plugin
-    // whose manifest name differs from its filename stem would be missed here,
-    // yet the caller ultimately selects by `manifest().name` — so fall back to
-    // loading everything (the pre-optimization behavior) rather than reporting a
-    // real, installed plugin as "not found". The fast single-plugin path covers
-    // the normal case (filename stem == manifest name, as all shipped plugins
-    // use); the fallback only pays the full cost for a misnamed install.
+    // `name` matched the filename-derived name; a plugin whose manifest name
+    // differs from its filename stem would be missed here, yet the caller selects
+    // by `manifest().name`. Fall back to loading everything rather than reporting
+    // a real installed plugin as "not found" — the full cost is only paid for a
+    // misnamed install.
     if plugins.is_empty() {
         return load_plugins(engine_ref);
     }
@@ -347,11 +328,9 @@ pub fn discover_wasm_plugins() -> Vec<(String, PathBuf)> {
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
-            // Compiled WASM artifact filenames always normalize hyphens to
-            // underscores (crate name "hu-meter" -> "hu_meter.wasm"), but a
-            // user-installed plugin can be named either "hu_foo.wasm" or
-            // "hu-foo.wasm" (both forms are documented) -- strip whichever
-            // prefix is actually present.
+            // Compiled artifacts normalize hyphens to underscores
+            // ("hu-meter" -> "hu_meter.wasm"), but installed plugins may use
+            // either "hu_" or "hu-" (both documented) — strip whichever is present.
             let name = stem
                 .strip_prefix("hu_")
                 .or_else(|| stem.strip_prefix("hu-"))
@@ -372,12 +351,10 @@ fn iter_wasm_files() -> impl Iterator<Item = PathBuf> {
         .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("wasm"))
 }
 
-/// Sanitize a filename-derived plugin stem for safe use as a single path
-/// segment. The stem comes straight from an on-disk filename, so a crafted
-/// name like `hu-..\.wasm` would otherwise yield a stem of `..` and let the
-/// per-plugin work dir escape its base (path traversal). Keep only a safe
-/// `[A-Za-z0-9_-]` set (path separators and dots become `_`), and never let
-/// the result be empty or a `.`/`..` traversal component.
+/// Sanitize a filename-derived plugin stem into one safe path segment. The stem
+/// comes from an on-disk filename, so e.g. `hu-..\.wasm` could yield `..` and
+/// let the work dir escape its base (path traversal). Keep only `[A-Za-z0-9_-]`
+/// (else `_`) and never return an empty or `.`/`..` component.
 fn sanitize_plugin_stem(plugin_stem: &str) -> String {
     let cleaned: String = plugin_stem
         .chars()
@@ -548,11 +525,9 @@ fn open_declared_sessions(
     store: &mut Store<PluginState>,
     manifest: &hu::plugin::types::PluginManifest,
 ) -> Result<()> {
-    // The manifest is untrusted: opening a session triggers an outbound Zenoh
-    // connection, so it must be gated exactly like the runtime `open_session`
-    // host call (see host/transport.rs). Refuse to open *any* declared session
-    // unless the plugin was granted `OpenSession` — otherwise a plugin could
-    // trigger network connections it never declared a permission for.
+    // The manifest is untrusted and opening a session makes an outbound Zenoh
+    // connection, so gate it like the runtime `open_session` host call: refuse
+    // all declared sessions unless the plugin was granted `OpenSession`.
     if !manifest.sessions.is_empty()
         && !manifest
             .required_permissions
