@@ -15,17 +15,14 @@ pub async fn run_cli_plugin(
     args: Vec<String>,
 ) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
     // Capture the graph and this process's own session zids before `core` is
-    // moved into the loader, so one-shot commands can wait below for a
-    // *genuinely external* participant to appear. hu opens two Zenoh sessions
-    // (graph vs. ROS node — the CoreEngine KNOWN GAP), so both zids must be
-    // excluded or hu's own echoed liveliness tokens would satisfy the wait.
+    // moved into the loader, so the wait below settles only on a *genuinely
+    // external* participant. hu opens two sessions (graph + ROS node, the
+    // CoreEngine KNOWN GAP), so both zids are excluded or hu's own echoed
+    // liveliness tokens would satisfy the wait.
     //
-    // NOTE: WASM plugins can open their own raw `zenoh::Session`s
-    // (`open_declared_sessions`), which are NOT in this list. That is only safe
-    // because those sessions are raw pub/sub with no `ZNode`/liveliness-token
-    // declaration, so they never appear as graph entities. If a plugin ever
-    // declares a liveliness token on its own session, add its zid here or the
-    // barrier could settle on hu's own plugin session.
+    // NOTE: plugin-opened raw sessions (`open_declared_sessions`) are not listed
+    // here — safe only because they declare no liveliness token and never appear
+    // as graph entities. A plugin declaring a token would need its zid added.
     let graph = core.graph.clone();
     let own_zids = [core.session.zid(), core.node.session().zid()];
     let (mut plugins, _) = load_plugin_named(core, plugin_name)?;
@@ -35,30 +32,23 @@ pub async fn run_cli_plugin(
         .find(|p| p.is_cli() && p.manifest().name == plugin_name)
         .ok_or_else(|| format!("CLI WASM plugin '{plugin_name}' not found"))?;
 
-    // The graph's liveliness subscriber (declared during CoreEngine::new)
-    // replays existing tokens asynchronously via zenoh's own history query --
-    // that reply hasn't necessarily landed yet the instant this function
-    // resumes. One-shot commands (list/info, tick_ms == 0) read the graph
-    // exactly once, at Startup, with no tick loop to catch up on a later
-    // update, so they need the replay to land first or they systematically see
-    // an empty/incomplete graph.
+    // The graph's liveliness subscriber (from CoreEngine::new) replays existing
+    // tokens asynchronously, and that reply may not have landed when we resume.
+    // One-shot commands (tick_ms == 0) read the graph exactly once at Startup
+    // with no tick loop to catch up, so they need the replay first or they see
+    // an empty graph.
     //
-    // Instead of a blind fixed sleep (which over-sleeps on a fast machine and
-    // under-sleeps on a contended CI runner), wait on a real condition: an
-    // external participant appearing in the graph, then the graph going quiet.
-    // Crucially this does not treat an empty-but-quiet graph as "settled" — on a
-    // CPU-starved runner the external liveliness token can arrive later than any
-    // fixed quiet window, and returning early there is what made these commands
-    // read an empty graph. The cap is only ever reached when there is genuinely
-    // nothing external to discover (e.g. `service call` to a nonexistent
-    // service), so it is kept modest to not stack onto such commands' own
-    // timeouts.
+    // Rather than a fixed sleep, wait on a real condition: an external
+    // participant appearing, then the graph going quiet. It does not treat an
+    // empty-but-quiet graph as settled — on a CPU-starved runner the external
+    // token can arrive after any fixed quiet window. The timeout cap is only hit
+    // when there is genuinely nothing external (e.g. `service call` to a missing
+    // service), so it is kept modest.
     //
-    // Tick plugins (tick_ms > 0), by contrast, re-read the graph on every Tick,
-    // so an early first read self-heals — the settle wait is pure dead time for
-    // them. Worse, on a constrained CI runner it stacks on the first-tick
-    // interval and can consume the whole `hu my-plugin` test window before a
-    // single tick fires. So gate it on one-shot plugins only.
+    // Tick plugins (tick_ms > 0) re-read on every Tick, so an early first read
+    // self-heals and the settle wait is pure dead time — and on a constrained
+    // runner it can consume the whole test window before the first tick. Gate it
+    // on one-shot plugins only.
     if plugin.manifest().tick_ms == 0 {
         graph
             .wait_for_external_settled(

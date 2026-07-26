@@ -51,24 +51,15 @@ impl CoreEngine {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let backend = backend.into();
 
-        // Client mode connected to the configured router. Client mode connects
-        // directly to the known router endpoint and `zenoh::open` returns as
-        // soon as the link is up (~1ms in tests). Peer mode instead runs peer
-        // discovery and blocks in `open` for up to `scouting.delay` (500ms
-        // default) waiting for scouting to settle — and hu opens two sessions
-        // (this one + the ZContext session, see the KNOWN GAP below), so peer
-        // mode adds ~1s of startup. That pushed hu's subscriber past the
-        // short-lived-publisher windows in the CLI tests (`hu meter echo` ~500ms;
-        // the plugin tick loop), so `echo`/`template` received nothing under
-        // peer mode — reproduced as a `WASM Plugin Tests` CI failure and isolated
-        // to peer vs client mode (peer mode fails; client mode receives all echoes).
-        // Client mode is ready immediately and fits hu's role — a short-lived
-        // CLI attaching to a known router, not a mesh participant.
-        //
-        // Trade-off: a missing router is a hard failure here (client mode can't
-        // open without a router); `router_connect_hint` tells the user to start
-        // one. (rmw_zenoh_cpp nodes use peer mode + the 500ms delay, but they
-        // are long-lived, so the startup cost is invisible to them.)
+        // Client mode connects directly to the known router and `zenoh::open`
+        // returns as soon as the link is up (~1ms). Peer mode instead runs
+        // scouting and blocks in `open` for up to `scouting.delay` (500ms); with
+        // hu opening two sessions (see KNOWN GAP below) that adds ~1s of startup,
+        // which pushed the subscriber past the short-lived-publisher windows in
+        // the CLI tests (`hu meter echo`) and dropped messages under peer mode.
+        // Client mode fits hu's role: a short-lived CLI attaching to a known
+        // router, not a mesh participant. Trade-off: a missing router is a hard
+        // failure here; `router_connect_hint` tells the user to start one.
         let mut config = zenoh::Config::default();
         config.insert_json5("mode", "\"client\"")?;
         let endpoints_json = serde_json::to_string(&[router_addr])
@@ -103,11 +94,10 @@ impl CoreEngine {
         // Initialize metrics collector
         let metrics = Arc::new(Mutex::new(MetricsCollector::new()));
 
-        // KNOWN GAP: ZContextBuilder does not accept an existing Arc<Session>, so this opens a
-        // second independent Zenoh session alongside self.session. Graph liveliness runs on
-        // self.session; ZNode pub/sub uses the context's internal session. Under load the two
-        // sessions may observe liveliness events in different orders. Track as hiroz API gap:
-        // ZContextBuilder needs with_session(Arc<Session>) to share a single session.
+        // KNOWN GAP: ZContextBuilder can't take an existing Arc<Session>, so this
+        // opens a second session alongside self.session (graph liveliness runs on
+        // self.session; ZNode pub/sub on the context's). Under load the two may
+        // order liveliness events differently. Needs ZContextBuilder::with_session.
         let context = hiroz::context::ZContextBuilder::default()
             .with_domain_id(domain_id)
             .with_zenoh_config(config)
@@ -172,13 +162,11 @@ impl CoreEngine {
         let ke = format!("@ros2_lv/{domain_id}/**");
         let fmt = hiroz_protocol::KeyExprFormat::RmwZenoh;
 
-        // KNOWN GAP: this opens a second liveliness subscriber on @ros2_lv/{domain_id}/**;
-        // Graph::new_with_pattern (called in CoreEngine::new) already subscribes the same pattern
-        // for graph state. Until hiroz::Graph exposes a way to hook into its liveliness callback,
-        // or ZContextBuilder accepts an existing Arc<Session>, we cannot share the single session
-        // subscriber here. Consequence: each liveliness token triggers two callbacks — one in the
-        // Graph and one here — which is harmless but redundant. Track as architecture gap: hiroz
-        // needs ZContextBuilder::with_session(Arc<Session>) so the graph and context share state.
+        // KNOWN GAP: this declares a second liveliness subscriber on the same
+        // @ros2_lv/{domain_id}/** pattern Graph::new_with_pattern already uses,
+        // so each token fires two callbacks (harmless but redundant). Can't share
+        // until hiroz::Graph exposes its liveliness callback or ZContextBuilder
+        // accepts an existing Arc<Session>.
         let sub = match session
             .liveliness()
             .declare_subscriber(&ke)
