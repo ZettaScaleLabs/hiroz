@@ -387,13 +387,11 @@ impl ZMessage for WireParameterEvent {
 // Type-description-service schema registration
 // ============================================================================
 //
-// These rcl_interfaces wire types are hand-written (no `MessageTypeInfo`), and
-// `ParameterService` builds its `ZServer`s directly rather than via
-// `ZNode::create_service`, so nothing auto-registers their schemas. Every hiroz
-// node has these six parameter services, so without explicit registration here
-// `ZNode::discover_service_schema` for them always fails. Type names use the same
-// `{pkg}/msg/{Name}Request`/`Response` convention as codegen'd services, so
-// discovery resolves both the same way.
+// These wire types are hand-written (no `MessageTypeInfo`) and `ParameterService`
+// builds its `ZServer`s directly, bypassing `ZNode::create_service`'s
+// auto-registration. Without explicit registration here, `discover_service_schema`
+// can't resolve the six built-in parameter services every hiroz node exposes.
+// Names follow codegen's `{pkg}/msg/{Name}Request`/`Response` convention.
 
 fn floating_point_range_schema()
 -> std::result::Result<std::sync::Arc<MessageSchema>, crate::dynamic::DynamicError> {
@@ -464,13 +462,15 @@ fn parameter_descriptor_schema()
         .field("additional_constraints", FieldType::String)
         .field("read_only", FieldType::Bool)
         .field("dynamic_typing", FieldType::Bool)
+        // `[<=1]` in the real message, not unbounded — register as bounded so
+        // GetTypeDescription reports the true constraint.
         .field(
             "floating_point_range",
-            FieldType::Sequence(Box::new(FieldType::Message(fp_range))),
+            FieldType::BoundedSequence(Box::new(FieldType::Message(fp_range)), 1),
         )
         .field(
             "integer_range",
-            FieldType::Sequence(Box::new(FieldType::Message(int_range))),
+            FieldType::BoundedSequence(Box::new(FieldType::Message(int_range)), 1),
         )
         .build()
 }

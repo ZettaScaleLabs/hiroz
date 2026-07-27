@@ -1116,14 +1116,13 @@ impl ZNode {
     ///
     /// # Arguments
     ///
-    /// * `service_name` - Qualified per the same ROS 2 rules as
+    /// * `service_name` — qualified per the same rules as
     ///   [`create_service`](ZNode::create_service)/[`create_client`](ZNode::create_client).
-    /// * `request_type_name` / `response_type_name` - The Request/Response schema
-    ///   names, which codegen registers as `"{pkg}/msg/{Name}Request"` /
-    ///   `"{pkg}/msg/{Name}Response"` (e.g. `"example_interfaces/msg/AddTwoIntsRequest"`),
-    ///   not `/srv/`-namespaced. See hiroz-union's `service_request_response_type_names`.
-    /// * `timeout` - Per-phase: applied independently to the graph poll and each of
-    ///   the two sequential `get_type_description` calls, so worst-case is `3 * timeout`.
+    /// * `request_type_name` / `response_type_name` — the `msg`-namespaced schema
+    ///   names codegen registers, e.g. `example_interfaces/msg/AddTwoIntsRequest`
+    ///   (not `/srv/`-namespaced).
+    /// * `timeout` — applied per phase (the graph wait, then each of the two
+    ///   `get_type_description` calls), so worst-case is `3 * timeout`.
     pub async fn discover_service_schema(
         &self,
         service_name: &str,
@@ -1137,47 +1136,44 @@ impl ZNode {
                     DynamicError::SchemaNotFound(format!("Failed to qualify service name: {error}"))
                 })?;
 
-        // The server's liveliness token may not have reached our graph yet
-        // (async population); poll briefly rather than failing on the first miss,
-        // since we need a concrete node identity to query.
-        let poll_interval = Duration::from_millis(100);
-        let deadline = std::time::Instant::now() + timeout;
-        let node = loop {
-            let entities = self
-                .graph
-                .get_entities_by_service(EndpointKind::Service, &qualified_service);
-            let mut saw_endpoint = false;
-            let found = entities.iter().find_map(|entity| match entity.as_ref() {
-                Entity::Endpoint(endpoint) => {
-                    saw_endpoint = true;
-                    endpoint.node.clone()
-                }
-                _ => None,
-            });
-            match found {
-                Some(node) => break node,
-                None if std::time::Instant::now() < deadline => {
-                    // Clamp the final sleep to the remaining time so the loop
-                    // never overshoots the deadline by up to poll_interval.
-                    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                    tokio::time::sleep(poll_interval.min(remaining)).await;
-                }
-                None if saw_endpoint => {
-                    // A server exists but exposes no node identity, so we can't
-                    // issue the node-scoped type-description query. Distinguish
-                    // this from a genuinely absent server for easier debugging.
-                    return Err(DynamicError::SchemaNotFound(format!(
-                        "Service server(s) for {} are present but expose no node \
-                         identity; cannot query their schema",
-                        qualified_service
-                    )));
-                }
-                None => {
-                    return Err(DynamicError::SchemaNotFound(format!(
-                        "No service server found for: {}",
-                        qualified_service
-                    )));
-                }
+        // A serving node's liveliness token may not have reached our graph yet;
+        // wait (event-driven) for a service server that exposes a node identity —
+        // we need a concrete node to query for the type description.
+        self.graph
+            .wait_until(timeout, |g| {
+                g.get_entities_by_service(EndpointKind::Service, &qualified_service)
+                    .iter()
+                    .any(|e| matches!(e.as_ref(), Entity::Endpoint(ep) if ep.node.is_some()))
+            })
+            .await;
+
+        // Re-read once to extract the node, distinguishing "present but no node
+        // identity" from "no server at all" for a clearer error.
+        let entities = self
+            .graph
+            .get_entities_by_service(EndpointKind::Service, &qualified_service);
+        let mut saw_endpoint = false;
+        let found = entities.iter().find_map(|entity| match entity.as_ref() {
+            Entity::Endpoint(endpoint) => {
+                saw_endpoint = true;
+                endpoint.node.clone()
+            }
+            _ => None,
+        });
+        let node = match found {
+            Some(node) => node,
+            None if saw_endpoint => {
+                return Err(DynamicError::SchemaNotFound(format!(
+                    "Service server(s) for {} are present but expose no node \
+                     identity; cannot query their schema",
+                    qualified_service
+                )));
+            }
+            None => {
+                return Err(DynamicError::SchemaNotFound(format!(
+                    "No service server found for: {}",
+                    qualified_service
+                )));
             }
         };
 

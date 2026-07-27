@@ -463,7 +463,7 @@ impl Graph {
         })
     }
 
-    async fn wait_until<F>(&self, timeout: Duration, predicate: F) -> bool
+    pub(crate) async fn wait_until<F>(&self, timeout: Duration, predicate: F) -> bool
     where
         F: Fn(&Self) -> bool,
     {
@@ -509,16 +509,14 @@ impl Graph {
         })
     }
 
-    /// Barrier for one-shot commands (`hu list`/`info`/`service`/`param`) before
-    /// they snapshot the graph. Waits for an external participant to appear, then
-    /// for the graph to go quiet — a quiet-only wait can mistake a not-yet-populated
-    /// graph for "settled" under CPU contention. `exclude` = caller's own session
-    /// zids, so echoed self-tokens don't satisfy the wait.
+    /// Barrier for one-shot `hu` commands before they snapshot the graph: wait for
+    /// an external participant, then for the graph to go quiet (waiting for quiet
+    /// alone can read a not-yet-populated graph as settled). `exclude` is the
+    /// caller's own session zids, so echoed self-tokens don't count.
     ///
-    /// Returns `true` once an external entity is present and the graph has either
-    /// gone quiet for `quiet` or `timeout` elapsed with it still present (best-effort
-    /// under contention). Returns `false` only if `timeout` elapsed with no external
-    /// entity (genuinely empty — caller should report "not found").
+    /// Returns `true` once an external entity is present and the graph has gone
+    /// quiet for `quiet` (or `timeout` elapsed with it still present). Returns
+    /// `false` only if `timeout` elapsed with no external entity.
     pub async fn wait_for_external_settled(
         &self,
         exclude: &[ZenohId],
