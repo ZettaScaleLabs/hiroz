@@ -14,9 +14,10 @@ use crate::core::message_formatter::dynamic_message_to_json;
 
 use super::super::state::{PluginState, ServiceClientData, SubscriptionData};
 use super::hu;
+use hu::plugin::types::PluginError;
 
 impl hu::plugin::ros::Host for PluginState {
-    fn resolve_topic_ke(&mut self, topic: String) -> Result<String, String> {
+    fn resolve_topic_ke(&mut self, topic: String) -> Result<String, PluginError> {
         use hiroz_protocol::{EndpointKind, Entity, KeyExprFormatter, RmwZenohFormatter};
         let domain_id = self.engine.domain_id;
         let topic_stripped = topic.trim_start_matches('/').to_string();
@@ -46,7 +47,7 @@ impl hu::plugin::ros::Host for PluginState {
     fn subscribe(
         &mut self,
         topic: String,
-    ) -> Result<Resource<hu::plugin::ros::Subscription>, String> {
+    ) -> Result<Resource<hu::plugin::ros::Subscription>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::SubscribeTopic)?;
         let rep = self.alloc_rep();
 
@@ -99,7 +100,7 @@ impl hu::plugin::ros::Host for PluginState {
         &mut self,
         name: String,
         type_name: String,
-    ) -> Result<Resource<hu::plugin::ros::ServiceClient>, String> {
+    ) -> Result<Resource<hu::plugin::ros::ServiceClient>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::CallService)?;
         let domain_id = self.engine.domain_id;
         let svc_stripped = name.trim_start_matches('/').to_string();
@@ -140,36 +141,29 @@ impl hu::plugin::ros::Host for PluginState {
         Ok(Resource::new_own(rep))
     }
 
-    fn measure_hz(&mut self, topic: String, window_ms: u32) -> Result<f64, String> {
-        let (count, _, window_s) = self.get_tracker_snapshot(&topic, window_ms)?;
-        Ok(count as f64 / window_s)
-    }
-
-    fn measure_bw(&mut self, topic: String, window_ms: u32) -> Result<f64, String> {
-        let (_, total_bytes, window_s) = self.get_tracker_snapshot(&topic, window_ms)?;
-        Ok(total_bytes as f64 / 1024.0 / window_s)
-    }
-
     // NOTE: reads the global (structurally never-populated) SchemaRegistry
     // rather than live discovery like HostServiceClient::call. This is a
     // topic-pub path (`hu meter pub --msg-type/--yaml`), but the WIT signature
     // is `(yaml, type-name)` with no topic to key a discovery query on. Fixing
     // it properly needs a WIT change across all plugin copies — out of scope.
     // Known, disclosed gap (see pr-readiness.md `pub_yaml_nested_twist`).
-    fn encode_yaml_to_cdr(&mut self, yaml: String, type_name: String) -> Result<Vec<u8>, String> {
+    fn encode_yaml_to_cdr(
+        &mut self,
+        yaml: String,
+        type_name: String,
+    ) -> Result<Vec<u8>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::PublishTopic)?;
-        let schema = get_schema(&type_name)
-            .ok_or_else(|| format!("schema for '{type_name}' not found in registry"))?;
-        let value = parse_yaml_or_json(&yaml)?;
-        let msg = json_to_dynamic_message(&value, &schema)?;
-        serialize_cdr(&msg).map_err(|e| e.to_string())
+        let schema = get_schema(&type_name).ok_or(PluginError::NotFound)?;
+        let value = parse_yaml_or_json(&yaml).map_err(PluginError::Invalid)?;
+        let msg = json_to_dynamic_message(&value, &schema).map_err(PluginError::Invalid)?;
+        serialize_cdr(&msg).map_err(|e| PluginError::Invalid(e.to_string()))
     }
 
-    fn measure_hz_typed(
+    fn measure_hz(
         &mut self,
         topic: String,
         window_ms: u32,
-    ) -> Result<hu::plugin::ros::HzMeasurement, String> {
+    ) -> Result<hu::plugin::ros::HzMeasurement, PluginError> {
         let (count, _, window_s) = self.get_tracker_snapshot(&topic, window_ms)?;
         Ok(hu::plugin::ros::HzMeasurement {
             topic,
@@ -178,11 +172,11 @@ impl hu::plugin::ros::Host for PluginState {
         })
     }
 
-    fn measure_bw_typed(
+    fn measure_bw(
         &mut self,
         topic: String,
         window_ms: u32,
-    ) -> Result<hu::plugin::ros::BwMeasurement, String> {
+    ) -> Result<hu::plugin::ros::BwMeasurement, PluginError> {
         let (count, total_bytes, window_s) = self.get_tracker_snapshot(&topic, window_ms)?;
         Ok(hu::plugin::ros::BwMeasurement {
             topic,
@@ -211,10 +205,10 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         res: Resource<hu::plugin::ros::ServiceClient>,
         request_json: String,
         timeout_ms: u32,
-    ) -> Result<String, String> {
+    ) -> Result<String, PluginError> {
         let rep = res.rep();
         let Some(data) = self.service_clients.get(&rep) else {
-            return Err("service client not found".to_string());
+            return Err(PluginError::Invalid("service client not found".to_string()));
         };
         let session = data.session.clone();
         let ke = data.ke.clone();
@@ -239,11 +233,12 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
                 DISCOVERY_TIMEOUT,
             ))
         })
-        .map_err(|e| format!("schema discovery for service '{service_name}' failed: {e}"))?;
+        .map_err(|_| PluginError::NotFound)?;
 
-        let req_value = parse_yaml_or_json(&request_json)?;
-        let req_msg = json_to_dynamic_message(&req_value, &req_schema)?;
-        let req_cdr = serialize_cdr(&req_msg).map_err(|e| e.to_string())?;
+        let req_value = parse_yaml_or_json(&request_json).map_err(PluginError::Invalid)?;
+        let req_msg =
+            json_to_dynamic_message(&req_value, &req_schema).map_err(PluginError::Invalid)?;
+        let req_cdr = serialize_cdr(&req_msg).map_err(|e| PluginError::Invalid(e.to_string()))?;
 
         // The hiroz service queryable requires an RMW-style attachment (seqnum
         // + timestamp + writer GID) on every query to correlate request and
@@ -262,9 +257,7 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
             .wait()
             .map_err(|e| e.to_string())?;
 
-        let reply = replies
-            .recv()
-            .map_err(|_| "no reply within timeout".to_string())?;
+        let reply = replies.recv().map_err(|_| PluginError::Timeout)?;
         let sample = reply.result().map_err(|e| e.to_string())?;
         let resp_cdr = sample.payload().to_bytes().into_owned();
 
@@ -288,10 +281,10 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         res: Resource<hu::plugin::ros::ServiceClient>,
         payload: Vec<u8>,
         timeout_ms: u32,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, PluginError> {
         let rep = res.rep();
         let Some(data) = self.service_clients.get(&rep) else {
-            return Err("service client not found".to_string());
+            return Err(PluginError::Invalid("service client not found".to_string()));
         };
         let session = data.session.clone();
         let ke = data.ke.clone();
@@ -311,9 +304,7 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
             .wait()
             .map_err(|e| e.to_string())?;
 
-        let reply = replies
-            .recv()
-            .map_err(|_| "no reply within timeout".to_string())?;
+        let reply = replies.recv().map_err(|_| PluginError::Timeout)?;
         let sample = reply.result().map_err(|e| e.to_string())?;
         Ok(sample.payload().to_bytes().into_owned())
     }

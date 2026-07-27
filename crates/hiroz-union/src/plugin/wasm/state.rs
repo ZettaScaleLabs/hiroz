@@ -11,7 +11,16 @@ use wasmtime_wasi::{WasiCtxView, WasiView};
 use crate::core::engine::CoreEngine;
 
 use super::host::hu;
-use hu::plugin::types::Permission;
+use hu::plugin::types::{Permission, PluginError};
+
+// Default conversion for ad-hoc host errors (mostly Zenoh/session failures);
+// call sites map the meaningful kinds (Timeout / NotFound / Denied / Invalid)
+// explicitly, and anything else falls through to Transport here.
+impl From<String> for PluginError {
+    fn from(detail: String) -> Self {
+        PluginError::Transport(detail)
+    }
+}
 
 /// Upper bound on buffered rate-tracker arrivals per topic. Caps host memory
 /// on high-rate topics; anything beyond this window is stale and dropped.
@@ -158,7 +167,7 @@ impl PluginState {
         self.permissions = permissions;
     }
 
-    pub fn ensure_rate_tracker(&mut self, topic: &str) -> Result<(), String> {
+    pub fn ensure_rate_tracker(&mut self, topic: &str) -> Result<(), PluginError> {
         if self.rate_trackers.contains_key(topic) {
             return Ok(());
         }
@@ -204,14 +213,11 @@ impl PluginState {
         Ok(())
     }
 
-    pub fn require_perm(&self, p: Permission) -> Result<(), String> {
+    pub fn require_perm(&self, p: Permission) -> Result<(), PluginError> {
         if self.permissions().contains(&p) {
             Ok(())
         } else {
-            Err(format!(
-                "permission denied: {:?} not declared in plugin manifest",
-                p
-            ))
+            Err(PluginError::Denied)
         }
     }
 
@@ -221,10 +227,12 @@ impl PluginState {
         &mut self,
         topic: &str,
         window_ms: u32,
-    ) -> Result<(usize, usize, f64), String> {
+    ) -> Result<(usize, usize, f64), PluginError> {
         self.require_perm(hu::plugin::types::Permission::MeasureMetrics)?;
         if window_ms == 0 {
-            return Err("window_ms must be greater than zero".to_string());
+            return Err(PluginError::Invalid(
+                "window_ms must be greater than zero".to_string(),
+            ));
         }
         self.ensure_rate_tracker(topic)?;
         let tracker = self.rate_trackers.get_mut(topic).unwrap();
@@ -238,14 +246,14 @@ impl PluginState {
     pub fn session_for_handle(
         &self,
         res: &Resource<hu::plugin::session::SessionHandle>,
-    ) -> Result<Arc<zenoh::Session>, String> {
+    ) -> Result<Arc<zenoh::Session>, PluginError> {
         let name = self
             .session_handle_names
             .get(&res.rep())
-            .ok_or_else(|| "session handle not found".to_string())?;
+            .ok_or_else(|| PluginError::Invalid("session handle not found".to_string()))?;
         self.sessions
             .get(name)
             .cloned()
-            .ok_or_else(|| format!("session '{name}' not open"))
+            .ok_or(PluginError::NotFound)
     }
 }

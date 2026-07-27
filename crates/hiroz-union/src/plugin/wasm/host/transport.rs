@@ -13,6 +13,7 @@ use super::super::state::{
     RawSubData,
 };
 use super::hu;
+use hu::plugin::types::PluginError;
 
 // ─── types host impl ─────────────────────────────────────────────────────────
 
@@ -46,17 +47,17 @@ impl hu::plugin::raw_transport::HostRawPublisher for PluginState {
         &mut self,
         res: Resource<hu::plugin::raw_transport::RawPublisher>,
         payload: Vec<u8>,
-    ) -> Result<(), String> {
+    ) -> Result<(), PluginError> {
         let rep = res.rep();
         let Some(data) = self.raw_pubs.get(&rep) else {
-            return Err("publisher not found".to_string());
+            return Err(PluginError::Invalid("publisher not found".to_string()));
         };
         let session = data.session.clone();
         let ke = data.ke.clone();
         session
             .put(&ke, zenoh::bytes::ZBytes::from(payload))
             .wait()
-            .map_err(|e| e.to_string())
+            .map_err(|e| PluginError::Transport(e.to_string()))
     }
 
     fn drop(
@@ -112,23 +113,21 @@ impl hu::plugin::raw_transport::HostQueryable for PluginState {
         res: Resource<hu::plugin::raw_transport::Queryable>,
         query_id: u64,
         payload: Vec<u8>,
-    ) -> Result<(), String> {
+    ) -> Result<(), PluginError> {
         let rep = res.rep();
         let Some(qdata) = self.queryables.get(&rep) else {
-            return Err("queryable not found".to_string());
+            return Err(PluginError::Invalid("queryable not found".to_string()));
         };
-        let query = qdata
-            .pending
-            .lock()
-            .remove(&query_id)
-            .ok_or_else(|| format!("query {query_id} not found or already replied"))?;
+        let query = qdata.pending.lock().remove(&query_id).ok_or_else(|| {
+            PluginError::Invalid(format!("query {query_id} not found or already replied"))
+        })?;
         query
             .reply(
                 query.key_expr().clone(),
                 zenoh::bytes::ZBytes::from(payload),
             )
             .wait()
-            .map_err(|e| e.to_string())
+            .map_err(|e| PluginError::Transport(e.to_string()))
     }
 
     fn drop(
@@ -146,10 +145,10 @@ impl hu::plugin::raw_transport::HostQuerier for PluginState {
         res: Resource<hu::plugin::raw_transport::Querier>,
         payload: Vec<u8>,
         timeout_ms: u32,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, PluginError> {
         let rep = res.rep();
         let Some(qdata) = self.queriers.get(&rep) else {
-            return Err("querier not found".to_string());
+            return Err(PluginError::Invalid("querier not found".to_string()));
         };
         let session = qdata.session.clone();
         let ke = qdata.ke.clone();
@@ -159,13 +158,13 @@ impl hu::plugin::raw_transport::HostQuerier for PluginState {
             .payload(zenoh::bytes::ZBytes::from(payload))
             .timeout(timeout)
             .wait()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| PluginError::Transport(e.to_string()))?;
         match replies.recv() {
             Ok(reply) => match reply.result() {
                 Ok(sample) => Ok(sample.payload().to_bytes().into_owned()),
-                Err(e) => Err(e.to_string()),
+                Err(e) => Err(PluginError::Transport(e.to_string())),
             },
-            Err(_) => Err("no reply received within timeout".to_string()),
+            Err(_) => Err(PluginError::Timeout),
         }
     }
 
@@ -181,12 +180,10 @@ impl hu::plugin::session::Host for PluginState {
     fn get_session(
         &mut self,
         name: String,
-    ) -> Result<Resource<hu::plugin::session::SessionHandle>, String> {
+    ) -> Result<Resource<hu::plugin::session::SessionHandle>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::OpenSession)?;
         if !self.sessions.contains_key(&name) {
-            return Err(format!(
-                "session '{name}' not declared in manifest or failed to open"
-            ));
+            return Err(PluginError::NotFound);
         }
         let rep = self.alloc_rep();
         self.session_handle_names.insert(rep, name);
@@ -199,7 +196,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
         &mut self,
         res: Resource<hu::plugin::session::SessionHandle>,
         ke: String,
-    ) -> Result<Resource<hu::plugin::raw_transport::RawSubscription>, String> {
+    ) -> Result<Resource<hu::plugin::raw_transport::RawSubscription>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::AccessRawCdr)?;
         let session = self.session_for_handle(&res)?;
         let (tx, rx) = flume::bounded::<Vec<u8>>(256);
@@ -234,7 +231,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
         &mut self,
         res: Resource<hu::plugin::session::SessionHandle>,
         ke: String,
-    ) -> Result<Resource<hu::plugin::raw_transport::RawPublisher>, String> {
+    ) -> Result<Resource<hu::plugin::raw_transport::RawPublisher>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::AccessRawCdr)?;
         let session = self.session_for_handle(&res)?;
         let rep = self.alloc_rep();
@@ -246,7 +243,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
         &mut self,
         res: Resource<hu::plugin::session::SessionHandle>,
         ke: String,
-    ) -> Result<Resource<hu::plugin::raw_transport::LivelinessToken>, String> {
+    ) -> Result<Resource<hu::plugin::raw_transport::LivelinessToken>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::AccessRawCdr)?;
         let session = self.session_for_handle(&res)?;
         let handle = tokio::spawn(async move {
@@ -273,7 +270,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
         &mut self,
         res: Resource<hu::plugin::session::SessionHandle>,
         ke: String,
-    ) -> Result<Resource<hu::plugin::raw_transport::LivelinessSub>, String> {
+    ) -> Result<Resource<hu::plugin::raw_transport::LivelinessSub>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::AccessRawCdr)?;
         let session = self.session_for_handle(&res)?;
         let (tx, rx) = flume::bounded::<(String, bool)>(256);
@@ -309,7 +306,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
         &mut self,
         res: Resource<hu::plugin::session::SessionHandle>,
         ke: String,
-    ) -> Result<Resource<hu::plugin::raw_transport::Queryable>, String> {
+    ) -> Result<Resource<hu::plugin::raw_transport::Queryable>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::AccessRawCdr)?;
         let session = self.session_for_handle(&res)?;
         let (tx, rx) = flume::bounded::<(u64, Vec<u8>)>(64);
@@ -355,7 +352,7 @@ impl hu::plugin::session::HostSessionHandle for PluginState {
         &mut self,
         res: Resource<hu::plugin::session::SessionHandle>,
         ke: String,
-    ) -> Result<Resource<hu::plugin::raw_transport::Querier>, String> {
+    ) -> Result<Resource<hu::plugin::raw_transport::Querier>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::AccessRawCdr)?;
         let session = self.session_for_handle(&res)?;
         let rep = self.alloc_rep();

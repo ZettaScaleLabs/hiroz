@@ -53,7 +53,11 @@ impl hu::plugin::graph::Host for PluginState {
             .collect()
     }
 
-    fn describe_node(&mut self, namespace: String, name: String) -> hu::plugin::graph::NodeDetail {
+    fn describe_node(
+        &mut self,
+        namespace: String,
+        name: String,
+    ) -> Option<hu::plugin::graph::NodeDetail> {
         let graph = &self.engine.graph;
         // Match against the same denormalized (namespace, name) pairs get_node_names()
         // produces — see get_node_names(): empty namespace becomes "/", otherwise a
@@ -63,11 +67,7 @@ impl hu::plugin::graph::Host for PluginState {
             .into_iter()
             .any(|(n, ns)| n == name && ns == namespace);
         if !found {
-            return hu::plugin::graph::NodeDetail {
-                found: false,
-                publishers: vec![],
-                subscribers: vec![],
-            };
+            return None;
         }
         // get_names_and_types_by_node uses the raw by_node index, which stores
         // the root namespace "/" as "" (see hiroz::entity::normalize_node_namespace),
@@ -94,11 +94,10 @@ impl hu::plugin::graph::Host for PluginState {
         );
         let subscribers =
             to_endpoints(graph.get_names_and_types_by_node(node_key, EndpointKind::Subscription));
-        hu::plugin::graph::NodeDetail {
-            found: true,
+        Some(hu::plugin::graph::NodeDetail {
             publishers,
             subscribers,
-        }
+        })
     }
 }
 
