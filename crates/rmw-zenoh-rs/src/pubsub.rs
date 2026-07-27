@@ -59,10 +59,7 @@ pub struct SubscriptionImpl {
     pub topic: CString,
     pub options: rmw_subscription_options_t,
     pub qos: rmw_qos_profile_t,
-    pub callback:
-        std::sync::Arc<std::sync::Mutex<crate::ros::rmw_subscription_new_message_callback_t>>,
-    pub callback_user_data: std::sync::Arc<std::sync::Mutex<usize>>, // Store pointer as usize for thread safety
-    pub unread_count: std::sync::Arc<std::sync::Mutex<usize>>, // Track messages arrived before callback was set
+    pub exec_callback: crate::exec_callback::ExecCallback,
     pub graph: std::sync::Arc<hiroz::graph::Graph>,
     pub entity: hiroz::entity::EndpointEntity,
     pub notifier: std::sync::Arc<crate::utils::Notifier>,
