@@ -30,6 +30,18 @@ interface types {
         mode: session-mode,
     }
 
+    // Capabilities a plugin lists in `plugin-manifest.required-permissions`.
+    //
+    // These are SELF-DECLARED by the (untrusted) plugin: host calls are gated
+    // against this list, but there is no external user consent yet, so a
+    // malicious plugin can simply declare all of them. This is a
+    // "declare-what-you-use" contract, not an enforced trust boundary — the
+    // user-facing trust gate lands in a later release. Until then, only run
+    // plugins you trust.
+    //
+    // `access-raw-cdr` is a broad grant: it permits raw pub/sub/query/liveliness
+    // on ANY key expression (including internal graph tokens), so it supersedes
+    // the narrower topic/service permissions.
     enum permission {
         subscribe-topic,
         publish-topic,

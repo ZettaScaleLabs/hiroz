@@ -353,8 +353,10 @@ fn iter_wasm_files() -> impl Iterator<Item = PathBuf> {
 
 /// Sanitize a filename-derived plugin stem into one safe path segment. The stem
 /// comes from an on-disk filename, so e.g. `hu-..\.wasm` could yield `..` and
-/// let the work dir escape its base (path traversal). Keep only `[A-Za-z0-9_-]`
-/// (else `_`) and never return an empty or `.`/`..` component.
+/// let the work dir escape its base (path traversal). Map every character
+/// outside `[A-Za-z0-9_-]` — including `.` and path separators — to `_`, so the
+/// result is always a single safe segment (`..` becomes `__`); fall back to
+/// `"unknown"` only for an empty stem.
 fn sanitize_plugin_stem(plugin_stem: &str) -> String {
     let cleaned: String = plugin_stem
         .chars()
@@ -366,7 +368,7 @@ fn sanitize_plugin_stem(plugin_stem: &str) -> String {
             }
         })
         .collect();
-    if cleaned.is_empty() || cleaned.chars().all(|c| c == '.') {
+    if cleaned.is_empty() {
         "unknown".to_string()
     } else {
         cleaned

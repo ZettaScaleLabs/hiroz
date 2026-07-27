@@ -128,23 +128,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # hiroz-console — distro-agnostic, one binary per platform
-          - bin: hiroz-console
-            package: hiroz-console
+          # hu (hiroz-union) — distro-agnostic, one binary per platform
+          - bin: hu
+            package: hiroz-union
             features: ""
-            artifact: bin-console-x86_64-linux
+            artifact: bin-hu-x86_64-linux
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-          - bin: hiroz-console
-            package: hiroz-console
+          - bin: hu
+            package: hiroz-union
             features: ""
-            artifact: bin-console-aarch64-linux
+            artifact: bin-hu-aarch64-linux
             target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-          - bin: hiroz-console
-            package: hiroz-console
+          - bin: hu
+            package: hiroz-union
             features: ""
-            artifact: bin-console-aarch64-macos
+            artifact: bin-hu-aarch64-macos
             target: aarch64-apple-darwin
             os: macos-latest
 
@@ -325,16 +325,16 @@ jobs:
     needs: [build-binaries]
     runs-on: ubuntu-latest
     steps:
-      - name: Download console binary (x86_64)
+      - name: Download hu binary (x86_64)
         uses: actions/download-artifact@v4
         with:
-          name: bin-console-x86_64-linux
+          name: bin-hu-x86_64-linux
           path: dist/
 
       - name: Run --help
         run: |
-          chmod +x dist/bin-console-x86_64-linux
-          dist/bin-console-x86_64-linux --help
+          chmod +x dist/bin-hu-x86_64-linux
+          dist/bin-hu-x86_64-linux --help
 
   smoke-test-go:
     name: Smoke test Go library
