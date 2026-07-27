@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -361,20 +362,40 @@ func TestGoServiceReplyCorrelationAfterTimeout(t *testing.T) {
 
 	svc := &example_interfaces.AddTwoInts{}
 
-	// Stall is keyed on request content, not call ordering: only req1 ({A:1})
-	// is delayed, so it outlasts call #1's short timeout regardless of how many
-	// times or in what order the callback fires. req2 ({A:7}) always replies
-	// immediately. Keying on a call counter would be order-fragile — a
-	// redelivered or retried query before call #1 would shift the stall onto
-	// the wrong request and flake the "expect timeout" assertion.
-	server, err := node.CreateServiceServer("add_two_ints").
+	// Use a service name unique to this test. The interop environment runs many
+	// nodes — other tests in this file, and ROS 2 nodes — that expose the
+	// conventional "add_two_ints" service on the shared domain. If this test
+	// used that name, one of those other servers could answer call #1's query
+	// immediately, so call #1 would get a reply (Sum=2) instead of timing out —
+	// the actual cause of this test's historical flakiness. A distinct name
+	// guarantees this test's server is the ONLY responder, so call #1's outcome
+	// is controlled entirely by the release gate below.
+	const svcName = "reply_corr_add_two_ints"
+
+	// req1's reply is gated on an explicit release, not a fixed-duration stall.
+	// The server blocks the {A:1} request until the test releases it, which
+	// happens only AFTER call #1 has already timed out — so no reply can exist
+	// during call #1's window and it times out deterministically (a fixed
+	// time.Sleep stall would instead depend on scheduling: call #1's timeout is a
+	// recv_timeout on the reply channel, and a starved timeout thread could wake
+	// only after a stalled reply had already landed and return it). req2 ({A:7})
+	// is never gated and replies immediately.
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	// releaseReply is idempotent and deferred, so the server goroutine blocked on
+	// <-release can never wedge the test (and server.Close()) if an assertion
+	// fails before the explicit release below.
+	releaseReply := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseReply()
+
+	server, err := node.CreateServiceServer(svcName).
 		Build(svc, func(reqBytes []byte) ([]byte, error) {
 			var req example_interfaces.AddTwoIntsRequest
 			if err := req.DeserializeCDR(reqBytes); err != nil {
 				return nil, err
 			}
 			if req.A == 1 {
-				time.Sleep(500 * time.Millisecond)
+				<-release
 			}
 			resp := &example_interfaces.AddTwoIntsResponse{Sum: req.A + req.B}
 			return resp.SerializeCDR()
@@ -384,7 +405,7 @@ func TestGoServiceReplyCorrelationAfterTimeout(t *testing.T) {
 	}
 	defer server.Close()
 
-	client, err := node.CreateServiceClient("add_two_ints").Build(svc)
+	client, err := node.CreateServiceClient(svcName).Build(svc)
 	if err != nil {
 		t.Fatalf("Failed to create service client: %v", err)
 	}
@@ -394,15 +415,20 @@ func TestGoServiceReplyCorrelationAfterTimeout(t *testing.T) {
 		t.Fatalf("service not ready: %v", err)
 	}
 
-	// Call #1: short timeout, server stalls 500ms → must time out.
+	// Call #1: this test's server (the only responder for svcName) is blocked on
+	// <-release and cannot reply, so this times out no matter how the runner
+	// schedules threads.
 	req1 := &example_interfaces.AddTwoIntsRequest{A: 1, B: 1} // would be 2
 	var resp1 example_interfaces.AddTwoIntsResponse
-	if err := hiroz.CallTypedWithTimeout(client, req1, &resp1, 200*time.Millisecond); err == nil {
+	if err := hiroz.CallTypedWithTimeout(client, req1, &resp1, 500*time.Millisecond); err == nil {
 		t.Fatalf("call #1 expected a timeout, but it returned Sum=%d", resp1.Sum)
 	}
 
-	// Let call #1's late reply (Sum=2) arrive and sit in the shared channel.
-	time.Sleep(500 * time.Millisecond)
+	// Release req1's reply now, after call #1 has timed out, so it arrives late.
+	// Give it time to reach the client and (on the pre-fix shared-channel bug)
+	// sit where call #2 would wrongly pick it up.
+	releaseReply()
+	time.Sleep(200 * time.Millisecond)
 
 	// Call #2: distinct args, generous timeout. Must get its own reply (7+8=15),
 	// not the stale reply from call #1 (2).
