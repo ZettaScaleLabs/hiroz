@@ -641,7 +641,10 @@ impl ZNode {
     {
         use crate::{
             entity::{EndpointEntity, EndpointKind},
-            pubsub::apply_transient_local_sub,
+            pubsub::{
+                CallbackDispatcher, DISPATCH_UNBOUNDED, SubscriberHandle,
+                apply_transient_local_sub, dispatch_capacity, qos_needs_advanced,
+            },
             topic_name,
         };
         use zenoh_ext::AdvancedSubscriberBuilderExt;
@@ -665,15 +668,44 @@ impl ZNode {
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
-        let subscriber = self
-            .session
-            .declare_subscriber((*topic_ke).clone())
-            .callback(move |sample| {
-                let payload = sample.payload().to_bytes();
-                callback(&payload);
-            })
-            .advanced();
-        let subscriber = apply_transient_local_sub(subscriber, &entity.qos).wait()?;
+        let raw_callback = Arc::new(move |sample: zenoh::sample::Sample| {
+            let payload = sample.payload().to_bytes();
+            callback(&payload);
+        });
+
+        // Same rule as the typed path: only use zenoh-ext when the QoS asks for
+        // advanced features. Either way this callback is user (FFI) code, so it
+        // never runs on a thread that is inside a hiroz publish — see
+        // `pubsub::CallbackDispatcher`.
+        let subscriber = if qos_needs_advanced(&entity.qos) {
+            let dispatcher =
+                CallbackDispatcher::spawn(&qualified_topic, raw_callback, DISPATCH_UNBOUNDED)?;
+            let subscriber = self
+                .session
+                .declare_subscriber((*topic_ke).clone())
+                .callback(dispatcher.always_shim());
+            SubscriberHandle::Advanced {
+                subscriber: Box::new(
+                    apply_transient_local_sub(subscriber.advanced(), &entity.qos).wait()?,
+                ),
+                dispatcher,
+            }
+        } else {
+            let dispatcher = CallbackDispatcher::spawn(
+                &qualified_topic,
+                raw_callback.clone(),
+                dispatch_capacity(&entity.qos),
+            )?;
+            let subscriber = self
+                .session
+                .declare_subscriber((*topic_ke).clone())
+                .callback(dispatcher.local_only_shim(raw_callback))
+                .wait()?;
+            SubscriberHandle::Plain {
+                subscriber,
+                dispatcher: Some(dispatcher),
+            }
+        };
 
         Ok(crate::ffi::subscriber::RawSubscriber { inner: subscriber })
     }
