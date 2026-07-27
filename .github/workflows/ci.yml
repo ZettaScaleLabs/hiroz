@@ -297,9 +297,13 @@ jobs:
       - name: Run coverage
         run: |
           source /tmp/nix-dev-env.sh
+          # hiroz-tests needs its own features: several suites are
+          # `#![cfg(feature = "ros-msgs")]` and compile to empty binaries without
+          # them, so coverage taken blind under-reports the paths they exercise.
           cargo llvm-cov \
             -p hiroz -p hiroz-codegen -p hiroz-cdr -p hiroz-protocol -p hiroz-schema \
             -p hiroz-tests \
+            --features hiroz-tests/ros-msgs,hiroz-tests/jazzy \
             -j4 \
             --lcov --output-path lcov.info
         shell: bash

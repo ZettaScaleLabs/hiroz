@@ -56,7 +56,7 @@ def main [--suite: string = "full"] {
     if $suite == "lint" {
         log-header "Running hiroz Lint Checks"
         let checks = [
-            {name: "Formatting (cargo fmt)", cmd: "cargo fmt --check"},
+            {name: "Formatting (cargo fmt)", cmd: "cargo fmt --all --check"},
             {name: "Clippy (all targets)", cmd: "cargo clippy --all-targets -- -D warnings"},
         ]
         let results = $checks | enumerate | each {|item|
@@ -70,7 +70,7 @@ def main [--suite: string = "full"] {
     log-header "Running hiroz Pre-Submission Checks"
 
     let checks = [
-        {name: "Formatting (cargo fmt)", cmd: "cargo fmt --check"},
+        {name: "Formatting (cargo fmt)", cmd: "cargo fmt --all --check"},
         {name: "Clippy (all targets)", cmd: "cargo clippy --all-targets -- -D warnings"},
         {name: "Build (cargo build)", cmd: "cargo build --examples"},
         {name: "Tests", cmd: (if (which cargo-nextest | is-not-empty) {
@@ -78,6 +78,12 @@ def main [--suite: string = "full"] {
         } else {
             "cargo test --lib --tests"
         })},
+        # The four checks below exist in scripts/check-local.sh (which remote CI
+        # runs) but were absent here, so they could only ever fail remotely.
+        {name: "hu clippy (check-hu)", cmd: "nu scripts/test-pure-rust.nu check-hu"},
+        {name: "SHM tests (test-shm)", cmd: "nu scripts/test-pure-rust.nu test-shm"},
+        {name: "Distro feature flags (check-distro-features)", cmd: "nu scripts/test-pure-rust.nu check-distro-features"},
+        {name: "Rustdoc links (cargo doc)", cmd: "let r = (^cargo doc --no-deps -p hiroz --quiet | complete); let w = ($r.stderr | lines | where $it =~ 'unresolved link'); if ($w | is-not-empty) { print ($w | str join (char newline)); error make {msg: 'rustdoc: unresolved intra-doc links'} }"},
     ]
 
     let results = $checks | enumerate | each {|item|

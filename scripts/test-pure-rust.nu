@@ -19,7 +19,14 @@ def run-tests [] {
     $env.RUSTFLAGS = "-D warnings"
 
     log-step "Run tests"
-    run-cmd "cargo nextest run --no-fail-fast"
+    # `hiroz-tests` is excluded here and run separately below *with* its features.
+    # Several of its suites — `reentrant_service.rs` most importantly — are
+    # `#![cfg(feature = "ros-msgs")]`, and a crate-level cfg that is not satisfied
+    # compiles to an empty test binary reporting `0 passed`. That reads as green.
+    # None of those features need a ROS installation (hiroz-msgs bundles the
+    # definitions), so there is no reason for this job to run the crate blind.
+    run-cmd "cargo nextest run --no-fail-fast --workspace --exclude hiroz-tests"
+    run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy"
 }
 
 def check-bundled-msgs [] {

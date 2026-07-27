@@ -35,7 +35,9 @@ run_check() {
 }
 
 # 1. Check formatting
-run_check "Formatting (cargo fmt)" "cargo fmt --check"
+# --all is required: without it cargo fmt only covers the default workspace
+# members, silently skipping hiroz-py and rmw-zenoh-rs.
+run_check "Formatting (cargo fmt)" "cargo fmt --all --check"
 
 # 2. Clippy lints
 run_check "Clippy (all targets)" "cargo clippy --all-targets -- -D warnings"
