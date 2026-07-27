@@ -600,7 +600,6 @@ impl Graph {
             .declare_subscriber(&liveliness_pattern)
             .history(true)
             .callback(move |sample| {
-                let mut graph_data_guard = c_graph_data.lock();
                 let key_expr = sample.key_expr().to_owned();
                 let ke = LivelinessKE(key_expr.clone());
                 tracing::debug!(
@@ -609,6 +608,11 @@ impl Graph {
                     sample.kind()
                 );
 
+                // `trigger_graph_change` runs user/rmw event callbacks, which routinely
+                // re-enter the graph (counting publishers, publishing, registering
+                // entities). `data` is a non-reentrant mutex, so it must never be held
+                // across that call — hence the tight scopes below. `add_local_entity`
+                // already follows this rule.
                 match sample.kind() {
                     SampleKind::Put => {
                         debug!("[GRF] Entity appeared: {}", ke.0);
@@ -625,26 +629,35 @@ impl Graph {
                             }
                         };
 
-                        // Only insert if not already parsed (avoid duplicates from liveliness query)
-                        let already_parsed = graph_data_guard.parsed.contains_key(&ke);
-                        let already_cached = graph_data_guard.cached.contains(&ke);
-                        tracing::debug!(
-                            "  Check: parsed={}, cached={}, parsed.len()={}, cached.len()={}",
-                            already_parsed,
-                            already_cached,
-                            graph_data_guard.parsed.len(),
-                            graph_data_guard.cached.len()
-                        );
-                        if already_parsed {
-                            tracing::debug!("  Skipping - already in parsed");
-                        } else if already_cached {
-                            tracing::debug!("  Skipping - already in cached");
-                        } else {
-                            tracing::debug!("  Adding to cached");
-                            graph_data_guard.insert(ke.clone());
-                        }
+                        let already_parsed = {
+                            let mut graph_data_guard = c_graph_data.lock();
+
+                            // Only insert if not already parsed (avoid duplicates from
+                            // liveliness query)
+                            let already_parsed = graph_data_guard.parsed.contains_key(&ke);
+                            let already_cached = graph_data_guard.cached.contains(&ke);
+                            tracing::debug!(
+                                "  Check: parsed={}, cached={}, parsed.len()={}, cached.len()={}",
+                                already_parsed,
+                                already_cached,
+                                graph_data_guard.parsed.len(),
+                                graph_data_guard.cached.len()
+                            );
+                            if already_parsed {
+                                tracing::debug!("  Skipping - already in parsed");
+                            } else if already_cached {
+                                tracing::debug!("  Skipping - already in cached");
+                            } else {
+                                tracing::debug!("  Adding to cached");
+                                graph_data_guard.insert(ke.clone());
+                            }
+                            already_parsed
+                        };
+
                         // Only fire the event for genuinely new entities; if add_local_entity
                         // already inserted and fired for this key, don't fire a second time.
+                        // Fires after the insert, as before — a callback that queries the
+                        // graph sees the new entity.
                         if !already_parsed && let Some(entity) = parsed_entity {
                             tracing::debug!("Successfully parsed entity: {:?}", entity);
                             c_event_manager.trigger_graph_change(&entity, true, c_zid);
@@ -655,20 +668,20 @@ impl Graph {
                     SampleKind::Delete => {
                         debug!("[GRF] Entity disappeared: {}", ke.0);
                         tracing::debug!("Graph subscriber: DELETE {}", key_expr.as_str());
-                        // Trigger graph change events before removal using backend-specific parser
+                        // Trigger graph change events before removal using backend-specific
+                        // parser — a callback still observes the disappearing entity, as
+                        // before.
                         if let Ok(entity) = callback_parser(&key_expr) {
                             c_event_manager.trigger_graph_change(&entity, false, c_zid);
                         }
-                        graph_data_guard.remove(&ke);
+                        c_graph_data.lock().remove(&ke);
                         c_change_notify.notify_waiters();
                     }
                 }
 
-                // Release graph.data before signaling sync waiters.
-                // Lock ordering: sync waiters acquire change_signal.0 then (briefly) data;
-                // the callback holds data then acquires change_signal.0 — so we must drop
-                // data first to ensure the two locks are never held simultaneously.
-                drop(graph_data_guard);
+                // graph.data is released above before signaling sync waiters.
+                // Lock ordering: sync waiters acquire change_signal.0 then (briefly) data,
+                // so the callback must never hold data while acquiring change_signal.0.
                 c_change_signal.1.notify_all();
             })
             .wait()?;

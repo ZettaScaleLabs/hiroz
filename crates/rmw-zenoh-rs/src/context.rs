@@ -97,7 +97,7 @@ impl ContextImpl {
 
         // Set up the guard condition trigger function for graph events
         // This allows graph changes to trigger RMW guard conditions
-        let trigger_fn: hiroz::event::GraphGuardConditionTrigger = Box::new(|gc_ptr| {
+        let trigger_fn: hiroz::event::GraphGuardConditionTrigger = Arc::new(|gc_ptr| {
             crate::guard_condition::rmw_trigger_guard_condition(
                 gc_ptr as *const crate::ros::rmw_guard_condition_t,
             );

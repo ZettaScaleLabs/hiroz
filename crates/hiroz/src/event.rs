@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+
+use crate::reentrancy::TrackedMutex;
 use zenoh::Result;
 
 use crate::GidArray;
@@ -35,8 +37,15 @@ pub struct ZenohEventStatus {
     pub last_policy_kind: u32, // RMW QoS policy kind that caused incompatibility
 }
 
-// Event callback type
-pub type EventCallback = Box<dyn Fn(i32) + Send + Sync>;
+// Event callback type.
+//
+// `Arc` rather than `Box` so that a callback can be *collected* while the
+// registry lock is held and *invoked* after it has been released. Event
+// callbacks are user code (the rmw layer hands them straight to an rclcpp
+// executor), and they routinely re-enter hiroz — querying the graph,
+// publishing, unregistering an entity. Invoking them under the registry guard
+// makes any such re-entry a self-deadlock on a non-reentrant `Mutex`.
+pub type EventCallback = Arc<dyn Fn(i32) + Send + Sync>;
 
 // EventsManager - manages event state for a single publisher/subscription
 pub struct EventsManager {
@@ -64,29 +73,72 @@ impl EventsManager {
     where
         F: Fn(i32) + Send + Sync + 'static,
     {
+        let callback: EventCallback = Arc::new(callback);
+        let unread_count = self.install_callback(event_type, callback.clone());
+        // If there were unread events, notify the freshly-registered callback —
+        // outside the lock.
+        if unread_count != 0 {
+            callback(unread_count);
+        }
+    }
+
+    /// Install `callback` and take (clearing) the unread-event backlog.
+    ///
+    /// Deliberately does *not* invoke the callback: the caller fires it after
+    /// releasing every lock it holds, including the outer `Mutex<EventsManager>`
+    /// that [`RmEventHandle`] uses. Returns the backlog count, or 0 if none.
+    pub fn install_callback(&mut self, event_type: ZenohEventType, callback: EventCallback) -> i32 {
         let event_id = event_type as usize;
         let _lock = self.event_mutex.lock().unwrap();
 
-        // If there are unread events, trigger the callback immediately
         let unread_count = self.event_statuses[event_id].total_count_change;
         if unread_count != 0 {
-            callback(unread_count);
             self.event_statuses[event_id].total_count_change = 0;
         }
+        self.event_callbacks[event_id] = Some(callback);
 
-        self.event_callbacks[event_id] = Some(Box::new(callback));
+        unread_count
     }
 
+    /// Record a status change and invoke the registered callback, if any.
+    ///
+    /// Only safe when the caller does not hold the outer `Mutex<EventsManager>`
+    /// — see [`update_shared_event_status`], which is what every holder of an
+    /// `Arc<Mutex<EventsManager>>` must use instead.
     pub fn update_event_status(&mut self, event_type: ZenohEventType, change: i32) {
         self.update_event_status_with_policy(event_type, change, 0);
     }
 
+    /// See [`EventsManager::update_event_status`] for the locking caveat.
     pub fn update_event_status_with_policy(
         &mut self,
         event_type: ZenohEventType,
         change: i32,
         policy_kind: u32,
     ) {
+        if let Some(callback) =
+            self.record_event_status_with_policy(event_type, change, policy_kind)
+        {
+            callback(change);
+        }
+    }
+
+    /// Record a status change and hand back the callback that owes a
+    /// notification, *without* invoking it.
+    ///
+    /// Deliberately does not invoke, for the same reason as
+    /// [`EventsManager::install_callback`]: `&mut self` means the caller holds
+    /// the outer `Mutex<EventsManager>`, and the callback is user code that
+    /// routinely re-enters this manager (`rmw_take_event` on the handle that
+    /// just fired). Firing it here would self-deadlock on that outer,
+    /// non-reentrant mutex.
+    #[must_use = "the returned callback must be invoked after every guard is dropped"]
+    pub fn record_event_status_with_policy(
+        &mut self,
+        event_type: ZenohEventType,
+        change: i32,
+        policy_kind: u32,
+    ) -> Option<EventCallback> {
         let event_id = event_type as usize;
 
         {
@@ -104,10 +156,7 @@ impl EventsManager {
             }
         }
 
-        // Trigger callback if registered
-        if let Some(ref callback) = self.event_callbacks[event_id] {
-            callback(change);
-        }
+        self.event_callbacks[event_id].clone()
     }
 
     pub fn take_event_status(&mut self, event_type: ZenohEventType) -> ZenohEventStatus {
@@ -128,15 +177,19 @@ impl EventsManager {
     }
 }
 
-// Callback type for triggering graph guard conditions
-pub type GraphGuardConditionTrigger = Box<dyn Fn(*mut std::ffi::c_void) + Send + Sync>;
+// Callback type for triggering graph guard conditions.
+//
+// `Arc` for the same reason as [`EventCallback`]: it is cloned out of its
+// `Mutex` before being called, so guard-condition triggers never run with the
+// graph-event registry locked.
+pub type GraphGuardConditionTrigger = Arc<dyn Fn(*mut std::ffi::c_void) + Send + Sync>;
 
 // GraphCache event integration
 pub struct GraphEventManager {
-    event_callbacks: Mutex<HashMap<GidArray, HashMap<ZenohEventType, EventCallback>>>,
-    entity_topics: Mutex<HashMap<GidArray, String>>, // Topic name per registered entity
-    graph_guard_conditions: Mutex<Vec<usize>>,       // Pointers as usize for Send
-    trigger_guard_condition: Mutex<Option<GraphGuardConditionTrigger>>,
+    event_callbacks: TrackedMutex<HashMap<GidArray, HashMap<ZenohEventType, EventCallback>>>,
+    entity_topics: TrackedMutex<HashMap<GidArray, String>>, // Topic name per registered entity
+    graph_guard_conditions: TrackedMutex<Vec<usize>>,       // Pointers as usize for Send
+    trigger_guard_condition: TrackedMutex<Option<GraphGuardConditionTrigger>>,
 }
 
 impl Default for GraphEventManager {
@@ -148,10 +201,10 @@ impl Default for GraphEventManager {
 impl GraphEventManager {
     pub fn new() -> Self {
         Self {
-            event_callbacks: Mutex::new(HashMap::new()),
-            entity_topics: Mutex::new(HashMap::new()),
-            graph_guard_conditions: Mutex::new(Vec::new()),
-            trigger_guard_condition: Mutex::new(None),
+            event_callbacks: TrackedMutex::new(HashMap::new()),
+            entity_topics: TrackedMutex::new(HashMap::new()),
+            graph_guard_conditions: TrackedMutex::new(Vec::new()),
+            trigger_guard_condition: TrackedMutex::new(None),
         }
     }
 
@@ -169,9 +222,11 @@ impl GraphEventManager {
     where
         F: Fn(i32) + Send + Sync + 'static,
     {
-        let mut callbacks = self.event_callbacks.lock().unwrap();
-        let entity_callbacks = callbacks.entry(entity_gid).or_default();
-        entity_callbacks.insert(event_type, Box::new(callback));
+        {
+            let mut callbacks = self.event_callbacks.lock().unwrap();
+            let entity_callbacks = callbacks.entry(entity_gid).or_default();
+            entity_callbacks.insert(event_type, Arc::new(callback));
+        }
 
         let mut topics = self.entity_topics.lock().unwrap();
         topics.insert(entity_gid, topic);
@@ -180,8 +235,11 @@ impl GraphEventManager {
     }
 
     pub fn unregister_entity(&self, entity_gid: &GidArray) {
-        let mut callbacks = self.event_callbacks.lock().unwrap();
-        callbacks.remove(entity_gid);
+        // Scoped so the two registries are never held at the same time.
+        {
+            let mut callbacks = self.event_callbacks.lock().unwrap();
+            callbacks.remove(entity_gid);
+        }
         let mut topics = self.entity_topics.lock().unwrap();
         topics.remove(entity_gid);
     }
@@ -223,11 +281,20 @@ impl GraphEventManager {
             change
         };
 
-        let callbacks = self.event_callbacks.lock().unwrap();
-        if let Some(entity_callbacks) = callbacks.get(entity_gid)
-            && let Some(callback) = entity_callbacks.get(&event_type)
-        {
-            callback(encoded_change);
+        // Collect under the lock, invoke after it is released — see [`EventCallback`].
+        let callback = {
+            let callbacks = self.event_callbacks.lock().unwrap();
+            callbacks
+                .get(entity_gid)
+                .and_then(|entity_callbacks| entity_callbacks.get(&event_type))
+                .cloned()
+        };
+
+        if let Some(callback) = callback {
+            crate::invoke_user_callback!(
+                "GraphEventManager::trigger_event_with_policy",
+                callback(encoded_change)
+            );
         }
     }
 
@@ -241,10 +308,13 @@ impl GraphEventManager {
 
         let change = if appeared { 1 } else { -1 };
 
-        // Trigger graph guard conditions for ALL graph changes (local and remote)
-        if let Some(ref trigger) = *self.trigger_guard_condition.lock().unwrap() {
-            let guard_conditions = self.graph_guard_conditions.lock().unwrap();
-            for &gc_usize in guard_conditions.iter() {
+        // Trigger graph guard conditions for ALL graph changes (local and remote).
+        // Snapshot the trigger and the pointer list, then release both locks before
+        // calling out — the trigger is rmw-side code and may re-enter.
+        let trigger = self.trigger_guard_condition.lock().unwrap().clone();
+        if let Some(trigger) = trigger {
+            let guard_conditions = self.graph_guard_conditions.lock().unwrap().clone();
+            for gc_usize in guard_conditions {
                 let gc = gc_usize as *mut std::ffi::c_void;
                 trigger(gc);
             }
@@ -268,16 +338,29 @@ impl GraphEventManager {
             _ => return,
         };
 
-        let entity_topics = self.entity_topics.lock().unwrap();
-        let callbacks = self.event_callbacks.lock().unwrap();
-        for (entity_gid, entity_callbacks) in callbacks.iter() {
-            // Only notify entities on the same topic
-            if let Some(registered_topic) = entity_topics.get(entity_gid)
-                && registered_topic == changed_topic
-                && let Some(callback) = entity_callbacks.get(&event_type)
-            {
-                callback(change);
-            }
+        // Collect the callbacks to notify, then drop both registry guards before
+        // invoking any of them — see [`EventCallback`]. Locks are taken in the
+        // same order as `register_event_callback` (callbacks, then topics).
+        let to_notify: Vec<EventCallback> = {
+            let callbacks = self.event_callbacks.lock().unwrap();
+            let entity_topics = self.entity_topics.lock().unwrap();
+            callbacks
+                .iter()
+                .filter(|(entity_gid, _)| {
+                    // Only notify entities on the same topic
+                    entity_topics
+                        .get(*entity_gid)
+                        .is_some_and(|registered_topic| registered_topic == changed_topic)
+                })
+                .filter_map(|(_, entity_callbacks)| entity_callbacks.get(&event_type).cloned())
+                .collect()
+        };
+
+        for callback in to_notify {
+            crate::invoke_user_callback!(
+                "GraphEventManager::trigger_graph_change",
+                callback(change)
+            );
         }
     }
 }
@@ -307,6 +390,44 @@ impl EventWaitData {
 
     pub fn set_triggered(&self, triggered: bool) {
         self.triggered.store(triggered, Ordering::Release);
+    }
+}
+
+/// Record an event-status change on a *shared* [`EventsManager`] and fire its
+/// callback with the manager lock released.
+///
+/// Holders of an `Arc<Mutex<EventsManager>>` must use this rather than locking
+/// and calling [`EventsManager::update_event_status`] directly: that keeps the
+/// outer guard alive across the callback, and the callback is user code handed
+/// to an rclcpp executor which routinely calls straight back into the same
+/// manager (`rmw_take_event` → [`RmEventHandle::take_event`]).
+pub fn update_shared_event_status(
+    events_mgr: &Mutex<EventsManager>,
+    event_type: ZenohEventType,
+    change: i32,
+) {
+    update_shared_event_status_with_policy(events_mgr, event_type, change, 0)
+}
+
+/// [`update_shared_event_status`] with a QoS policy kind.
+pub fn update_shared_event_status_with_policy(
+    events_mgr: &Mutex<EventsManager>,
+    event_type: ZenohEventType,
+    change: i32,
+    policy_kind: u32,
+) {
+    // The guard is bound to its own `let` inside a block on purpose. Written as
+    // a `match`/`if let` scrutinee it would stay alive across the invocation
+    // below and silently reinstate the deadlock this function exists to remove.
+    let callback = {
+        let Ok(mut mgr) = events_mgr.lock() else {
+            return;
+        };
+        mgr.record_event_status_with_policy(event_type, change, policy_kind)
+    };
+
+    if let Some(callback) = callback {
+        callback(change);
     }
 }
 
@@ -349,8 +470,16 @@ impl RmEventHandle {
     where
         F: Fn(i32) + Send + Sync + 'static,
     {
-        let mut mgr = self.events_mgr.lock().unwrap();
-        mgr.set_callback(self.event_type, callback);
+        let callback: EventCallback = Arc::new(callback);
+        // Install under the manager lock; fire the backlog notification after it
+        // is released so the callback may re-enter this handle.
+        let unread_count = {
+            let mut mgr = self.events_mgr.lock().unwrap();
+            mgr.install_callback(self.event_type, callback.clone())
+        };
+        if unread_count != 0 {
+            callback(unread_count);
+        }
     }
 }
 

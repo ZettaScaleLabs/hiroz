@@ -208,9 +208,11 @@ pub extern "C" fn rmw_create_publisher(
         qualified_topic.clone(),
         hiroz::event::ZenohEventType::PublicationMatched,
         move |change| {
-            if let Ok(mut mgr) = events_mgr.lock() {
-                mgr.update_event_status(hiroz::event::ZenohEventType::PublicationMatched, change);
-            }
+            hiroz::event::update_shared_event_status(
+                &events_mgr,
+                hiroz::event::ZenohEventType::PublicationMatched,
+                change,
+            );
             // Wake up wait sets
             notifier_clone_for_matched.notify_all();
         },
@@ -230,13 +232,12 @@ pub extern "C" fn rmw_create_publisher(
             // Decode policy_kind from upper 16 bits and change from lower 16 bits
             let policy_kind = ((encoded_change >> 16) & 0xFFFF) as u32;
             let change = encoded_change & 0xFFFF;
-            if let Ok(mut mgr) = events_mgr_clone.lock() {
-                mgr.update_event_status_with_policy(
-                    hiroz::event::ZenohEventType::OfferedQosIncompatible,
-                    change,
-                    policy_kind,
-                );
-            }
+            hiroz::event::update_shared_event_status_with_policy(
+                &events_mgr_clone,
+                hiroz::event::ZenohEventType::OfferedQosIncompatible,
+                change,
+                policy_kind,
+            );
             // Wake up wait sets
             notifier_clone_for_incompatible.notify_all();
         },
@@ -250,12 +251,11 @@ pub extern "C" fn rmw_create_publisher(
     // Check if there are already existing subscriptions for this topic and trigger the event
     let matching_sub_count = graph.count(hiroz::entity::EndpointKind::Subscription, &entity.topic);
     if matching_sub_count > 0 {
-        if let Ok(mut mgr) = zpub.events_mgr().lock() {
-            mgr.update_event_status(
-                hiroz::event::ZenohEventType::PublicationMatched,
-                matching_sub_count as i32,
-            );
-        }
+        hiroz::event::update_shared_event_status(
+            zpub.events_mgr(),
+            hiroz::event::ZenohEventType::PublicationMatched,
+            matching_sub_count as i32,
+        );
         notifier_clone_for_init.notify_all();
     }
 
@@ -307,13 +307,12 @@ pub extern "C" fn rmw_create_publisher(
         }
     }
     if incompatible_count > 0 {
-        if let Ok(mut mgr) = zpub.events_mgr().lock() {
-            mgr.update_event_status_with_policy(
-                hiroz::event::ZenohEventType::OfferedQosIncompatible,
-                incompatible_count,
-                last_policy_kind,
-            );
-        }
+        hiroz::event::update_shared_event_status_with_policy(
+            zpub.events_mgr(),
+            hiroz::event::ZenohEventType::OfferedQosIncompatible,
+            incompatible_count,
+            last_policy_kind,
+        );
         notifier_clone_for_init.notify_all();
     }
 
@@ -595,9 +594,11 @@ pub extern "C" fn rmw_create_subscription(
         sub_topic.clone(),
         hiroz::event::ZenohEventType::SubscriptionMatched,
         move |change| {
-            if let Ok(mut mgr) = events_mgr.lock() {
-                mgr.update_event_status(hiroz::event::ZenohEventType::SubscriptionMatched, change);
-            }
+            hiroz::event::update_shared_event_status(
+                &events_mgr,
+                hiroz::event::ZenohEventType::SubscriptionMatched,
+                change,
+            );
             // Wake up wait sets
             notifier_clone_for_matched.notify_all();
         },
@@ -617,13 +618,12 @@ pub extern "C" fn rmw_create_subscription(
             // Decode policy_kind from upper 16 bits and change from lower 16 bits
             let policy_kind = ((encoded_change >> 16) & 0xFFFF) as u32;
             let change = encoded_change & 0xFFFF;
-            if let Ok(mut mgr) = events_mgr_clone.lock() {
-                mgr.update_event_status_with_policy(
-                    hiroz::event::ZenohEventType::RequestedQosIncompatible,
-                    change,
-                    policy_kind,
-                );
-            }
+            hiroz::event::update_shared_event_status_with_policy(
+                &events_mgr_clone,
+                hiroz::event::ZenohEventType::RequestedQosIncompatible,
+                change,
+                policy_kind,
+            );
             // Wake up wait sets
             notifier_clone_for_incompatible.notify_all();
         },
@@ -637,12 +637,11 @@ pub extern "C" fn rmw_create_subscription(
     // Check if there are already existing publishers for this topic and trigger the event
     let matching_pub_count = graph.count(hiroz::entity::EndpointKind::Publisher, &entity.topic);
     if matching_pub_count > 0 {
-        if let Ok(mut mgr) = zsub.events_mgr().lock() {
-            mgr.update_event_status(
-                hiroz::event::ZenohEventType::SubscriptionMatched,
-                matching_pub_count as i32,
-            );
-        }
+        hiroz::event::update_shared_event_status(
+            zsub.events_mgr(),
+            hiroz::event::ZenohEventType::SubscriptionMatched,
+            matching_pub_count as i32,
+        );
         notifier_clone_for_init.notify_all();
     }
 
@@ -694,13 +693,12 @@ pub extern "C" fn rmw_create_subscription(
         }
     }
     if incompatible_count > 0 {
-        if let Ok(mut mgr) = zsub.events_mgr().lock() {
-            mgr.update_event_status_with_policy(
-                hiroz::event::ZenohEventType::RequestedQosIncompatible,
-                incompatible_count,
-                last_policy_kind,
-            );
-        }
+        hiroz::event::update_shared_event_status_with_policy(
+            zsub.events_mgr(),
+            hiroz::event::ZenohEventType::RequestedQosIncompatible,
+            incompatible_count,
+            last_policy_kind,
+        );
         notifier_clone_for_init.notify_all();
     }
 
