@@ -129,44 +129,80 @@ impl ZLifecycleNode {
         let start = self.get_current_state();
         debug!(node=%self.inner.entity.name, ?transition, ?start, "triggering lifecycle transition");
 
-        let cb_result = {
-            let callback: &dyn Fn(State) -> CallbackReturn = match transition {
-                TransitionId::Configure => self.on_configure.as_ref(),
-                TransitionId::Activate => self.on_activate.as_ref(),
-                TransitionId::Deactivate => self.on_deactivate.as_ref(),
-                TransitionId::Cleanup => self.on_cleanup.as_ref(),
-                TransitionId::UnconfiguredShutdown
-                | TransitionId::InactiveShutdown
-                | TransitionId::ActiveShutdown => self.on_shutdown.as_ref(),
-            };
-            self.state_machine
-                .lock()
-                .unwrap()
-                .trigger(transition, callback)
+        let callback: &dyn Fn(State) -> CallbackReturn = match transition {
+            TransitionId::Configure => self.on_configure.as_ref(),
+            TransitionId::Activate => self.on_activate.as_ref(),
+            TransitionId::Deactivate => self.on_deactivate.as_ref(),
+            TransitionId::Cleanup => self.on_cleanup.as_ref(),
+            TransitionId::UnconfiguredShutdown
+            | TransitionId::InactiveShutdown
+            | TransitionId::ActiveShutdown => self.on_shutdown.as_ref(),
+        };
+
+        // The transition is driven in two locked steps with the user callback in
+        // between, *outside* the lock. `state_machine` is shared with the
+        // `~/get_state` / `~/change_state` service handlers and with
+        // `get_current_state`, so running the callback under the guard would
+        // deadlock any callback that inspects its own node.
+        //
+        // NOTE: the `begin` call is bound to its own `let` on purpose. Writing
+        // `match self.state_machine.lock().unwrap().begin(..) { .. }` keeps the
+        // temporary guard alive for the whole `match` body — which silently
+        // reintroduces exactly the deadlock this split exists to remove.
+        let begun = self.state_machine.lock().unwrap().begin(transition);
+        let cb_result = match begun {
+            Some(start_state) => {
+                // Lock released; observers see the intermediate ("busy") state.
+                let ret = callback(start_state);
+                self.state_machine
+                    .lock()
+                    .unwrap()
+                    .finish(transition, start_state, ret)
+            }
+            // Invalid transition from the current state: nothing changed.
+            None => self.get_current_state(),
         };
 
         let final_state = if cb_result == State::ErrorProcessing {
+            // Same split for the error path.
+            let ret = (self.on_error)(State::ErrorProcessing);
             self.state_machine
                 .lock()
                 .unwrap()
-                .trigger_error_processing(|prev| (self.on_error)(prev))
+                .finish_error_processing(ret)
         } else {
             cb_result
         };
 
-        // Bulk-activate / bulk-deactivate managed entities
-        match (start, final_state) {
-            (_, State::Active) if start != State::Active => {
-                for e in self.managed_entities.lock().unwrap().iter() {
+        // Bulk-activate / bulk-deactivate managed entities.
+        //
+        // Snapshot the list under the guard and notify after dropping it, the
+        // same collect-then-invoke shape used for event callbacks. Today every
+        // registered entity is a `ZLifecyclePublisher` created by
+        // `create_publisher`, whose `on_activate`/`on_deactivate` only flip an
+        // atomic and cannot re-enter — so this is preventive, not a live fix.
+        // It stops being preventive the moment `ManagedEntity` becomes
+        // registerable from outside this module, because arbitrary
+        // implementations would then run under a guard that `create_publisher`
+        // also takes.
+        let activate = match (start, final_state) {
+            (_, State::Active) if start != State::Active => Some(true),
+            (State::Active, _) if final_state != State::Active => Some(false),
+            _ => None,
+        };
+        if let Some(activate) = activate {
+            // The snapshot is its own `let` statement so the guard is dropped
+            // before the loop — writing the lock inline in the `for` header
+            // would hold it across every notification instead.
+            let entities: Vec<Arc<dyn ManagedEntity>> =
+                self.managed_entities.lock().unwrap().clone();
+            for e in entities {
+                if activate {
                     e.on_activate();
-                }
-            }
-            (State::Active, _) if final_state != State::Active => {
-                for e in self.managed_entities.lock().unwrap().iter() {
+                } else {
                     e.on_deactivate();
                 }
             }
-            _ => {}
         }
 
         // Publish transition event
