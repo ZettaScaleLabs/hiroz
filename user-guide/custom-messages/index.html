@@ -308,11 +308,11 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../tools/console/" class="md-tabs__link">
+        <a href="../../tools/why-hu/" class="md-tabs__link">
           
   
   
-  Tools
+  hu Toolkit
 
         </a>
       </li>
@@ -1497,7 +1497,7 @@
   <span class="md-ellipsis">
     
   
-    Tools
+    hu Toolkit
   
 
     
@@ -1513,7 +1513,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Tools
+    hu Toolkit
   
 
           </label>
@@ -1526,14 +1526,98 @@
   
   
     <li class="md-nav__item">
-      <a href="../../tools/console/" class="md-nav__link">
+      <a href="../../tools/why-hu/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    hiroz-console
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/hu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hu (Hiroz Union)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/hu-vs-ros2cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hu vs. ros2cli / rqt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/hu-plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hu Plugin Authoring
   
 
     
@@ -2470,7 +2554,7 @@ use serde::{Serialize, Deserialize};</p>
 <p>When a publisher node enables the type description service, derived custom message types
 automatically register their runtime schema so dynamic subscribers can discover them.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Terminal 1: Router</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>zenoh_router
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>hu<span class="w"> </span>router
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Terminal 2: Subscriber</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>z_custom_message<span class="w"> </span>--<span class="w"> </span>--mode<span class="w"> </span>status-sub

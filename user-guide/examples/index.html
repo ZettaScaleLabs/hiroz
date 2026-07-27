@@ -308,11 +308,11 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../tools/console/" class="md-tabs__link">
+        <a href="../../tools/why-hu/" class="md-tabs__link">
           
   
   
-  Tools
+  hu Toolkit
 
         </a>
       </li>
@@ -1577,7 +1577,7 @@
   <span class="md-ellipsis">
     
   
-    Tools
+    hu Toolkit
   
 
     
@@ -1593,7 +1593,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Tools
+    hu Toolkit
   
 
           </label>
@@ -1606,14 +1606,98 @@
   
   
     <li class="md-nav__item">
-      <a href="../../tools/console/" class="md-nav__link">
+      <a href="../../tools/why-hu/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    hiroz-console
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/hu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hu (Hiroz Union)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/hu-vs-ros2cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hu vs. ros2cli / rqt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/hu-plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hu Plugin Authoring
   
 
     
@@ -2523,8 +2607,8 @@
 <h2 id="start-the-eclipse-zenoh-router">Start the Eclipse Zenoh Router<a class="headerlink" href="#start-the-eclipse-zenoh-router" title="Permanent link">&para;</a></h2>
 <p>All examples require a Zenoh router to be running first (see <a href="../networking/">Networking</a> for why hiroz uses router-based architecture by default).</p>
 <h2 id="from-the-hiroz-repository">From the hiroz Repository<a class="headerlink" href="#from-the-hiroz-repository" title="Permanent link">&para;</a></h2>
-<p>If you're working in the hiroz repository, use the included router example:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>zenoh_router
+<p>If you have the <code>hu</code> tool installed, start an embedded router with a single command:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>hu<span class="w"> </span>router
 </span></code></pre></div>
 <h2 id="from-your-own-project">From Your Own Project<a class="headerlink" href="#from-your-own-project" title="Permanent link">&para;</a></h2>
 <p>If you're working on your own project, you need to install a Zenoh router. Quick options:</p>
@@ -2601,11 +2685,6 @@
 <td><code>z_parameter_client</code></td>
 <td>Remote <code>ParameterClient</code> calls against a parameter server</td>
 <td><code>cargo run --example z_parameter_client</code></td>
-</tr>
-<tr>
-<td><code>zenoh_router</code></td>
-<td>Embedded Zenoh router for development without installing <code>zenohd</code></td>
-<td><code>cargo run --example zenoh_router</code></td>
 </tr>
 </tbody>
 </table>

@@ -308,11 +308,11 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../tools/console/" class="md-tabs__link">
+        <a href="../../tools/why-hu/" class="md-tabs__link">
           
   
   
-  Tools
+  hu Toolkit
 
         </a>
       </li>
@@ -1638,7 +1638,7 @@
   <span class="md-ellipsis">
     
   
-    Tools
+    hu Toolkit
   
 
     
@@ -1654,7 +1654,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Tools
+    hu Toolkit
   
 
           </label>
@@ -1667,14 +1667,98 @@
   
   
     <li class="md-nav__item">
-      <a href="../../tools/console/" class="md-nav__link">
+      <a href="../../tools/why-hu/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    hiroz-console
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/hu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hu (Hiroz Union)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/hu-vs-ros2cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hu vs. ros2cli / rqt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/hu-plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hu Plugin Authoring
   
 
     
@@ -2649,9 +2733,9 @@
 </thead>
 <tbody>
 <tr>
-<td><code>hiroz-console</code> binary</td>
-<td>Monitor any ROS 2 / hiroz system</td>
-<td><a href="../../tools/console/#installation">Console docs</a></td>
+<td><code>hu</code> binary</td>
+<td>Monitor and introspect any ROS 2 / hiroz system</td>
+<td>Forthcoming — not yet a release artifact; <a href="../../tools/hu/#installation">build from source</a></td>
 </tr>
 <tr>
 <td><code>hiroz_py</code> Python wheel</td>
@@ -2689,7 +2773,7 @@
 <h3 id="start-the-eclipse-zenoh-router">Start the Eclipse Zenoh Router<a class="headerlink" href="#start-the-eclipse-zenoh-router" title="Permanent link">&para;</a></h3>
 <p>The router is a lightweight process that lets nodes find each other — think of it as the matchmaker between publishers and subscribers. Keep it running in its own terminal for the entire session.</p>
 <p><strong>Terminal 1 — Start the Router:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>zenoh_router
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>hu<span class="w"> </span>router
 </span></code></pre></div>
 <h3 id="run-the-pubsub-example">Run the Pub/Sub Example<a class="headerlink" href="#run-the-pubsub-example" title="Permanent link">&para;</a></h3>
 <p>Open two more terminals and navigate to the same <code>hiroz</code> directory:</p>
@@ -2716,7 +2800,7 @@
 <h2 id="option-2-create-your-own-project">Option 2: Create Your Own Project<a class="headerlink" href="#option-2-create-your-own-project" title="Permanent link">&para;</a></h2>
 <p>Ready to build your own hiroz application? Follow these steps to create a new project from scratch.</p>
 <h3 id="1-install-the-zenoh-router">1. Install the Zenoh Router<a class="headerlink" href="#1-install-the-zenoh-router" title="Permanent link">&para;</a></h3>
-<p>Since you won't have access to the <code>zenoh_router</code> example outside the hiroz repository, you'll need to install a Zenoh router. Here are the quickest options:</p>
+<p>Outside the hiroz repository you'll need a Zenoh router — either the standalone <code>hu router</code> command (if you have the <code>hu</code> tool installed) or one of the quickest options below:</p>
 <p><strong>Option A: Using cargo (if you have Rust):</strong></p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>cargo<span class="w"> </span>install<span class="w"> </span>zenohd
 </span></code></pre></div>

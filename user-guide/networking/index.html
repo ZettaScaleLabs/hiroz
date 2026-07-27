@@ -308,11 +308,11 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../tools/console/" class="md-tabs__link">
+        <a href="../../tools/why-hu/" class="md-tabs__link">
           
   
   
-  Tools
+  hu Toolkit
 
         </a>
       </li>
@@ -1150,10 +1150,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#method-5-hiroz-example-router" class="md-nav__link">
+  <a href="#method-5-hu-router" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Method 5: hiroz Example Router
+        Method 5: hu router
       
     </span>
   </a>
@@ -1594,7 +1594,7 @@
   <span class="md-ellipsis">
     
   
-    Tools
+    hu Toolkit
   
 
     
@@ -1610,7 +1610,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Tools
+    hu Toolkit
   
 
           </label>
@@ -1623,14 +1623,98 @@
   
   
     <li class="md-nav__item">
-      <a href="../../tools/console/" class="md-nav__link">
+      <a href="../../tools/why-hu/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    hiroz-console
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/hu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hu (Hiroz Union)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/hu-vs-ros2cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hu vs. ros2cli / rqt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tools/hu-plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hu Plugin Authoring
   
 
     
@@ -2467,10 +2551,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#method-5-hiroz-example-router" class="md-nav__link">
+  <a href="#method-5-hu-router" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Method 5: hiroz Example Router
+        Method 5: hu router
       
     </span>
   </a>
@@ -2665,9 +2749,9 @@ accDescr: Node A declares a publisher and Node B declares a subscriber through t
 <td>Fast</td>
 </tr>
 <tr>
-<td><a href="#method-5-hiroz-example-router">hiroz Example</a></td>
-<td>hiroz repo developers</td>
-<td>hiroz repository</td>
+<td><a href="#method-5-hu-router"><code>hu router</code></a></td>
+<td>Local development</td>
+<td><code>hu</code> tool</td>
 <td>Fast</td>
 </tr>
 <tr>
@@ -2752,15 +2836,14 @@ accDescr: Node A declares a publisher and Node B declares a subscriber through t
 </span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>yay<span class="w"> </span>-S<span class="w"> </span>zenoh<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>zenohd
 </span></code></pre></div>
 <hr />
-<h3 id="method-5-hiroz-example-router">Method 5: hiroz Example Router<a class="headerlink" href="#method-5-hiroz-example-router" title="Permanent link">&para;</a></h3>
-<p><strong>Only available when working in the hiroz repository.</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">cd</span><span class="w"> </span>/path/to/hiroz
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>zenoh_router
+<h3 id="method-5-hu-router">Method 5: <code>hu router</code><a class="headerlink" href="#method-5-hu-router" title="Permanent link">&para;</a></h3>
+<p><strong>Best for local development if you already have the <code>hu</code> tool.</strong></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>hu<span class="w"> </span>router
 </span></code></pre></div>
-<p>Pre-configured for hiroz defaults. Not suitable for standalone projects.</p>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>This method is for hiroz repository development only. If you're building your own project with hiroz as a dependency, use one of the other methods instead.</p>
+<p>Starts an embedded router pre-configured for <code>rmw_zenoh_cpp</code>/hiroz defaults, listening on <code>tcp/[::]:7447</code>. See the <a href="../../tools/hu/#running-a-router">hu documentation</a> for <code>--listen</code> and <code>--config</code> options and how to install <code>hu</code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Convenient for development, but for production deployments prefer the bundled <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenohd</code></a> or a standalone <code>zenohd</code> (Methods 1–4).</p>
 </div>
 <hr />
 <h3 id="method-6-ros-2-rmw_zenoh">Method 6: ROS 2 rmw_zenoh<a class="headerlink" href="#method-6-ros-2-rmw_zenoh" title="Permanent link">&para;</a></h3>
