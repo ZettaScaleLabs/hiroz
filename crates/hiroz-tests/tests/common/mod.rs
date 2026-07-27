@@ -212,6 +212,34 @@ pub fn wait_for_ready(duration: Duration) {
     thread::sleep(duration);
 }
 
+/// Wait until a ROS node named `node_name` is visible in the graph, or `timeout`
+/// elapses. Deterministic replacement for a blind `wait_for_ready` sleep before
+/// interacting with a just-spawned node: it returns as soon as the node is
+/// discoverable (proceeds early on the fast path) instead of always sleeping a
+/// fixed time. Returns whether the node appeared — callers may proceed either
+/// way, since the following operation carries its own discovery timeout.
+#[allow(dead_code)]
+pub fn wait_for_ros_node(node_name: &str, router: &TestRouter, timeout: Duration) -> bool {
+    let ctx = create_hiroz_context_with_router(router).expect("Failed to create probe context");
+    let start = std::time::Instant::now();
+    loop {
+        if ctx
+            .graph()
+            .get_node_names()
+            .iter()
+            .any(|(name, _ns)| name == node_name)
+        {
+            println!("Node '{node_name}' discovered after {:?}", start.elapsed());
+            return true;
+        }
+        if start.elapsed() >= timeout {
+            eprintln!("Node '{node_name}' not visible after {timeout:?}; proceeding");
+            return false;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// Deterministically wait for a service to be ready by polling with test requests
 #[allow(dead_code)]
 pub fn wait_for_service_ready(

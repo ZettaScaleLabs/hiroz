@@ -114,7 +114,8 @@ fn test_rcl_talker_to_hiroz_listener() {
 
     let _talker_guard = ProcessGuard::new(talker, "RCL talker");
 
-    wait_for_ready(Duration::from_secs(5));
+    // Proceed as soon as the RCL talker is discoverable, not after a blind sleep.
+    wait_for_ros_node("talker", &router, Duration::from_secs(15));
 
     // Start hiroz listener via the example code. 60s window absorbs discovery
     // latency spikes on loaded self-hosted runners.
@@ -177,7 +178,8 @@ fn test_hiroz_talker_to_rcl_listener() {
 
     let _listener_guard = ProcessGuard::new(listener, "RCL listener");
 
-    wait_for_ready(Duration::from_secs(2));
+    // Proceed as soon as the RCL listener is discoverable, not after a blind sleep.
+    wait_for_ros_node("listener", &router, Duration::from_secs(15));
 
     // Start hiroz talker in a thread using the example code
     let talker_handle = thread::spawn(move || {
@@ -300,7 +302,8 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
 
     let mut server_guard = ProcessGuard::new(server, "RCL add_two_ints server");
 
-    wait_for_ready(Duration::from_secs(3));
+    // Proceed as soon as the RCL server node is discoverable, not after a blind sleep.
+    wait_for_ros_node("add_two_ints_server", &router, Duration::from_secs(15));
 
     // Retry until the server's queryable is discovered — discovery latency, not
     // response latency, so a longer fixed timeout doesn't help under load. Cap
@@ -464,7 +467,8 @@ fn test_rcl_fibonacci_action_server_to_hiroz_client() {
 
     let _server_guard = ProcessGuard::new(server, "RCL fibonacci action server");
 
-    wait_for_ready(Duration::from_secs(3));
+    // Proceed as soon as the RCL action server is discoverable, not after a blind sleep.
+    wait_for_ros_node("fibonacci_action_server", &router, Duration::from_secs(15));
 
     // Retry until the action server's queryables are discovered — discovery
     // latency, not response latency, so a longer fixed timeout doesn't help.
