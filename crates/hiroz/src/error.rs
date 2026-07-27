@@ -11,9 +11,10 @@
 //! fragile: it breaks silently the moment the wording changes.
 //!
 //! This module gives that path a real, structured error type with a
-//! [`Timeout`](Error::Timeout) variant. It is boxed into the crate's
-//! `Result`, and callers recover the structure with [`is_timeout`] (which
-//! walks the `source()` chain) or by downcasting the boxed error to [`Error`].
+//! [`Timeout`](crate::error::Error::Timeout) variant. It is boxed into the
+//! crate's `Result`, and callers recover the structure with
+//! [`is_timeout`](crate::error::is_timeout) (which walks the `source()` chain)
+//! or by downcasting the boxed error to [`Error`](crate::error::Error).
 
 use std::time::Duration;
 
