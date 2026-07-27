@@ -352,7 +352,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          targets: wasm32-wasip2
+          target: wasm32-wasip2
           components: clippy, rustfmt
 
       - name: Install dependencies (macOS)
