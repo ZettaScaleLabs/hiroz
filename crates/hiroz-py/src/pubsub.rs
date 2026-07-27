@@ -24,20 +24,30 @@ impl PyZPublisher {
     /// Publish a message
     ///
     /// Serializes the Python message (msgspec.Struct) to ZBuf and publishes (zero-copy path)
-    unsafe fn publish(&self, _py: Python, data: &Bound<'_, PyAny>) -> PyResult<()> {
-        // Serialize Python message directly to ZBuf (zero-copy)
+    unsafe fn publish(&self, py: Python, data: &Bound<'_, PyAny>) -> PyResult<()> {
+        // Serialize Python message directly to ZBuf (zero-copy). This touches
+        // Python objects, so it must run with the GIL held.
         let zbuf = hiroz_msgs::serialize_to_zbuf(&self.type_name, data)?;
 
-        // Publish the ZBuf directly
-        self.inner.publish(zbuf.into()).map_err(|e| e.into_pyerr())
+        // Release the GIL for the publish itself. Zenoh delivers samples to
+        // local subscribers synchronously on the publishing thread, so a publish
+        // issued from inside a subscriber callback can block here; holding the
+        // GIL across it would freeze the whole interpreter — no exception, no
+        // traceback — instead of blocking just this thread.
+        py.allow_threads(|| self.inner.publish(zbuf.into()))
+            .map_err(|e| e.into_pyerr())
     }
 
     /// Publish pre-serialized CDR bytes directly
     ///
     /// Use this for zero-copy forwarding of received messages (e.g., in a pong responder).
     /// The bytes should be in CDR format (as returned by recv_serialized/try_recv_serialized).
-    fn publish_raw(&self, data: &[u8]) -> PyResult<()> {
-        self.inner.publish(data.into()).map_err(|e| e.into_pyerr())
+    fn publish_raw(&self, py: Python, data: &[u8]) -> PyResult<()> {
+        // Copy out of the Python buffer before dropping the GIL, then publish
+        // without it — see `publish` for why.
+        let payload: zenoh::bytes::ZBytes = data.into();
+        py.allow_threads(|| self.inner.publish(payload))
+            .map_err(|e| e.into_pyerr())
     }
 
     /// Get the topic name (for debugging)

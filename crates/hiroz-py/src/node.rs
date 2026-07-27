@@ -16,6 +16,7 @@ use hiroz::node::ZNode;
 use pyo3::prelude::*;
 use std::any::Any;
 use std::sync::Arc;
+use zenoh_buffers::buffer::SplitBuffer;
 
 /// Try to extract type info from a message class.
 ///
@@ -233,9 +234,25 @@ impl PyZNode {
             // matching rmw_zenoh_cpp's NodeData::subs_ pattern. The caller does not
             // need to assign the returned PyZSubscriber to keep the subscription active.
             let type_name = msg_type_str.clone();
+            // Sample-level callback, not `build_with_callback`. The typed form
+            // would route through `RawBytesCdrSerdes::deserialize`, whose
+            // `Output` is an owned `RawBytesMessage` and so must `to_vec()` the
+            // whole payload before this closure runs — a full copy per message,
+            // scaling with payload size, immediately discarded once msgspec has
+            // decoded it. Taking the `Sample` lets the decode read straight out
+            // of the network buffer, and matches what the polling `recv()` path
+            // in `pubsub.rs` already does.
             let zsub = sub_builder
-                .build_with_callback(move |raw_msg: RawBytesMessage| {
-                    let payload = raw_msg.0;
+                .build_with_sample_callback(move |sample| {
+                    // Same zero-copy setup as `PyZSubscriber::recv`: the ZBuf is
+                    // cheap Arc clones, and publishing it as the deserializer's
+                    // source lets `bytes`-typed fields become sub-ZSlices of the
+                    // received buffer instead of copies.
+                    let payload_zbuf: zenoh_buffers::ZBuf = sample.payload().clone().into();
+                    hiroz_cdr::ZBUF_DESER_SOURCE.with(|cell| {
+                        *cell.borrow_mut() = Some(payload_zbuf.clone());
+                    });
+                    let payload = payload_zbuf.contiguous();
                     Python::with_gil(|py| {
                         match hiroz_msgs::deserialize_from_cdr(&type_name, py, &payload) {
                             Ok(obj) => {
@@ -247,6 +264,9 @@ impl PyZNode {
                                 eprintln!("hiroz_py: deserialization error in callback: {}", e);
                             }
                         }
+                    });
+                    hiroz_cdr::ZBUF_DESER_SOURCE.with(|cell| {
+                        *cell.borrow_mut() = None;
                     });
                 })
                 .map_err(|e| e.into_pyerr())?;
