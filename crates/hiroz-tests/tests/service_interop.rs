@@ -469,3 +469,104 @@ fn test_ros2_server_hiroz_client() {
 
     println!("Test passed: hiroz client called ROS2 service");
 }
+
+/// Typed-path counterpart to the FFI regression in the Go interop suite
+/// (issue #241): a reply that arrives after its own call has already timed out
+/// must never be delivered to a later call on the same client.
+///
+/// The typed client (`ZClient::call` / `call_with_timeout`, used by both the
+/// native Rust API and the Python bindings) is immune by construction — each
+/// call owns a private oneshot channel, so a late reply for a timed-out call
+/// has no receiver and is dropped. This test locks that guarantee in against a
+/// future refactor to a shared reply channel (which is exactly what broke the
+/// FFI path).
+#[test]
+fn test_typed_client_reply_correlation_after_timeout() {
+    let router = TestRouter::new();
+
+    println!("\n=== Test: typed client reply correlation after a timeout ===");
+
+    // Server: stall the first request past the client's timeout so its reply is
+    // sent late, then answer the second request immediately.
+    let router_endpoint = router.endpoint().to_string();
+    let _server_handle = thread::spawn(move || {
+        let ctx =
+            create_hiroz_context_with_endpoint(&router_endpoint).expect("Failed to create context");
+        let node = ctx
+            .create_node("corr_server")
+            .build()
+            .expect("Failed to create node");
+        let mut zsrv = node
+            .create_service::<AddTwoInts>("corr_add_two_ints")
+            .build()
+            .expect("Failed to create service");
+
+        // Request #1 — reply only after the client has already timed out.
+        if let Ok(req) = zsrv.take_request() {
+            let resp = AddTwoIntsResponse {
+                sum: req.message().a + req.message().b,
+            };
+            thread::sleep(Duration::from_millis(500));
+            req.reply_blocking(&resp).expect("reply #1 failed");
+        }
+        // Request #2 — reply immediately.
+        if let Ok(req) = zsrv.take_request() {
+            let resp = AddTwoIntsResponse {
+                sum: req.message().a + req.message().b,
+            };
+            req.reply_blocking(&resp).expect("reply #2 failed");
+        }
+    });
+
+    wait_for_ready(Duration::from_secs(3));
+
+    let client_handle = thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let ctx = create_hiroz_context_with_router(&router).expect("Failed to create context");
+            let node = ctx
+                .create_node("corr_client")
+                .build()
+                .expect("Failed to create node");
+            let zcli = node
+                .create_client::<AddTwoInts>("corr_add_two_ints")
+                .build()
+                .expect("Failed to create client");
+
+            // Let discovery settle before the first call.
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            // Call #1: short timeout; the server stalls 500ms → must time out.
+            let r1 = zcli
+                .call_with_timeout(
+                    &AddTwoIntsRequest { a: 1, b: 1 },
+                    Duration::from_millis(200),
+                )
+                .await;
+            assert!(
+                r1.is_err(),
+                "call #1 was expected to time out, got sum={:?}",
+                r1.map(|r| r.sum)
+            );
+
+            // Let call #1's late reply (sum=2) be delivered while no call owns it.
+            tokio::time::sleep(Duration::from_millis(800)).await;
+
+            // Call #2: distinct args; must receive its own reply (7+8=15), not
+            // the stale reply from the timed-out call #1 (2).
+            let r2 = zcli
+                .call_with_timeout(&AddTwoIntsRequest { a: 7, b: 8 }, Duration::from_secs(5))
+                .await
+                .expect("call #2 failed");
+            assert_eq!(
+                r2.sum, 15,
+                "typed client mis-correlated: call #2 (7+8) got {}, expected 15 \
+                 (stale reply from the timed-out call #1 delivered instead)",
+                r2.sum
+            );
+        });
+    });
+
+    client_handle.join().expect("Client thread panicked");
+    println!("Test passed: typed client reply correlation holds after a timeout");
+}
