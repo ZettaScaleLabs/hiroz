@@ -19,6 +19,20 @@ pub(crate) enum DataHandler<T> {
 }
 
 impl<T> DataHandler<T> {
+    /// Whether `handle` runs *user* code on the delivering thread.
+    ///
+    /// Only [`DataHandler::Callback`] does. The queue variants enqueue and
+    /// return — structurally the same thing zenoh's own `FifoChannel` handler
+    /// does — so the user's code runs on whatever thread calls `recv()`, and
+    /// there is nothing on the delivery thread that could re-enter hiroz.
+    ///
+    /// `QueueWithNotifier`'s notifier is deliberately not counted: it is the rmw
+    /// layer's wait-set wake, which must run promptly on the delivery thread and
+    /// does not call back into hiroz.
+    pub(crate) fn runs_user_code(&self) -> bool {
+        matches!(self, DataHandler::Callback(_))
+    }
+
     pub(crate) fn handle(&self, data: T) {
         match self {
             DataHandler::Queue(queue) => {
