@@ -28,6 +28,7 @@ use crate::{
     msg::{SerdeCdrSerdes, ZDeserializer, ZSerializer},
     pubsub::{ZPub, ZPubBuilder},
     qos::{QosDurability, QosHistory, QosProfile, QosReliability},
+    reentrancy::TrackedRwLock,
     service::ZServerBuilder,
 };
 
@@ -54,7 +55,7 @@ pub(crate) struct ParameterServiceConfig<'a> {
 
 struct ParameterState {
     store: RwLock<ParameterStore>,
-    on_set_callback: RwLock<Option<SetCallback>>,
+    on_set_callback: TrackedRwLock<Option<SetCallback>>,
     event_publisher: ZPub<WireParameterEvent, SerdeCdrSerdes<WireParameterEvent>>,
     node_fqn: String,
 }
@@ -188,13 +189,36 @@ impl ParameterState {
             }
         }
 
-        if let Ok(cb_guard) = self.on_set_callback.read()
-            && let Some(cb) = cb_guard.as_ref()
-        {
+        // Clone the `Arc` out and drop the guard *before* invoking the user
+        // callback. Holding `on_set_callback.read()` across the call makes the
+        // callback re-entrant-hostile in two ways, both reachable from the
+        // ordinary public API:
+        //
+        // * calling `on_set_parameters` from inside the callback asks the same
+        //   thread for `on_set_callback.write()` while it still holds a read
+        //   guard — a guaranteed self-deadlock, no race required;
+        // * calling `set_parameter` re-enters `validate_and_apply` and takes the
+        //   read lock recursively, which `std::sync::RwLock` does not guarantee
+        //   (it deadlocks if a writer is queued between the two acquisitions).
+        //
+        // `SetCallback` is already an `Arc`, so cloning it costs one refcount
+        // bump and removes both hazards. This is the same class of defect as the
+        // zenoh-ext `AdvancedSubscriber` deadlock this branch fixes for pub/sub:
+        // a non-reentrant lock held across a user callback.
+        let callback: Option<SetCallback> = self
+            .on_set_callback
+            .read()
+            .ok()
+            .and_then(|guard| guard.as_ref().cloned());
+
+        if let Some(cb) = callback.as_ref() {
             if atomic {
                 // Atomic: call callback once with all params; on rejection fail all.
                 if results.iter().all(|r| r.successful) {
-                    let cb_result = cb(params);
+                    let cb_result = crate::invoke_user_callback!(
+                        "ParameterState::validate_and_apply (atomic)",
+                        cb(params)
+                    );
                     if !cb_result.successful {
                         return params
                             .iter()
@@ -206,7 +230,10 @@ impl ParameterState {
                 // Non-atomic (ROS 2 spec): call callback once per parameter independently.
                 for (i, param) in params.iter().enumerate() {
                     if results[i].successful {
-                        let cb_result = cb(std::slice::from_ref(param));
+                        let cb_result = crate::invoke_user_callback!(
+                            "ParameterState::validate_and_apply (per-parameter)",
+                            cb(std::slice::from_ref(param))
+                        );
                         if !cb_result.successful {
                             results[i] = SetParametersResult::failure(cb_result.reason);
                         }
@@ -341,7 +368,7 @@ impl ParameterService {
             } else {
                 ParameterStore::with_overrides(overrides)
             }),
-            on_set_callback: RwLock::new(None),
+            on_set_callback: TrackedRwLock::new(None),
             event_publisher: pub_builder.build()?,
             node_fqn,
         });
