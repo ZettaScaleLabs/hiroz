@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -362,17 +361,20 @@ func TestGoServiceReplyCorrelationAfterTimeout(t *testing.T) {
 
 	svc := &example_interfaces.AddTwoInts{}
 
-	// Server stalls only the first request long enough to outlast call #1's
-	// short timeout; every later request replies immediately.
-	var calls atomic.Int32
+	// Stall is keyed on request content, not call ordering: only req1 ({A:1})
+	// is delayed, so it outlasts call #1's short timeout regardless of how many
+	// times or in what order the callback fires. req2 ({A:7}) always replies
+	// immediately. Keying on a call counter would be order-fragile — a
+	// redelivered or retried query before call #1 would shift the stall onto
+	// the wrong request and flake the "expect timeout" assertion.
 	server, err := node.CreateServiceServer("add_two_ints").
 		Build(svc, func(reqBytes []byte) ([]byte, error) {
 			var req example_interfaces.AddTwoIntsRequest
 			if err := req.DeserializeCDR(reqBytes); err != nil {
 				return nil, err
 			}
-			if calls.Add(1) == 1 {
-				time.Sleep(400 * time.Millisecond)
+			if req.A == 1 {
+				time.Sleep(500 * time.Millisecond)
 			}
 			resp := &example_interfaces.AddTwoIntsResponse{Sum: req.A + req.B}
 			return resp.SerializeCDR()
@@ -392,10 +394,10 @@ func TestGoServiceReplyCorrelationAfterTimeout(t *testing.T) {
 		t.Fatalf("service not ready: %v", err)
 	}
 
-	// Call #1: short timeout, server stalls 400ms → must time out.
+	// Call #1: short timeout, server stalls 500ms → must time out.
 	req1 := &example_interfaces.AddTwoIntsRequest{A: 1, B: 1} // would be 2
 	var resp1 example_interfaces.AddTwoIntsResponse
-	if err := hiroz.CallTypedWithTimeout(client, req1, &resp1, 100*time.Millisecond); err == nil {
+	if err := hiroz.CallTypedWithTimeout(client, req1, &resp1, 200*time.Millisecond); err == nil {
 		t.Fatalf("call #1 expected a timeout, but it returned Sum=%d", resp1.Sum)
 	}
 
