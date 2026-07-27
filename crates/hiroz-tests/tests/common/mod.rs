@@ -420,13 +420,13 @@ pub fn spawn_python_service_client(
     ProcessGuard::new(child, "python_service_client")
 }
 
-/// Holds a background producer (Zenoh entities) alive for exactly this guard's
-/// lifetime. On drop it sets a stop flag and detaches the thread (no join, so a
-/// producer blocked in recv can't hang teardown); the thread then drops its
-/// entities and session. Preferred over a fixed-duration sleep: too short and
-/// the entity vanishes before `hu` reads it; too long and the producer's client
-/// session reconnect-spins after `TestRouter` drops, stealing CPU from later
-/// serial tests.
+/// Holds a background producer (Zenoh entities) alive until this guard drops.
+/// Drop signals a stop flag and detaches the thread (no join, so a producer
+/// blocked in recv can't hang teardown) — so teardown is best-effort, not
+/// synchronous: the entities may briefly outlive the drop. Preferred over a
+/// fixed-duration sleep: too short and the entity vanishes before `hu` reads it;
+/// too long and the producer's client session reconnect-spins after `TestRouter`
+/// drops, stealing CPU from later serial tests.
 #[allow(dead_code)]
 #[must_use = "binding must be kept alive (e.g. `let _producer = ...`); dropping it immediately tears the producer down"]
 pub struct ProducerGuard {

@@ -77,11 +77,11 @@ fn test_hiroz_talker_to_hiroz_listener() {
     );
 }
 
-// The RCL-spawning interop tests each launch a real `ros2 run demo_nodes_cpp`
-// C++ node. Running many concurrently oversubscribes the runner and they all
-// hit nextest's 60s hard kill at once. serial_test's in-process Mutex only
-// serializes under `cargo test` (one binary); nextest runs each test in its
-// own process, so parallelism must be capped via the runner config in CI.
+// Each RCL interop test launches a real `ros2 run demo_nodes_cpp` C++ node;
+// running many at once oversubscribes the runner and starves discovery.
+// serial_test's Mutex only serializes under `cargo test` (one binary) — nextest
+// runs each test in its own process, so parallelism is capped by the `interop`
+// profile (test-threads = 8).
 #[test]
 fn test_rcl_talker_to_hiroz_listener() {
     if !check_ros2_available() {
@@ -303,15 +303,15 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
     wait_for_ready(Duration::from_secs(3));
 
     // Retry until the server's queryable is discovered — discovery latency, not
-    // response latency, so a longer fixed timeout doesn't help under load.
-    // Budget 40s (not the 60s kill): each attempt can block ~15s internally, so
-    // 40 + 15 = 55s < 60s keeps headroom before the hard kill.
+    // response latency, so a longer fixed timeout doesn't help under load. Cap
+    // retries at 40s to fail fast; each attempt can block ~15s internally, well
+    // clear of the interop profile's 120s kill (60s period × terminate-after 2).
     let attempt_worst_case = Duration::from_secs(15);
     let deadline = std::time::Instant::now() + Duration::from_secs(40);
     let result = loop {
         let ctx =
             create_hiroz_context_with_router(&router).expect("Failed to create hiroz context");
-        // Don't start an attempt that could run past the deadline (60s kill).
+        // Don't start an attempt that can't finish before the 40s deadline.
         let out_of_budget = std::time::Instant::now() + attempt_worst_case >= deadline;
         match demo_nodes::run_add_two_ints_client(ctx, 4, 7, false) {
             Ok(v) => break v,
@@ -325,8 +325,9 @@ fn test_rcl_add_two_ints_server_to_hiroz_client() {
                     .and_then(|c| c.try_wait().ok().flatten());
                 // Kill the server before joining readers: read_to_string blocks
                 // until EOF (child exit), so joining first would hang in the
-                // alive-but-slow case.
-                if let Some(c) = server_guard.child.as_mut() {
+                // alive-but-slow case. Take the child out of the guard so its
+                // Drop can't later re-signal this (possibly recycled) PID group.
+                if let Some(mut c) = server_guard.child.take() {
                     let _ = c.kill();
                     let _ = c.wait();
                 }
@@ -379,12 +380,13 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
     // discoverable before it starts.
     wait_for_ready(Duration::from_secs(5));
 
-    // Start RCL client
+    // Start RCL client. Null stdout — nothing reads it, and the try_wait loop
+    // below waits on the child's exit, which a full unread pipe would block.
     let client = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "add_two_ints_client"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
         .stderr(Stdio::null())
         .process_group(0)
         .spawn()
@@ -395,8 +397,8 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
     // recycled PID's process group.
     let mut client_guard = ProcessGuard::new(client, "RCL add_two_ints client");
 
-    // Bound on the client's actual exit, not a fixed sleep: a slow-to-discover
-    // run fails fast instead of hanging the server thread until the hard kill.
+    // Bound on the client's actual exit (30s), not a fixed sleep: a slow-to-
+    // discover run fails with a diagnostic instead of stalling until nextest's kill.
     let client_deadline = std::time::Instant::now() + Duration::from_secs(30);
     let client_status = loop {
         let child = client_guard
