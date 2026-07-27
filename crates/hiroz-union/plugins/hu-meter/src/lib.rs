@@ -437,6 +437,11 @@ impl HuMeter {
                     return;
                 };
                 let detail = graph::describe_node(&node.namespace, &node.name);
+                let found = detail.is_some();
+                let detail = detail.unwrap_or(graph::NodeDetail {
+                    publishers: Vec::new(),
+                    subscribers: Vec::new(),
+                });
                 if self.json {
                     let fmt_eps = |eps: &[graph::NodeEndpoint]| {
                         eps.iter()
@@ -451,7 +456,7 @@ impl HuMeter {
                     };
                     render::println(&format!(
                         "{{\"found\":{},\"namespace\":\"{}\",\"name\":\"{}\",\"publishers\":[{}],\"subscribers\":[{}]}}",
-                        detail.found,
+                        found,
                         node.namespace,
                         node.name,
                         fmt_eps(&detail.publishers),
@@ -1057,7 +1062,7 @@ impl HuMeter {
         match &mut self.mode {
             Mode::Hz { topic, sub } => {
                 let window_ms = 1000u32;
-                match ros::measure_hz_typed(topic, window_ms) {
+                match ros::measure_hz(topic, window_ms) {
                     Ok(m) => {
                         if self.json {
                             render::println(&format!(
@@ -1081,7 +1086,7 @@ impl HuMeter {
             }
             Mode::Bw { topic, sub } => {
                 let window_ms = 1000u32;
-                match ros::measure_bw_typed(topic, window_ms) {
+                match ros::measure_bw(topic, window_ms) {
                     Ok(m) => {
                         if self.json {
                             render::println(&format!(

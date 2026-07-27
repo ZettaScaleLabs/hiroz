@@ -1,5 +1,11 @@
 // hu plugin interface v0.1
 //
+// VENDORED COPY — do not edit in isolation. The canonical source is
+// crates/hiroz-union/wit/v0.1/hu-plugin.wit; this file is kept in sync with it
+// (this header aside) so hu-meter compiles as a standalone crate. Keep the two
+// in sync: any change to the canonical WIT must be mirrored here (and vice
+// versa).
+//
 // Host-proxied model: the host (hu) owns Zenoh sessions. The ros interface
 // proxies one shared session (JSON-decoded for dynamic messages; typed records
 // for measurements). The session interface provides named multi-session handles
@@ -9,7 +15,6 @@
 //   hu-cli-plugin  — one-shot / streaming CLI tools (hz, bw, echo, bridge)
 //   hu-tui-plugin  — tick-driven TUI panes with keybindings and topic navigation
 //   hu-web-plugin  — HTTP request/response handlers for the web UI server
-//   hu-plugin      — legacy alias for hu-tui-plugin (v0.3 compatibility)
 
 package hu:plugin@0.1.0;
 
@@ -31,6 +36,18 @@ interface types {
         mode: session-mode,
     }
 
+    // Capabilities a plugin lists in `plugin-manifest.required-permissions`.
+    //
+    // These are SELF-DECLARED by the (untrusted) plugin: host calls are gated
+    // against this list, but there is no external user consent yet, so a
+    // malicious plugin can simply declare all of them. This is a
+    // "declare-what-you-use" contract, not an enforced trust boundary — the
+    // user-facing trust gate lands in a later release. Until then, only run
+    // plugins you trust.
+    //
+    // `access-raw-cdr` is a broad grant: it permits raw pub/sub/query/liveliness
+    // on ANY key expression (including internal graph tokens), so it supersedes
+    // the narrower topic/service permissions.
     enum permission {
         subscribe-topic,
         publish-topic,
@@ -38,6 +55,23 @@ interface types {
         measure-metrics,
         access-raw-cdr,
         open-session,
+    }
+
+    // Error returned by fallible host calls. Plugins can branch on the kind
+    // (e.g. treat `timeout` as "service unavailable") instead of sniffing a
+    // message string. `invalid`/`transport` carry a human-readable detail.
+    variant plugin-error {
+        // The operation did not complete before its deadline (e.g. a service
+        // call with no reply, or no matching server).
+        timeout,
+        // The requested topic/service/schema is not known to the host.
+        not-found,
+        // The plugin did not declare the permission this call requires.
+        denied,
+        // The request was malformed (bad key expression, YAML/JSON, etc.).
+        invalid(string),
+        // The underlying Zenoh transport failed.
+        transport(string),
     }
 
     enum event-kind {
@@ -57,16 +91,6 @@ interface types {
 
     // Events delivered to TUI plugins. Superset of cli-event.
     variant tui-event {
-        startup(list<string>),
-        key-action(string),
-        topic-selected(string),
-        tick,
-        interrupt,
-    }
-
-    // v0.3 alias — kept so existing binaries that declare plugin-event in their
-    // manifest type still link against a v0.3 host. New plugins use tui-event.
-    variant plugin-event {
         startup(list<string>),
         key-action(string),
         topic-selected(string),
@@ -111,7 +135,6 @@ interface graph {
         type-name: string,
     }
     record node-detail {
-        found: bool,
         publishers: list<node-endpoint>,
         subscribers: list<node-endpoint>,
     }
@@ -120,12 +143,13 @@ interface graph {
     list-nodes:    func() -> list<node-info>;
     list-services: func() -> list<service-info>;
     // Looks up a single node by (namespace, name) and returns its publisher /
-    // subscriber topics. `found: false` (with empty lists) when no such node
-    // exists in the graph.
-    describe-node: func(namespace: string, name: string) -> node-detail;
+    // subscriber topics, or `none` when no such node exists in the graph.
+    describe-node: func(namespace: string, name: string) -> option<node-detail>;
 }
 
 interface ros {
+    use types.{plugin-error};
+
     resource subscription {
         try-recv: func() -> option<string>;
     }
@@ -133,11 +157,11 @@ interface ros {
     resource service-client {
         // `request` accepts either a JSON object or flow-YAML request body;
         // the host (parse_yaml_or_json) parses whichever form is given.
-        call: func(request: string, timeout-ms: u32) -> result<string, string>;
+        call: func(request: string, timeout-ms: u32) -> result<string, plugin-error>;
         // Raw CDR passthrough — bypasses schema-based JSON encode/decode.
         // Used for callers that already have an exact CDR payload (e.g. hex
         // bytes from a CLI --payload flag) rather than a JSON request body.
-        call-raw: func(payload: list<u8>, timeout-ms: u32) -> result<list<u8>, string>;
+        call-raw: func(payload: list<u8>, timeout-ms: u32) -> result<list<u8>, plugin-error>;
     }
 
     // Typed measurement records — avoid JSON round-trip for the common analytics path.
@@ -153,35 +177,34 @@ interface ros {
         sample-count: u32,
     }
 
-    subscribe: func(topic: string) -> result<subscription, string>;
+    subscribe: func(topic: string) -> result<subscription, plugin-error>;
     // Resolve a ROS topic name to its full RmwZenoh key expression (domain
     // + mangled type + hash), for use with session.raw-subscribe/raw-publisher
     // when raw CDR bytes are needed instead of the decoded-JSON subscribe
     // path. Falls back to a wildcard-type key expression if no publisher/
     // subscriber for the topic has been discovered yet.
-    resolve-topic-ke: func(topic: string) -> result<string, string>;
-    connect-service: func(name: string, type-name: string) -> result<service-client, string>;
+    resolve-topic-ke: func(topic: string) -> result<string, plugin-error>;
+    connect-service: func(name: string, type-name: string) -> result<service-client, plugin-error>;
 
-    // Scalar variants kept for backward compatibility.
-    measure-hz: func(topic: string, window-ms: u32) -> result<f64, string>;
-    measure-bw: func(topic: string, window-ms: u32) -> result<f64, string>;
+    measure-hz: func(topic: string, window-ms: u32) -> result<hz-measurement, plugin-error>;
+    measure-bw: func(topic: string, window-ms: u32) -> result<bw-measurement, plugin-error>;
 
-    // Typed variants — preferred for new plugins.
-    measure-hz-typed: func(topic: string, window-ms: u32) -> result<hz-measurement, string>;
-    measure-bw-typed: func(topic: string, window-ms: u32) -> result<bw-measurement, string>;
-
-    encode-yaml-to-cdr: func(yaml: string, type-name: string) -> result<list<u8>, string>;
+    encode-yaml-to-cdr: func(yaml: string, type-name: string) -> result<list<u8>, plugin-error>;
 }
 
 interface raw-transport {
+    use types.{plugin-error};
+
     resource raw-subscription {
         try-recv: func() -> option<list<u8>>;
     }
 
     resource raw-publisher {
-        publish: func(payload: list<u8>) -> result<_, string>;
+        publish: func(payload: list<u8>) -> result<_, plugin-error>;
     }
 
+    // Opaque keep-alive handle: the declared liveliness token stays asserted for
+    // as long as the plugin holds this resource, and is undeclared when dropped.
     resource liveliness-token {}
 
     resource liveliness-sub {
@@ -190,15 +213,16 @@ interface raw-transport {
 
     resource queryable {
         try-recv-query: func() -> option<tuple<u64, list<u8>>>;
-        reply: func(query-id: u64, payload: list<u8>) -> result<_, string>;
+        reply: func(query-id: u64, payload: list<u8>) -> result<_, plugin-error>;
     }
 
     resource querier {
-        call: func(payload: list<u8>, timeout-ms: u32) -> result<list<u8>, string>;
+        call: func(payload: list<u8>, timeout-ms: u32) -> result<list<u8>, plugin-error>;
     }
 }
 
 interface session {
+    use types.{plugin-error};
     use raw-transport.{
         raw-subscription,
         raw-publisher,
@@ -209,15 +233,15 @@ interface session {
     };
 
     resource session-handle {
-        raw-subscribe: func(ke: string) -> result<raw-subscription, string>;
-        raw-publisher: func(ke: string) -> result<raw-publisher, string>;
-        declare-liveliness: func(ke: string) -> result<liveliness-token, string>;
-        subscribe-liveliness: func(ke: string) -> result<liveliness-sub, string>;
-        declare-queryable: func(ke: string) -> result<queryable, string>;
-        open-querier: func(ke: string) -> result<querier, string>;
+        raw-subscribe: func(ke: string) -> result<raw-subscription, plugin-error>;
+        raw-publisher: func(ke: string) -> result<raw-publisher, plugin-error>;
+        declare-liveliness: func(ke: string) -> result<liveliness-token, plugin-error>;
+        subscribe-liveliness: func(ke: string) -> result<liveliness-sub, plugin-error>;
+        declare-queryable: func(ke: string) -> result<queryable, plugin-error>;
+        open-querier: func(ke: string) -> result<querier, plugin-error>;
     }
 
-    get-session: func(name: string) -> result<session-handle, string>;
+    get-session: func(name: string) -> result<session-handle, plugin-error>;
 }
 
 interface render {
@@ -287,18 +311,4 @@ world hu-web-plugin {
 
     export manifest: func() -> plugin-manifest;
     export handle: func(req: http-request) -> http-response;
-}
-
-// Legacy alias for hu-tui-plugin. Keeps v0.3 plugins loadable.
-world hu-plugin {
-    use types.{plugin-manifest, plugin-event};
-
-    import graph;
-    import ros;
-    import raw-transport;
-    import session;
-    import render;
-
-    export manifest: func() -> plugin-manifest;
-    export on-event: func(event: plugin-event);
 }
