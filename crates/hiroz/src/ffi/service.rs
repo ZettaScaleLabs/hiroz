@@ -42,8 +42,6 @@ pub struct RawServiceClient {
     pub(crate) sn: AtomicUsize,
     pub(crate) gid: GidArray,
     pub(crate) inner: zenoh::query::Querier<'static>,
-    pub(crate) tx: flume::Sender<zenoh::sample::Sample>,
-    pub(crate) rx: flume::Receiver<zenoh::sample::Sample>,
     pub(crate) _key_expr: zenoh::key_expr::KeyExpr<'static>,
     /// Liveliness token — kept alive so that rmw_zenoh_cpp service servers can
     /// observe this client via Zenoh liveliness.
@@ -70,13 +68,19 @@ impl RawServiceClient {
         request: &[u8],
         timeout: Duration,
     ) -> Result<Vec<u8>, crate::error::Error> {
-        let tx = self.tx.clone();
-        let attachment = self.new_attachment();
+        // Each call gets its own reply channel. Zenoh delivers a query's replies
+        // only to the callback registered on that `get()`, so a private channel
+        // keeps each call's reply to itself: a reply that arrives after its call
+        // has returned (e.g. after a timeout) finds the receiver already dropped
+        // and is discarded, rather than leaking into the next call as it would on
+        // a channel shared across calls. Capacity 1 keeps the first reply and
+        // drops any extras — a unary service call needs exactly one.
+        let (tx, rx) = flume::bounded(1);
 
         self.inner
             .get()
             .payload(request.to_vec())
-            .attachment(attachment)
+            .attachment(self.new_attachment())
             .callback(move |reply| match reply.into_result() {
                 Ok(sample) => {
                     let _ = tx.try_send(sample);
@@ -88,10 +92,13 @@ impl RawServiceClient {
             .wait()
             .map_err(|e| crate::error::Error::Other(format!("Failed to send query: {}", e)))?;
 
-        let sample = self.rx.recv_timeout(timeout).map_err(|e| match e {
-            flume::RecvTimeoutError::Timeout => crate::error::Error::Timeout(timeout),
-            flume::RecvTimeoutError::Disconnected => {
-                crate::error::Error::Other(format!("Reply channel disconnected: {}", e))
+        let sample = rx.recv_timeout(timeout).map_err(|e| match e {
+            // No reply before the deadline, or the query finalized with no reply
+            // buffered — the latter happens when there is no matching server, so
+            // the callback (and its sender) is dropped. Both mean this call got no
+            // response, which is a service timeout.
+            flume::RecvTimeoutError::Timeout | flume::RecvTimeoutError::Disconnected => {
+                crate::error::Error::Timeout(timeout)
             }
         })?;
 

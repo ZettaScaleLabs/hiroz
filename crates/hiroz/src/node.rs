@@ -691,8 +691,6 @@ impl ZNode {
             .timeout(std::time::Duration::from_secs(10))
             .wait()?;
 
-        let (tx, rx) = flume::bounded(10);
-
         // Declare liveliness token so rmw_zenoh_cpp service servers can observe this client.
         let lv_ke = self
             .keyexpr_format
@@ -708,8 +706,6 @@ impl ZNode {
             gid: crate::entity::endpoint_gid(&entity)
                 .expect("service client always has node identity"),
             inner,
-            tx,
-            rx,
             _key_expr: key_expr,
             _lv_token: lv_token,
             qualified_service,
