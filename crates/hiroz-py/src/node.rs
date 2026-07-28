@@ -637,6 +637,19 @@ impl PyZNode {
     /// which looks like a hang.
     fn resolve_service_name(&self, service: &str) -> PyResult<String> {
         let remapped = self.inner.apply_remap(service);
+
+        // `qualify_topic_name` skips empty path components rather than rejecting
+        // them, so `//bad//name` survives ROS validation and fails much later in
+        // Zenoh's key-expression parser — with an error that cites a cargo
+        // registry path and never mentions the service name. Reject it here so
+        // the caller gets the documented ValueError naming their own input.
+        if remapped.contains("//") || (remapped.len() > 1 && remapped.ends_with('/')) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Invalid service name '{service}': empty path components and trailing \
+                 slashes are not allowed"
+            )));
+        }
+
         hiroz::topic_name::qualify_service_name(
             &remapped,
             self.inner.namespace(),
