@@ -12,8 +12,16 @@
 //!
 //! The fix splits `StateMachine::trigger` into `begin` (enter the intermediate
 //! "busy" state) and `finish` (apply the callback's verdict), so the node drops
-//! the guard while the callback runs. Observers keep seeing exactly what they
-//! saw before: the intermediate state (`configuring`, `activating`, …).
+//! the guard while the callback runs.
+//!
+//! The intermediate state therefore becomes *observable*, which it was not
+//! before — and that is a behaviour change, not a preservation. Previously a
+//! `~/get_state` issued during a transition blocked for the callback's whole
+//! duration (the deadlock above), and on the rare path where a reply did come
+//! back, `ZLifecycleClient` mapped every transition-state id onto
+//! `Unconfigured`. Callers now see `configuring`, `activating`, … while the
+//! transition runs, which is what rclcpp reports and what a lifecycle manager
+//! polling the node expects.
 //!
 //! Every scenario runs on a dedicated thread behind a hard deadline, so a
 //! re-entrancy deadlock fails the test instead of wedging the suite — the same
@@ -285,5 +293,84 @@ fn panicking_transition_callback_does_not_wedge_the_node() {
             LifecycleState::Inactive,
             "node could not transition after a panicking callback"
         );
+    });
+}
+
+/// The `on_error` callback must also run with the state-machine lock released.
+///
+/// `trigger_transition` splits the *error* path the same way it splits the
+/// normal one: `finish` records `CallbackReturn::Error` and drops the guard,
+/// `on_error` runs unlocked, `finish_error_processing` applies its verdict.
+/// Neither existing scenario reaches those lines — one callback returns
+/// `Success` and the other `Failure` — so a regression that re-ran `on_error`
+/// under the mutex would have passed the whole suite.
+///
+/// The detector is the same shape as the `on_configure` one: `on_error` asks
+/// the node, through a real service client in another context, what state it is
+/// in. Under a regression that query blocks on the guard `on_error` is running
+/// beneath, the client times out, and the assertion fails on the error rather
+/// than hanging the suite.
+///
+/// It also pins the state that should be observable there — `ErrorProcessing`,
+/// not the pre-transition state and not the goal state.
+#[test]
+#[serial]
+fn on_error_callback_querying_own_state_does_not_deadlock() {
+    with_deadline("lifecycle_on_error_get_state", || {
+        const NODE_NAME: &str = "lc_reentrant_on_error";
+
+        let router = TestRouter::new();
+
+        let ctx_node = create_hiroz_context_with_endpoint(router.endpoint()).expect("node ctx");
+        let mut lc_node = ctx_node
+            .create_lifecycle_node(NODE_NAME)
+            .build()
+            .expect("lifecycle node");
+
+        let ctx_client = create_hiroz_context_with_endpoint(router.endpoint()).expect("client ctx");
+        let mgr_node = ctx_client
+            .create_node("lc_error_manager")
+            .build()
+            .expect("mgr node");
+
+        thread::sleep(Duration::from_millis(1000));
+        let client =
+            Arc::new(ZLifecycleClient::new(&mgr_node, NODE_NAME).expect("lifecycle client"));
+        thread::sleep(Duration::from_millis(1000));
+
+        // Drive the transition into the error path.
+        lc_node.on_configure = Box::new(|_prev| CallbackReturn::Error);
+
+        let ran = Arc::new(AtomicBool::new(false));
+        let seen: Arc<Mutex<Option<zenoh::Result<LifecycleState>>>> = Arc::new(Mutex::new(None));
+
+        let ran_c = ran.clone();
+        let seen_c = seen.clone();
+        let client_c = client.clone();
+        lc_node.on_error = Box::new(move |_prev| {
+            ran_c.store(true, Ordering::SeqCst);
+            *seen_c.lock().unwrap() = Some(get_state_blocking(client_c.clone()));
+            // Success from on_error means "recovered" -> Unconfigured.
+            CallbackReturn::Success
+        });
+
+        let final_state = lc_node.configure().expect("configure");
+
+        assert!(ran.load(Ordering::SeqCst), "on_error never ran");
+
+        let seen = seen.lock().unwrap().take().expect("no state recorded");
+        let seen = seen.expect(
+            "the ~/get_state query from inside on_error did not complete; the error path is \
+             running the callback under the state-machine guard again",
+        );
+        assert_eq!(
+            seen,
+            LifecycleState::ErrorProcessing,
+            "on_error should observe the node in ErrorProcessing"
+        );
+
+        // Success from on_error recovers the node to Unconfigured.
+        assert_eq!(final_state, LifecycleState::Unconfigured);
+        assert_eq!(lc_node.get_current_state(), LifecycleState::Unconfigured);
     });
 }
