@@ -142,7 +142,10 @@ def test-shm [] {
     # Integration-style unit tests (pub/sub with SHM)
     run-cmd "cargo test --package hiroz --test shm"
     # Integration tests (validate shm_pointcloud2 example)
-    run-cmd "cargo test --package hiroz-tests --test shm_example"
+    # `hiroz-tests` has no featureless configuration -- its build script now
+    # enforces that -- so this names the features even though shm_example
+    # itself is ungated.
+    run-cmd "cargo test --package hiroz-tests --test shm_example --features ros-msgs,jazzy"
 }
 
 # ============================================================================
