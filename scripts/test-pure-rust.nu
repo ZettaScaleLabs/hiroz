@@ -25,7 +25,12 @@ def run-tests [] {
     # compiles to an empty test binary reporting `0 passed`. That reads as green.
     # None of those features need a ROS installation (hiroz-msgs bundles the
     # definitions), so there is no reason for this job to run the crate blind.
-    run-cmd "cargo nextest run --no-fail-fast --workspace --exclude hiroz-tests"
+    # `rmw-zenoh-rs` is excluded too: its build script generates bindings from
+    # ROS C headers (`rcutils/strdup.h`), which this job by definition does not
+    # have. It is not in `default-members`, so it was never built here before
+    # `--workspace` was introduced -- excluding it restores that, rather than
+    # dropping coverage. The ROS jobs build and lint it via `-F rmw`.
+    run-cmd "cargo nextest run --no-fail-fast --workspace --exclude hiroz-tests --exclude rmw-zenoh-rs"
     run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy"
 }
 
