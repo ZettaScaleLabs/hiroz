@@ -1,7 +1,6 @@
 use std::{env, path::PathBuf};
 
 fn main() {
-
     // Package-wide enforcement of the feature requirement.
     //
     // `tests/feature_gate.rs` fails loudly when the crate is built without
