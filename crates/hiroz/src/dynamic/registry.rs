@@ -225,7 +225,7 @@ fn load_schema_inner(
         tracing::warn!("cyclic .msg definition for {type_name}; skipping schema load");
         return None;
     }
-    let parsed = match hiroz_codegen::parser::msg::parse_msg_file(&path, &package) {
+    let mut parsed = match hiroz_codegen::parser::msg::parse_msg_file(&path, &package) {
         Ok(parsed) => parsed,
         Err(e) => {
             tracing::warn!("failed to parse .msg file {}: {e}", path.display());
@@ -233,6 +233,17 @@ fn load_schema_inner(
             return None;
         }
     };
+    // A nested field written unqualified (e.g. `Vector3` in geometry_msgs/Twist)
+    // is recorded by the parser with no package but refers to the *same* package;
+    // without this, `convert_base_type` rejects it and the whole load fails. The
+    // parser already qualifies the historical `Header` alias to std_msgs, and
+    // primitives short-circuit before the package is consulted, so defaulting
+    // every remaining unqualified field to the parent package is safe.
+    for field in &mut parsed.fields {
+        if field.field_type.package.is_none() {
+            field.field_type.package = Some(package.clone());
+        }
+    }
     // Resolve nested message-typed fields by loading them the same way; each
     // recursive load registers itself, so the outer conversion sees them.
     let resolver = |field_pkg: &str, field_type: &str| -> Option<Arc<MessageSchema>> {

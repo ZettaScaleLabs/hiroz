@@ -2366,3 +2366,79 @@ fn test_hu_meter_pub_empty_topic_from_disk() {
         "raw subscriber did not receive the message published to the empty topic"
     );
 }
+
+/// Nested-type coverage for the disk schema loader: `geometry_msgs/msg/Twist`
+/// has same-package nested fields (`Vector3 linear`/`angular`) written
+/// unqualified. The loader must default those to the parent package and resolve
+/// them recursively; if it doesn't, `encode-yaml-to-cdr` fails and `pub` exits
+/// non-zero. Published to an empty topic (no live node), so only the disk path
+/// can supply the schema. Receipt is confirmed by a raw Zenoh subscriber.
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_pub_empty_topic_nested_type() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    use zenoh::Wait;
+
+    let msg_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../hiroz-codegen/assets/jazzy");
+
+    let router = TestRouter::new();
+    let got = Arc::new(AtomicBool::new(false));
+    let got_bg = got.clone();
+
+    let endpoint = router.endpoint().to_string();
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx.create_node("nested_pub_watcher").build().unwrap();
+        // Raw subscriber over data keys (`**` excludes `@`-prefixed liveliness),
+        // announcing no ROS type — the empty topic has no discoverable schema, so
+        // a successful publish proves the nested type resolved from disk.
+        let _sub = node
+            .session()
+            .declare_subscriber("**")
+            .callback(move |_sample| got_bg.store(true, Ordering::Relaxed))
+            .wait()
+            .unwrap();
+        while !stop.load(Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
+
+    thread::sleep(Duration::from_millis(500));
+
+    let out = run_hu_meter_env(
+        router.endpoint(),
+        &[
+            "pub",
+            "/nested_pub_topic",
+            "--msg-type",
+            "geometry_msgs/msg/Twist",
+            "--yaml",
+            "{linear: {x: 1.0, y: 2.0, z: 3.0}, angular: {x: 4.0, y: 5.0, z: 6.0}}",
+        ],
+        &[("HIROZ_MSG_PATH", msg_path)],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter pub of a nested type (Twist) to an empty topic should succeed \
+         via the disk loader; stderr: {}\nstdout: {}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    let mut received = false;
+    for _ in 0..40 {
+        if got.load(Ordering::Relaxed) {
+            received = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        received,
+        "raw subscriber did not receive the nested-type message on the empty topic"
+    );
+}
