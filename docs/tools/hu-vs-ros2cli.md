@@ -12,7 +12,7 @@
 | End-to-end delay | — | — | `hu meter delay` |
 | **Introspection** | | | |
 | Echo messages | `ros2 topic echo` | — | `hu meter echo` |
-| Publish messages | `ros2 topic pub` | — | `hu meter pub` |
+| Publish messages | `ros2 topic pub` | — | `hu meter pub` &nbsp;⚠️ |
 | List topics / nodes / services / actions | four separate commands | rqt_graph | `hu meter list` |
 | Entity info | four separate commands | rqt_graph | `hu meter info` |
 | Call a service | `ros2 service call` | — | `hu meter service call <name> --yaml <yaml> --msg-type <type>` |
@@ -30,6 +30,8 @@
 | Works without a ROS 2 install | no | no | yes |
 | Extensible via plugins | no | yes (rqt plugins) | yes (`.wasm` plugins) |
 | Live multi-topic rate dashboard | — | rqt_topic | `hu` (interactive TUI) |
+
+⚠️ **`hu meter pub` is present but its `--yaml` encoding is not yet functional.** It encodes via the plugin host's `encode-yaml-to-cdr`, which resolves the message schema from a runtime schema registry that is not populated yet, so every `--msg-type` currently fails schema lookup. The command validates arguments and reports a clear error; a working encode path needs a runtime `.msg` schema loader (tracked separately).
 
 ---
 

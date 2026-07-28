@@ -2129,12 +2129,13 @@ fn test_hu_meter_delay_basic() {
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
 
-    // `extract_delay_note` is a documented stub that reports the raw message
-    // ("(raw) {json}"); assert on what it actually emits (a message on the
-    // topic, echoed), not on measurement text no code path produces.
+    // The producer stamps each Header with the current time, so `delay` must
+    // report a real end-to-end latency ("delay: <n> ms"), prefixed with the
+    // topic. (Not asserting the sign/magnitude — only that a delay was measured
+    // from the stamped header, i.e. the header.stamp parse + clock path worked.)
     assert!(
-        stdout.contains("(raw)") && stdout.contains("delay_test"),
-        "Expected a raw echoed message from the delay subscriber, got: {}",
+        stdout.contains("delay:") && stdout.contains("ms") && stdout.contains("delay_test"),
+        "Expected a measured delay from the stamped header, got: {}",
         stdout
     );
 }

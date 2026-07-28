@@ -51,13 +51,14 @@ enum Mode {
         topic: String,
         sub: Option<ros::Subscription>,
     },
-    /// Repeated publish with rate/times support
+    /// Repeated publish with rate/times support. `times_remaining: None` = run
+    /// unbounded (until the process is stopped); `Some(n)` = n publishes left.
     Pub {
         pub_: RawPublisher,
         cdr: Vec<u8>,
         topic: String,
         interval_ticks: u32,
-        times_remaining: u32,
+        times_remaining: Option<u32>,
         ticks_since_last: u32,
     },
     /// Subscribe to action feedback topic
@@ -318,9 +319,22 @@ impl HuMeter {
         let rate: f64 = flag_value(args, "--rate")
             .and_then(|v| v.parse().ok())
             .unwrap_or(0.0);
-        let times: u32 = flag_value(args, "--times")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(1);
+        // --times, when given, must be a positive integer. `None` means it was
+        // omitted (distinct from a value): with a rate that means "unbounded",
+        // without one it means a single publish. A literal 0 (which would enter
+        // a mode that never publishes and never exits) is rejected.
+        let times: Option<u32> = match flag_value(args, "--times") {
+            None => None,
+            Some(v) => match v.parse::<u32>() {
+                Ok(n) if n >= 1 => Some(n),
+                _ => {
+                    render::eprintln("--times must be a positive integer");
+                    render::exit(1);
+                    self.mode = Mode::Done;
+                    return;
+                }
+            },
+        };
 
         if msg_type.is_empty() {
             render::eprintln("--msg-type is required");
@@ -332,7 +346,19 @@ impl HuMeter {
         let cdr = match ros::encode_yaml_to_cdr(&yaml, &msg_type) {
             Ok(b) => b,
             Err(e) => {
-                render::println(&format!("encode error: {e}"));
+                // encode-yaml-to-cdr resolves the schema from the host's runtime
+                // SchemaRegistry, which is not populated yet, so a not-found here
+                // is expected for every type — surface that clearly rather than a
+                // bare "not found". (Known limitation; a fix needs a WIT change.)
+                if matches!(e, hu::plugin::types::PluginError::NotFound) {
+                    render::eprintln(&format!(
+                        "encode error: no schema for '{msg_type}' is available to the plugin host. \
+                         hu meter pub's --yaml encoding requires the message type in the host's \
+                         runtime schema registry, which is not yet populated — a known limitation."
+                    ));
+                } else {
+                    render::eprintln(&format!("encode error: {e}"));
+                }
                 render::exit(1);
                 self.mode = Mode::Done;
                 return;
@@ -375,9 +401,27 @@ impl HuMeter {
             }
         };
 
-        // With --rate or --times>1, publish repeatedly via ticks; otherwise one-shot.
-        if rate > 0.0 || times > 1 {
-            // tick_ms = 1000 ms; interval_ticks = max(1, round(1.0 / rate)) when rate > 0.
+        // Effective publish count: an explicit --times wins; otherwise --rate
+        // alone means "publish continuously until stopped" (unbounded, `None`),
+        // and a plain `pub` with neither flag is a single one-shot publish.
+        let count: Option<u32> = match times {
+            Some(n) => Some(n),
+            None if rate > 0.0 => None, // --rate alone → unbounded
+            None => Some(1),            // plain pub → one-shot
+        };
+
+        // One-shot only when exactly one publish is requested and no rate is
+        // set; anything else (a rate, a count > 1, or unbounded) is tick-driven.
+        let one_shot = rate <= 0.0 && matches!(count, Some(1));
+        if !one_shot {
+            // The plugin tick is 1000 ms, so the scheduler cannot publish faster
+            // than 1 Hz — warn rather than silently capping a higher --rate.
+            if rate > 1.0 {
+                render::eprintln(&format!(
+                    "note: --rate {rate} Hz exceeds the 1 Hz plugin tick resolution; publishing at 1 Hz"
+                ));
+            }
+            // interval_ticks = round(1/rate) clamped to >= 1 (0 = every tick).
             let interval_ticks = if rate > 0.0 {
                 let t = (1.0 / rate).round() as u32;
                 if t == 0 {
@@ -386,14 +430,14 @@ impl HuMeter {
                     t
                 }
             } else {
-                0 // no rate limit: publish each tick up to times_remaining
+                0 // no rate limit: publish each tick up to the count
             };
             self.mode = Mode::Pub {
                 pub_,
                 cdr,
                 topic,
                 interval_ticks,
-                times_remaining: times,
+                times_remaining: count, // None = unbounded
                 ticks_since_last: interval_ticks, // ready to publish on the first tick
             };
         } else {
@@ -1348,7 +1392,9 @@ impl HuMeter {
                 } else {
                     *ticks_since_last >= *interval_ticks
                 };
-                if ready && *times_remaining > 0 {
+                // `None` = unbounded (always has more to send); `Some(n)` = n left.
+                let has_remaining = !matches!(times_remaining, Some(0));
+                if ready && has_remaining {
                     *ticks_since_last = 0;
                     if let Err(e) = pub_.publish(cdr) {
                         render::println(&format!("publish error: {e}"));
@@ -1365,10 +1411,13 @@ impl HuMeter {
                     } else {
                         render::println(&format!("Published to {t}"));
                     }
-                    *times_remaining -= 1;
-                    if *times_remaining == 0 {
-                        render::exit(0);
-                        self.mode = Mode::Done;
+                    // Only a bounded count decrements and exits; unbounded runs on.
+                    if let Some(n) = times_remaining.as_mut() {
+                        *n -= 1;
+                        if *n == 0 {
+                            render::exit(0);
+                            self.mode = Mode::Done;
+                        }
                     }
                 }
             }
@@ -1414,11 +1463,36 @@ fn flag_value(args: &[String], flag: &str) -> Option<String> {
     None
 }
 
-// Best-effort note for `hu meter delay`. A full implementation would parse the
-// decoded-JSON message and compute (receive-time − header.stamp); for now it
-// surfaces the raw message so the receive path is observable.
+// End-to-end delay for `hu meter delay`: (receive wall-clock time − the
+// message's `header.stamp`). The host wires full WASI p2, so the plugin's
+// `SystemTime::now()` resolves against `wasi:clocks`. Assumes the publisher and
+// this receiver share a clock (as ros2 `topic delay` does); a message without a
+// stamped header cannot be measured and says so.
 fn extract_delay_note(json: &str) -> String {
-    format!("(raw) {json}")
+    let Some((stamp_sec, stamp_nanosec)) = parse_header_stamp(json) else {
+        return "no header.stamp — cannot measure delay (message has no stamped header)"
+            .to_string();
+    };
+    let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
+        return "delay: clock unavailable".to_string();
+    };
+    let stamp_ns = stamp_sec as i128 * 1_000_000_000 + stamp_nanosec as i128;
+    let delay_ms = (now.as_nanos() as i128 - stamp_ns) as f64 / 1_000_000.0;
+    format!("delay: {delay_ms:.3} ms")
+}
+
+// Pull `header.stamp.{sec,nanosec}` from a decoded-JSON ROS message — either a
+// nested `header` field (most stamped messages) or a top-level `stamp` (a bare
+// std_msgs/Header). Returns None if absent or malformed.
+fn parse_header_stamp(json: &str) -> Option<(i64, u64)> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    let stamp = v
+        .get("header")
+        .and_then(|h| h.get("stamp"))
+        .or_else(|| v.get("stamp"))?;
+    let sec = stamp.get("sec")?.as_i64()?;
+    let nanosec = stamp.get("nanosec")?.as_u64()?;
+    Some((sec, nanosec))
 }
 
 fn parse_topic_duration(args: &[String]) -> (Option<String>, u32) {
