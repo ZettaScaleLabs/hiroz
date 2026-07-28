@@ -199,11 +199,14 @@ def handle_add(req):
 server = node.create_server("/add_two_ints", AddTwoInts, callback=handle_add)
 ```
 
-If the callback raises, the exception is caught, logged to stderr, and recorded on `server.last_error` (a string, or `None` if no error has occurred):
+If the callback raises, the exception is caught, logged to stderr, and recorded on `server.last_error` (a string, or `None` if no error has occurred).
+
+Reading `last_error` **clears** it, so bind it once rather than reading the property twice:
 
 ```python
-if server.last_error is not None:
-    print("callback failed:", server.last_error)
+err = server.last_error       # reading consumes it
+if err is not None:
+    print("callback failed:", err)
 ```
 
 ### QoS Shorthand

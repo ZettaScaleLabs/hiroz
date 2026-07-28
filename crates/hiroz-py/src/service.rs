@@ -49,7 +49,7 @@ impl PyZClient {
         timeout: Option<f64>,
     ) -> PyResult<PyObject> {
         let cdr_bytes = hiroz_msgs::serialize_to_cdr(&self.request_type_name, data.py(), data)?;
-        let timeout_duration = timeout.map(Duration::from_secs_f64);
+        let timeout_duration = crate::graph::checked_timeout(timeout)?;
 
         let cdr_bytes = py
             .allow_threads(|| self.inner.call_serialized(&cdr_bytes, timeout_duration))
@@ -66,10 +66,11 @@ impl PyZClient {
     /// Args:
     ///     timeout: Maximum seconds to wait. None waits forever.
     #[pyo3(signature = (timeout=None))]
-    fn wait_for_service(&self, py: Python, timeout: Option<f64>) -> bool {
-        py.allow_threads(|| {
+    fn wait_for_service(&self, py: Python, timeout: Option<f64>) -> PyResult<bool> {
+        let timeout = crate::graph::checked_timeout(timeout)?;
+        Ok(py.allow_threads(|| {
             crate::graph::wait_for_service_server(&self.graph, &self.service_name, timeout)
-        })
+        }))
     }
 
     /// Get the service type name (for debugging)
@@ -208,6 +209,7 @@ fn spawn_callback_loop(
                             Ok(o) => o,
                             Err(e) => {
                                 record_error!(last_error, "request deserialize error", e);
+                                server.discard_pending(&request_id);
                                 return;
                             }
                         };
@@ -215,6 +217,7 @@ fn spawn_callback_loop(
                             Ok(o) => o,
                             Err(e) => {
                                 record_error!(last_error, "service callback error", e);
+                                server.discard_pending(&request_id);
                                 return;
                             }
                         };
@@ -226,11 +229,15 @@ fn spawn_callback_loop(
                             Ok(b) => b,
                             Err(e) => {
                                 record_error!(last_error, "response serialize error", e);
+                                server.discard_pending(&request_id);
                                 return;
                             }
                         };
                         if let Err(e) = server.send_response_serialized(&resp_bytes, &request_id) {
                             record_error!(last_error, "send_response error", e);
+                            // send_response only removes the entry once the reply
+                            // succeeds; drop it here so a failing send cannot leak.
+                            server.discard_pending(&request_id);
                         }
                     });
                 }

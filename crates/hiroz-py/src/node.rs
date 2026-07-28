@@ -390,12 +390,16 @@ impl PyZNode {
     fn create_client(&self, service: String, srv_type: &Bound<'_, PyAny>) -> PyResult<PyZClient> {
         let (srv_type_str, type_info) = extract_service_type_info(srv_type)?;
 
+        // Resolve before building: `build()` performs the same qualification and
+        // maps failure to HirozError, so a malformed name would never reach a
+        // check placed after it and the documented ValueError never fires.
+        let qualified = self.resolve_service_name(&service)?;
+
         let client_builder = self
             .inner
             .create_client_impl::<RawBytesService>(&service, Some(type_info));
         let zclient = client_builder.build().map_err(|e| e.into_pyerr())?;
         let wrapper = GenericClientWrapper::new(zclient);
-        let qualified = self.qualify_service_name(&service)?;
         Ok(PyZClient::new(
             Box::new(wrapper),
             srv_type_str,
@@ -467,6 +471,15 @@ impl PyZNode {
         let node = Arc::clone(&self.inner);
         let rt = get_tokio_rt();
 
+        // Resolve before building, for the same reason as `create_client`: the
+        // builder validates the name itself and maps failure to a RuntimeError.
+        // The action server advertises `<action>/_action/send_goal`; that is what
+        // wait_for_server polls for.
+        let send_goal_service = format!(
+            "{}/_action/send_goal",
+            self.resolve_service_name(&action_name)?
+        );
+
         let client = py.allow_threads(|| {
             let _guard = rt.enter();
             let mut builder = node.create_action_client::<RawBytesAction>(&action_name);
@@ -483,13 +496,6 @@ impl PyZNode {
                 .build()
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })?;
-
-        // The action server advertises a `<action>/_action/send_goal` service;
-        // wait_for_server polls the graph for it.
-        let send_goal_service = format!(
-            "{}/_action/send_goal",
-            self.qualify_service_name(&action_name)?
-        );
 
         Ok(PyZActionClient::new(
             client,
@@ -594,6 +600,11 @@ impl PyZNode {
     ) -> PyResult<PyZServer> {
         let (srv_type_str, type_info) = extract_service_type_info(srv_type)?;
 
+        // Validate up front so a malformed name raises ValueError, matching the
+        // documented contract — `build()` would otherwise reject it first and
+        // surface a HirozError instead.
+        self.resolve_service_name(&service)?;
+
         let server_builder = self
             .inner
             .create_service_impl::<RawBytesService>(&service, Some(type_info));
@@ -612,18 +623,29 @@ impl PyZNode {
 }
 
 impl PyZNode {
-    /// Qualify a service name against the node's namespace/name so the result
-    /// matches the entries the discovery graph stores. Absolute names pass through.
+    /// Resolve a service/action name to the form the discovery graph stores:
+    /// remap first, then qualify against the node's namespace/name.
+    ///
+    /// The remap step matters — the core builders apply remapping *before*
+    /// qualification (see `ZActionClientBuilder::build`). Skipping it here would
+    /// leave `wait_for_service` / `wait_for_server` polling the pre-remap name
+    /// while the entity is created under the post-remap one, so the wait times
+    /// out even though a server is present.
     ///
     /// Errors propagate rather than falling back to the raw name: a silently
-    /// unqualified name makes `wait_for_service` / `wait_for_server` poll the
-    /// graph for a name that can never appear, which looks like a hang.
-    fn qualify_service_name(&self, service: &str) -> PyResult<String> {
-        hiroz::topic_name::qualify_service_name(service, self.inner.namespace(), self.inner.name())
-            .map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!(
-                    "Invalid service name '{service}': {e}"
-                ))
-            })
+    /// unqualified name makes the waits poll for a name that can never appear,
+    /// which looks like a hang.
+    fn resolve_service_name(&self, service: &str) -> PyResult<String> {
+        let remapped = self.inner.apply_remap(service);
+        hiroz::topic_name::qualify_service_name(
+            &remapped,
+            self.inner.namespace(),
+            self.inner.name(),
+        )
+        .map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "Invalid service name '{service}': {e}"
+            ))
+        })
     }
 }

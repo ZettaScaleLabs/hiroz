@@ -96,7 +96,11 @@ rclpy.spin(node)
 # hiroz-py (callback returns the response; no resp out-param)
 def handle(req):
     return example_interfaces.AddTwoInts.Response(sum=req.a + req.b)
-node.create_service("/add_two_ints", example_interfaces.AddTwoInts, callback=handle)
+# Keep the returned server alive: dropping it stops the worker and tears down
+# the queryable. Binding it is what keeps the internal thread serving.
+server = node.create_service(
+    "/add_two_ints", example_interfaces.AddTwoInts, callback=handle
+)
 # server runs on an internal thread; keep the process alive (no spin needed)
 ```
 
@@ -286,17 +290,17 @@ Notes:
 
 ## What's Not There Yet
 
-These are **core** feature gaps, not binding omissions — they are unimplemented in hiroz itself:
+Unreachable from Python today. The **Status** column distinguishes two very different cases: some of these exist in hiroz core and merely lack a Python surface, while others are unimplemented in core as well.
 
 | Feature | Status | Workaround |
 |---|---|---|
-| Timers (`create_timer`) | not implemented | `time.sleep` in your own loop / a `threading.Timer` |
-| Parameters (`declare_parameter`, parameter server) | not implemented | plain Python config / env vars |
-| Lifecycle nodes | not implemented | manage state yourself |
-| Logging (`get_logger()` / rosout) | not implemented | Python `logging` or `print` |
-| Sim time / clock | not implemented | `time.time()` |
-| Executors / `spin()` | by design | pull (`recv`) or `callback=` |
-| Action ROS 2 interop | Python-to-Python only | use typed Rust actions for `rmw_zenoh_cpp` interop |
+| Parameters (`declare_parameter`, parameter server) | implemented in core (`ZNode`), **not exposed to Python** | plain Python config / env vars |
+| Lifecycle nodes | implemented in core, **not exposed to Python** | manage state yourself |
+| Sim time / clock | implemented in core (`ZClock`), **not exposed to Python** | `time.time()` |
+| Timers (`create_timer`) | not implemented in core | `time.sleep` in your own loop / a `threading.Timer` |
+| Logging (`get_logger()` / rosout) | not implemented in core | Python `logging` or `print` |
+| Executors / `spin()` | by design — hiroz is reactive, with no spin loop | pull (`recv`) or `callback=` |
+| Action ROS 2 interop | Python-to-Python only (msgpack wire format) | use typed Rust actions for `rmw_zenoh_cpp` interop |
 
 Pub/sub and services **do** interoperate with standard ROS 2 nodes through the Zenoh RMW.
 
