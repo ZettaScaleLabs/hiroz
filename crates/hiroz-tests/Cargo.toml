@@ -9,7 +9,7 @@ publish = false
 #   cargo build --workspace --exclude hiroz-msgs --exclude hiroz-tests
 
 [dependencies]
-hiroz = { path = "../hiroz", default-features = false, features = ["protobuf"] }
+hiroz = { path = "../hiroz", default-features = false, features = ["protobuf", "ffi"] }
 hiroz-msgs = { path = "../hiroz-msgs", default-features = false, optional = true }
 hiroz-cdr = { path = "../hiroz-cdr" }
 hiroz-schema = { path = "../hiroz-schema" }
