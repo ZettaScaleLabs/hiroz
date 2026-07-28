@@ -694,7 +694,8 @@ fn generate_deserialize_direct(
         });
 
         let resp_full_name = format!("{}/srv/{}_Response", srv.parsed.package, srv.parsed.name);
-        let resp_fn_ident = format_ident!("deserialize_{}", srv.response.parsed.name.to_lowercase());
+        let resp_fn_ident =
+            format_ident!("deserialize_{}", srv.response.parsed.name.to_lowercase());
         match_arms.push(quote! {
             #resp_full_name => #mod_ident::#resp_fn_ident(py, bytes),
         });
