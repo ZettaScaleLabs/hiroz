@@ -55,6 +55,35 @@ pub(crate) fn wait_for_service_server(
     }
 }
 
+/// Block until a *complete* action server for `action_name` is visible, or
+/// `timeout` elapses. `None` waits forever.
+///
+/// Deliberately uses the core's `has_action_server` predicate rather than
+/// polling the `send_goal` service alone: a server advertises five endpoints
+/// and discovery can surface them one at a time, so waiting on `send_goal`
+/// can return true while result, cancel, feedback and status are still
+/// missing — and the very next call then fails.
+///
+/// Must be called with the GIL released.
+pub(crate) fn wait_for_action_server(
+    graph: &Arc<Graph>,
+    action_name: &str,
+    timeout: Option<Duration>,
+) -> bool {
+    let deadline = timeout.map(|t| Instant::now() + t);
+    loop {
+        if graph.has_action_server(action_name) {
+            return true;
+        }
+        if let Some(d) = deadline
+            && Instant::now() >= d
+        {
+            return false;
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    }
+}
+
 /// Python-accessible graph discovery methods.
 ///
 /// These are exposed as methods on PyZNode rather than a separate class,
