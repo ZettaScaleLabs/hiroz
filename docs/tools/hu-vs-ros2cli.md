@@ -12,7 +12,7 @@
 | End-to-end delay | — | — | `hu meter delay` |
 | **Introspection** | | | |
 | Echo messages | `ros2 topic echo` | — | `hu meter echo` |
-| Publish messages | `ros2 topic pub` | — | `hu meter pub` &nbsp;⚠️ |
+| Publish messages | `ros2 topic pub` | — | `hu meter pub` |
 | List topics / nodes / services / actions | four separate commands | rqt_graph | `hu meter list` |
 | Entity info | four separate commands | rqt_graph | `hu meter info` |
 | Call a service | `ros2 service call` | — | `hu meter service call <name> --yaml <yaml> --msg-type <type>` |
@@ -31,7 +31,7 @@
 | Extensible via plugins | no | yes (rqt plugins) | yes (`.wasm` plugins) |
 | Live multi-topic rate dashboard | — | rqt_topic | `hu` (interactive TUI) |
 
-⚠️ **`hu meter pub` resolves the message schema by live discovery**, so a publisher or subscriber must already be present on the target topic (the plugin host queries a live node's type description — it does not carry a compiled type registry). When a consumer is present, `--yaml` / `--msg-type` publishing works; publishing to a topic no one has announced a type on reports a clear "no announced type" error rather than guessing.
+**`hu meter pub` resolves the message schema from `.msg` files on disk**, so — like `ros2 topic pub` — it can publish to an empty topic with no node present. The plugin host reads the type from a `.msg` under `HIROZ_MSG_PATH` (colon-separated package or prefix directories, e.g. an ament `.../share`); if the type isn't on disk it falls back to discovering it from a live publisher or subscriber on the topic. Only when neither is available does it report a clear "could not resolve a message schema" error rather than guessing.
 
 ---
 

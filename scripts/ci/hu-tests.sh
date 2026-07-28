@@ -32,6 +32,14 @@ export HU_PLUGIN_PATH="${TARGET_DIR}/wasm32-wasip2/debug"
 # Tests spawn `hu` by name (Command::new("hu")) — put the built binary on PATH.
 export PATH="${TARGET_DIR}/debug:${PATH}"
 
+# `hu meter pub` resolves the message schema from `.msg` files on disk (the
+# dynamic-schema-loader), so it can publish to an empty topic without a live
+# node — exactly like `ros2 topic pub`. This job runs in `.#pureRust-ci` (no
+# ROS env / no AMENT_PREFIX_PATH), so point the loader at the bundled codegen
+# assets, which ship the standard `.msg` set in prefix layout
+# (<pkg>/msg/<Name>.msg). Absolute: `hu` is spawned with an arbitrary CWD.
+export HIROZ_MSG_PATH="$(pwd)/crates/hiroz-codegen/assets/jazzy"
+
 # Run single-threaded: each test spawns a router + hiroz node + `hu` subprocess
 # (JIT wasmtime), and two at once on the 2-core runner over-subscribe the cores
 # and starve graph discovery into a timeout. Wall-clock ≈ parallel here anyway.

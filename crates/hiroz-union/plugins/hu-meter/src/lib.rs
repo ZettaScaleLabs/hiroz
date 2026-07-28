@@ -346,15 +346,17 @@ impl HuMeter {
         let cdr = match ros::encode_yaml_to_cdr(&topic, &yaml, &msg_type) {
             Ok(b) => b,
             Err(e) => {
-                // The host resolves the schema by discovering a live node on the
-                // topic; not-found means no publisher/subscriber announced a type
-                // there, so a bare topic with no consumer can't be published to.
+                // The host resolves the schema from `.msg` files on disk first,
+                // then falls back to discovering a live node on the topic.
+                // Not-found means neither worked: the `.msg` isn't on
+                // HIROZ_MSG_PATH and no publisher/subscriber announced the type.
                 if matches!(e, hu::plugin::types::PluginError::NotFound) {
                     render::eprintln(&format!(
-                        "encode error: could not resolve a message schema for {topic}. \
-                         hu meter pub discovers the type from a live publisher or subscriber \
-                         on the topic — none was found (a topic with no announced type cannot \
-                         be published to)."
+                        "encode error: could not resolve a message schema for {msg_type} on \
+                         {topic}. hu meter pub loads the type from a `.msg` on HIROZ_MSG_PATH, \
+                         or discovers it from a live publisher/subscriber on the topic — neither \
+                         was found. Check the type name, set HIROZ_MSG_PATH, or start a node on \
+                         the topic."
                     ));
                 } else {
                     render::eprintln(&format!("encode error: {e}"));

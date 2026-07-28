@@ -33,15 +33,25 @@ use hiroz_msgs::{
 /// Requires HU_PLUGIN_PATH to contain the compiled hu-meter.wasm.
 /// Build it first: cargo build -p hu-meter --target wasm32-wasip2
 fn run_hu_meter(router: &str, args: &[&str]) -> Output {
-    let mut child = Command::new("hu")
-        .arg("--connect")
+    run_hu_meter_env(router, args, &[])
+}
+
+/// Like [`run_hu_meter`], but sets extra environment variables on the `hu`
+/// subprocess. Used to point the schema loader at a `.msg` directory
+/// (`HIROZ_MSG_PATH`) so a test is self-contained regardless of how it was
+/// launched.
+fn run_hu_meter_env(router: &str, args: &[&str], envs: &[(&str, &str)]) -> Output {
+    let mut cmd = Command::new("hu");
+    cmd.arg("--connect")
         .arg(router)
         .arg("meter")
         .args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to spawn hu meter");
+        .stderr(Stdio::piped());
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.spawn().expect("failed to spawn hu meter");
 
     // Hard wall-clock ceiling well above any individual test's own `--timeout`
     // (tests use at most 10-30s). This is a safety net, not a normal exit
@@ -2143,12 +2153,12 @@ fn test_hu_meter_delay_basic() {
 // ─── pub ──────────────────────────────────────────────────────────────────────
 
 /// Error-path coverage for `hu meter pub`: argument validation and the
-/// no-discoverable-schema case. `pub` resolves the message schema by live
-/// discovery from a node on the topic (`encode-yaml-to-cdr` takes the topic),
-/// so publishing to a topic with no publisher/subscriber must fail cleanly
-/// rather than panic or hang. The happy path (a live consumer is present, the
-/// message is published and received) is covered by
-/// `test_hu_meter_pub_publishes_to_live_topic`.
+/// unresolvable-schema case. `pub` resolves the message schema from a `.msg` on
+/// disk (`HIROZ_MSG_PATH`) first, then falls back to live discovery from a node
+/// on the topic; a type that is neither on disk nor announced must fail cleanly
+/// rather than panic or hang. The disk path (empty topic) is covered by
+/// `test_hu_meter_pub_empty_topic_from_disk`, and the live-discovery happy path
+/// by `test_hu_meter_pub_publishes_to_live_topic`.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_pub_arg_and_encode_paths() {
@@ -2168,22 +2178,26 @@ fn test_hu_meter_pub_arg_and_encode_paths() {
         String::from_utf8_lossy(&out.stdout)
     );
 
-    // (b) No publisher/subscriber on the topic → schema discovery finds nothing,
+    // (b) A type that is neither on disk (no such `.msg`) nor announced by any
+    //     node on the topic → the loader and live discovery both come up empty,
     //     so the encode boundary must surface a clean error and exit non-zero.
+    //     (A real type like std_msgs/msg/String would instead resolve from disk
+    //     via HIROZ_MSG_PATH; that empty-topic path is covered separately by
+    //     `test_hu_meter_pub_empty_topic_from_disk`.)
     let out = run_hu_meter(
         router.endpoint(),
         &[
             "pub",
             "/pub_unannounced_topic",
             "--msg-type",
-            "std_msgs/msg/String",
+            "made_up_pkg/msg/NoSuchType",
             "--yaml",
             "{data: hello}",
         ],
     );
     assert!(
         !out.status.success(),
-        "hu meter pub to a topic with no announced type should exit non-zero"
+        "hu meter pub with an unresolvable type should exit non-zero"
     );
     let combined = format!(
         "{}{}",
@@ -2263,5 +2277,92 @@ fn test_hu_meter_pub_publishes_to_live_topic() {
         got,
         "subscriber did not receive the published message; got: {:?}",
         received.lock().unwrap()
+    );
+}
+
+/// Disk-schema path for `hu meter pub`: publishing to an *empty* topic — no
+/// hiroz publisher or subscriber present, so live discovery can find nothing —
+/// still works because the host resolves the message schema from a `.msg` on
+/// `HIROZ_MSG_PATH`, exactly like `ros2 topic pub`. Receipt is confirmed by a
+/// *raw* Zenoh subscriber, which announces no ROS type into the graph (so it
+/// cannot be what made the schema resolvable); the type comes purely from disk.
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_pub_empty_topic_from_disk() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    use zenoh::Wait;
+
+    // The bundled codegen assets ship the standard `.msg` set in prefix layout
+    // (<pkg>/msg/<Name>.msg); point the loader there so the test is
+    // self-contained regardless of how it was launched.
+    let msg_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../hiroz-codegen/assets/jazzy");
+
+    let router = TestRouter::new();
+    let got = Arc::new(AtomicBool::new(false));
+    let got_bg = got.clone();
+
+    let endpoint = router.endpoint().to_string();
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        // A bare node (no typed pub/sub) gives us a Zenoh session without
+        // announcing any endpoint type on the topic.
+        let node = ctx.create_node("empty_pub_watcher").build().unwrap();
+        // Raw Zenoh subscriber over all data keys (`**` excludes `@`-prefixed
+        // liveliness). It carries no ROS type, so hu's discovery stays empty.
+        const MARKER: &[u8] = b"hu_empty_from_disk";
+        let _sub = node
+            .session()
+            .declare_subscriber("**")
+            .callback(move |sample| {
+                let bytes = sample.payload().to_bytes();
+                if bytes.windows(MARKER.len()).any(|w| w == MARKER) {
+                    got_bg.store(true, Ordering::Relaxed);
+                }
+            })
+            .wait()
+            .unwrap();
+        while !stop.load(Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
+
+    // Let the raw subscriber settle into the router before publishing.
+    thread::sleep(Duration::from_millis(500));
+
+    let out = run_hu_meter_env(
+        router.endpoint(),
+        &[
+            "pub",
+            "/empty_pub_from_disk",
+            "--msg-type",
+            "std_msgs/msg/String",
+            "--yaml",
+            "{data: hu_empty_from_disk}",
+        ],
+        &[("HIROZ_MSG_PATH", msg_path)],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter pub to an empty topic should succeed via the disk schema \
+         loader; stderr: {}\nstdout: {}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    let mut received = false;
+    for _ in 0..40 {
+        if got.load(Ordering::Relaxed) {
+            received = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        received,
+        "raw subscriber did not receive the message published to the empty topic"
     );
 }
