@@ -30,7 +30,15 @@ def run-tests [] {
     # have. It is not in `default-members`, so it was never built here before
     # `--workspace` was introduced -- excluding it restores that, rather than
     # dropping coverage. The ROS jobs build and lint it via `-F rmw`.
-    run-cmd "cargo nextest run --no-fail-fast --workspace --exclude hiroz-tests --exclude rmw-zenoh-rs"
+    # `shm_size_estimation` is skipped, not excluded for convenience: it asks the
+    # OS for a POSIX shared-memory segment large enough to hold a PointCloud2,
+    # and a GitHub runner's `/dev/shm` cannot provide it -- the failure is
+    # `OS error 12` (ENOMEM) from `zenoh-shm`, before any hiroz code runs. It is
+    # a property of the machine, not of the change under test. SHM is covered by
+    # the dedicated `test-shm` step, which uses segments a runner can allocate.
+    # `hiroz-msgs` is not in `default-members`, so these never ran in this job
+    # until `--workspace` was introduced here.
+    run-cmd "cargo nextest run --no-fail-fast --workspace --exclude hiroz-tests --exclude rmw-zenoh-rs -E 'not binary(shm_size_estimation)'"
     run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy"
 }
 
