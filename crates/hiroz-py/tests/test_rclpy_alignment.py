@@ -498,3 +498,82 @@ def test_callback_server_survives_repeated_failures(ctx):
 
     # The callback thread recorded the failures rather than dying.
     assert server.last_error is not None
+
+
+# --- P7 grouping classes come from codegen, not just hand-written types ---
+
+
+def test_p7_generated_action_grouping_class_exists():
+    """P7 must be wired into codegen, not only satisfiable by hand-written types.
+
+    hiroz_msgs vendors action_msgs; if the generator emitted any action
+    grouping class it carries __actiontype__ plus a Goal member.
+    """
+    from hiroz_msgs_py import types as msg_types
+
+    found = []
+    for pkg_name in getattr(msg_types, "__all__", []):
+        pkg = getattr(msg_types, pkg_name)
+        for attr in dir(pkg):
+            obj = getattr(pkg, attr)
+            if isinstance(obj, type) and hasattr(obj, "__actiontype__"):
+                found.append((pkg_name, attr, obj))
+
+    if not found:
+        pytest.skip("no .action files in the vendored packages for this distro")
+
+    for pkg_name, attr, obj in found:
+        assert obj.__actiontype__ == f"{pkg_name}/action/{attr}"
+        assert hasattr(obj, "Goal"), f"{attr} grouping class must expose Goal"
+
+
+# --- Callback-server shutdown must not block on the GIL ---
+
+
+def test_callback_server_close_is_explicit_and_idempotent(ctx):
+    """close() joins the worker with the GIL released; Drop only signals.
+
+    Joining from Drop would deadlock against a callback waiting on the GIL,
+    so the blocking path has to be reachable only from close()/__exit__.
+    """
+    node = ctx.create_node("server_close").build()
+
+    def handle(req):
+        return example_interfaces.AddTwoInts.Response(sum=req.a + req.b)
+
+    server = node.create_service(
+        "/close_svc", example_interfaces.AddTwoInts, callback=handle
+    )
+    client = node.create_client("/close_svc", example_interfaces.AddTwoInts)
+    assert client.wait_for_service(timeout=5.0)
+    assert (
+        client.call(example_interfaces.AddTwoInts.Request(a=1, b=2), timeout=5.0).sum
+        == 3
+    )
+
+    server.close()
+    server.close()  # idempotent
+
+
+def test_callback_server_context_manager(ctx):
+    node = ctx.create_node("server_ctx").build()
+
+    def handle(req):
+        return example_interfaces.AddTwoInts.Response(sum=req.a + req.b)
+
+    with node.create_service(
+        "/ctx_svc", example_interfaces.AddTwoInts, callback=handle
+    ) as server:
+        assert server is not None
+        client = node.create_client("/ctx_svc", example_interfaces.AddTwoInts)
+        assert client.wait_for_service(timeout=5.0)
+        resp = client.call(
+            example_interfaces.AddTwoInts.Request(a=20, b=22), timeout=5.0
+        )
+        assert resp.sum == 42
+
+
+def test_pull_mode_close_is_a_noop(ctx):
+    node = ctx.create_node("pull_close").build()
+    server = node.create_server("/pull_close_svc", example_interfaces.AddTwoInts)
+    server.close()

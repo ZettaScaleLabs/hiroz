@@ -3,11 +3,12 @@
 //! This module generates both Python msgspec structs and complete Rust PyO3 modules
 //! from ROS message definitions, eliminating the need for manual registry code.
 
-use crate::types::{ArrayType, FieldType, ResolvedMessage, ResolvedService};
+use crate::types::{ArrayType, FieldType, ResolvedAction, ResolvedMessage, ResolvedService};
 use anyhow::Result;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -16,6 +17,7 @@ use std::path::Path;
 pub fn generate_python_bindings(
     messages: &[ResolvedMessage],
     services: &[ResolvedService],
+    actions: &[ResolvedAction],
     python_output_dir: &Path,
     rust_output_path: &Path,
 ) -> Result<()> {
@@ -38,6 +40,40 @@ pub fn generate_python_bindings(
             .entry(srv.parsed.package.clone())
             .or_default()
             .push(srv);
+    }
+
+    // Group actions by package so we can emit rclpy-style grouping classes (P7).
+    let mut action_groups: HashMap<String, Vec<&ResolvedAction>> = HashMap::new();
+    for action in actions {
+        action_groups
+            .entry(action.parsed.package.clone())
+            .or_default()
+            .push(action);
+    }
+
+    // Group action Goal/Result/Feedback by package, tracking the action type
+    // hash the same way service Request/Response track the service hash.
+    let mut action_messages: BTreeMap<String, Vec<&ResolvedMessage>> = BTreeMap::new();
+    let mut action_hashes: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    for action in actions {
+        let action_hash = action.type_hash.to_rihs_string();
+        for part in [
+            Some(&action.goal),
+            action.result.as_ref(),
+            action.feedback.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            action_messages
+                .entry(part.parsed.package.clone())
+                .or_default()
+                .push(part);
+            action_hashes
+                .entry(part.parsed.package.clone())
+                .or_default()
+                .insert(part.parsed.name.clone(), action_hash.clone());
+        }
     }
 
     // Group service Request/Response by package, and track service type hashes
@@ -67,9 +103,20 @@ pub fn generate_python_bindings(
             .insert(srv.response.parsed.name.clone(), svc_hash);
     }
 
-    // Generate Python msgspec structs (one file per package)
-    for (package_name, package_msgs) in &packages {
-        // Combine regular messages with service Request/Response for this package
+    // One file per package, covering packages that contribute only services or
+    // only actions as well as those with plain messages.
+    let all_packages: BTreeSet<String> = packages
+        .keys()
+        .chain(service_messages.keys())
+        .chain(action_messages.keys())
+        .cloned()
+        .collect();
+
+    for package_name in &all_packages {
+        let package_msgs = packages
+            .get(package_name)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
         let srv_msgs = service_messages
             .get(package_name)
             .map(|v| v.as_slice())
@@ -82,42 +129,32 @@ pub fn generate_python_bindings(
             .get(package_name)
             .map(|v| v.as_slice())
             .unwrap_or(&[]);
+        let act_msgs = action_messages
+            .get(package_name)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        let act_hashes = action_hashes.get(package_name).cloned().unwrap_or_default();
+        let act_groups = action_groups
+            .get(package_name)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+
         let python_code = generate_python_package_with_services(
             package_name,
             package_msgs,
             srv_msgs,
             &svc_hashes,
             srv_groups,
+            act_msgs,
+            &act_hashes,
+            act_groups,
         )?;
         let output_path = python_output_dir.join(format!("{}.py", package_name));
         fs::write(output_path, python_code)?;
     }
 
-    // Generate Python files for packages that only have service types
-    for (package_name, srv_msgs) in &service_messages {
-        if !packages.contains_key(package_name) {
-            let svc_hashes = service_hashes
-                .get(package_name)
-                .cloned()
-                .unwrap_or_default();
-            let srv_groups = service_groups
-                .get(package_name)
-                .map(|v| v.as_slice())
-                .unwrap_or(&[]);
-            let python_code = generate_python_package_with_services(
-                package_name,
-                &[],
-                srv_msgs,
-                &svc_hashes,
-                srv_groups,
-            )?;
-            let output_path = python_output_dir.join(format!("{}.py", package_name));
-            fs::write(output_path, python_code)?;
-        }
-    }
-
     // Generate __init__.py for Python package
-    let init_code = generate_python_init(&packages)?;
+    let init_code = generate_python_init(&all_packages)?;
     fs::write(python_output_dir.join("__init__.py"), init_code)?;
 
     // Generate COMPLETE Rust PyO3 module (replaces python_registry.rs entirely)
@@ -135,12 +172,16 @@ fn tokens_to_string(tokens: TokenStream) -> String {
 }
 
 /// Generate Python msgspec structs for a package (messages + service Request/Response)
+#[allow(clippy::too_many_arguments)]
 fn generate_python_package_with_services(
     package_name: &str,
     messages: &[&ResolvedMessage],
     service_messages: &[&ResolvedMessage],
     service_hashes: &BTreeMap<String, String>,
     service_groups: &[&ResolvedService],
+    action_messages: &[&ResolvedMessage],
+    action_hashes: &BTreeMap<String, String>,
+    action_groups: &[&ResolvedAction],
 ) -> Result<String> {
     let mut code = format!(
         "\"\"\"Auto-generated ROS 2 message types for {}.\"\"\"\n\
@@ -160,10 +201,22 @@ fn generate_python_package_with_services(
         code.push_str(&generate_msgspec_struct(msg, svc_hash.map(|s| s.as_str()))?);
     }
 
+    // Generate action Goal/Result/Feedback structs with the action type hash
+    for msg in action_messages {
+        let act_hash = action_hashes.get(&msg.parsed.name);
+        code.push_str(&generate_msgspec_struct(msg, act_hash.map(|s| s.as_str()))?);
+    }
+
     // Emit rclpy-style service grouping classes (P4). These reference the
     // Request/Response structs above, so they must come after them.
     for srv in service_groups {
         code.push_str(&generate_service_grouping_class(srv));
+    }
+
+    // Emit rclpy-style action grouping classes (P7), after the structs they
+    // reference.
+    for action in action_groups {
+        code.push_str(&generate_action_grouping_class(action));
     }
 
     Ok(code)
@@ -185,6 +238,38 @@ fn generate_service_grouping_class(srv: &ResolvedService) -> String {
          Request: ClassVar[type] = {request_struct}\n    \
          Response: ClassVar[type] = {response_struct}\n\n"
     )
+}
+
+/// Generate an action grouping class: `Fibonacci.Goal` / `.Result` / `.Feedback` (P7).
+///
+/// Lets `create_action_client`/`create_action_server` accept a single
+/// rclpy-style type instead of three separate structs. `Result` and `Feedback`
+/// are optional in the `.action` format, so only emit the members that exist —
+/// referencing an absent struct would produce a NameError on import.
+fn generate_action_grouping_class(action: &ResolvedAction) -> String {
+    let action_name = &action.parsed.name;
+    let package = &action.parsed.package;
+    let mut code = format!(
+        "class {action_name}:\n    \
+         \"\"\"Action grouping type. Use {action_name}.Goal, .Result and .Feedback.\"\"\"\n    \
+         __actiontype__: ClassVar[str] = '{package}/action/{action_name}'\n    \
+         Goal: ClassVar[type] = {}\n",
+        action.goal.parsed.name
+    );
+    if let Some(result) = &action.result {
+        code.push_str(&format!(
+            "    Result: ClassVar[type] = {}\n",
+            result.parsed.name
+        ));
+    }
+    if let Some(feedback) = &action.feedback {
+        code.push_str(&format!(
+            "    Feedback: ClassVar[type] = {}\n",
+            feedback.parsed.name
+        ));
+    }
+    code.push('\n');
+    code
 }
 
 fn rust_to_python_type(field_type: &FieldType, current_package: &str) -> Result<String> {
@@ -745,17 +830,17 @@ fn generate_serialize_to_zbuf(
     }
 }
 
-fn generate_python_init(packages: &BTreeMap<String, Vec<&ResolvedMessage>>) -> Result<String> {
+fn generate_python_init(packages: &BTreeSet<String>) -> Result<String> {
     let mut code =
         "\"\"\"Auto-generated ROS 2 message types package.\"\"\"\n\n# Import all message types\n"
             .to_string();
 
-    for package_name in packages.keys() {
+    for package_name in packages {
         code.push_str(&format!("from . import {}\n", package_name));
     }
 
     code.push_str("\n__all__ = [\n");
-    for package_name in packages.keys() {
+    for package_name in packages {
         code.push_str(&format!("    \"{}\",\n", package_name));
     }
     code.push_str("]\n");
