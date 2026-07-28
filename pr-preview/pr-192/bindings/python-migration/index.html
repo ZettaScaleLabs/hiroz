@@ -3044,11 +3044,14 @@
 <p>Plain strings (<code>reliability="best_effort"</code>) and dicts still work.</p>
 <h2 id="error-handling">Error Handling<a class="headerlink" href="#error-handling" title="Permanent link">&para;</a></h2>
 <p>hiroz-py raises a small exception hierarchy (all importable from <code>hiroz_py</code>):</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>HirozError                 (base — catch this to cover everything)
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>├── TimeoutError           (a blocking call timed out)
-</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>├── SerializationError     (CDR/msgpack encode/decode failure)
-</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>└── TypeMismatchError      (type hash / type mismatch)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>RuntimeError                          (builtin)
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>└── HirozError                        (base — catch this to cover everything)
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>    ├── TimeoutError                  (a blocking call timed out)
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>    │   └── also inherits builtins.TimeoutError
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>    ├── SerializationError            (CDR/msgpack encode/decode failure)
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>    └── TypeMismatchError             (type hash / type mismatch)
 </span></code></pre></div>
+<p>The two extra bases exist so that ported code keeps working unchanged: <code>HirozError</code> inherits <code>RuntimeError</code> because that is what these paths raised before the typed hierarchy existed, and <code>TimeoutError</code> additionally inherits the <strong>builtin</strong> <code>TimeoutError</code> because that is what rclpy's <code>Client.call</code> raises.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">hiroz_py</span>
 </span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="k">try</span><span class="p">:</span>
 </span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>    <span class="n">resp</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="n">req</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mf">2.0</span><span class="p">)</span>
@@ -3059,7 +3062,7 @@
 </span></code></pre></div>
 <p>Notes:</p>
 <ul>
-<li><code>hiroz_py.TimeoutError</code> is <strong>not</strong> Python's builtin <code>TimeoutError</code>; it subclasses <code>HirozError</code>. Update any <code>except RuntimeError:</code> blocks migrated from older hiroz-py code to <code>except hiroz_py.HirozError:</code>.</li>
+<li><code>hiroz_py.TimeoutError</code> <strong>is</strong> catchable as Python's builtin <code>TimeoutError</code>, as well as <code>hiroz_py.HirozError</code> and <code>RuntimeError</code>. An <code>except TimeoutError:</code> block ported straight from rclpy keeps working. Because the builtin derives from <code>OSError</code>, these instances are <code>OSError</code>s too — the same as in rclpy.</li>
 <li>A service call with <strong>no server present at all</strong> fails fast with a plain <code>HirozError</code> (not a timeout) — guard with <code>wait_for_service()</code> first. Timeout classification requires a server that matched but did not respond in time.</li>
 <li><code>recv(...)</code> and <code>recv_goal(...)</code> return <strong><code>None</code></strong> on timeout rather than raising — that is their documented contract. <code>get_result(...)</code> is the exception: it raises <code>hiroz_py.TimeoutError</code> on timeout, matching <code>ZClient.call</code>.</li>
 </ul>
@@ -3125,7 +3128,7 @@
 <li><strong>Service client calls</strong>: <code>call_async()</code> + <code>spin_until_future_complete()</code> → blocking <code>client.call(req, timeout=...)</code>. Add <code>client.wait_for_service(timeout=...)</code> before the first call.</li>
 <li><strong>Remove <code>rclpy.spin(node)</code></strong>: replace with your own loop. For queue subscribers, loop on <code>sub.recv(timeout=...)</code>. For callback subscribers/servers, the work happens on internal threads — just keep the process alive (e.g. <code>while True: time.sleep(1)</code> or block on an <code>Event</code>).</li>
 <li><strong>QoS</strong>: <code>qos_profile=10</code> → <code>qos=10</code>; <code>QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=5)</code> → <code>hiroz_py.QosProfile(reliability=hiroz_py.ReliabilityPolicy.BEST_EFFORT, depth=5)</code>.</li>
-<li><strong>Exceptions</strong>: change <code>except RuntimeError:</code> around service/action calls to <code>except hiroz_py.HirozError:</code> (or <code>hiroz_py.TimeoutError</code> specifically).</li>
+<li><strong>Exceptions</strong>: nothing to change — <code>except RuntimeError:</code> and <code>except TimeoutError:</code> both still catch, by design. Tighten to <code>except hiroz_py.HirozError:</code> / <code>except hiroz_py.TimeoutError:</code> when you want to catch hiroz failures specifically rather than any runtime error.</li>
 <li><strong>Drop sleeps used for discovery</strong>: replace <code>time.sleep(1.0)</code> before first publish/call with <code>pub.wait_for_subscription(...)</code>, <code>client.wait_for_service(...)</code>, or <code>action_client.wait_for_server(...)</code>.</li>
 <li><strong>Audit unsupported features</strong>: remove or replace timers, parameters, logging, lifecycle (see <a href="#whats-not-there-yet">What's Not There Yet</a>).</li>
 </ol>
