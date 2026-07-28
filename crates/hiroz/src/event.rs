@@ -69,14 +69,25 @@ impl EventsManager {
         }
     }
 
+    /// Install a callback, delivering any backlog immediately.
+    ///
+    /// **Only for a caller that owns this manager outright.** `&mut self` means
+    /// the caller holds whatever `Mutex<EventsManager>` wraps it, and the
+    /// backlog callback below runs while that outer guard is still live — so a
+    /// callback that re-enters (`RmEventHandle::take_event`, say) deadlocks on
+    /// it. The "outside the lock" this releases is only the *inner*
+    /// `event_mutex`.
+    ///
+    /// Anyone holding an `Arc<Mutex<EventsManager>>` must use
+    /// [`set_shared_callback`] instead, which is to registration what
+    /// [`update_shared_event_status`] is to status updates.
     pub fn set_callback<F>(&mut self, event_type: ZenohEventType, callback: F)
     where
         F: Fn(i32) + Send + Sync + 'static,
     {
         let callback: EventCallback = Arc::new(callback);
         let unread_count = self.install_callback(event_type, callback.clone());
-        // If there were unread events, notify the freshly-registered callback —
-        // outside the lock.
+        // Outside the inner `event_mutex` only — see the note above.
         if unread_count != 0 {
             callback(unread_count);
         }
@@ -427,6 +438,40 @@ impl EventWaitData {
 /// outer guard alive across the callback, and the callback is user code handed
 /// to an rclcpp executor which routinely calls straight back into the same
 /// manager (`rmw_take_event` → [`RmEventHandle::take_event`]).
+/// Install a callback on a shared manager, delivering any backlog **after**
+/// the outer guard is released.
+///
+/// The registration counterpart of [`update_shared_event_status`], and the
+/// entry point every holder of an `Arc<Mutex<EventsManager>>` must use.
+/// [`EventsManager::set_callback`] takes `&mut self`, so it can only be called
+/// with the outer mutex already held, and it fires the backlog underneath it —
+/// a callback that re-enters (`RmEventHandle::take_event`) then self-deadlocks
+/// on a non-reentrant `Mutex`. This collects the backlog under the guard, drops
+/// it, and only then calls.
+pub fn set_shared_callback<F>(
+    events_mgr: &Mutex<EventsManager>,
+    event_type: ZenohEventType,
+    callback: F,
+) where
+    F: Fn(i32) + Send + Sync + 'static,
+{
+    let callback: EventCallback = Arc::new(callback);
+
+    // Bound to its own `let` inside a block, for the same reason as
+    // `update_shared_event_status_with_policy`: as a `match`/`if let` scrutinee
+    // the guard would outlive the invocation below and reinstate the deadlock.
+    let unread_count = {
+        let Ok(mut mgr) = events_mgr.lock() else {
+            return;
+        };
+        mgr.install_callback(event_type, callback.clone())
+    };
+
+    if unread_count != 0 {
+        callback(unread_count);
+    }
+}
+
 pub fn update_shared_event_status(
     events_mgr: &Mutex<EventsManager>,
     event_type: ZenohEventType,

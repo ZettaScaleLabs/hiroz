@@ -292,10 +292,18 @@ fn graph_change_callback_querying_the_graph_does_not_deadlock() {
             "the graph-change callback never ran for the remote publisher — \
              the scenario proved nothing"
         );
+        // Two, not one. `local_pub` is on this node for the whole scenario, so
+        // `>= 1` was satisfiable without the remote publisher ever being in the
+        // graph — which is precisely the regression this is meant to catch: a
+        // callback invoked *before* the entity is inserted would still observe
+        // the local publisher and pass. Requiring both makes the assertion
+        // actually depend on the ordering it claims to verify.
         assert!(
-            counted.load(Ordering::SeqCst) >= 1,
-            "the re-entrant graph query returned {} publishers; it should see at \
-             least the remote one",
+            counted.load(Ordering::SeqCst) >= 2,
+            "the re-entrant graph query saw {} publisher(s) on the topic; it must \
+             see both the local one and the remote one whose appearance triggered \
+             this callback. Seeing exactly 1 means the callback ran before the \
+             remote entity was inserted into the graph",
             counted.load(Ordering::SeqCst)
         );
     });

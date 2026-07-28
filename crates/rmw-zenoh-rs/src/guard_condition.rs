@@ -55,11 +55,19 @@ pub struct GuardConditionImpl {
 }
 
 impl GuardConditionImpl {
-    pub(crate) fn trigger(&mut self) -> Result<(), ()> {
+    // `&self`, not `&mut self`. `rmw_wait` holds shared references to this
+    // object while scanning the wait set, and `rmw_trigger_guard_condition` can
+    // fire from a zenoh delivery thread at the same time. Handing out a `&mut`
+    // to an object another thread holds a `&` to is undefined behaviour in Rust
+    // whatever the field types are -- moving `triggered` behind an atomic
+    // defines the *data race* but says nothing about the aliasing. All mutation
+    // now goes through the atomics in `GuardConditionState`, so shared access is
+    // sufficient and every borrow can be immutable.
+    pub(crate) fn trigger(&self) -> Result<(), ()> {
         self.state.fire()
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset(&self) {
         self.state.reset();
     }
 
@@ -138,7 +146,8 @@ pub extern "C" fn rmw_trigger_guard_condition(
         return RMW_RET_INVALID_ARGUMENT as _;
     }
 
-    if let Ok(gc_impl) = (guard_condition as *mut rmw_guard_condition_t).borrow_mut_data() {
+    // Immutable borrow: see the note on `GuardConditionImpl::trigger`.
+    if let Ok(gc_impl) = (guard_condition as *mut rmw_guard_condition_t).borrow_data() {
         let _ = gc_impl.trigger();
     }
 
