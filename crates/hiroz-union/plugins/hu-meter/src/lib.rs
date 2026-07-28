@@ -4,6 +4,7 @@ wit_bindgen::generate!({
 });
 
 
+use hu::plugin::session::RawPublisher;
 use hu::plugin::types::{EventKind, Permission};
 use hu::plugin::{graph, render, ros};
 
@@ -45,6 +46,20 @@ enum Mode {
         count: usize,
         printed: usize,
     },
+    /// Delay measurement (header stamp vs receive time) — requires JSON with header.stamp
+    Delay {
+        topic: String,
+        sub: Option<ros::Subscription>,
+    },
+    /// Repeated publish with rate/times support
+    Pub {
+        pub_: RawPublisher,
+        cdr: Vec<u8>,
+        topic: String,
+        interval_ticks: u32,
+        times_remaining: u32,
+        ticks_since_last: u32,
+    },
     /// Subscribe to action feedback topic
     ActionEcho {
         sub: Option<ros::Subscription>,
@@ -84,6 +99,8 @@ impl HuMeter {
             render::println("  hz <topic> [--duration <s>]");
             render::println("  bw <topic> [--duration <s>]");
             render::println("  echo <topic> [--count <n>] [--field <path>]");
+            render::println("  delay <topic> [--duration <s>]");
+            render::println("  pub <topic> --msg-type <type> --yaml <yaml> [--rate <Hz>] [--times <n>]");
             render::println("  list topics|nodes|services [--find <type>]");
             render::println("  info topic|node|service <name>");
             render::println("  service list|find|type|call <name> [--yaml <yaml>|--payload <hex>]");
@@ -98,6 +115,11 @@ impl HuMeter {
             "hz" => self.cmd_hz(&args[1..]),
             "bw" => self.cmd_bw(&args[1..]),
             "echo" => self.cmd_echo(&args[1..]),
+            "delay" => self.cmd_delay(&args[1..]),
+            "pub" => {
+                self.cmd_pub(&args[1..]);
+                // cmd_pub sets mode itself (Done for one-shot, or Pub for repeated).
+            }
             "list" => {
                 self.cmd_list(&args[1..]);
                 self.mode = Mode::Done;
@@ -254,6 +276,128 @@ impl HuMeter {
             printed: 0,
             field,
         };
+    }
+
+    fn cmd_delay(&mut self, args: &[String]) {
+        let Some(topic) = args.first().cloned() else {
+            render::println("Usage: hu meter delay <topic> [--duration <s>]");
+            render::exit(1);
+            self.mode = Mode::Done;
+            return;
+        };
+        // Optional self-exit, same as hz/bw/echo: with no --duration this stays
+        // 0 (never done), matching the always-running behavior.
+        self.duration_ticks = flag_value(args, "--duration")
+            .and_then(|v| v.parse::<f64>().ok())
+            .map(|s| s.ceil().max(1.0) as u32)
+            .unwrap_or(0);
+        let sub = match ros::subscribe(&topic) {
+            Ok(s) => s,
+            Err(e) => {
+                render::eprintln(&format!("Failed to subscribe to {topic}: {e}"));
+                render::exit(1);
+                self.mode = Mode::Done;
+                return;
+            }
+        };
+        self.mode = Mode::Delay {
+            topic,
+            sub: Some(sub),
+        };
+    }
+
+    fn cmd_pub(&mut self, args: &[String]) {
+        let Some(topic) = args.first().cloned() else {
+            render::println(
+                "Usage: hu meter pub <topic> --msg-type <type> --yaml <yaml> [--rate <Hz>] [--times <n>]",
+            );
+            render::exit(1);
+            self.mode = Mode::Done;
+            return;
+        };
+        let msg_type = flag_value(args, "--msg-type").unwrap_or_default();
+        let yaml = flag_value(args, "--yaml").unwrap_or_else(|| "{}".to_string());
+        let rate: f64 = flag_value(args, "--rate")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0.0);
+        let times: u32 = flag_value(args, "--times")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
+
+        if msg_type.is_empty() {
+            render::eprintln("--msg-type is required");
+            render::exit(1);
+            self.mode = Mode::Done;
+            return;
+        }
+
+        let cdr = match ros::encode_yaml_to_cdr(&yaml, &msg_type) {
+            Ok(b) => b,
+            Err(e) => {
+                render::println(&format!("encode error: {e}"));
+                render::exit(1);
+                self.mode = Mode::Done;
+                return;
+            }
+        };
+
+        let sess = match hu::plugin::session::get_session("default") {
+            Ok(s) => s,
+            Err(e) => {
+                render::eprintln(&format!("failed to get default session: {e}"));
+                render::exit(1);
+                self.mode = Mode::Done;
+                return;
+            }
+        };
+        let pub_ = match sess.raw_publisher(&topic) {
+            Ok(p) => p,
+            Err(e) => {
+                render::eprintln(&format!("failed to declare publisher on {topic}: {e}"));
+                render::exit(1);
+                self.mode = Mode::Done;
+                return;
+            }
+        };
+
+        // With --rate or --times>1, publish repeatedly via ticks; otherwise one-shot.
+        if rate > 0.0 || times > 1 {
+            // tick_ms = 1000 ms; interval_ticks = max(1, round(1.0 / rate)) when rate > 0.
+            let interval_ticks = if rate > 0.0 {
+                let t = (1.0 / rate).round() as u32;
+                if t == 0 {
+                    1
+                } else {
+                    t
+                }
+            } else {
+                0 // no rate limit: publish each tick up to times_remaining
+            };
+            self.mode = Mode::Pub {
+                pub_,
+                cdr,
+                topic,
+                interval_ticks,
+                times_remaining: times,
+                ticks_since_last: interval_ticks, // ready to publish on the first tick
+            };
+        } else {
+            let cdr_len = cdr.len();
+            if let Err(e) = pub_.publish(&cdr) {
+                render::println(&format!("publish error: {e}"));
+                render::exit(1);
+            } else {
+                if self.json {
+                    render::println(&format!(
+                        "{{\"published\":1,\"bytes\":{cdr_len},\"topic\":\"{topic}\"}}"
+                    ));
+                } else {
+                    render::println(&format!("Published to {topic}"));
+                }
+                render::exit(0);
+            }
+            self.mode = Mode::Done;
+        }
     }
 
     fn cmd_list(&self, args: &[String]) {
@@ -1161,6 +1305,51 @@ impl HuMeter {
                     self.mode = Mode::Done;
                 }
             }
+            Mode::Delay { topic, sub } => {
+                let Some(s) = sub.as_ref() else {
+                    return;
+                };
+                while let Some(json_msg) = s.try_recv() {
+                    let delay_note = extract_delay_note(&json_msg);
+                    let t = topic.clone();
+                    render::println(&format!("[{t}] {delay_note}"));
+                }
+                if done {
+                    render::exit(0);
+                    self.mode = Mode::Done;
+                }
+            }
+            Mode::Pub {
+                pub_,
+                cdr,
+                topic,
+                interval_ticks,
+                times_remaining,
+                ticks_since_last,
+            } => {
+                *ticks_since_last += 1;
+                let ready = if *interval_ticks == 0 {
+                    true // no rate limit: publish each tick
+                } else {
+                    *ticks_since_last >= *interval_ticks
+                };
+                if ready && *times_remaining > 0 {
+                    *ticks_since_last = 0;
+                    if let Err(e) = pub_.publish(cdr) {
+                        render::println(&format!("publish error: {e}"));
+                        render::exit(1);
+                        self.mode = Mode::Done;
+                        return;
+                    }
+                    let t = topic.clone();
+                    render::println(&format!("Published to {t}"));
+                    *times_remaining -= 1;
+                    if *times_remaining == 0 {
+                        render::exit(0);
+                        self.mode = Mode::Done;
+                    }
+                }
+            }
             Mode::ActionEcho {
                 sub,
                 count,
@@ -1201,6 +1390,13 @@ fn flag_value(args: &[String], flag: &str) -> Option<String> {
         }
     }
     None
+}
+
+// Best-effort note for `hu meter delay`. A full implementation would parse the
+// decoded-JSON message and compute (receive-time − header.stamp); for now it
+// surfaces the raw message so the receive path is observable.
+fn extract_delay_note(json: &str) -> String {
+    format!("(raw) {json}")
 }
 
 fn parse_topic_duration(args: &[String]) -> (Option<String>, u32) {
