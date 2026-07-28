@@ -252,11 +252,17 @@ fn service_handler_calling_another_service_does_not_deadlock() {
 ///
 /// `ParameterState::validate_and_apply` invokes the user callback while holding
 /// `on_set_callback.read()` (an `std::sync::RwLock` read guard). A callback that
-/// calls `set_parameter` re-enters `validate_and_apply` on the same thread and
-/// therefore takes that same read lock recursively. Recursive read acquisition on
+/// calls `set_parameter` re-entered `validate_and_apply` on the same thread and
+/// therefore took that same read lock recursively. Recursive read acquisition on
 /// `std::sync::RwLock` is explicitly not guaranteed by the standard library — it
-/// deadlocks if a writer is queued between the two acquisitions — so this is the
+/// deadlocks if a writer is queued between the two acquisitions — so this was the
 /// closest analogue to the pub/sub bug outside pub/sub.
+///
+/// Note what this test does and does not detect. Recursive `read()` on one
+/// thread usually *succeeds* unless a writer is queued in between, and nothing
+/// here queues one — so against unfixed source it is a coin flip, not a
+/// detector. The re-registering case below is the deterministic one. This is a
+/// regression test for the fixed behaviour, not proof the defect existed.
 #[test]
 #[serial]
 fn parameter_on_set_callback_setting_another_parameter_does_not_deadlock() {
@@ -304,11 +310,14 @@ fn parameter_on_set_callback_setting_another_parameter_does_not_deadlock() {
 
 /// A parameter `on_set` callback that replaces the callback registration.
 ///
-/// This is the deterministic form of the same defect. `validate_and_apply` holds
-/// `on_set_callback.read()` across the user callback; `on_set_parameters` takes
-/// `on_set_callback.write()`. A callback that re-registers therefore asks the
-/// same thread for a write lock while it still holds a read lock on the same
-/// `std::sync::RwLock` — a guaranteed self-deadlock, no race required.
+/// This is the deterministic form of the same defect — stated in the past tense
+/// because this branch is what removes it. `validate_and_apply` *used to* hold
+/// `on_set_callback.read()` across the user callback, while `on_set_parameters`
+/// takes `on_set_callback.write()`. A callback that re-registered therefore
+/// asked the same thread for a write lock while it still held a read lock on
+/// the same `std::sync::RwLock` — a guaranteed self-deadlock, no race required.
+/// The fix clones the callback `Arc` out and drops the guard before invoking,
+/// so no lock is held when the callback runs; this test holds that line.
 ///
 /// "Swap out the validator once the node is configured" is an ordinary thing to
 /// want, and rclcpp supports it (`remove_on_set_parameters_callback` /
@@ -333,8 +342,9 @@ fn parameter_on_set_callback_reregistering_does_not_deadlock() {
             if !ran_c.swap(true, Ordering::SeqCst)
                 && let Some(n) = node_weak.upgrade()
             {
-                // Re-register from inside the callback: write lock requested
-                // while this thread still holds the read lock.
+                // Re-register from inside the callback. Pre-fix this asked
+                // for a write lock while the same thread still held the read
+                // lock; post-fix no guard is live here at all.
                 n.on_set_parameters(|_| SetParametersResult::success());
             }
             SetParametersResult::success()
