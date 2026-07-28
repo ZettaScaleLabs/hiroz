@@ -18,8 +18,7 @@ pub struct NodeImpl {
     /// (identity is `Arc::ptr_eq`). Holding it here also means the state
     /// survives `rmw_destroy_guard_condition` below, which is what makes it safe
     /// to free the C handle while a graph-change trigger may still be in flight.
-    pub graph_guard_condition_state:
-        Option<std::sync::Arc<dyn hiroz::event::GraphGuardCondition>>,
+    pub graph_guard_condition_state: Option<std::sync::Arc<dyn hiroz::event::GraphGuardCondition>>,
 }
 
 impl NodeImpl {
