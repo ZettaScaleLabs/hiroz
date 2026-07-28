@@ -85,20 +85,45 @@ impl PyZClient {
 /// Background-thread state for a callback-mode server (P6).
 ///
 /// Holds an `Arc` to the underlying server (keeping its Zenoh queryable alive)
-/// and a stop flag the worker thread checks each poll. Dropping this signals the
-/// thread to stop and joins it.
+/// and a stop flag the worker thread checks each poll.
 struct CallbackServerState {
     stop: Arc<AtomicBool>,
     handle: Option<std::thread::JoinHandle<()>>,
     _server: Arc<dyn RawServer>,
 }
 
-impl Drop for CallbackServerState {
-    fn drop(&mut self) {
+impl CallbackServerState {
+    /// Stop the worker and wait for it, with the GIL released.
+    ///
+    /// This is the blocking shutdown path. It must never run from `Drop` — see
+    /// the note there — so it is reachable only via `close()` / `__exit__`,
+    /// where we hold a `Python` token and can hand the GIL back to the worker
+    /// while it finishes its in-flight callback.
+    fn close(&mut self, py: Python<'_>) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(h) = self.handle.take() {
-            let _ = h.join();
+            py.allow_threads(|| {
+                let _ = h.join();
+            });
         }
+    }
+}
+
+impl Drop for CallbackServerState {
+    fn drop(&mut self) {
+        // Signal, but never join here.
+        //
+        // Deallocation runs with the GIL held, and the worker acquires the GIL
+        // to invoke the user callback. Joining would therefore deadlock if the
+        // worker is waiting on the GIL, and even without that a slow callback
+        // would block `del server` and interpreter shutdown for as long as it
+        // runs. Detaching is safe: the worker owns an `Arc` on the server, so
+        // the queryable outlives us until the thread observes `stop` on its
+        // next poll (a few ms) and exits.
+        //
+        // Call `close()` — or use the server as a context manager — when you
+        // need to know the worker has actually stopped.
+        self.stop.store(true, Ordering::Relaxed);
     }
 }
 
@@ -106,7 +131,7 @@ impl Drop for CallbackServerState {
 ///
 /// Pull mode (default): `inner` is `Some`; the caller drives `take_request` /
 /// `send_response`. Callback mode (P6): `inner` is `None` and a background
-/// thread (held in `_callback`) services requests via the user callback.
+/// thread (held in `callback`) services requests via the user callback.
 /// Errors from the callback thread are stored in `last_error` and surfaced via
 /// the `last_error` Python property.
 #[pyclass(name = "ZServer")]
@@ -114,7 +139,7 @@ pub struct PyZServer {
     inner: Option<Mutex<Box<dyn RawServer>>>,
     request_type_name: String,
     response_type_name: String,
-    _callback: Option<CallbackServerState>,
+    callback: Option<CallbackServerState>,
     last_error: Arc<Mutex<Option<String>>>,
 }
 
@@ -126,7 +151,7 @@ impl PyZServer {
             inner: Some(Mutex::new(inner)),
             request_type_name,
             response_type_name,
-            _callback: None,
+            callback: None,
             last_error: Arc::new(Mutex::new(None)),
         }
     }
@@ -156,7 +181,7 @@ impl PyZServer {
             inner: None,
             request_type_name,
             response_type_name,
-            _callback: Some(CallbackServerState {
+            callback: Some(CallbackServerState {
                 stop,
                 handle: Some(handle),
                 _server: server,
@@ -322,5 +347,33 @@ impl PyZServer {
     #[getter]
     fn last_error(&self) -> Option<String> {
         self.last_error.lock().ok().and_then(|mut g| g.take())
+    }
+
+    /// Stop a callback-mode server and wait for its worker thread to finish.
+    ///
+    /// Dropping the server only *signals* the worker (joining during
+    /// deallocation could deadlock against the GIL), so call this — or use the
+    /// server as a context manager — when you need a guarantee that the
+    /// callback is no longer running. Idempotent, and a no-op in pull mode.
+    fn close(&mut self, py: Python<'_>) {
+        if let Some(state) = self.callback.as_mut() {
+            state.close(py);
+        }
+    }
+
+    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    #[pyo3(signature = (_exc_type=None, _exc_value=None, _traceback=None))]
+    fn __exit__(
+        &mut self,
+        py: Python<'_>,
+        _exc_type: Option<&Bound<'_, PyAny>>,
+        _exc_value: Option<&Bound<'_, PyAny>>,
+        _traceback: Option<&Bound<'_, PyAny>>,
+    ) -> bool {
+        self.close(py);
+        false
     }
 }
