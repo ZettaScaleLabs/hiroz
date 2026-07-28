@@ -11,7 +11,7 @@ name = "hu"
 path = "src/main.rs"
 
 [dependencies]
-hiroz = { path = "../hiroz" }
+hiroz = { path = "../hiroz", features = ["dynamic-schema-loader"] }
 hiroz-msgs = { path = "../hiroz-msgs" }
 hiroz-protocol = { path = "../hiroz-protocol" }
 clap = { workspace = true }

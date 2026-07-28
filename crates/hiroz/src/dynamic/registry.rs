@@ -188,3 +188,64 @@ fn convert_base_type(
 
     Ok(FieldType::Message(schema))
 }
+
+/// Load a message schema for `type_name` (`pkg/msg/Name`) from `.msg` files on
+/// disk at runtime and register it in the global registry, resolving nested
+/// message fields recursively. Unlike live discovery, this needs no node on the
+/// topic — it is what lets `hu meter pub` publish to an empty topic, like
+/// `ros2 topic pub`. `.msg` files are located via `HIROZ_MSG_PATH` (see
+/// [`find_msg_file`]). Returns the cached schema if already registered, or
+/// `None` if the type cannot be found or parsed.
+#[cfg(feature = "dynamic-schema-loader")]
+pub fn load_schema(type_name: &str) -> Option<Arc<MessageSchema>> {
+    if let Some(schema) = get_schema(type_name) {
+        return Some(schema);
+    }
+    let (package, name) = split_msg_type(type_name)?;
+    let path = find_msg_file(&package, &name)?;
+    let parsed = hiroz_codegen::parser::msg::parse_msg_file(&path, &package).ok()?;
+    // Resolve nested message-typed fields by loading them the same way; each
+    // recursive load registers itself, so the outer conversion sees them.
+    let resolver = |field_pkg: &str, field_type: &str| -> Option<Arc<MessageSchema>> {
+        load_schema(&format!("{field_pkg}/msg/{field_type}"))
+    };
+    let schema = parsed_message_to_schema(&parsed, &resolver).ok()?;
+    Some(register_schema(schema))
+}
+
+/// Split `pkg/msg/Name` (or the shorthand `pkg/Name`) into `(package, name)`.
+#[cfg(feature = "dynamic-schema-loader")]
+fn split_msg_type(type_name: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = type_name.split('/').collect();
+    match parts.as_slice() {
+        [pkg, "msg", name] => Some((pkg.to_string(), name.to_string())),
+        [pkg, name] => Some((pkg.to_string(), name.to_string())),
+        _ => None,
+    }
+}
+
+/// Find `<pkg>/msg/<Name>.msg` under `HIROZ_MSG_PATH`. Each colon-separated
+/// entry is tried both as the package directory itself
+/// (`<entry>/msg/<Name>.msg`) and as a prefix that contains packages
+/// (`<entry>/<pkg>/msg/<Name>.msg`, e.g. an ament `.../share`).
+#[cfg(feature = "dynamic-schema-loader")]
+fn find_msg_file(package: &str, name: &str) -> Option<std::path::PathBuf> {
+    let msg_path = std::env::var("HIROZ_MSG_PATH").ok()?;
+    let file = format!("{name}.msg");
+    for entry in msg_path.split(':') {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let base = std::path::Path::new(entry);
+        let as_package = base.join("msg").join(&file);
+        if as_package.is_file() {
+            return Some(as_package);
+        }
+        let as_prefix = base.join(package).join("msg").join(&file);
+        if as_prefix.is_file() {
+            return Some(as_prefix);
+        }
+    }
+    None
+}

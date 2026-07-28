@@ -141,13 +141,12 @@ impl hu::plugin::ros::Host for PluginState {
         Ok(Resource::new_own(rep))
     }
 
-    // Resolve the message schema by live discovery from a node already on
-    // `topic` (the SchemaRegistry is not populated on the plugin-host path), the
-    // same approach as HostServiceClient::call. `type_name` is the caller's
-    // intended type; the authoritative schema is whatever is actually on the
-    // wire, and a mismatch is reported rather than silently re-typed. Requires a
-    // live publisher/subscriber on the topic — publishing to a topic no one has
-    // announced cannot be schema-resolved this way.
+    // Resolve the message schema for `type_name`, preferring `.msg` files on disk
+    // (via HIROZ_MSG_PATH) so publishing works even on a topic with no live node,
+    // like `ros2 topic pub`. When the type isn't on disk, fall back to live
+    // discovery from a node already on the topic (same approach as
+    // HostServiceClient::call); there `type_name` is the intended type and a
+    // mismatch with the discovered wire type is reported rather than re-typed.
     fn encode_yaml_to_cdr(
         &mut self,
         topic: String,
@@ -155,25 +154,32 @@ impl hu::plugin::ros::Host for PluginState {
         type_name: String,
     ) -> Result<Vec<u8>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::PublishTopic)?;
-        let node = self.engine.node.clone();
-        // Budget discovery independently; a slow/failed get_type_description
-        // round-trip shouldn't look like a generic encode failure.
-        const DISCOVERY_TIMEOUT: Duration = Duration::from_millis(2000);
-        let discovered = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(
-                node.discover_topic_schema_including_subscribers(&topic, DISCOVERY_TIMEOUT),
-            )
-        })
-        .map_err(|_| PluginError::NotFound)?;
-        if discovered.schema.type_name != type_name {
-            return Err(PluginError::Invalid(format!(
-                "topic {topic} carries {}, not the requested {type_name}",
-                discovered.schema.type_name
-            )));
-        }
+
+        let schema = match hiroz::dynamic::load_schema(&type_name) {
+            Some(schema) => schema,
+            None => {
+                let node = self.engine.node.clone();
+                // Budget discovery independently; a slow/failed round-trip
+                // shouldn't look like a generic encode failure.
+                const DISCOVERY_TIMEOUT: Duration = Duration::from_millis(2000);
+                let discovered = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(
+                        node.discover_topic_schema_including_subscribers(&topic, DISCOVERY_TIMEOUT),
+                    )
+                })
+                .map_err(|_| PluginError::NotFound)?;
+                if discovered.schema.type_name != type_name {
+                    return Err(PluginError::Invalid(format!(
+                        "topic {topic} carries {}, not the requested {type_name}",
+                        discovered.schema.type_name
+                    )));
+                }
+                discovered.schema
+            }
+        };
+
         let value = parse_yaml_or_json(&yaml).map_err(PluginError::Invalid)?;
-        let msg =
-            json_to_dynamic_message(&value, &discovered.schema).map_err(PluginError::Invalid)?;
+        let msg = json_to_dynamic_message(&value, &schema).map_err(PluginError::Invalid)?;
         serialize_cdr(&msg).map_err(|e| PluginError::Invalid(e.to_string()))
     }
 

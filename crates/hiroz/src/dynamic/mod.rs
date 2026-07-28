@@ -74,6 +74,8 @@ mod tests;
 pub use discovery::DiscoveredTopicSchema;
 pub use error::DynamicError;
 pub use message::{DynamicMessage, DynamicMessageBuilder};
+#[cfg(feature = "dynamic-schema-loader")]
+pub use registry::load_schema;
 pub use registry::{SchemaRegistry, get_schema, has_schema, register_schema};
 pub use schema::{FieldSchema, FieldType, MessageSchema, MessageSchemaBuilder};
 pub use serdes::DynamicSerdeCdrSerdes;
