@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 from typing import Any, Final
 
 # Re-export message types from hiroz_msgs_py.types
@@ -31,8 +32,11 @@ except ImportError:
 # Exceptions
 # ---------------------------------------------------------------------------
 
-class HirozError(Exception): ...
-class TimeoutError(HirozError): ...
+class HirozError(RuntimeError): ...
+
+# Also subclasses the builtin TimeoutError, which is what rclpy's Client.call
+# raises -- so `except TimeoutError:` in ported code keeps catching.
+class TimeoutError(HirozError, builtins.TimeoutError): ...
 class SerializationError(HirozError): ...
 class TypeMismatchError(HirozError): ...
 

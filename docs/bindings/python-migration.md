@@ -258,11 +258,15 @@ Plain strings (`reliability="best_effort"`) and dicts still work.
 hiroz-py raises a small exception hierarchy (all importable from `hiroz_py`):
 
 ```text
-HirozError                 (base — catch this to cover everything)
-├── TimeoutError           (a blocking call timed out)
-├── SerializationError     (CDR/msgpack encode/decode failure)
-└── TypeMismatchError      (type hash / type mismatch)
+RuntimeError                          (builtin)
+└── HirozError                        (base — catch this to cover everything)
+    ├── TimeoutError                  (a blocking call timed out)
+    │   └── also inherits builtins.TimeoutError
+    ├── SerializationError            (CDR/msgpack encode/decode failure)
+    └── TypeMismatchError             (type hash / type mismatch)
 ```
+
+The two extra bases exist so that ported code keeps working unchanged: `HirozError` inherits `RuntimeError` because that is what these paths raised before the typed hierarchy existed, and `TimeoutError` additionally inherits the **builtin** `TimeoutError` because that is what rclpy's `Client.call` raises.
 
 ```python
 import hiroz_py
@@ -276,7 +280,7 @@ except hiroz_py.HirozError as e:
 
 Notes:
 
-- `hiroz_py.TimeoutError` is **not** Python's builtin `TimeoutError`; it subclasses `HirozError`. Update any `except RuntimeError:` blocks migrated from older hiroz-py code to `except hiroz_py.HirozError:`.
+- `hiroz_py.TimeoutError` **is** catchable as Python's builtin `TimeoutError`, as well as `hiroz_py.HirozError` and `RuntimeError`. An `except TimeoutError:` block ported straight from rclpy keeps working. Because the builtin derives from `OSError`, these instances are `OSError`s too — the same as in rclpy.
 - A service call with **no server present at all** fails fast with a plain `HirozError` (not a timeout) — guard with `wait_for_service()` first. Timeout classification requires a server that matched but did not respond in time.
 - `recv(...)` and `recv_goal(...)` return **`None`** on timeout rather than raising — that is their documented contract. `get_result(...)` is the exception: it raises `hiroz_py.TimeoutError` on timeout, matching `ZClient.call`.
 
@@ -310,7 +314,7 @@ Mechanical steps to port an rclpy node:
 6. **Service client calls**: `call_async()` + `spin_until_future_complete()` → blocking `client.call(req, timeout=...)`. Add `client.wait_for_service(timeout=...)` before the first call.
 7. **Remove `rclpy.spin(node)`**: replace with your own loop. For queue subscribers, loop on `sub.recv(timeout=...)`. For callback subscribers/servers, the work happens on internal threads — just keep the process alive (e.g. `while True: time.sleep(1)` or block on an `Event`).
 8. **QoS**: `qos_profile=10` → `qos=10`; `QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=5)` → `hiroz_py.QosProfile(reliability=hiroz_py.ReliabilityPolicy.BEST_EFFORT, depth=5)`.
-9. **Exceptions**: change `except RuntimeError:` around service/action calls to `except hiroz_py.HirozError:` (or `hiroz_py.TimeoutError` specifically).
+9. **Exceptions**: nothing to change — `except RuntimeError:` and `except TimeoutError:` both still catch, by design. Tighten to `except hiroz_py.HirozError:` / `except hiroz_py.TimeoutError:` when you want to catch hiroz failures specifically rather than any runtime error.
 10. **Drop sleeps used for discovery**: replace `time.sleep(1.0)` before first publish/call with `pub.wait_for_subscription(...)`, `client.wait_for_service(...)`, or `action_client.wait_for_server(...)`.
 11. **Audit unsupported features**: remove or replace timers, parameters, logging, lifecycle (see [What's Not There Yet](#whats-not-there-yet)).
 
