@@ -1106,6 +1106,20 @@ impl ZNode {
             .map_err(|e| zenoh::Error::from(e.to_string()))
     }
 
+    /// Like [`discover_topic_schema`](ZNode::discover_topic_schema), but resolves
+    /// the schema from a subscriber when no publisher is present. Used by
+    /// `hu meter pub`, whose target topic usually only has a consumer.
+    pub async fn discover_topic_schema_including_subscribers(
+        &self,
+        topic: &str,
+        discovery_timeout: Duration,
+    ) -> Result<DiscoveredTopicSchema> {
+        SchemaDiscovery::new(self, discovery_timeout)
+            .discover_including_subscribers(topic)
+            .await
+            .map_err(|e| zenoh::Error::from(e.to_string()))
+    }
+
     /// Resolve a service's request and response schemas via live discovery.
     ///
     /// Service analogue of [`discover_topic_schema`](ZNode::discover_topic_schema):

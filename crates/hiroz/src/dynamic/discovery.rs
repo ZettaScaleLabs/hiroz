@@ -30,7 +30,7 @@ pub(crate) struct TopicSchemaCandidate {
     pub type_hash: String,
 }
 
-pub(crate) fn collect_topic_schema_candidates_from_publishers(
+pub(crate) fn collect_topic_schema_candidates_from_endpoints(
     publishers: &[Arc<Entity>],
     qualified_topic: &str,
 ) -> Result<Vec<TopicSchemaCandidate>, DynamicError> {
@@ -71,13 +71,13 @@ pub(crate) fn collect_topic_schema_candidates_from_publishers(
 
     if saw_missing_type_info {
         return Err(DynamicError::SchemaNotFound(format!(
-            "No publishers with type information found for topic: {}",
+            "No endpoints with type information found for topic: {}",
             qualified_topic
         )));
     }
 
     Err(DynamicError::SchemaNotFound(format!(
-        "No usable publishers found for topic: {}",
+        "No usable endpoints found for topic: {}",
         qualified_topic
     )))
 }
@@ -94,7 +94,7 @@ pub(crate) fn collect_topic_schema_candidates(
         )));
     }
 
-    collect_topic_schema_candidates_from_publishers(&publishers, qualified_topic)
+    collect_topic_schema_candidates_from_endpoints(&publishers, qualified_topic)
 }
 
 pub(crate) struct SchemaDiscovery<'a> {
@@ -128,6 +128,68 @@ impl<'a> SchemaDiscovery<'a> {
         }
 
         let candidates = collect_topic_schema_candidates(graph.as_ref(), &qualified_topic)?;
+        let (schema, type_hash) = self.try_standard(&candidates[..]).await?;
+
+        Ok(DiscoveredTopicSchema {
+            qualified_topic,
+            schema,
+            type_hash,
+        })
+    }
+
+    /// Like [`discover`], but resolves the schema from a **subscriber** when no
+    /// publisher is present. `discover` requires a live publisher (which defines
+    /// the on-wire type); this variant additionally accepts a subscriber's
+    /// advertised type, so a topic that only has a consumer — the usual target
+    /// of `hu meter pub` — is still resolvable. A publisher is still preferred
+    /// when one exists.
+    ///
+    /// [`discover`]: SchemaDiscovery::discover
+    pub(crate) async fn discover_including_subscribers(
+        &self,
+        topic: &str,
+    ) -> Result<DiscoveredTopicSchema, DynamicError> {
+        let qualified_topic = qualify_topic_name(topic, self.node.namespace(), self.node.name())
+            .map_err(|error| {
+                DynamicError::SchemaNotFound(format!("Failed to qualify topic: {error}"))
+            })?;
+
+        let graph = self.node.graph();
+        // Prefer a publisher already present (it defines the wire type); else a
+        // subscriber already present; else wait for a publisher to appear, and
+        // fall back to a subscriber one last time. This keeps the common case
+        // (a consumer is already there) fast rather than always waiting the full
+        // publisher timeout.
+        let endpoints = {
+            let pubs = graph.get_entities_by_topic(EndpointKind::Publisher, &qualified_topic);
+            if !pubs.is_empty() {
+                pubs
+            } else {
+                let subs =
+                    graph.get_entities_by_topic(EndpointKind::Subscription, &qualified_topic);
+                if !subs.is_empty() {
+                    subs
+                } else if graph
+                    .wait_for_publisher(&qualified_topic, self.timeout)
+                    .await
+                {
+                    graph.get_entities_by_topic(EndpointKind::Publisher, &qualified_topic)
+                } else {
+                    let subs =
+                        graph.get_entities_by_topic(EndpointKind::Subscription, &qualified_topic);
+                    if subs.is_empty() {
+                        return Err(DynamicError::SchemaNotFound(format!(
+                            "No publishers or subscribers found for topic: {}",
+                            qualified_topic
+                        )));
+                    }
+                    subs
+                }
+            }
+        };
+
+        let candidates =
+            collect_topic_schema_candidates_from_endpoints(&endpoints, &qualified_topic)?;
         let (schema, type_hash) = self.try_standard(&candidates[..]).await?;
 
         Ok(DiscoveredTopicSchema {

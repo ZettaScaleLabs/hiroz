@@ -7,7 +7,7 @@ use tracing::{debug, warn};
 use crate::{Builder, node::ZNode};
 
 #[cfg(test)]
-use super::discovery::collect_topic_schema_candidates_from_publishers;
+use super::discovery::collect_topic_schema_candidates_from_endpoints;
 use super::{discovery::TopicSchemaCandidate, error::DynamicError, schema::MessageSchema};
 
 use super::type_description::type_description_msg_to_schema;
@@ -199,7 +199,7 @@ mod tests {
             publisher_entity(Some("talker"), Some("std_msgs::msg::dds_::String_")),
         ];
 
-        let candidates = collect_topic_schema_candidates_from_publishers(&publishers, "/chatter")
+        let candidates = collect_topic_schema_candidates_from_endpoints(&publishers, "/chatter")
             .expect("expected type info to be discovered");
 
         assert_eq!(candidates.len(), 1);
@@ -213,7 +213,7 @@ mod tests {
     fn test_topic_discovery_reports_missing_node_identity_only_when_all_publishers_lack_it() {
         let publishers = vec![publisher_entity(None, Some("std_msgs::msg::dds_::String_"))];
 
-        let err = collect_topic_schema_candidates_from_publishers(&publishers, "/chatter")
+        let err = collect_topic_schema_candidates_from_endpoints(&publishers, "/chatter")
             .expect_err("expected missing node identity error");
 
         assert!(matches!(

@@ -160,8 +160,9 @@ impl hu::plugin::ros::Host for PluginState {
         // round-trip shouldn't look like a generic encode failure.
         const DISCOVERY_TIMEOUT: Duration = Duration::from_millis(2000);
         let discovered = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current()
-                .block_on(node.discover_topic_schema(&topic, DISCOVERY_TIMEOUT))
+            tokio::runtime::Handle::current().block_on(
+                node.discover_topic_schema_including_subscribers(&topic, DISCOVERY_TIMEOUT),
+            )
         })
         .map_err(|_| PluginError::NotFound)?;
         if discovered.schema.type_name != type_name {
