@@ -217,19 +217,17 @@ impl HuMonitor {
                 *prev_services = cur_services;
             }
             Mode::Log {
-                sub,
+                sub: Some(s),
                 count,
                 printed,
             } => {
-                if let Some(s) = sub {
-                    while let Some(msg) = s.try_recv() {
-                        render::println(&msg);
-                        *printed += 1;
-                        if *count > 0 && *printed >= *count {
-                            render::exit(0);
-                            self.mode = Mode::Done;
-                            return;
-                        }
+                while let Some(msg) = s.try_recv() {
+                    render::println(&msg);
+                    *printed += 1;
+                    if *count > 0 && *printed >= *count {
+                        render::exit(0);
+                        self.mode = Mode::Done;
+                        return;
                     }
                 }
             }

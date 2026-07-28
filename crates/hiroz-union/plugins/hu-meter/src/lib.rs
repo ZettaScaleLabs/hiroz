@@ -4,7 +4,7 @@ wit_bindgen::generate!({
 });
 
 
-use hu::plugin::session::RawPublisher;
+use hu::plugin::raw_transport::RawPublisher;
 use hu::plugin::types::{EventKind, Permission};
 use hu::plugin::{graph, render, ros};
 
@@ -279,18 +279,16 @@ impl HuMeter {
     }
 
     fn cmd_delay(&mut self, args: &[String]) {
-        let Some(topic) = args.first().cloned() else {
+        // Same topic + optional --duration parsing as hz/bw: with no --duration
+        // this stays 0 (never self-exits), matching the always-running behavior.
+        let (topic, duration_ticks) = parse_topic_duration(args);
+        let Some(topic) = topic else {
             render::println("Usage: hu meter delay <topic> [--duration <s>]");
             render::exit(1);
             self.mode = Mode::Done;
             return;
         };
-        // Optional self-exit, same as hz/bw/echo: with no --duration this stays
-        // 0 (never done), matching the always-running behavior.
-        self.duration_ticks = flag_value(args, "--duration")
-            .and_then(|v| v.parse::<f64>().ok())
-            .map(|s| s.ceil().max(1.0) as u32)
-            .unwrap_or(0);
+        self.duration_ticks = duration_ticks;
         let sub = match ros::subscribe(&topic) {
             Ok(s) => s,
             Err(e) => {
@@ -341,6 +339,23 @@ impl HuMeter {
             }
         };
 
+        // Resolve the ROS topic name to its full RmwZenoh key expression before
+        // publishing raw CDR — raw_publisher uses the string verbatim, so a bare
+        // "/topic" would go out on a key no ROS subscriber matches (and the
+        // leading '/' is an invalid zenoh key expression). Same pattern as the
+        // `echo --raw` path.
+        let ke = match ros::resolve_topic_ke(&topic) {
+            Ok(ke) => ke,
+            Err(e) => {
+                render::eprintln(&format!(
+                    "Failed to resolve key expression for {topic}: {e}"
+                ));
+                render::exit(1);
+                self.mode = Mode::Done;
+                return;
+            }
+        };
+
         let sess = match hu::plugin::session::get_session("default") {
             Ok(s) => s,
             Err(e) => {
@@ -350,7 +365,7 @@ impl HuMeter {
                 return;
             }
         };
-        let pub_ = match sess.raw_publisher(&topic) {
+        let pub_ = match sess.raw_publisher(&ke) {
             Ok(p) => p,
             Err(e) => {
                 render::eprintln(&format!("failed to declare publisher on {topic}: {e}"));
@@ -1069,7 +1084,7 @@ impl HuMeter {
                 let send_goal_svc = format!("{name}/_action/send_goal");
                 let Some(svc) = graph::list_services()
                     .into_iter()
-                    .find(|s| &s.name == &send_goal_svc)
+                    .find(|s| s.name == send_goal_svc)
                 else {
                     render::eprintln(&format!("action not found: {name}"));
                     render::exit(1);
@@ -1342,7 +1357,14 @@ impl HuMeter {
                         return;
                     }
                     let t = topic.clone();
-                    render::println(&format!("Published to {t}"));
+                    if self.json {
+                        render::println(&format!(
+                            "{{\"published\":1,\"bytes\":{},\"topic\":\"{t}\"}}",
+                            cdr.len()
+                        ));
+                    } else {
+                        render::println(&format!("Published to {t}"));
+                    }
                     *times_remaining -= 1;
                     if *times_remaining == 0 {
                         render::exit(0);
