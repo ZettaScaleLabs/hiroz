@@ -31,7 +31,7 @@
 | Extensible via plugins | no | yes (rqt plugins) | yes (`.wasm` plugins) |
 | Live multi-topic rate dashboard | — | rqt_topic | `hu` (interactive TUI) |
 
-⚠️ **`hu meter pub` is present but its `--yaml` encoding is not yet functional.** It encodes via the plugin host's `encode-yaml-to-cdr`, which resolves the message schema from a runtime schema registry that is not populated yet, so every `--msg-type` currently fails schema lookup. The command validates arguments and reports a clear error; a working encode path needs a runtime `.msg` schema loader (tracked separately).
+⚠️ **`hu meter pub` resolves the message schema by live discovery**, so a publisher or subscriber must already be present on the target topic (the plugin host queries a live node's type description — it does not carry a compiled type registry). When a consumer is present, `--yaml` / `--msg-type` publishing works; publishing to a topic no one has announced a type on reports a clear "no announced type" error rather than guessing.
 
 ---
 

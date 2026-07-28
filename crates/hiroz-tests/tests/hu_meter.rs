@@ -2142,20 +2142,13 @@ fn test_hu_meter_delay_basic() {
 
 // ─── pub ──────────────────────────────────────────────────────────────────────
 
-/// Coverage for `hu meter pub` (publish subcommand).
-///
-/// NOTE on scope: `pub --yaml` encodes via the `encode-yaml-to-cdr` WIT host
-/// function, which resolves the message schema from the global `SchemaRegistry`.
-/// Nothing populates that registry at runtime yet — schemas come only from
-/// compile-time Rust types or live discovery, and `encode-yaml-to-cdr` (unlike
-/// service `call`) is not rerouted through discovery — so every msg-type fails
-/// schema lookup. This is not a bug in `pub`; the happy encode-and-receive path
-/// needs a runtime `.msg` schema loader that does not exist yet.
-///
-/// This test therefore exercises the maximal CI-safe surface: arg parsing, the
-/// one-shot dispatch, the `encode-yaml-to-cdr` host-call boundary, and the
-/// error-rendering/exit paths — catching regressions that break argument
-/// handling, panic the plugin, or hang the command.
+/// Error-path coverage for `hu meter pub`: argument validation and the
+/// no-discoverable-schema case. `pub` resolves the message schema by live
+/// discovery from a node on the topic (`encode-yaml-to-cdr` takes the topic),
+/// so publishing to a topic with no publisher/subscriber must fail cleanly
+/// rather than panic or hang. The happy path (a live consumer is present, the
+/// message is published and received) is covered by
+/// `test_hu_meter_pub_publishes_to_live_topic`.
 #[test]
 #[serial_test::serial]
 fn test_hu_meter_pub_arg_and_encode_paths() {
@@ -2175,14 +2168,13 @@ fn test_hu_meter_pub_arg_and_encode_paths() {
         String::from_utf8_lossy(&out.stdout)
     );
 
-    // (b) With --msg-type + --yaml but no schema in the registry: the
-    //     encode-yaml-to-cdr host call must surface a clean encode error and
-    //     exit non-zero — again, no panic/hang.
+    // (b) No publisher/subscriber on the topic → schema discovery finds nothing,
+    //     so the encode boundary must surface a clean error and exit non-zero.
     let out = run_hu_meter(
         router.endpoint(),
         &[
             "pub",
-            "/pub_string_topic",
+            "/pub_unannounced_topic",
             "--msg-type",
             "std_msgs/msg/String",
             "--yaml",
@@ -2191,7 +2183,7 @@ fn test_hu_meter_pub_arg_and_encode_paths() {
     );
     assert!(
         !out.status.success(),
-        "hu meter pub with an unresolvable schema should exit non-zero"
+        "hu meter pub to a topic with no announced type should exit non-zero"
     );
     let combined = format!(
         "{}{}",
@@ -2199,7 +2191,77 @@ fn test_hu_meter_pub_arg_and_encode_paths() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
-        combined.contains("encode error") || combined.contains("not found"),
-        "Expected a schema-not-found encode error from `pub`, got: {combined}"
+        combined.contains("encode error"),
+        "Expected an encode error from `pub` on an unannounced topic, got: {combined}"
+    );
+}
+
+/// Happy path for `hu meter pub`: with a live subscriber on the topic (so the
+/// message type is discoverable), `pub` resolves the schema, encodes the YAML,
+/// and publishes — and the subscriber receives the message.
+#[test]
+#[serial_test::serial]
+fn test_hu_meter_pub_publishes_to_live_topic() {
+    use std::sync::{Arc, Mutex};
+
+    let router = TestRouter::new();
+    let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let received_bg = received.clone();
+
+    let endpoint = router.endpoint().to_string();
+    let _producer = spawn_producer(move |stop| async move {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).unwrap();
+        let node = ctx
+            .create_node("pub_target")
+            .with_type_description_service()
+            .build()
+            .unwrap();
+        // A live subscriber both announces the std_msgs/String type (so hu's
+        // discovery can resolve the schema) and lets us confirm receipt.
+        let _sub = node
+            .create_sub::<RosString>("/pub_target")
+            .build_with_callback(move |msg| {
+                received_bg.lock().unwrap().push(msg.data.clone());
+            })
+            .unwrap();
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
+
+    // Let the subscriber settle into the graph so hu's discovery (2s budget)
+    // finds it.
+    thread::sleep(Duration::from_millis(1500));
+
+    let out = run_hu_meter(
+        router.endpoint(),
+        &[
+            "pub",
+            "/pub_target",
+            "--msg-type",
+            "std_msgs/msg/String",
+            "--yaml",
+            "{data: hu_pub_hello}",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "hu meter pub should succeed with a live subscriber; stderr: {}\nstdout: {}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    let mut got = false;
+    for _ in 0..40 {
+        if received.lock().unwrap().iter().any(|d| d == "hu_pub_hello") {
+            got = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        got,
+        "subscriber did not receive the published message; got: {:?}",
+        received.lock().unwrap()
     );
 }

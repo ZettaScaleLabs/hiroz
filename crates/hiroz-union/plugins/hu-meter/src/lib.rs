@@ -343,18 +343,18 @@ impl HuMeter {
             return;
         }
 
-        let cdr = match ros::encode_yaml_to_cdr(&yaml, &msg_type) {
+        let cdr = match ros::encode_yaml_to_cdr(&topic, &yaml, &msg_type) {
             Ok(b) => b,
             Err(e) => {
-                // encode-yaml-to-cdr resolves the schema from the host's runtime
-                // SchemaRegistry, which is not populated yet, so a not-found here
-                // is expected for every type — surface that clearly rather than a
-                // bare "not found". (Known limitation; a fix needs a WIT change.)
+                // The host resolves the schema by discovering a live node on the
+                // topic; not-found means no publisher/subscriber announced a type
+                // there, so a bare topic with no consumer can't be published to.
                 if matches!(e, hu::plugin::types::PluginError::NotFound) {
                     render::eprintln(&format!(
-                        "encode error: no schema for '{msg_type}' is available to the plugin host. \
-                         hu meter pub's --yaml encoding requires the message type in the host's \
-                         runtime schema registry, which is not yet populated — a known limitation."
+                        "encode error: could not resolve a message schema for {topic}. \
+                         hu meter pub discovers the type from a live publisher or subscriber \
+                         on the topic — none was found (a topic with no announced type cannot \
+                         be published to)."
                     ));
                 } else {
                     render::eprintln(&format!("encode error: {e}"));

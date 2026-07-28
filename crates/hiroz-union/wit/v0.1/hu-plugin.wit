@@ -183,7 +183,11 @@ interface ros {
     measure-hz: func(topic: string, window-ms: u32) -> result<hz-measurement, plugin-error>;
     measure-bw: func(topic: string, window-ms: u32) -> result<bw-measurement, plugin-error>;
 
-    encode-yaml-to-cdr: func(yaml: string, type-name: string) -> result<list<u8>, plugin-error>;
+    // Encode a YAML/JSON body to CDR for `topic`. The schema is resolved by live
+    // discovery from a node already on the topic, so a publisher/subscriber must
+    // be present; `type-name` is the caller's intended type and a mismatch with
+    // the discovered wire type is an error.
+    encode-yaml-to-cdr: func(topic: string, yaml: string, type-name: string) -> result<list<u8>, plugin-error>;
 }
 
 interface raw-transport {

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use hiroz::dynamic::{
-    DynamicMessage, DynamicValue, FieldType, MessageSchema, get_schema,
+    DynamicMessage, DynamicValue, FieldType, MessageSchema,
     serialization::{deserialize_cdr, serialize_cdr},
 };
 use wasmtime::component::Resource;
@@ -141,21 +141,38 @@ impl hu::plugin::ros::Host for PluginState {
         Ok(Resource::new_own(rep))
     }
 
-    // NOTE: reads the global (structurally never-populated) SchemaRegistry
-    // rather than live discovery like HostServiceClient::call. This is a
-    // topic-pub path (`hu meter pub --msg-type/--yaml`), but the WIT signature
-    // is `(yaml, type-name)` with no topic to key a discovery query on. Fixing
-    // it properly needs a WIT change across all plugin copies — out of scope.
-    // Known, disclosed gap (see pr-readiness.md `pub_yaml_nested_twist`).
+    // Resolve the message schema by live discovery from a node already on
+    // `topic` (the SchemaRegistry is not populated on the plugin-host path), the
+    // same approach as HostServiceClient::call. `type_name` is the caller's
+    // intended type; the authoritative schema is whatever is actually on the
+    // wire, and a mismatch is reported rather than silently re-typed. Requires a
+    // live publisher/subscriber on the topic — publishing to a topic no one has
+    // announced cannot be schema-resolved this way.
     fn encode_yaml_to_cdr(
         &mut self,
+        topic: String,
         yaml: String,
         type_name: String,
     ) -> Result<Vec<u8>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::PublishTopic)?;
-        let schema = get_schema(&type_name).ok_or(PluginError::NotFound)?;
+        let node = self.engine.node.clone();
+        // Budget discovery independently; a slow/failed get_type_description
+        // round-trip shouldn't look like a generic encode failure.
+        const DISCOVERY_TIMEOUT: Duration = Duration::from_millis(2000);
+        let discovered = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(node.discover_topic_schema(&topic, DISCOVERY_TIMEOUT))
+        })
+        .map_err(|_| PluginError::NotFound)?;
+        if discovered.schema.type_name != type_name {
+            return Err(PluginError::Invalid(format!(
+                "topic {topic} carries {}, not the requested {type_name}",
+                discovered.schema.type_name
+            )));
+        }
         let value = parse_yaml_or_json(&yaml).map_err(PluginError::Invalid)?;
-        let msg = json_to_dynamic_message(&value, &schema).map_err(PluginError::Invalid)?;
+        let msg =
+            json_to_dynamic_message(&value, &discovered.schema).map_err(PluginError::Invalid)?;
         serialize_cdr(&msg).map_err(|e| PluginError::Invalid(e.to_string()))
     }
 
