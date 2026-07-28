@@ -130,12 +130,27 @@ fn extract_service_type_info(srv_type: &Bound<'_, PyAny>) -> PyResult<(String, T
                 "Service grouping class with __srvtype__ must define a Request member",
             )
         })?;
-        let type_hash = request_cls
+        // Be as strict as the legacy Request-class path: a bad hash means the
+        // client silently fails to match a typed server, so fail at construction
+        // rather than building a zero-hash client.
+        let type_hash_str: String = request_cls
             .getattr("__hash__")
-            .ok()
-            .and_then(|v| v.extract::<String>().ok())
-            .and_then(|s| TypeHash::from_rihs_string(&s))
-            .unwrap_or_else(TypeHash::zero);
+            .map_err(|_| {
+                pyo3::exceptions::PyTypeError::new_err(
+                    "Service grouping class Request member must have a __hash__ class attribute",
+                )
+            })?
+            .extract()
+            .map_err(|_| {
+                pyo3::exceptions::PyTypeError::new_err(
+                    "Service grouping class Request member __hash__ must be a string",
+                )
+            })?;
+        let type_hash = TypeHash::from_rihs_string(&type_hash_str).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "Invalid type hash format: {type_hash_str}"
+            ))
+        })?;
         let rust_type_name = python_type_to_rust_type(&srv_type_str);
         return Ok((srv_type_str, TypeInfo::new(&rust_type_name, type_hash)));
     }
@@ -380,7 +395,7 @@ impl PyZNode {
             .create_client_impl::<RawBytesService>(&service, Some(type_info));
         let zclient = client_builder.build().map_err(|e| e.into_pyerr())?;
         let wrapper = GenericClientWrapper::new(zclient);
-        let qualified = self.qualify_service_name(&service);
+        let qualified = self.qualify_service_name(&service)?;
         Ok(PyZClient::new(
             Box::new(wrapper),
             srv_type_str,
@@ -473,7 +488,7 @@ impl PyZNode {
         // wait_for_server polls the graph for it.
         let send_goal_service = format!(
             "{}/_action/send_goal",
-            self.qualify_service_name(&action_name)
+            self.qualify_service_name(&action_name)?
         );
 
         Ok(PyZActionClient::new(
@@ -599,8 +614,16 @@ impl PyZNode {
 impl PyZNode {
     /// Qualify a service name against the node's namespace/name so the result
     /// matches the entries the discovery graph stores. Absolute names pass through.
-    fn qualify_service_name(&self, service: &str) -> String {
-        hiroz::topic_name::qualify_topic_name(service, self.inner.namespace(), self.inner.name())
-            .unwrap_or_else(|_| service.to_string())
+    ///
+    /// Errors propagate rather than falling back to the raw name: a silently
+    /// unqualified name makes `wait_for_service` / `wait_for_server` poll the
+    /// graph for a name that can never appear, which looks like a hang.
+    fn qualify_service_name(&self, service: &str) -> PyResult<String> {
+        hiroz::topic_name::qualify_service_name(service, self.inner.namespace(), self.inner.name())
+            .map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "Invalid service name '{service}': {e}"
+                ))
+            })
     }
 }
