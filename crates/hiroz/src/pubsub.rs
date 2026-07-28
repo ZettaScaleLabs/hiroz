@@ -41,10 +41,16 @@ thread_local! {
 
 /// RAII marker set for the duration of a hiroz publish.
 ///
-/// Every `ZPub` publish path funnels through [`ZPub::finish_put`], which holds
-/// one of these across the zenoh `put`. Nesting is counted rather than flagged
-/// so that a publish issued from inside a callback that is itself running on a
-/// thread already inside a publish restores the right state on unwind.
+/// There is no single choke point: each of `ZPub`'s four publish paths —
+/// [`ZPub::publish`], [`ZPub::async_publish`], [`ZPub::publish_serialized`] and
+/// [`ZPub::publish_sample`] — enters one of these itself and holds it across the
+/// zenoh `put`. A fifth publish path added later must do the same, or
+/// session-local delivery on that path runs inline on the publishing thread and
+/// the deadlock this guard exists to prevent comes back.
+///
+/// Nesting is counted rather than flagged so that a publish issued from inside a
+/// callback that is itself running on a thread already inside a publish restores
+/// the right state on unwind.
 pub(crate) struct LocalPublishGuard;
 
 impl LocalPublishGuard {
@@ -93,7 +99,10 @@ fn local_publish_active() -> bool {
 
 /// Backlog size at which an *unbounded* [`CallbackDispatcher`] first warns.
 /// Doubles after each warning so a persistently slow callback does not flood the
-/// log. A bounded dispatcher cannot reach this — it warns on drops instead.
+/// log. Bounded dispatchers are excluded explicitly at the check rather than by
+/// this value being out of their reach: a `KeepLast(1024)` subscriber has
+/// exactly this capacity, so it would otherwise warn that its queue is lossless
+/// right before dropping. Bounded dispatchers warn on drops instead.
 const DISPATCH_BACKLOG_WARN_AT: usize = 1024;
 
 /// Capacity a [`CallbackDispatcher`] must be given to be unbounded, i.e. lossless.
@@ -178,7 +187,13 @@ impl DispatchQueue {
 
             state.pending.push_back(sample);
             let len = state.pending.len();
-            let backlog = if len >= state.warn_at {
+            // Unbounded queues only. A bounded queue *can* reach
+            // `DISPATCH_BACKLOG_WARN_AT` — nothing stops a subscriber declaring
+            // `KeepLast(1024)` or deeper — and it would then log that the queue
+            // is lossless and merely costs memory, which is the opposite of
+            // what a bounded queue does. Bounded queues report drops instead;
+            // that warning is immediately below and is the accurate one.
+            let backlog = if self.capacity == DISPATCH_UNBOUNDED && len >= state.warn_at {
                 state.warn_at = len.saturating_mul(2);
                 Some(len)
             } else {
