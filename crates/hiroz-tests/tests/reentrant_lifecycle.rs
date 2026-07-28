@@ -215,3 +215,75 @@ fn failing_transition_callback_still_observes_intermediate_state() {
         assert_eq!(lc_node.get_current_state(), LifecycleState::Inactive);
     });
 }
+
+/// A transition callback that panics must not leave the node wedged.
+///
+/// This is the hazard the `begin`/`finish` split introduced. `begin` moves the
+/// state machine into the intermediate ("busy") state and releases the guard;
+/// the callback then runs unlocked. If it panics, the unwind used to escape
+/// `trigger_transition` before `finish` ran — so `current` stayed at
+/// `Configuring` forever. Worse, because the guard had already been dropped,
+/// the mutex was *not* poisoned, so nothing ever reported it: every later
+/// `begin` returned `None` and `~/get_state` answered `configuring` for the
+/// life of the process.
+///
+/// That is strictly worse than the behaviour it replaced. While the callback
+/// ran under the guard, a panic unwound through a live `MutexGuard` and
+/// poisoned the mutex, so the very next `lock().unwrap()` panicked loudly.
+/// Fail-fast became a silent permanent wedge.
+///
+/// The fix catches the unwind, settles the state machine on `Failure` (revert
+/// to the start state — "the transition did not happen"), and re-raises the
+/// payload, so the panic is still as loud as before while the node stays
+/// usable.
+///
+/// Reverting the `catch_unwind` in `ZLifecycleNode::trigger_transition` makes
+/// both assertions below fail: the state reads `Configuring`, and the recovery
+/// transition returns `Configuring` because `begin` refuses to start.
+#[test]
+#[serial]
+fn panicking_transition_callback_does_not_wedge_the_node() {
+    with_deadline("lifecycle_transition_panic", || {
+        const NODE_NAME: &str = "lc_panicking_callback";
+
+        let router = TestRouter::new();
+        let ctx_node = create_hiroz_context_with_endpoint(router.endpoint()).expect("node ctx");
+        let mut lc_node = ctx_node
+            .create_lifecycle_node(NODE_NAME)
+            .build()
+            .expect("lifecycle node");
+
+        lc_node.on_configure = Box::new(|_prev| panic!("deliberate panic from on_configure"));
+
+        // The panic must still propagate — silently swallowing it would be its
+        // own defect. Keep the default hook quiet for this one call so the
+        // expected backtrace does not look like a test failure.
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lc_node.configure()));
+        std::panic::set_hook(prev_hook);
+
+        assert!(
+            outcome.is_err(),
+            "the panic was swallowed; it must still reach the caller"
+        );
+
+        // The node must be back at its pre-transition primary state, not
+        // stranded in the intermediate one.
+        assert_eq!(
+            lc_node.get_current_state(),
+            LifecycleState::Unconfigured,
+            "node wedged in an intermediate state after a panicking callback"
+        );
+
+        // And it must still be usable: a subsequent transition has to work.
+        lc_node.on_configure = Box::new(|_prev| CallbackReturn::Success);
+        let recovered = lc_node.configure().expect("configure after panic");
+        assert_eq!(
+            recovered,
+            LifecycleState::Inactive,
+            "node could not transition after a panicking callback"
+        );
+    });
+}

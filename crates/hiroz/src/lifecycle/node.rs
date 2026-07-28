@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
+    sync::{Arc, Mutex},
+};
 
 use tracing::{debug, info, warn};
 use zenoh::{Result, Wait, query::Query};
@@ -153,7 +156,38 @@ impl ZLifecycleNode {
         let cb_result = match begun {
             Some(start_state) => {
                 // Lock released; observers see the intermediate ("busy") state.
-                let ret = callback(start_state);
+                //
+                // A panic here must not escape without settling the state
+                // machine. `begin` has already moved `current` to the
+                // intermediate state, and the guard it took is gone — so an
+                // unwind straight out of this function would leave `current`
+                // at `Configuring`/`Activating`/... permanently, *and* leave
+                // the mutex unpoisoned, so nothing would ever report it. Every
+                // later `begin` returns `None` and `~/get_state` answers
+                // `configuring` for the life of the process: a silent wedge.
+                // Before the callback was moved out of the lock, the unwind
+                // passed through a live guard and poisoned the mutex, so the
+                // next access failed loudly.
+                //
+                // Settle on `Failure`, which reverts to `start_state` — the
+                // same "nothing changed" outcome as the invalid-transition arm
+                // below, and the only result that is both well-defined and
+                // leaves the node usable. `on_error` is deliberately not run:
+                // we are already unwinding, and running more user code on the
+                // way out would risk a second panic. The payload is then
+                // re-raised, so a panicking callback still fails exactly as
+                // loudly as it did before the split.
+                let ret = match catch_unwind(AssertUnwindSafe(|| callback(start_state))) {
+                    Ok(ret) => ret,
+                    Err(payload) => {
+                        self.state_machine.lock().unwrap().finish(
+                            transition,
+                            start_state,
+                            CallbackReturn::Failure,
+                        );
+                        resume_unwind(payload);
+                    }
+                };
                 self.state_machine
                     .lock()
                     .unwrap()
@@ -164,8 +198,20 @@ impl ZLifecycleNode {
         };
 
         let final_state = if cb_result == State::ErrorProcessing {
-            // Same split for the error path.
-            let ret = (self.on_error)(State::ErrorProcessing);
+            // Same split, and the same unwind guard, for the error path: a
+            // panic in `on_error` would otherwise strand the node in
+            // `ErrorProcessing` with no way out.
+            let cb = AssertUnwindSafe(|| (self.on_error)(State::ErrorProcessing));
+            let ret = match catch_unwind(cb) {
+                Ok(ret) => ret,
+                Err(payload) => {
+                    self.state_machine
+                        .lock()
+                        .unwrap()
+                        .finish_error_processing(CallbackReturn::Error);
+                    resume_unwind(payload);
+                }
+            };
             self.state_machine
                 .lock()
                 .unwrap()
