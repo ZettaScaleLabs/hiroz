@@ -31,8 +31,8 @@
 //!
 //! # Cost
 //!
-//! Zero in release. [`GuardCount`](crate::reentrancy::GuardCount) is a unit
-//! struct whose constructor and `Drop` compile to nothing without
+//! Zero in release. [`GuardCount`](crate::reentrancy::GuardCount) is a
+//! zero-sized newtype whose constructor and `Drop` compile to nothing without
 //! `debug_assertions`, and
 //! [`assert_no_guards_held`](crate::reentrancy::assert_no_guards_held)
 //! expands to nothing. Tests and CI run in debug, which is where the assertion
@@ -57,15 +57,24 @@ thread_local! {
 }
 
 /// RAII counter embedded in every tracked guard.
+///
+/// The private field is what makes the counter trustworthy. As a fieldless unit
+/// struct this was constructible — and therefore *droppable* — by any code that
+/// could name it, and `Drop` decrements the thread-local. A stray
+/// `drop(GuardCount)` while a tracked guard was live would take the count to
+/// zero, `assert_no_guards_held` would pass, and a genuine callback-under-lock
+/// would go unreported. `saturating_sub` guaranteed that desync was silent.
+/// Only this module can mint one now, so the count can only be moved by
+/// acquiring and releasing a real guard.
 #[derive(Debug)]
-pub struct GuardCount;
+pub struct GuardCount(());
 
 impl GuardCount {
     #[inline(always)]
     fn new() -> Self {
         #[cfg(debug_assertions)]
         LIVE_GUARDS.with(|n| n.set(n.get() + 1));
-        Self
+        Self(())
     }
 }
 

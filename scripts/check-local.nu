@@ -83,7 +83,7 @@ def main [--suite: string = "full"] {
         {name: "hu clippy (check-hu)", cmd: "nu scripts/test-pure-rust.nu check-hu"},
         {name: "SHM tests (test-shm)", cmd: "nu scripts/test-pure-rust.nu test-shm"},
         {name: "Distro feature flags (check-distro-features)", cmd: "nu scripts/test-pure-rust.nu check-distro-features"},
-        {name: "Rustdoc links (cargo doc)", cmd: "let r = (^cargo doc --no-deps -p hiroz --quiet | complete); let w = ($r.stderr | lines | where $it =~ 'unresolved link'); if ($w | is-not-empty) { print ($w | str join (char newline)); error make {msg: 'rustdoc: unresolved intra-doc links'} }"},
+        {name: "Rustdoc links (cargo doc)", cmd: "let r = (^cargo doc --no-deps -p hiroz --quiet | complete); let w = ($r.stderr | lines | where {|it| ($it =~ 'unresolved link') or ($it =~ 'broken_intra_doc_links')}); if ($w | is-not-empty) { print ($w | str join (char newline)); error make {msg: 'rustdoc: unresolved intra-doc links'} }"},
     ]
 
     let results = $checks | enumerate | each {|item|
