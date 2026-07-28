@@ -665,45 +665,38 @@ fn generate_deserialize_direct(
 ) -> TokenStream {
     let mut match_arms = Vec::new();
 
+    // Each arm delegates to the per-type `deserialize_<name>` already emitted by
+    // `generate_deserialize_function`, rather than repeating its body. Inlining
+    // the decode here would give three copies of the same header handling,
+    // endianness choice and error mapping (messages, requests, responses) that
+    // could drift apart under any future fix. The call keeps the fast path
+    // intact -- it is a direct Rust call, no Python registry and no Python-level
+    // dispatch -- and those functions take the *whole* buffer because they strip
+    // the encapsulation header themselves.
     for (package_name, package_msgs) in packages {
-        let package_ident = format_ident!("{}", package_name.replace('-', "_"));
+        let mod_ident = format_ident!("{}_py", package_name.replace('-', "_"));
         for msg in package_msgs {
             let full_name = format!("{}/msg/{}", package_name, msg.parsed.name);
-            let name_ident = format_ident!("{}", msg.parsed.name);
+            let fn_ident = format_ident!("deserialize_{}", msg.parsed.name.to_lowercase());
             match_arms.push(quote! {
-                #full_name => {
-                    let (rust_msg, _): (ros::#package_ident::#name_ident, _) =
-                        hiroz_cdr::from_bytes::<_, hiroz_cdr::LittleEndian>(payload)
-                            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-                    rust_msg.into_py_message(py)
-                }
+                #full_name => #mod_ident::#fn_ident(py, bytes),
             });
         }
     }
 
     for srv in services {
-        let package_ident = format_ident!("{}", srv.parsed.package.replace('-', "_"));
+        let mod_ident = format_ident!("{}_srv_py", srv.parsed.package.replace('-', "_"));
 
         let req_full_name = format!("{}/srv/{}_Request", srv.parsed.package, srv.parsed.name);
-        let req_name_ident = format_ident!("{}Request", srv.parsed.name);
+        let req_fn_ident = format_ident!("deserialize_{}", srv.request.parsed.name.to_lowercase());
         match_arms.push(quote! {
-            #req_full_name => {
-                let (rust_msg, _): (ros::#package_ident::#req_name_ident, _) =
-                    hiroz_cdr::from_bytes::<_, hiroz_cdr::LittleEndian>(payload)
-                        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-                rust_msg.into_py_message(py)
-            }
+            #req_full_name => #mod_ident::#req_fn_ident(py, bytes),
         });
 
         let resp_full_name = format!("{}/srv/{}_Response", srv.parsed.package, srv.parsed.name);
-        let resp_name_ident = format_ident!("{}Response", srv.parsed.name);
+        let resp_fn_ident = format_ident!("deserialize_{}", srv.response.parsed.name.to_lowercase());
         match_arms.push(quote! {
-            #resp_full_name => {
-                let (rust_msg, _): (ros::#package_ident::#resp_name_ident, _) =
-                    hiroz_cdr::from_bytes::<_, hiroz_cdr::LittleEndian>(payload)
-                        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-                rust_msg.into_py_message(py)
-            }
+            #resp_full_name => #mod_ident::#resp_fn_ident(py, bytes),
         });
     }
 
@@ -722,14 +715,14 @@ fn generate_deserialize_direct(
         /// types take the fast Rust path; everything else keeps working exactly
         /// as it did.
         pub fn deserialize_direct(type_name: &str, py: Python, bytes: &[u8]) -> PyResult<PyObject> {
-            use ::hiroz::python_bridge::IntoPyMessage;
-            // Skip 4-byte CDR encapsulation header
+            // Header length is validated here so the error is identical for the
+            // registry fallback, which does not check. The per-type functions
+            // re-check and strip it themselves.
             if bytes.len() < 4 {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "CDR data too short: missing encapsulation header"
                 ));
             }
-            let payload = &bytes[4..];
             match type_name {
                 #(#match_arms)*
                 // Not known at codegen time: defer to the runtime registry.
