@@ -12,6 +12,14 @@ pub struct NodeImpl {
     pub namespace: CString,
     pub fq_name: CString,
     pub graph_guard_condition: *mut rmw_guard_condition_t,
+    /// The shared state registered with hiroz's graph-event manager.
+    ///
+    /// Kept so teardown can unregister the exact allocation it registered
+    /// (identity is `Arc::ptr_eq`). Holding it here also means the state
+    /// survives `rmw_destroy_guard_condition` below, which is what makes it safe
+    /// to free the C handle while a graph-change trigger may still be in flight.
+    pub graph_guard_condition_state:
+        Option<std::sync::Arc<dyn hiroz::event::GraphGuardCondition>>,
 }
 
 impl NodeImpl {
@@ -44,6 +52,7 @@ impl NodeImpl {
             namespace: namespace_cstr,
             fq_name: fq_name_cstr,
             graph_guard_condition: std::ptr::null_mut(),
+            graph_guard_condition_state: None,
         })
     }
 }
@@ -122,12 +131,23 @@ pub extern "C" fn rmw_create_node(
     }
     node_impl.graph_guard_condition = graph_guard_condition;
 
-    // Register the graph guard condition with the graph event manager
+    // Register the graph guard condition with the graph event manager.
+    //
+    // Register the *shared state*, not the C pointer: the manager triggers with
+    // its registry lock released, so a raw pointer could be freed by a
+    // concurrent `rmw_destroy_node` between snapshot and call. Handing over an
+    // `Arc` keeps the target alive for the duration of any in-flight trigger.
+    let gc_state: std::sync::Arc<dyn hiroz::event::GraphGuardCondition> =
+        match graph_guard_condition.borrow_data() {
+            Ok(gc_impl) => gc_impl.share_state(),
+            Err(_) => return std::ptr::null_mut(),
+        };
+    node_impl.graph_guard_condition_state = Some(gc_state.clone());
     node_impl
         .inner
         .graph()
         .event_manager
-        .register_graph_guard_condition(graph_guard_condition as *mut std::ffi::c_void);
+        .register_graph_guard_condition(gc_state);
 
     // Add node to local graph for immediate discovery
     if let Err(e) = node_impl
@@ -175,7 +195,7 @@ pub extern "C" fn rmw_destroy_node(node: *mut rmw_node_t) -> rmw_ret_t {
     }
 
     // Remove node from local graph and destroy the graph guard condition
-    if let Ok(node_impl) = node.borrow_data() {
+    if let Ok(node_impl) = node.borrow_mut_data() {
         // Remove node from local graph
         if let Err(e) = node_impl
             .inner
@@ -188,14 +208,17 @@ pub extern "C" fn rmw_destroy_node(node: *mut rmw_node_t) -> rmw_ret_t {
         }
 
         if !node_impl.graph_guard_condition.is_null() {
-            // Unregister from graph event manager
-            node_impl
-                .inner
-                .graph()
-                .event_manager
-                .unregister_graph_guard_condition(
-                    node_impl.graph_guard_condition as *mut std::ffi::c_void,
-                );
+            // Unregister from graph event manager, by the same allocation we
+            // registered. Destroying the C handle immediately afterwards is
+            // safe even if a graph-change trigger is in flight: that trigger
+            // holds its own `Arc` to the state, which outlives this handle.
+            if let Some(gc_state) = node_impl.graph_guard_condition_state.take() {
+                node_impl
+                    .inner
+                    .graph()
+                    .event_manager
+                    .unregister_graph_guard_condition(&gc_state);
+            }
             crate::guard_condition::rmw_destroy_guard_condition(node_impl.graph_guard_condition);
         }
     }

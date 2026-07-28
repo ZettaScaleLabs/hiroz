@@ -95,18 +95,6 @@ impl ContextImpl {
             .build()
             .map_err(|e| format!("Failed to create ZContext: {}", e))?;
 
-        // Set up the guard condition trigger function for graph events
-        // This allows graph changes to trigger RMW guard conditions
-        let trigger_fn: hiroz::event::GraphGuardConditionTrigger = Arc::new(|gc_ptr| {
-            crate::guard_condition::rmw_trigger_guard_condition(
-                gc_ptr as *const crate::ros::rmw_guard_condition_t,
-            );
-        });
-        zcontext
-            .graph()
-            .event_manager
-            .set_guard_condition_trigger(trigger_fn);
-
         Ok(Self {
             zcontext: Arc::new(zcontext),
             enclave,

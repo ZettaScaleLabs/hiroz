@@ -177,19 +177,37 @@ impl EventsManager {
     }
 }
 
-// Callback type for triggering graph guard conditions.
-//
-// `Arc` for the same reason as [`EventCallback`]: it is cloned out of its
-// `Mutex` before being called, so guard-condition triggers never run with the
-// graph-event registry locked.
-pub type GraphGuardConditionTrigger = Arc<dyn Fn(*mut std::ffi::c_void) + Send + Sync>;
+/// A graph guard condition this manager may trigger on a graph change.
+///
+/// Registrations are **owned**, not raw pointers, and that is the whole point.
+/// Triggering happens after the registry lock is released — it has to, because
+/// the trigger is rmw-side code that re-enters hiroz. But a raw pointer cloned
+/// out of the lock is only valid while something guarantees the target outlives
+/// the call, and nothing did: `rmw_destroy_node` unregisters and then
+/// immediately frees the guard condition, so a destroy landing between the
+/// snapshot and the call left the trigger dereferencing freed memory.
+///
+/// Holding an `Arc` for the duration of the call closes that window without
+/// reintroducing the lock: the implementation's state stays alive as long as
+/// this manager holds a reference, even if the C-side handle is destroyed
+/// concurrently. Implementors must therefore keep [`trigger`] valid after the
+/// owning C object is gone — the natural shape is state behind its own `Arc`,
+/// with the C handle holding one reference and this registry another.
+///
+/// [`trigger`]: GraphGuardCondition::trigger
+pub trait GraphGuardCondition: Send + Sync {
+    /// Wake whatever is waiting on this guard condition.
+    ///
+    /// Called with no hiroz lock held, possibly concurrently, and possibly
+    /// after the corresponding C handle has been destroyed.
+    fn trigger(&self);
+}
 
 // GraphCache event integration
 pub struct GraphEventManager {
     event_callbacks: TrackedMutex<HashMap<GidArray, HashMap<ZenohEventType, EventCallback>>>,
     entity_topics: TrackedMutex<HashMap<GidArray, String>>, // Topic name per registered entity
-    graph_guard_conditions: TrackedMutex<Vec<usize>>,       // Pointers as usize for Send
-    trigger_guard_condition: TrackedMutex<Option<GraphGuardConditionTrigger>>,
+    graph_guard_conditions: TrackedMutex<Vec<Arc<dyn GraphGuardCondition>>>,
 }
 
 impl Default for GraphEventManager {
@@ -204,12 +222,7 @@ impl GraphEventManager {
             event_callbacks: TrackedMutex::new(HashMap::new()),
             entity_topics: TrackedMutex::new(HashMap::new()),
             graph_guard_conditions: TrackedMutex::new(Vec::new()),
-            trigger_guard_condition: TrackedMutex::new(None),
         }
-    }
-
-    pub fn set_guard_condition_trigger(&self, trigger: GraphGuardConditionTrigger) {
-        *self.trigger_guard_condition.lock().unwrap() = Some(trigger);
     }
 
     pub fn register_event_callback<F>(
@@ -244,15 +257,27 @@ impl GraphEventManager {
         topics.remove(entity_gid);
     }
 
-    pub fn register_graph_guard_condition(&self, guard_condition: *mut std::ffi::c_void) {
+    /// Register a guard condition to be triggered on every graph change.
+    ///
+    /// The manager keeps the `Arc` alive for as long as it is registered, and
+    /// for the duration of any trigger already in flight — see
+    /// [`GraphGuardCondition`] for why that ownership is load-bearing.
+    pub fn register_graph_guard_condition(&self, guard_condition: Arc<dyn GraphGuardCondition>) {
         let mut conditions = self.graph_guard_conditions.lock().unwrap();
-        conditions.push(guard_condition as usize);
+        conditions.push(guard_condition);
     }
 
-    pub fn unregister_graph_guard_condition(&self, guard_condition: *mut std::ffi::c_void) {
+    /// Stop triggering `guard_condition`.
+    ///
+    /// Identity is `Arc::ptr_eq`, so the caller must pass the same allocation it
+    /// registered. Returning does **not** mean no trigger is in flight: a
+    /// concurrent [`Self::trigger_graph_change`] may already hold its own clone
+    /// and be calling into it. That is exactly why the registration is owned —
+    /// the in-flight call keeps the target alive, so a caller that frees its own
+    /// handle immediately after this returns is still safe.
+    pub fn unregister_graph_guard_condition(&self, guard_condition: &Arc<dyn GraphGuardCondition>) {
         let mut conditions = self.graph_guard_conditions.lock().unwrap();
-        let gc_usize = guard_condition as usize;
-        conditions.retain(|&gc| gc != gc_usize);
+        conditions.retain(|gc| !Arc::ptr_eq(gc, guard_condition));
     }
 
     pub fn trigger_event(&self, entity_gid: &GidArray, event_type: ZenohEventType, change: i32) {
@@ -309,15 +334,16 @@ impl GraphEventManager {
         let change = if appeared { 1 } else { -1 };
 
         // Trigger graph guard conditions for ALL graph changes (local and remote).
-        // Snapshot the trigger and the pointer list, then release both locks before
-        // calling out — the trigger is rmw-side code and may re-enter.
-        let trigger = self.trigger_guard_condition.lock().unwrap().clone();
-        if let Some(trigger) = trigger {
-            let guard_conditions = self.graph_guard_conditions.lock().unwrap().clone();
-            for gc_usize in guard_conditions {
-                let gc = gc_usize as *mut std::ffi::c_void;
-                trigger(gc);
-            }
+        //
+        // Snapshot, release the lock, then call — the trigger is rmw-side code
+        // and may re-enter this manager, so it must not run under the guard.
+        // The snapshot clones `Arc`s rather than raw pointers, which is what
+        // makes releasing the lock safe: a concurrent `rmw_destroy_node` can
+        // unregister and free its C handle here, and each in-flight trigger
+        // still holds the target alive until it returns.
+        let guard_conditions = self.graph_guard_conditions.lock().unwrap().clone();
+        for gc in guard_conditions {
+            gc.trigger();
         }
 
         // Determine which event type based on entity kind
@@ -695,5 +721,56 @@ mod tests {
             .unwrap()
             .update_event_status(ZenohEventType::LivelinessChanged, 3);
         assert_eq!(*fired.lock().unwrap(), 3);
+    }
+
+    /// The graph-guard-condition registry must **own** what it registers.
+    ///
+    /// This is the invariant that makes triggering outside the lock safe.
+    /// `trigger_graph_change` snapshots the registrations, releases the lock,
+    /// and only then calls them; meanwhile `rmw_destroy_node` may unregister
+    /// and free its C handle. When the registry held raw pointers, that window
+    /// was a use-after-free. Holding an `Arc` closes it — an in-flight trigger
+    /// keeps the target alive regardless of what the registrant does.
+    ///
+    /// The test pins the ownership half of that contract, which is the part
+    /// that is deterministic: the registry keeps the value alive after the
+    /// registrant drops its handle, and releases it on unregister. It does not
+    /// attempt to schedule the destroy-during-trigger race itself — that would
+    /// be a timing test, and the ownership property is what makes the race
+    /// harmless in the first place.
+    #[test]
+    fn graph_guard_condition_registration_is_owned_by_the_manager() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct CountingGc(Arc<AtomicUsize>);
+        impl GraphGuardCondition for CountingGc {
+            fn trigger(&self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let mgr = GraphEventManager::new();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let gc: Arc<dyn GraphGuardCondition> = Arc::new(CountingGc(hits.clone()));
+        let weak = Arc::downgrade(&gc);
+
+        mgr.register_graph_guard_condition(gc.clone());
+        drop(gc);
+        let held = weak.upgrade().expect(
+            "the manager must keep the registration alive after the registrant drops its handle; \
+             otherwise a trigger issued outside the lock dereferences freed memory",
+        );
+
+        // Still reachable and callable through the registry's own reference.
+        held.trigger();
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        mgr.unregister_graph_guard_condition(&held);
+        drop(held);
+        assert!(
+            weak.upgrade().is_none(),
+            "unregister must release the registry's reference, or registrations leak for the \
+             life of the process",
+        );
     }
 }

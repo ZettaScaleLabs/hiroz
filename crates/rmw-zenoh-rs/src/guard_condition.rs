@@ -3,30 +3,76 @@ use crate::ros::*;
 use crate::traits::*;
 use crate::utils::Notifier;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Guard condition implementation for RMW
+/// The triggerable state of a guard condition, separated from the C handle.
+///
+/// This lives behind an `Arc` so it can outlive `rmw_destroy_guard_condition`.
+/// hiroz's graph-event manager registers a clone (as
+/// `Arc<dyn GraphGuardCondition>`) and triggers it **after** dropping its
+/// registry lock; without shared ownership, a `rmw_destroy_node` racing that
+/// window would free the target and the trigger would write through dangling
+/// memory. The C handle holds one reference and the registry another, so
+/// whichever outlives the other, the state is valid for the whole call.
+///
+/// `triggered` is atomic because triggering no longer happens under any lock:
+/// a graph-event thread can set it while `rmw_wait` reads it.
 #[derive(Debug, Default)]
-pub struct GuardConditionImpl {
+pub struct GuardConditionState {
     pub(crate) notifier: Option<Arc<Notifier>>,
-    pub(crate) triggered: bool,
+    pub(crate) triggered: AtomicBool,
 }
 
-impl GuardConditionImpl {
-    pub(crate) fn trigger(&mut self) -> Result<(), ()> {
+impl GuardConditionState {
+    pub(crate) fn fire(&self) -> Result<(), ()> {
         let notifier = self.notifier.as_ref().ok_or(())?;
-        self.triggered = true;
+        self.triggered.store(true, Ordering::SeqCst);
         notifier.notify_all();
         Ok(())
     }
 
+    pub(crate) fn reset(&self) {
+        self.triggered.store(false, Ordering::SeqCst);
+    }
+
+    pub(crate) fn is_triggered(&self) -> bool {
+        self.triggered.load(Ordering::SeqCst)
+    }
+}
+
+impl hiroz::event::GraphGuardCondition for GuardConditionState {
+    fn trigger(&self) {
+        // A guard condition with no notifier cannot wake anyone; that is not an
+        // error worth propagating across the registry.
+        let _ = self.fire();
+    }
+}
+
+/// Guard condition implementation for RMW
+#[derive(Debug, Default)]
+pub struct GuardConditionImpl {
+    pub(crate) state: Arc<GuardConditionState>,
+}
+
+impl GuardConditionImpl {
+    pub(crate) fn trigger(&mut self) -> Result<(), ()> {
+        self.state.fire()
+    }
+
     pub fn reset(&mut self) {
-        self.triggered = false;
+        self.state.reset();
+    }
+
+    /// A shared handle to this guard condition's state, for registration with
+    /// hiroz's graph-event manager.
+    pub(crate) fn share_state(&self) -> Arc<GuardConditionState> {
+        self.state.clone()
     }
 }
 
 impl crate::traits::Waitable for GuardConditionImpl {
     fn is_ready(&self) -> bool {
-        self.triggered
+        self.state.is_triggered()
     }
 }
 
@@ -52,8 +98,10 @@ pub extern "C" fn rmw_create_guard_condition(
 
     let notifier = Some(context_impl.share_notifier());
     let gc_impl = GuardConditionImpl {
-        notifier,
-        triggered: false,
+        state: Arc::new(GuardConditionState {
+            notifier,
+            triggered: AtomicBool::new(false),
+        }),
     };
     let gc = Box::new(rmw_guard_condition_t {
         implementation_identifier: crate::RMW_ZENOH_IDENTIFIER.as_ptr() as *const _,
