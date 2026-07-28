@@ -8,26 +8,41 @@ pyo3::create_exception!(hiroz_py, TimeoutError, HirozError);
 pyo3::create_exception!(hiroz_py, SerializationError, HirozError);
 pyo3::create_exception!(hiroz_py, TypeMismatchError, HirozError);
 
-/// Returns true if `e` is (or wraps) a core [`hiroz::error::Error::Timeout`].
+/// Render an error and its full source chain as `outer: inner: root`.
 ///
-/// Centralized here so every call site (service `call`, action `send_goal`, …)
-/// classifies identically. Delegates to the core's structured detector, which
-/// walks the whole source chain — do not string-match on the message.
-pub(crate) fn is_timeout_error(e: &anyhow::Error) -> bool {
-    hiroz::error::is_timeout(&**e)
+/// Matches anyhow's `{:#}` output, which we lose once the error is boxed.
+fn format_chain(err: &(dyn std::error::Error + 'static)) -> String {
+    let mut msg = err.to_string();
+    let mut source = err.source();
+    while let Some(e) = source {
+        msg.push_str(&format!(": {e}"));
+        source = e.source();
+    }
+    msg
 }
 
 /// Map a core error to the right Python exception.
 ///
 /// Timeout-shaped errors become `hiroz_py.TimeoutError`; everything else
 /// becomes `hiroz_py.HirozError`. Use this for blocking calls that raise on
-/// failure (e.g. `ZClient.call`). Methods whose documented contract is to
-/// return `None` on timeout should keep doing so rather than calling this.
-pub(crate) fn map_call_error(e: anyhow::Error) -> PyErr {
-    if is_timeout_error(&e) {
-        TimeoutError::new_err(format!("{:#}", e))
+/// failure (e.g. `ZClient.call`, `send_goal`, `get_result`). Methods whose
+/// documented contract is to return `None` on timeout should keep doing so
+/// rather than calling this.
+///
+/// Generic over the error type because the service path yields `anyhow::Error`
+/// while the action path yields `zenoh::Error`; both classify identically via
+/// the core's structured detector, which walks the whole source chain — do not
+/// string-match on the message.
+pub(crate) fn map_call_error<E>(e: E) -> PyErr
+where
+    E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+{
+    let err = e.into();
+    let msg = format_chain(&*err);
+    if hiroz::error::is_timeout(&*err) {
+        TimeoutError::new_err(msg)
     } else {
-        HirozError::new_err(format!("{:#}", e))
+        HirozError::new_err(msg)
     }
 }
 
