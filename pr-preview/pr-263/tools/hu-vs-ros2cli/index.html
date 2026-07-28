@@ -2843,7 +2843,7 @@
 </tr>
 </tbody>
 </table>
-<p>⚠️ <strong><code>hu meter pub</code> is present but its <code>--yaml</code> encoding is not yet functional.</strong> It encodes via the plugin host's <code>encode-yaml-to-cdr</code>, which resolves the message schema from a runtime schema registry that is not populated yet, so every <code>--msg-type</code> currently fails schema lookup. The command validates arguments and reports a clear error; a working encode path needs a runtime <code>.msg</code> schema loader (tracked separately).</p>
+<p>⚠️ <strong><code>hu meter pub</code> resolves the message schema by live discovery</strong>, so a publisher or subscriber must already be present on the target topic (the plugin host queries a live node's type description — it does not carry a compiled type registry). When a consumer is present, <code>--yaml</code> / <code>--msg-type</code> publishing works; publishing to a topic no one has announced a type on reports a clear "no announced type" error rather than guessing.</p>
 <hr />
 <h2 id="measurement-accuracy-hu-meter-hz-vs-ros2-topic-hz">Measurement accuracy: <code>hu meter hz</code> vs. <code>ros2 topic hz</code><a class="headerlink" href="#measurement-accuracy-hu-meter-hz-vs-ros2-topic-hz" title="Permanent link">&para;</a></h2>
 <p><code>ros2 topic hz</code> deserializes every message in Python before counting it. This is a known bottleneck: see ros2cli <a href="https://github.com/ros2/ros2cli/issues/871">#871</a>, <a href="https://github.com/ros2/ros2cli/issues/1043">#1043</a>, <a href="https://github.com/ros2/ros2cli/issues/843">#843</a>.</p>
