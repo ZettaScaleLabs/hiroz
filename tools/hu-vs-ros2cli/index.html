@@ -2843,6 +2843,7 @@
 </tr>
 </tbody>
 </table>
+<p><strong><code>hu meter pub</code> resolves the message schema from <code>.msg</code> files on disk</strong>, so — like <code>ros2 topic pub</code> — it can publish to an empty topic with no node present. The plugin host reads the type from a <code>.msg</code> under <code>HIROZ_MSG_PATH</code> (colon-separated package or prefix directories, e.g. an ament <code>.../share</code>); if the type isn't on disk it falls back to discovering it from a live publisher or subscriber on the topic. Only when neither is available does it report a clear "could not resolve a message schema" error rather than guessing.</p>
 <hr />
 <h2 id="measurement-accuracy-hu-meter-hz-vs-ros2-topic-hz">Measurement accuracy: <code>hu meter hz</code> vs. <code>ros2 topic hz</code><a class="headerlink" href="#measurement-accuracy-hu-meter-hz-vs-ros2-topic-hz" title="Permanent link">&para;</a></h2>
 <p><code>ros2 topic hz</code> deserializes every message in Python before counting it. This is a known bottleneck: see ros2cli <a href="https://github.com/ros2/ros2cli/issues/871">#871</a>, <a href="https://github.com/ros2/ros2cli/issues/1043">#1043</a>, <a href="https://github.com/ros2/ros2cli/issues/843">#843</a>.</p>
