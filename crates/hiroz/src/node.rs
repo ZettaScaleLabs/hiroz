@@ -363,6 +363,14 @@ impl ZNode {
         T: ZMessage + WithTypeInfo,
     {
         debug!("[NOD] Creating subscriber: topic={}", topic);
+        // Register the schema with this node's type-description service (mirroring
+        // create_pub) so a typed subscriber is itself a valid schema source — a
+        // consumer that answers GetTypeDescription for its subscribed type, as
+        // ROS 2 nodes do. This is what lets `hu meter pub` resolve the schema
+        // from a topic that only has a subscriber.
+        if let Some(schema) = T::message_schema() {
+            self.register_schema_with_type_description_service(&schema);
+        }
         self.create_sub_impl(topic, Some(T::type_info()))
     }
 
