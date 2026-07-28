@@ -315,8 +315,11 @@ impl PyZClientGoalHandle {
     #[pyo3(signature = (timeout=None))]
     fn recv_feedback(&self, py: Python, timeout: Option<f64>) -> PyResult<Option<PyObject>> {
         let rx = self.flume_feedback_rx.clone();
+        // Validate before entering the closure: it returns Option, so `?` on a
+        // PyResult is not available inside it.
+        let timeout = crate::graph::checked_timeout(timeout)?;
         let bytes_opt = py.allow_threads(move || {
-            if let Some(t) = crate::graph::checked_timeout(timeout)? {
+            if let Some(t) = timeout {
                 rx.recv_timeout(t).ok().map(|m| m.0)
             } else {
                 rx.recv().ok().map(|m| m.0)
@@ -349,9 +352,10 @@ impl PyZClientGoalHandle {
             })?;
 
         let rt = get_tokio_rt();
+        let timeout = crate::graph::checked_timeout(timeout)?;
         let bytes = py.allow_threads(move || {
             rt.block_on(async move {
-                if let Some(t) = crate::graph::checked_timeout(timeout)? {
+                if let Some(t) = timeout {
                     // Use the core `result_with_timeout` primitive rather than
                     // reinventing the timeout wrapper in the binding.
                     match handle.result_with_timeout(t).await {
@@ -440,10 +444,11 @@ impl PyZActionServer {
     ) -> PyResult<Option<PyZServerGoalRequest>> {
         let inner = Arc::clone(&self.inner);
         let rt = get_tokio_rt();
+        let timeout = crate::graph::checked_timeout(timeout)?;
 
         let handle_opt = py.allow_threads(move || {
             rt.block_on(async move {
-                if let Some(t) = crate::graph::checked_timeout(timeout)? {
+                if let Some(t) = timeout {
                     match tokio::time::timeout(t, inner.recv_goal()).await {
                         Ok(Ok(h)) => Ok(Some(h)),
                         Ok(Err(e)) => Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string())),
