@@ -461,17 +461,29 @@ def test_timeout_rejects_non_finite_and_negative(ctx, bad):
         pub.wait_for_subscription(timeout=bad)
 
 
-def test_invalid_service_name_raises_value_error(ctx):
+@pytest.mark.parametrize(
+    "bad_name",
+    [
+        "//bad//name",  # empty chunks: ROS validation skips these, Zenoh rejects them
+        "/bad name",  # space is not a valid topic component
+        "",  # empty
+    ],
+)
+def test_invalid_service_name_raises_value_error(ctx, bad_name):
     """Malformed names must fail at construction with ValueError.
 
-    The builder validates the same name and maps failure to HirozError, so
-    this only holds if validation runs *before* build.
+    Two things are being pinned. First, validation has to run *before* build,
+    or the builder rejects the name first and surfaces HirozError instead.
+    Second, the check has to be stricter than ROS name validation alone --
+    that skips empty path components, so `//bad//name` would otherwise reach
+    Zenoh's key-expression parser and fail with an opaque error citing a cargo
+    registry path.
     """
     node = ctx.create_node("name_validation").build()
     with pytest.raises(ValueError):
-        node.create_client("//bad//name", example_interfaces.AddTwoInts)
+        node.create_client(bad_name, example_interfaces.AddTwoInts)
     with pytest.raises(ValueError):
-        node.create_server("//bad//name", example_interfaces.AddTwoInts)
+        node.create_server(bad_name, example_interfaces.AddTwoInts)
 
 
 def test_callback_server_survives_repeated_failures(ctx):
