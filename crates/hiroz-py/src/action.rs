@@ -192,7 +192,7 @@ impl PyZActionClient {
                             "send_goal timed out: no action server responded",
                         )
                     })?
-                    .map_err(crate::error::map_call_error)
+                    .map_err(crate::error::map_zenoh_error)
             })
         })?;
 
@@ -360,14 +360,14 @@ impl PyZClientGoalHandle {
                                 "Action result not received within {t:?}"
                             )))
                         }
-                        Err(e) => Err(crate::error::map_call_error(e)),
+                        Err(e) => Err(crate::error::map_zenoh_error(e)),
                     }
                 } else {
                     handle
                         .result()
                         .await
                         .map(|msg| msg.0)
-                        .map_err(crate::error::map_call_error)
+                        .map_err(crate::error::map_zenoh_error)
                 }
             })
         })?;
