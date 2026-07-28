@@ -198,18 +198,55 @@ fn convert_base_type(
 /// `None` if the type cannot be found or parsed.
 #[cfg(feature = "dynamic-schema-loader")]
 pub fn load_schema(type_name: &str) -> Option<Arc<MessageSchema>> {
+    let in_progress = std::cell::RefCell::new(std::collections::HashSet::new());
+    load_schema_inner(type_name, &in_progress)
+}
+
+/// Recursive worker for [`load_schema`]. `in_progress` tracks the types whose
+/// resolution is on the current stack so a self-referential or mutually
+/// recursive `.msg` (malformed — well-formed ROS messages form a DAG) bails
+/// with a warning instead of recursing until the stack overflows: a cycle would
+/// otherwise re-enter here for a type that isn't registered yet, so the
+/// `get_schema` memo never hits.
+#[cfg(feature = "dynamic-schema-loader")]
+fn load_schema_inner(
+    type_name: &str,
+    in_progress: &std::cell::RefCell<std::collections::HashSet<String>>,
+) -> Option<Arc<MessageSchema>> {
     if let Some(schema) = get_schema(type_name) {
         return Some(schema);
     }
     let (package, name) = split_msg_type(type_name)?;
+    // File not on disk is a legitimate "try the next source" (live discovery),
+    // so return None quietly. Errors *after* a file is found are logged below,
+    // since a broken `.msg` masquerading as "not found" would be misleading.
     let path = find_msg_file(&package, &name)?;
-    let parsed = hiroz_codegen::parser::msg::parse_msg_file(&path, &package).ok()?;
+    if !in_progress.borrow_mut().insert(type_name.to_string()) {
+        tracing::warn!("cyclic .msg definition for {type_name}; skipping schema load");
+        return None;
+    }
+    let parsed = match hiroz_codegen::parser::msg::parse_msg_file(&path, &package) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            tracing::warn!("failed to parse .msg file {}: {e}", path.display());
+            in_progress.borrow_mut().remove(type_name);
+            return None;
+        }
+    };
     // Resolve nested message-typed fields by loading them the same way; each
     // recursive load registers itself, so the outer conversion sees them.
     let resolver = |field_pkg: &str, field_type: &str| -> Option<Arc<MessageSchema>> {
-        load_schema(&format!("{field_pkg}/msg/{field_type}"))
+        load_schema_inner(&format!("{field_pkg}/msg/{field_type}"), in_progress)
     };
-    let schema = parsed_message_to_schema(&parsed, &resolver).ok()?;
+    let schema = match parsed_message_to_schema(&parsed, &resolver) {
+        Ok(schema) => schema,
+        Err(e) => {
+            tracing::warn!("failed to build schema for {type_name}: {e}");
+            in_progress.borrow_mut().remove(type_name);
+            return None;
+        }
+    };
+    in_progress.borrow_mut().remove(type_name);
     Some(register_schema(schema))
 }
 
@@ -225,9 +262,12 @@ fn split_msg_type(type_name: &str) -> Option<(String, String)> {
 }
 
 /// Find `<pkg>/msg/<Name>.msg` under `HIROZ_MSG_PATH`. Each colon-separated
-/// entry is tried both as the package directory itself
-/// (`<entry>/msg/<Name>.msg`) and as a prefix that contains packages
-/// (`<entry>/<pkg>/msg/<Name>.msg`, e.g. an ament `.../share`).
+/// entry is tried as a prefix that contains packages
+/// (`<entry>/<pkg>/msg/<Name>.msg`, e.g. an ament `.../share`), and — only when
+/// the entry's own basename equals `pkg` — as the package directory itself
+/// (`<entry>/msg/<Name>.msg`). The basename guard is what keeps a request for
+/// `pkg_a/msg/Status` from silently resolving to an unrelated
+/// `pkg_b/msg/Status.msg` that happens to appear earlier in the path.
 #[cfg(feature = "dynamic-schema-loader")]
 fn find_msg_file(package: &str, name: &str) -> Option<std::path::PathBuf> {
     let msg_path = std::env::var("HIROZ_MSG_PATH").ok()?;
@@ -238,13 +278,17 @@ fn find_msg_file(package: &str, name: &str) -> Option<std::path::PathBuf> {
             continue;
         }
         let base = std::path::Path::new(entry);
-        let as_package = base.join("msg").join(&file);
-        if as_package.is_file() {
-            return Some(as_package);
-        }
+        // Prefix layout: `package` is part of the path, so it can't cross packages.
         let as_prefix = base.join(package).join("msg").join(&file);
         if as_prefix.is_file() {
             return Some(as_prefix);
+        }
+        // Package-directory layout: valid only if this entry IS the package's dir.
+        if base.file_name().and_then(|n| n.to_str()) == Some(package) {
+            let as_package = base.join("msg").join(&file);
+            if as_package.is_file() {
+                return Some(as_package);
+            }
         }
     }
     None
