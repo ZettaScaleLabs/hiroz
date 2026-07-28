@@ -9,6 +9,28 @@ use std::time::{Duration, Instant};
 /// internally for its wait-for-service spin.
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
+/// Convert a Python `float` timeout into a `Duration`, rejecting values
+/// `Duration::from_secs_f64` would panic on.
+///
+/// The timeout arguments are public API taking an unrestricted `float`, so
+/// `timeout=-1`, `float("nan")` and `float("inf")` all reach us. Without this
+/// they surface as a Rust panic rather than an ordinary Python error.
+pub(crate) fn checked_timeout(timeout: Option<f64>) -> pyo3::PyResult<Option<Duration>> {
+    match timeout {
+        None => Ok(None),
+        Some(t) if t.is_nan() => Err(pyo3::exceptions::PyValueError::new_err(
+            "timeout must be a number, got NaN",
+        )),
+        Some(t) if t.is_infinite() => Err(pyo3::exceptions::PyValueError::new_err(
+            "timeout must be finite; pass None to wait forever",
+        )),
+        Some(t) if t < 0.0 => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "timeout must be non-negative, got {t}"
+        ))),
+        Some(t) => Ok(Some(Duration::from_secs_f64(t))),
+    }
+}
+
 /// Block until at least one service server matching `service_name` is visible
 /// in the graph, or `timeout` (seconds) elapses. `None` waits forever.
 ///
@@ -17,9 +39,9 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 pub(crate) fn wait_for_service_server(
     graph: &Arc<Graph>,
     service_name: &str,
-    timeout: Option<f64>,
+    timeout: Option<Duration>,
 ) -> bool {
-    let deadline = timeout.map(|t| Instant::now() + Duration::from_secs_f64(t));
+    let deadline = timeout.map(|t| Instant::now() + t);
     loop {
         if graph.count(EndpointKind::Service, service_name) > 0 {
             return true;

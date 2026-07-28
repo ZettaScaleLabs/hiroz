@@ -260,10 +260,11 @@ impl PyZActionClient {
     /// Args:
     ///     timeout: Maximum seconds to wait. None waits forever.
     #[pyo3(signature = (timeout=None))]
-    fn wait_for_server(&self, py: Python, timeout: Option<f64>) -> bool {
-        py.allow_threads(|| {
+    fn wait_for_server(&self, py: Python, timeout: Option<f64>) -> PyResult<bool> {
+        let timeout = crate::graph::checked_timeout(timeout)?;
+        Ok(py.allow_threads(|| {
             crate::graph::wait_for_service_server(&self.graph, &self.send_goal_service, timeout)
-        })
+        }))
     }
 
     /// Get the goal type class (for debugging).
@@ -315,7 +316,7 @@ impl PyZClientGoalHandle {
     fn recv_feedback(&self, py: Python, timeout: Option<f64>) -> PyResult<Option<PyObject>> {
         let rx = self.flume_feedback_rx.clone();
         let bytes_opt = py.allow_threads(move || {
-            if let Some(t) = timeout.map(Duration::from_secs_f64) {
+            if let Some(t) = crate::graph::checked_timeout(timeout)? {
                 rx.recv_timeout(t).ok().map(|m| m.0)
             } else {
                 rx.recv().ok().map(|m| m.0)
@@ -350,7 +351,7 @@ impl PyZClientGoalHandle {
         let rt = get_tokio_rt();
         let bytes = py.allow_threads(move || {
             rt.block_on(async move {
-                if let Some(t) = timeout.map(Duration::from_secs_f64) {
+                if let Some(t) = crate::graph::checked_timeout(timeout)? {
                     // Use the core `result_with_timeout` primitive rather than
                     // reinventing the timeout wrapper in the binding.
                     match handle.result_with_timeout(t).await {
@@ -442,7 +443,7 @@ impl PyZActionServer {
 
         let handle_opt = py.allow_threads(move || {
             rt.block_on(async move {
-                if let Some(t) = timeout.map(Duration::from_secs_f64) {
+                if let Some(t) = crate::graph::checked_timeout(timeout)? {
                     match tokio::time::timeout(t, inner.recv_goal()).await {
                         Ok(Ok(h)) => Ok(Some(h)),
                         Ok(Err(e)) => Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string())),

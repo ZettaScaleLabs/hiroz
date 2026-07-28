@@ -119,6 +119,13 @@ pub(crate) trait RawServer: Send + Sync {
     /// Used by the optional callback-mode server loop.
     fn try_take_request_serialized(&self) -> Result<Option<(RequestId, Vec<u8>)>>;
     fn send_response_serialized(&self, data: &[u8], request_id: &RequestId) -> Result<()>;
+    /// Drop a pending reply without answering it.
+    ///
+    /// `take_request` registers a reply handle that only `send_response` removes,
+    /// so any path that abandons a request (a failed deserialize, a raising
+    /// callback) must call this or the handle is retained for the life of the
+    /// server — an unbounded leak under a repeatedly-failing callback.
+    fn discard_pending(&self, request_id: &RequestId);
 }
 
 /// Generic client wrapper using RawBytesService
@@ -234,5 +241,13 @@ impl RawServer for GenericServerWrapper {
         reply
             .reply_blocking(&response)
             .map_err(|e| anyhow::anyhow!("Failed to send response: {}", e))
+    }
+
+    fn discard_pending(&self, request_id: &RequestId) {
+        // Best-effort: a poisoned lock here means the server is already broken,
+        // and this runs on error paths that must not mask the original failure.
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(request_id);
+        }
     }
 }

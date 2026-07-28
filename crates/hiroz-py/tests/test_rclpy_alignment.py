@@ -436,3 +436,65 @@ def test_p7_action_grouping_class_end_to_end(ctx):
     result = handle.get_result(timeout=5.0)
     assert result is not None
     assert result.final_count == 3
+
+
+# --- Review follow-ups: input validation and error contracts ---
+
+
+@pytest.mark.parametrize("bad", [-1.0, float("nan"), float("inf")])
+def test_timeout_rejects_non_finite_and_negative(ctx, bad):
+    """Timeout args take an unrestricted float, so these reach Rust.
+
+    Duration::from_secs_f64 panics on all three; they must surface as an
+    ordinary ValueError rather than a panic leaking through PyO3.
+    """
+    node = ctx.create_node("timeout_validation").build()
+    client = node.create_client("/tv_svc", example_interfaces.AddTwoInts)
+    sub = node.create_subscriber("/tv_topic", std_msgs.String)
+    pub = node.create_publisher("/tv_topic", std_msgs.String)
+
+    with pytest.raises(ValueError):
+        client.wait_for_service(timeout=bad)
+    with pytest.raises(ValueError):
+        sub.recv(timeout=bad)
+    with pytest.raises(ValueError):
+        pub.wait_for_subscription(timeout=bad)
+
+
+def test_invalid_service_name_raises_value_error(ctx):
+    """Malformed names must fail at construction with ValueError.
+
+    The builder validates the same name and maps failure to HirozError, so
+    this only holds if validation runs *before* build.
+    """
+    node = ctx.create_node("name_validation").build()
+    with pytest.raises(ValueError):
+        node.create_client("//bad//name", example_interfaces.AddTwoInts)
+    with pytest.raises(ValueError):
+        node.create_server("//bad//name", example_interfaces.AddTwoInts)
+
+
+def test_callback_server_survives_repeated_failures(ctx):
+    """A repeatedly-raising callback must not retain a pending reply each time.
+
+    Every request registers a reply handle that only send_response removes;
+    the error paths have to discard it explicitly. After the failures, a
+    working server on a fresh name must still answer normally.
+    """
+    node = ctx.create_node("pending_leak").build()
+
+    def always_raises(_req):
+        raise ValueError("boom")
+
+    server = node.create_service(
+        "/leak_svc", example_interfaces.AddTwoInts, callback=always_raises
+    )
+    client = node.create_client("/leak_svc", example_interfaces.AddTwoInts)
+    assert client.wait_for_service(timeout=5.0)
+
+    for _ in range(5):
+        with pytest.raises(hiroz_py.HirozError):
+            client.call(example_interfaces.AddTwoInts.Request(a=1, b=2), timeout=0.4)
+
+    # The callback thread recorded the failures rather than dying.
+    assert server.last_error is not None
