@@ -139,9 +139,10 @@ pub struct PyZActionClient {
     goal_type: Py<PyAny>,
     result_type: Py<PyAny>,
     feedback_type: Py<PyAny>,
-    /// Shared graph + the action's `send_goal` service name, used by `wait_for_server`.
+    /// Shared graph + the qualified action name, used by `wait_for_server` to
+    /// poll the core's full five-endpoint action-server predicate.
     graph: Arc<hiroz::graph::Graph>,
-    send_goal_service: String,
+    action_name: String,
 }
 
 impl PyZActionClient {
@@ -152,7 +153,7 @@ impl PyZActionClient {
         result_type: Py<PyAny>,
         feedback_type: Py<PyAny>,
         graph: Arc<hiroz::graph::Graph>,
-        send_goal_service: String,
+        action_name: String,
     ) -> Self {
         Self {
             inner: Arc::new(inner),
@@ -160,7 +161,7 @@ impl PyZActionClient {
             result_type,
             feedback_type,
             graph,
-            send_goal_service,
+            action_name,
         }
     }
 }
@@ -263,7 +264,7 @@ impl PyZActionClient {
     fn wait_for_server(&self, py: Python, timeout: Option<f64>) -> PyResult<bool> {
         let timeout = crate::graph::checked_timeout(timeout)?;
         Ok(py.allow_threads(|| {
-            crate::graph::wait_for_service_server(&self.graph, &self.send_goal_service, timeout)
+            crate::graph::wait_for_action_server(&self.graph, &self.action_name, timeout)
         }))
     }
 

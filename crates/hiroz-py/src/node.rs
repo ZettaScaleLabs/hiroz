@@ -473,12 +473,9 @@ impl PyZNode {
 
         // Resolve before building, for the same reason as `create_client`: the
         // builder validates the name itself and maps failure to a RuntimeError.
-        // The action server advertises `<action>/_action/send_goal`; that is what
-        // wait_for_server polls for.
-        let send_goal_service = format!(
-            "{}/_action/send_goal",
-            self.resolve_service_name(&action_name)?
-        );
+        // Keep the qualified action name (not just its send_goal service) so
+        // wait_for_server can poll the full five-endpoint predicate.
+        let qualified_action = self.resolve_service_name(&action_name)?;
 
         let client = py.allow_threads(|| {
             let _guard = rt.enter();
@@ -503,7 +500,7 @@ impl PyZNode {
             result_obj.clone_ref(py),
             feedback_obj.clone_ref(py),
             Arc::clone(self.inner.graph()),
-            send_goal_service,
+            qualified_action,
         ))
     }
 

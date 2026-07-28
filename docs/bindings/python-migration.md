@@ -266,11 +266,13 @@ RuntimeError                          (builtin)
 └── HirozError                        (base — catch this to cover everything)
     ├── TimeoutError                  (a blocking call timed out)
     │   └── also inherits builtins.TimeoutError
-    ├── SerializationError            (CDR/msgpack encode/decode failure)
-    └── TypeMismatchError             (type hash / type mismatch)
+    ├── SerializationError            (declared, not currently raised)
+    └── TypeMismatchError             (declared, not currently raised)
 ```
 
 The two extra bases exist so that ported code keeps working unchanged: `HirozError` inherits `RuntimeError` because that is what these paths raised before the typed hierarchy existed, and `TimeoutError` additionally inherits the **builtin** `TimeoutError` because that is what rclpy's `Client.call` raises.
+
+`SerializationError` and `TypeMismatchError` are exported but nothing raises them yet — encode/decode failures currently surface as whatever `msgspec` raised (typically `TypeError` or `ValueError`). They are listed here so the hierarchy is complete; do not write `except hiroz_py.SerializationError:` expecting it to catch a bad message today.
 
 ```python
 import hiroz_py
