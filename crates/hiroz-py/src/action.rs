@@ -180,7 +180,7 @@ impl PyZActionClient {
 
         // send_goal is async — release GIL while blocking.
         // Apply a timeout slightly above the Zenoh querier timeout (10 s) so that
-        // callers get a clear RuntimeError when no server is present instead of
+        // callers get a clear TimeoutError when no server is present instead of
         // blocking forever (the shared flume channel keeps the receiver alive even
         // after the Zenoh query expires and its error is discarded).
         let mut handle: RawClientGoalHandle = py.allow_threads(move || {
@@ -192,7 +192,7 @@ impl PyZActionClient {
                             "send_goal timed out: no action server responded",
                         )
                     })?
-                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+                    .map_err(crate::error::map_call_error)
             })
         })?;
 
@@ -360,14 +360,14 @@ impl PyZClientGoalHandle {
                                 "Action result not received within {t:?}"
                             )),
                         ),
-                        Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string())),
+                        Err(e) => Err(crate::error::map_call_error(e)),
                     }
                 } else {
                     handle
                         .result()
                         .await
                         .map(|msg| msg.0)
-                        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+                        .map_err(crate::error::map_call_error)
                 }
             })
         })?;
