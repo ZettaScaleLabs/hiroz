@@ -197,6 +197,50 @@ def test_p5_exception_hierarchy():
     assert issubclass(hiroz_py.TypeMismatchError, hiroz_py.HirozError)
 
 
+def test_p5_hiroz_error_is_runtime_error():
+    """Ported rclpy code catching RuntimeError must keep working.
+
+    The blocking call paths raised a bare RuntimeError before P5; anchoring
+    HirozError under it keeps every existing `except RuntimeError:` live.
+    """
+    assert issubclass(hiroz_py.HirozError, RuntimeError)
+
+
+def test_p5_timeout_error_is_builtin_timeout_error():
+    """rclpy's Client.call raises the *builtin* TimeoutError, not a ROS type.
+
+    Without this base a ported `except TimeoutError:` silently stops catching
+    -- it still compiles and runs, so the failure is invisible.
+    """
+    assert issubclass(hiroz_py.TimeoutError, TimeoutError)
+    # builtins.TimeoutError derives from OSError, so instances are OSErrors
+    # too. That is inherited from the builtin and matches rclpy.
+    assert issubclass(hiroz_py.TimeoutError, OSError)
+
+
+def test_p5_timeout_caught_by_every_documented_except_clause(ctx):
+    """One raised timeout must satisfy all four documented catch styles."""
+    node = ctx.create_node("p5_multi_catch").build()
+    server = node.create_server("/p5_multi_catch_svc", example_interfaces.AddTwoInts)
+    assert server is not None
+
+    threading.Thread(target=server.take_request, daemon=True).start()
+
+    client = node.create_client("/p5_multi_catch_svc", example_interfaces.AddTwoInts)
+    assert client.wait_for_service(timeout=5.0)
+
+    req = example_interfaces.AddTwoInts.Request(a=1, b=2)
+    try:
+        client.call(req, timeout=0.5)
+        raise AssertionError("expected a timeout")
+    except Exception as exc:
+        assert isinstance(exc, hiroz_py.TimeoutError)
+        assert isinstance(exc, hiroz_py.HirozError)
+        assert isinstance(exc, TimeoutError)  # builtin -- the rclpy contract
+        assert isinstance(exc, RuntimeError)  # pre-P5 contract
+        assert "timed out" in str(exc)
+
+
 def test_p5_call_failure_is_hiroz_error(ctx):
     node = ctx.create_node("p5_client").build()
     client = node.create_client("/p5_nonexistent", example_interfaces.AddTwoInts)

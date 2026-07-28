@@ -174,7 +174,7 @@ resp = client.call(req, timeout=5.0)
 
 ### Exceptions
 
-Blocking calls that can time out raise `hiroz_py.TimeoutError` (a subclass of `hiroz_py.HirozError`) rather than a bare `RuntimeError`, so timeout handling can be caught specifically:
+Blocking calls that can time out raise `hiroz_py.TimeoutError`, so timeout handling can be caught specifically. It subclasses `hiroz_py.HirozError` (itself a `RuntimeError`) and the builtin `TimeoutError`, so `except RuntimeError:` and `except TimeoutError:` both keep catching in code ported from rclpy:
 
 ```python
 try:

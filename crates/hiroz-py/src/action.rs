@@ -188,8 +188,8 @@ impl PyZActionClient {
                 tokio::time::timeout(Duration::from_secs(11), client.send_goal(goal_msg))
                     .await
                     .map_err(|_| {
-                        crate::error::TimeoutError::new_err(
-                            "send_goal timed out: no action server responded",
+                        crate::error::timeout_err(
+                            "send_goal timed out: no action server responded".to_string(),
                         )
                     })?
                     .map_err(crate::error::map_zenoh_error)
@@ -355,11 +355,9 @@ impl PyZClientGoalHandle {
                     // reinventing the timeout wrapper in the binding.
                     match handle.result_with_timeout(t).await {
                         Ok(msg) => Ok(msg.0),
-                        Err(e) if hiroz::error::is_timeout(&*e) => {
-                            Err(crate::error::TimeoutError::new_err(format!(
-                                "Action result not received within {t:?}"
-                            )))
-                        }
+                        Err(e) if hiroz::error::is_timeout(&*e) => Err(crate::error::timeout_err(
+                            format!("Action result not received within {t:?}"),
+                        )),
                         Err(e) => Err(crate::error::map_zenoh_error(e)),
                     }
                 } else {
