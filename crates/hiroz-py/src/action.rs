@@ -355,11 +355,11 @@ impl PyZClientGoalHandle {
                     // reinventing the timeout wrapper in the binding.
                     match handle.result_with_timeout(t).await {
                         Ok(msg) => Ok(msg.0),
-                        Err(e) if hiroz::error::is_timeout(&*e) => Err(
-                            crate::error::TimeoutError::new_err(format!(
+                        Err(e) if hiroz::error::is_timeout(&*e) => {
+                            Err(crate::error::TimeoutError::new_err(format!(
                                 "Action result not received within {t:?}"
-                            )),
-                        ),
+                            )))
+                        }
                         Err(e) => Err(crate::error::map_call_error(e)),
                     }
                 } else {
