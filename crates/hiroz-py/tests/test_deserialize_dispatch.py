@@ -3,8 +3,14 @@
 
 ``serialize_to_zbuf`` dispatches on the type name with a Rust ``match``,
 deliberately bypassing ``hiroz_py.hiroz_msgs.REGISTRY``. ``deserialize_from_cdr``
-must mirror it: it dispatches through the generated ``deserialize_direct``, so a
-subscriber decodes an incoming sample without touching Python state at all.
+mirrors it for every **codegen-known** type: a subscriber decodes an incoming
+sample of such a type without touching Python state at all.
+
+Types the codegen never saw still resolve through the REGISTRY — the wildcard
+arm of ``deserialize_direct`` falls back to it rather than erroring, preserving
+the runtime-registration path that ``create_subscriber`` advertises. The tests
+below use ``std_msgs/String``, which *is* codegen-known, so they exercise the
+direct path specifically.
 
 The detector: empty the REGISTRY, then push a message through a **real
 subscriber**. Direct dispatch is unaffected and the message arrives; a registry
@@ -94,9 +100,9 @@ def test_exported_deserialize_message_still_uses_registry():
 
     The exported ``serialize_message``/``deserialize_message`` pair is the
     runtime-dispatch escape hatch and *both* halves resolve through the REGISTRY.
-    The subscriber path above is the codegen-time one and resolves through
-    neither. If this test ever starts passing, the escape hatch has been rewired
-    and types registered at runtime will no longer round-trip.
+    The subscriber path above resolves through it only as a fallback. If this
+    test ever *fails*, the escape hatch has been rewired and types registered at
+    runtime will no longer round-trip.
 
     The message must be serialized *before* the REGISTRY is emptied - the encode
     half needs it too, so this test cannot use the ``empty_registry`` fixture.

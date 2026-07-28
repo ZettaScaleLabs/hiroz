@@ -411,9 +411,10 @@ fn generate_complete_rust_module(
 
         /// Deserialize CDR bytes to a Python message
         ///
-        /// Dispatches through the direct Rust `match` rather than the Python
-        /// REGISTRY, mirroring `serialize_to_zbuf`. See
-        /// `generate_deserialize_direct` for why.
+        /// Codegen-known types dispatch through the direct Rust `match` rather
+        /// than the Python REGISTRY, mirroring `serialize_to_zbuf`. Anything
+        /// else falls back to the registry, so types registered at runtime keep
+        /// decoding as they always have. See `generate_deserialize_direct`.
         pub fn deserialize_from_cdr(type_name: &str, py: Python, bytes: &[u8]) -> PyResult<PyObject> {
             deserialize_direct(type_name, py, bytes)
         }
@@ -707,7 +708,19 @@ fn generate_deserialize_direct(
     }
 
     quote! {
-        /// Direct CDR deserialization - bypasses the Python registry.
+        /// Direct CDR deserialization for codegen-known types, falling back to
+        /// the Python REGISTRY for anything else.
+        ///
+        /// The fallback is not optional. `REGISTRY` is a live, mutable Python
+        /// dict, and `create_subscriber` accepts any class carrying
+        /// `__msgtype__` — it documents itself as working with "any registered
+        /// message type". Before the direct dispatch existed, every receive
+        /// resolved through `REGISTRY` at runtime, so a type registered after
+        /// module init decoded fine. Erroring on the wildcard instead would
+        /// silently withdraw that: the subscriber would still be created, then
+        /// every callback would raise `Unknown message type`. Codegen-known
+        /// types take the fast Rust path; everything else keeps working exactly
+        /// as it did.
         pub fn deserialize_direct(type_name: &str, py: Python, bytes: &[u8]) -> PyResult<PyObject> {
             use ::hiroz::python_bridge::IntoPyMessage;
             // Skip 4-byte CDR encapsulation header
@@ -719,9 +732,11 @@ fn generate_deserialize_direct(
             let payload = &bytes[4..];
             match type_name {
                 #(#match_arms)*
-                _ => Err(pyo3::exceptions::PyValueError::new_err(
-                    format!("Unknown message type: {}", type_name)
-                )),
+                // Not known at codegen time: defer to the runtime registry.
+                // `deserialize_message` takes the *whole* buffer, header
+                // included — it hands it to the type's own Python
+                // `deserialize`, which strips the header itself.
+                _ => unsafe { deserialize_message(py, type_name, bytes) },
             }
         }
     }
