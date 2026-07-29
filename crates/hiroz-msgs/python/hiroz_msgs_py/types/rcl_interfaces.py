@@ -2,13 +2,13 @@
 import msgspec
 from typing import ClassVar
 
-class ParameterEventDescriptors(msgspec.Struct, frozen=True, kw_only=True):
-    new_parameters: list["rcl_interfaces.ParameterDescriptor"] = msgspec.field(default_factory=list)
-    changed_parameters: list["rcl_interfaces.ParameterDescriptor"] = msgspec.field(default_factory=list)
-    deleted_parameters: list["rcl_interfaces.ParameterDescriptor"] = msgspec.field(default_factory=list)
+class FloatingPointRange(msgspec.Struct, frozen=True, kw_only=True):
+    from_value: float = 0.0
+    to_value: float = 0.0
+    step: float = 0.0
 
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ParameterEventDescriptors'
-    __hash__: ClassVar[str] = 'RIHS01_456f90915d72ef69379e702ef3ba2a115098ff677eab9c0080fa11239c6b147e'
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/FloatingPointRange'
+    __hash__: ClassVar[str] = 'RIHS01_e6af23a23c177fee5f3075c8b1e435162a9b63c863d78c06017460b49684262d'
 
 class IntegerRange(msgspec.Struct, frozen=True, kw_only=True):
     from_value: int = 0
@@ -18,20 +18,26 @@ class IntegerRange(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/IntegerRange'
     __hash__: ClassVar[str] = 'RIHS01_f7b7fdc0f65f07702e099218e13288c3963bcb9345bde78b560e6cd19800fc5a'
 
+class ListParametersResult(msgspec.Struct, frozen=True, kw_only=True):
+    names: list[str] = msgspec.field(default_factory=list)
+    prefixes: list[str] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ListParametersResult'
+    __hash__: ClassVar[str] = 'RIHS01_237ae3428413dcbcfb452b510c42355f3a2b021dc091afa3e18526d57022f1cd'
+
+class LoggerLevel(msgspec.Struct, frozen=True, kw_only=True):
+    name: str = ""
+    level: int = 0
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/LoggerLevel'
+    __hash__: ClassVar[str] = 'RIHS01_95785cc42f048ab4f395af65035aeaf2181d8e1c7a44edb8ad4558445fdb43c0'
+
 class Parameter(msgspec.Struct, frozen=True, kw_only=True):
     name: str = ""
     value: "rcl_interfaces.ParameterValue | None" = None
 
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/Parameter'
     __hash__: ClassVar[str] = 'RIHS01_ddfe6442cffc462317adb5c92536a7b6dd55858c5c3e1e328165a6b73c2831af'
-
-class FloatingPointRange(msgspec.Struct, frozen=True, kw_only=True):
-    from_value: float = 0.0
-    to_value: float = 0.0
-    step: float = 0.0
-
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/FloatingPointRange'
-    __hash__: ClassVar[str] = 'RIHS01_e6af23a23c177fee5f3075c8b1e435162a9b63c863d78c06017460b49684262d'
 
 class ParameterDescriptor(msgspec.Struct, frozen=True, kw_only=True):
     name: str = ""
@@ -45,6 +51,29 @@ class ParameterDescriptor(msgspec.Struct, frozen=True, kw_only=True):
 
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ParameterDescriptor'
     __hash__: ClassVar[str] = 'RIHS01_52175dbfda6c51153101d33d2a9da05743f66f02d5ab2ca9ec4709b46b73d704'
+
+class ParameterEvent(msgspec.Struct, frozen=True, kw_only=True):
+    stamp: "builtin_interfaces.Time | None" = msgspec.field(default_factory=lambda: {'sec': 0, 'nanosec': 0})
+    node: str = ""
+    new_parameters: list["rcl_interfaces.Parameter"] = msgspec.field(default_factory=list)
+    changed_parameters: list["rcl_interfaces.Parameter"] = msgspec.field(default_factory=list)
+    deleted_parameters: list["rcl_interfaces.Parameter"] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ParameterEvent'
+    __hash__: ClassVar[str] = 'RIHS01_043e627780fcad87a22d225bc2a037361dba713fca6a6b9f4b869a5aa0393204'
+
+class ParameterEventDescriptors(msgspec.Struct, frozen=True, kw_only=True):
+    new_parameters: list["rcl_interfaces.ParameterDescriptor"] = msgspec.field(default_factory=list)
+    changed_parameters: list["rcl_interfaces.ParameterDescriptor"] = msgspec.field(default_factory=list)
+    deleted_parameters: list["rcl_interfaces.ParameterDescriptor"] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ParameterEventDescriptors'
+    __hash__: ClassVar[str] = 'RIHS01_456f90915d72ef69379e702ef3ba2a115098ff677eab9c0080fa11239c6b147e'
+
+class ParameterType(msgspec.Struct, frozen=True, kw_only=True):
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ParameterType'
+    __hash__: ClassVar[str] = 'RIHS01_df29ed057a834862187be24dd187d981790ff3ea6502f4cd27b432cbc42c6d46'
 
 class ParameterValue(msgspec.Struct, frozen=True, kw_only=True):
     type: int = 0
@@ -61,34 +90,19 @@ class ParameterValue(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ParameterValue'
     __hash__: ClassVar[str] = 'RIHS01_115fc089a387e23c7ecd3525c9189c379109119d6ab82e8dfbde0fdf6a7f9b68'
 
+class SetLoggerLevelsResult(msgspec.Struct, frozen=True, kw_only=True):
+    successful: bool = False
+    reason: str = ""
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetLoggerLevelsResult'
+    __hash__: ClassVar[str] = 'RIHS01_9316e5e679a5b72d2dd7fd80c539bae9e106fa0890a06dc5da3a8177a3ff6909'
+
 class SetParametersResult(msgspec.Struct, frozen=True, kw_only=True):
     successful: bool = False
     reason: str = ""
 
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetParametersResult'
     __hash__: ClassVar[str] = 'RIHS01_cfcc0fb0371ee5159b403960ef4300f8f9d2f1fd6117c8666b7f9654d528a9b1'
-
-class ParameterEvent(msgspec.Struct, frozen=True, kw_only=True):
-    stamp: "builtin_interfaces.Time | None" = msgspec.field(default_factory=lambda: {'sec': 0, 'nanosec': 0})
-    node: str = ""
-    new_parameters: list["rcl_interfaces.Parameter"] = msgspec.field(default_factory=list)
-    changed_parameters: list["rcl_interfaces.Parameter"] = msgspec.field(default_factory=list)
-    deleted_parameters: list["rcl_interfaces.Parameter"] = msgspec.field(default_factory=list)
-
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ParameterEvent'
-    __hash__: ClassVar[str] = 'RIHS01_043e627780fcad87a22d225bc2a037361dba713fca6a6b9f4b869a5aa0393204'
-
-class ListParametersResult(msgspec.Struct, frozen=True, kw_only=True):
-    names: list[str] = msgspec.field(default_factory=list)
-    prefixes: list[str] = msgspec.field(default_factory=list)
-
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ListParametersResult'
-    __hash__: ClassVar[str] = 'RIHS01_237ae3428413dcbcfb452b510c42355f3a2b021dc091afa3e18526d57022f1cd'
-
-class ParameterType(msgspec.Struct, frozen=True, kw_only=True):
-
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ParameterType'
-    __hash__: ClassVar[str] = 'RIHS01_df29ed057a834862187be24dd187d981790ff3ea6502f4cd27b432cbc42c6d46'
 
 class DescribeParametersRequest(msgspec.Struct, frozen=True, kw_only=True):
     names: list[str] = msgspec.field(default_factory=list)
@@ -101,6 +115,67 @@ class DescribeParametersResponse(msgspec.Struct, frozen=True, kw_only=True):
 
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/DescribeParametersResponse'
     __hash__: ClassVar[str] = 'RIHS01_845b484d71eb0673dae682f2e3ba3c4851a65a3dcfb97bddd82c5b57e91e4cff'
+
+class GetLoggerLevelsRequest(msgspec.Struct, frozen=True, kw_only=True):
+    names: list[str] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/GetLoggerLevelsRequest'
+    __hash__: ClassVar[str] = 'RIHS01_03bf1bebd0d6514c7ed0ba7c5e08dc9f2f39c759fe99e1e30ea4157d7674f72d'
+
+class GetLoggerLevelsResponse(msgspec.Struct, frozen=True, kw_only=True):
+    levels: list["rcl_interfaces.LoggerLevel"] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/GetLoggerLevelsResponse'
+    __hash__: ClassVar[str] = 'RIHS01_03bf1bebd0d6514c7ed0ba7c5e08dc9f2f39c759fe99e1e30ea4157d7674f72d'
+
+class GetParameterTypesRequest(msgspec.Struct, frozen=True, kw_only=True):
+    names: list[str] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/GetParameterTypesRequest'
+    __hash__: ClassVar[str] = 'RIHS01_da199c878688b3e530bdfe3ca8f74cb9fa0c303101e980a9e8f260e25e1c80ca'
+
+class GetParameterTypesResponse(msgspec.Struct, frozen=True, kw_only=True):
+    types: bytes = b""
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/GetParameterTypesResponse'
+    __hash__: ClassVar[str] = 'RIHS01_da199c878688b3e530bdfe3ca8f74cb9fa0c303101e980a9e8f260e25e1c80ca'
+
+class GetParametersRequest(msgspec.Struct, frozen=True, kw_only=True):
+    names: list[str] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/GetParametersRequest'
+    __hash__: ClassVar[str] = 'RIHS01_bf9803d5c74cf989a5de3e0c2e99444599a627c7ff75f97b8c05b01003675cbc'
+
+class GetParametersResponse(msgspec.Struct, frozen=True, kw_only=True):
+    values: list["rcl_interfaces.ParameterValue"] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/GetParametersResponse'
+    __hash__: ClassVar[str] = 'RIHS01_bf9803d5c74cf989a5de3e0c2e99444599a627c7ff75f97b8c05b01003675cbc'
+
+class ListParametersRequest(msgspec.Struct, frozen=True, kw_only=True):
+    prefixes: list[str] = msgspec.field(default_factory=list)
+    depth: int = 0
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ListParametersRequest'
+    __hash__: ClassVar[str] = 'RIHS01_3e6062bfbb27bfb8730d4cef2558221f51a11646d78e7bb30a1e83afac3aad9d'
+
+class ListParametersResponse(msgspec.Struct, frozen=True, kw_only=True):
+    result: "rcl_interfaces.ListParametersResult | None" = None
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ListParametersResponse'
+    __hash__: ClassVar[str] = 'RIHS01_3e6062bfbb27bfb8730d4cef2558221f51a11646d78e7bb30a1e83afac3aad9d'
+
+class SetLoggerLevelsRequest(msgspec.Struct, frozen=True, kw_only=True):
+    levels: list["rcl_interfaces.LoggerLevel"] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetLoggerLevelsRequest'
+    __hash__: ClassVar[str] = 'RIHS01_3ff86cb4e91fbf9abae15c234ecc874448de6ece8e193401c077cf116e4f6d78'
+
+class SetLoggerLevelsResponse(msgspec.Struct, frozen=True, kw_only=True):
+    results: list["rcl_interfaces.SetLoggerLevelsResult"] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetLoggerLevelsResponse'
+    __hash__: ClassVar[str] = 'RIHS01_3ff86cb4e91fbf9abae15c234ecc874448de6ece8e193401c077cf116e4f6d78'
 
 class SetParametersAtomicallyRequest(msgspec.Struct, frozen=True, kw_only=True):
     parameters: list["rcl_interfaces.Parameter"] = msgspec.field(default_factory=list)
@@ -125,41 +200,4 @@ class SetParametersResponse(msgspec.Struct, frozen=True, kw_only=True):
 
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetParametersResponse'
     __hash__: ClassVar[str] = 'RIHS01_56eed9a67e169f9cb6c1f987bc88f868c14a8fc9f743a263bc734c154015d7e0'
-
-class GetParameterTypesRequest(msgspec.Struct, frozen=True, kw_only=True):
-    names: list[str] = msgspec.field(default_factory=list)
-
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/GetParameterTypesRequest'
-    __hash__: ClassVar[str] = 'RIHS01_da199c878688b3e530bdfe3ca8f74cb9fa0c303101e980a9e8f260e25e1c80ca'
-
-class GetParameterTypesResponse(msgspec.Struct, frozen=True, kw_only=True):
-    types: bytes = b""
-
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/GetParameterTypesResponse'
-    __hash__: ClassVar[str] = 'RIHS01_da199c878688b3e530bdfe3ca8f74cb9fa0c303101e980a9e8f260e25e1c80ca'
-
-class ListParametersRequest(msgspec.Struct, frozen=True, kw_only=True):
-    prefixes: list[str] = msgspec.field(default_factory=list)
-    depth: int = 0
-
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ListParametersRequest'
-    __hash__: ClassVar[str] = 'RIHS01_3e6062bfbb27bfb8730d4cef2558221f51a11646d78e7bb30a1e83afac3aad9d'
-
-class ListParametersResponse(msgspec.Struct, frozen=True, kw_only=True):
-    result: "rcl_interfaces.ListParametersResult | None" = None
-
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ListParametersResponse'
-    __hash__: ClassVar[str] = 'RIHS01_3e6062bfbb27bfb8730d4cef2558221f51a11646d78e7bb30a1e83afac3aad9d'
-
-class GetParametersRequest(msgspec.Struct, frozen=True, kw_only=True):
-    names: list[str] = msgspec.field(default_factory=list)
-
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/GetParametersRequest'
-    __hash__: ClassVar[str] = 'RIHS01_bf9803d5c74cf989a5de3e0c2e99444599a627c7ff75f97b8c05b01003675cbc'
-
-class GetParametersResponse(msgspec.Struct, frozen=True, kw_only=True):
-    values: list["rcl_interfaces.ParameterValue"] = msgspec.field(default_factory=list)
-
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/GetParametersResponse'
-    __hash__: ClassVar[str] = 'RIHS01_bf9803d5c74cf989a5de3e0c2e99444599a627c7ff75f97b8c05b01003675cbc'
 
