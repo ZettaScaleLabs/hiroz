@@ -110,16 +110,23 @@ pub(crate) const DISPATCH_UNBOUNDED: usize = usize::MAX;
 
 /// The dispatcher capacity implied by a subscriber's history QoS.
 ///
-/// Deliberately the *same* expression [`ZSubBuilder::build`] uses to size the
-/// queue-mode [`BoundedQueue`]: `KeepLast(depth)` keeps `depth`, `KeepAll` keeps
-/// everything. A callback subscriber and a queue subscriber declared with the
-/// same QoS therefore retain the same number of undelivered samples, which is
-/// the only reading of ROS `KEEP_LAST(depth)` that does not depend on which
-/// hiroz API the user happened to pick.
+/// Matches what [`ZSubBuilder::build`] gives the queue-mode [`BoundedQueue`]:
+/// `KeepLast(depth)` keeps `depth`, `KeepAll` keeps everything. A callback
+/// subscriber and a queue subscriber declared with the same QoS therefore retain
+/// the same number of undelivered samples, which is the only reading of ROS
+/// `KEEP_LAST(depth)` that does not depend on which hiroz API the user happened
+/// to pick.
 ///
-/// A zero depth (the rmw spelling of "system default", which cannot be produced
-/// through [`QosProfile`] but can arrive over the wire) is floored at 1 rather
-/// than being allowed to degenerate into "keep nothing".
+/// The two are *not* the same expression, and the difference is confined to a
+/// zero depth (the rmw spelling of "system default", which cannot be produced
+/// through [`QosProfile`] but can arrive over the wire). Here it is floored at 1
+/// rather than degenerating into "keep nothing"; the queue path passes the 0
+/// through. Retention still agrees, because [`BoundedQueue::push`] evicts before
+/// it inserts (`len >= capacity` → `pop_front`, then `push_back`), so a capacity
+/// of 0 also retains exactly one sample — see `queue::tests::
+/// zero_capacity_retains_one_sample`. What differs is bookkeeping, not data: at
+/// capacity 0 every push reports a drop, including the first one into an empty
+/// queue.
 pub(crate) fn dispatch_capacity(qos: &hiroz_protocol::qos::QosProfile) -> usize {
     match qos.history {
         QosHistory::KeepLast(depth) => depth.max(1),
@@ -394,6 +401,16 @@ impl CallbackDispatcher {
                 while let Some(sample) = drain_queue.dequeue() {
                     // A panicking user callback must not kill the drain thread —
                     // that would silently stop all further delivery.
+                    //
+                    // This holds only where panics unwind. Under `panic = "abort"`
+                    // — which this workspace's `[profile.opt]` sets — the panic
+                    // aborts the process before `catch_unwind` can return `Err`,
+                    // so neither the recovery below nor the log line happens. The
+                    // guard is therefore effective for dev, test and `release`
+                    // builds (including everything CI runs) and inert for `opt`.
+                    // That is a deliberate consequence of choosing `abort` for
+                    // that profile, not an oversight here: a build that opts into
+                    // aborting on panic has opted out of surviving one.
                     if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (*handler)(sample)))
                         .is_err()
                     {
