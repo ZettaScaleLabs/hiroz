@@ -114,3 +114,43 @@ impl<T> BoundedQueue<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A zero capacity retains one sample, not zero.
+    ///
+    /// `pubsub::dispatch_capacity` floors a zero history depth at 1 while the
+    /// queue-mode path passes the 0 straight through, so the two sizing
+    /// expressions differ. This pins the reason that divergence is harmless:
+    /// `push` evicts *before* it inserts, so capacity 0 behaves as capacity 1
+    /// for retention. If `push` is ever reordered to insert-then-evict, a
+    /// zero-depth queue starts discarding every sample and this fails.
+    #[test]
+    fn zero_capacity_retains_one_sample() {
+        let q = BoundedQueue::new(0);
+
+        assert!(q.push(1), "capacity 0 reports a drop even on the first push");
+        assert_eq!(q.len(), 1, "capacity 0 must retain one sample, not zero");
+
+        q.push(2);
+        assert_eq!(q.len(), 1);
+        assert_eq!(q.try_recv(), Some(2), "the newest sample is the one kept");
+        assert!(q.is_empty());
+    }
+
+    /// The capacity-1 comparison the doc claims equivalence against: same
+    /// retention, but no spurious drop report on the first push.
+    #[test]
+    fn capacity_one_retains_one_sample_without_reporting_a_drop() {
+        let q = BoundedQueue::new(1);
+
+        assert!(!q.push(1), "an empty capacity-1 queue must not report a drop");
+        assert_eq!(q.len(), 1);
+
+        assert!(q.push(2), "the second push evicts the first");
+        assert_eq!(q.len(), 1);
+        assert_eq!(q.try_recv(), Some(2));
+    }
+}
