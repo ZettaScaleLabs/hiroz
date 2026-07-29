@@ -610,10 +610,7 @@ jobs:
       - name: Go pure tests (codegen + testdata)
         run: nu scripts/test-go.nu --codegen-only
 
-      # Without this the FFI tests have nothing to link against. They used to
-      # skip in that case and report success, so this step never ran at all --
-      # see issue #270. The script now errors instead of skipping, so this
-      # build is what makes the step real rather than decorative.
+      # Without this the FFI tests have nothing to link against and skip -- #270.
       - name: Build hiroz with the ffi feature (required by the FFI tests)
         run: cargo build -j4 -p hiroz --features ffi --release
 
