@@ -56,6 +56,13 @@ pub fn generate_python_bindings(
             .or_default()
             .insert(srv.response.parsed.name.clone(), svc_hash);
     }
+    // Sort for the same reason the message groups above are sorted: `services`
+    // arrives in `discover_all` order, which follows directory iteration and so
+    // varies by machine and filesystem. Without this the emitted stubs differ
+    // between builds by pure reordering, and every build dirties the tree.
+    for srv_msgs in service_messages.values_mut() {
+        srv_msgs.sort_by(|a, b| a.parsed.name.cmp(&b.parsed.name));
+    }
 
     // Generate Python msgspec structs (one file per package)
     for (package_name, package_msgs) in &packages {
