@@ -140,9 +140,16 @@ def test-runtime [] {
         log-success "hiroz FFI tests pass"
         cd ../..
     } else {
-        print ""
-        log-warning "Skipping hiroz FFI tests (Rust library not built)"
-        print "   Build with: cargo build -p hiroz --features ffi --release"
+        # Not a skip. In CI this step is named "Go FFI tests"; letting it pass
+        # without a library meant it reported success having run nothing --
+        # the FFI surface has never been exercised by any check, which is how
+        # a missing re-entrancy guard in `RawPublisher::publish_bytes` shipped
+        # unnoticed on the path `rmw-zenoh-rs` publishes through. See #270.
+        error make {
+            msg: ("hiroz FFI tests cannot run: no libhiroz.a in target/release or target/debug. "
+                + "Build it first with `cargo build -p hiroz --features ffi --release`. "
+                + "This is a failure, not a skip -- see issue #270.")
+        }
     }
 }
 
