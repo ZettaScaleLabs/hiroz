@@ -178,7 +178,7 @@ class TestZPayloadViewNumpy:
         """Fail loudly if numpy is missing, rather than skipping silently."""
         try:
             import numpy  # noqa: F401
-        except ImportError as exc:  # pragma: no cover - env misconfiguration
+        except ImportError:  # pragma: no cover - env misconfiguration
             pytest.fail(
                 "numpy is a declared test dependency but is not installed, so "
                 "the ZPayloadView zero-copy assertions cannot run. Install it "
