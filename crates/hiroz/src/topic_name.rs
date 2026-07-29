@@ -87,9 +87,19 @@ fn validate_namespace(namespace: &str) -> Result<(), TopicNameError> {
         ));
     }
 
-    for part in namespace.split('/') {
+    // Strip exactly one leading slash -- that one is the separator. Every
+    // remaining component must be non-empty: skipping them (as this used to)
+    // let `//ns` validate, and the namespace is concatenated verbatim into the
+    // qualified name below, so `//ns` + `chatter` produced `//ns/chatter` --
+    // the very `//` form topic validation rejects, reaching zenoh's
+    // key-expression parser with the same opaque error this module exists to
+    // prevent. Namespaces are user-supplied, so that path is reachable.
+    let body = namespace.strip_prefix('/').unwrap_or(namespace);
+    for part in body.split('/') {
         if part.is_empty() {
-            continue; // Leading slash creates empty first component
+            return Err(TopicNameError::InvalidNamespace(
+                "empty component: '//' is not a valid namespace".to_string(),
+            ));
         }
         if !is_valid_topic_component(part) {
             return Err(TopicNameError::InvalidNamespace(format!(
@@ -122,7 +132,7 @@ fn validate_node_name(node_name: &str) -> Result<(), TopicNameError> {
 /// This function takes a topic name and qualifies it based on the node's namespace and name.
 ///
 /// Rules:
-/// - Absolute topics (starting with '/') are returned as-is (with trailing slash removed if present)
+/// - Absolute topics (starting with '/') are validated and returned (with trailing slash removed if present)
 /// - Private topics (starting with '~') are expanded to /<namespace>/<node_name>/<topic>
 /// - Relative topics are expanded to /<namespace>/<topic>
 /// - Empty namespace is treated as "/"
@@ -176,7 +186,7 @@ pub fn qualify_topic_name(
 
     // Handle different topic name types
     let qualified = if topic.starts_with('/') {
-        // Absolute topic - use as-is, but remove trailing slash if present
+        // Absolute topic - validated, with a trailing slash removed if present
         let topic = topic.strip_suffix('/').unwrap_or(topic);
         if topic.is_empty() || topic == "/" {
             return Err(TopicNameError::InvalidCharacters(
@@ -196,6 +206,10 @@ pub fn qualify_topic_name(
         // Private topic - expand with namespace and node name
         let topic_suffix = topic.strip_prefix('~').unwrap();
         let topic_suffix = topic_suffix.strip_prefix('/').unwrap_or(topic_suffix);
+        // Strip a trailing slash here too. The absolute and relative branches
+        // both normalize `a/` -> `a`; without this, `~/a/` alone was rejected,
+        // an asymmetry with no justification.
+        let topic_suffix = topic_suffix.strip_suffix('/').unwrap_or(topic_suffix);
 
         // Validate the topic suffix
         if !topic_suffix.is_empty() {
@@ -438,6 +452,58 @@ mod tests {
             qualify_topic_name("~/a//b", "/ns", "node").is_err(),
             "private"
         );
+    }
+
+    /// The namespace is concatenated verbatim into the qualified name, so it
+    /// needs the same rejection the topic gets. `//ns` used to validate --
+    /// `validate_namespace` skipped empty components -- and produced
+    /// `//ns/chatter`, the exact form the topic branch rejects.
+    #[test]
+    fn namespaces_reject_empty_components() {
+        assert!(
+            qualify_topic_name("chatter", "//ns", "node").is_err(),
+            "//ns"
+        );
+        assert!(
+            qualify_topic_name("chatter", "/ns//sub", "node").is_err(),
+            "/ns//sub"
+        );
+        assert!(
+            qualify_topic_name("chatter", "/ns/", "node").is_err(),
+            "trailing slash"
+        );
+        // Still accepted: the single leading slash is the separator, not an
+        // empty component, and a bare namespace needs no slash at all.
+        assert!(qualify_topic_name("chatter", "/ns", "node").is_ok(), "/ns");
+        assert!(qualify_topic_name("chatter", "ns", "node").is_ok(), "ns");
+        assert!(qualify_topic_name("chatter", "/", "node").is_ok(), "/");
+        assert!(qualify_topic_name("chatter", "", "node").is_ok(), "empty");
+    }
+
+    /// A trailing slash is normalized on all three branches, not two.
+    ///
+    /// The absolute and relative branches strip it before validating; the
+    /// private branch did not, so `~/a/` alone was rejected while `/a/` and
+    /// `a/` were accepted and normalized.
+    #[test]
+    fn trailing_slash_is_normalized_on_every_branch() {
+        assert_eq!(qualify_topic_name("/a/", "/ns", "node").unwrap(), "/a");
+        assert_eq!(qualify_topic_name("a/", "/ns", "node").unwrap(), "/ns/a");
+        assert_eq!(
+            qualify_topic_name("~/a/", "/ns", "node").unwrap(),
+            "/ns/node/a"
+        );
+    }
+
+    /// The "just slashes" family: only `//` had any assertion before.
+    #[test]
+    fn slash_only_names_are_rejected() {
+        for bad in ["/", "//", "///"] {
+            assert!(
+                qualify_topic_name(bad, "/ns", "node").is_err(),
+                "expected `{bad}` to be rejected"
+            );
+        }
     }
 
     /// Services and actions route through the same function, so the fix must
