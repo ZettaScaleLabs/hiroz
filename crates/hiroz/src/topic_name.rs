@@ -209,7 +209,18 @@ pub fn qualify_topic_name(
         // Strip a trailing slash here too. The absolute and relative branches
         // both normalize `a/` -> `a`; without this, `~/a/` alone was rejected,
         // an asymmetry with no justification.
+        //
+        // `~` and `~/` legitimately denote the node itself and leave an empty
+        // suffix. `~//` must not: stripping its trailing slash also empties it,
+        // which would skip validation below and silently alias it to `~`
+        // (qualifying to `/ns/node`). Catch that before the emptiness test.
+        let had_suffix = !topic_suffix.is_empty();
         let topic_suffix = topic_suffix.strip_suffix('/').unwrap_or(topic_suffix);
+        if had_suffix && topic_suffix.is_empty() {
+            return Err(TopicNameError::InvalidCharacters(
+                "empty component in private topic: '~//' is not a valid ROS 2 name".to_string(),
+            ));
+        }
 
         // Validate the topic suffix
         if !topic_suffix.is_empty() {
@@ -493,6 +504,20 @@ mod tests {
             qualify_topic_name("~/a/", "/ns", "node").unwrap(),
             "/ns/node/a"
         );
+    }
+
+    /// `~` and `~/` mean the node itself; `~//` is malformed and must not
+    /// silently alias them.
+    #[test]
+    fn private_slash_only_suffixes_are_rejected() {
+        assert_eq!(qualify_topic_name("~", "/ns", "node").unwrap(), "/ns/node");
+        assert_eq!(qualify_topic_name("~/", "/ns", "node").unwrap(), "/ns/node");
+        for bad in ["~//", "~///", "~//a"] {
+            assert!(
+                qualify_topic_name(bad, "/ns", "node").is_err(),
+                "expected `{bad}` to be rejected, not aliased to `~`"
+            );
+        }
     }
 
     /// The "just slashes" family: only `//` had any assertion before.
