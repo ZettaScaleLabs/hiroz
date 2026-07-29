@@ -130,7 +130,9 @@ pub(crate) fn dispatch_capacity(qos: &hiroz_protocol::qos::QosProfile) -> usize 
 struct DispatchState {
     /// Samples awaiting delivery, in the order zenoh decided to deliver them.
     pending: std::collections::VecDeque<Sample>,
-    /// Set by [`CallbackDispatcher::drop`]: drain what is queued, then exit.
+    /// Set by [`CallbackDispatcher::drop`]: stop delivering and exit. Queued
+    /// but undelivered samples are discarded -- see [`DispatchQueue::dequeue`]
+    /// for why teardown does not drain them.
     closed: bool,
     /// Next backlog length that triggers a warning. Unbounded queues only.
     warn_at: usize,
@@ -222,16 +224,31 @@ impl DispatchQueue {
         }
     }
 
-    /// Blocks until a sample is available, or until the queue is closed *and*
-    /// empty (returns `None`, ending the drain loop).
+    /// Blocks until a sample is available, or until the queue is closed
+    /// (returns `None`, ending the drain loop).
+    ///
+    /// `closed` is checked **before** `pending`, and that ordering is the
+    /// difference between a bounded and an unbounded teardown. Draining the
+    /// backlog first meant `drop(subscriber)` ran a user callback for every
+    /// queued sample before returning: on the unbounded (TransientLocal) path
+    /// that is `backlog × callback_duration` with no ceiling -- a 1 kHz
+    /// publisher against a 5 ms callback leaves ~30 000 samples queued after
+    /// 30 s, so the drop blocks for minutes, silently. It could also block
+    /// *forever*, if a callback waits on anything the dropping thread must
+    /// supply.
+    ///
+    /// Dropping a subscriber means "stop delivering to me", so undelivered
+    /// samples are discarded rather than forced through a callback the caller
+    /// has already disposed of -- the same thing destroying an rclcpp
+    /// subscription does. Teardown now costs at most one in-flight callback.
     fn dequeue(&self) -> Option<Sample> {
         let mut state = self.lock();
         loop {
-            if let Some(entry) = state.pending.pop_front() {
-                return Some(entry);
-            }
             if state.closed {
                 return None;
+            }
+            if let Some(entry) = state.pending.pop_front() {
+                return Some(entry);
             }
             state = self.ready.wait(state).unwrap_or_else(|e| e.into_inner());
         }
