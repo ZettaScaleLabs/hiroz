@@ -73,49 +73,88 @@ def run-ros-interop [] {
     run-cmd $prebuild_cmd
 
     # Try without verbose logging first (faster)
-    let result = (do -i { run-cmd $cmd --distro $distro | complete })
+    let first = (do -i { run-cmd $cmd --distro $distro | complete })
 
-    # Always surface the runner's own output.
-    #
-    # This used to capture with `complete` and then never print, so a passing
-    # ROS job logged the nextest command, produced not one line of test output,
-    # and printed "All ROS 2 <distro> tests passed!". That banner was
-    # unfalsifiable: nextest exits 0 when it runs *zero* tests, and each interop
-    # test additionally returns early (still passing) when `check_ros2_available`
-    # says no. Nothing in the log distinguished "57 interop tests passed against
-    # rmw_zenoh_cpp" from "the binary matched no tests".
-    print $result.stdout
-    print $result.stderr
+    # Always surface the runner's own output. This used to capture with
+    # `complete` and never print, so a passing job logged the command and then
+    # "All ROS 2 <distro> tests passed!" with nothing in between.
+    print $first.stdout
+    print $first.stderr
 
-    # If tests failed, retry with trace logging for detailed diagnostics
-    # This is CRITICAL for debugging interop issues - shows type hashes, key expressions, service calls
-    if $result.exit_code != 0 {
+    # If tests failed, retry with trace logging for detailed diagnostics.
+    # This is CRITICAL for debugging interop issues - shows type hashes, key
+    # expressions, service calls.
+    let decided = if $first.exit_code != 0 {
         print "\n⚠️  ROS interop tests failed. Retrying with trace logging..."
         $env.RUST_LOG = "hiroz=trace,rmw_zenoh_cpp=debug,warn"
-        run-cmd $cmd --distro $distro
+        let retry = (do -i { run-cmd $cmd --distro $distro | complete })
+        print $retry.stdout
+        print $retry.stderr
+        if $retry.exit_code != 0 {
+            error make {msg: $"ROS interop tests failed. Command: ($cmd)"}
+        }
+        # Gate the run that decided the outcome, not the discarded attempt.
+        $retry
+    } else {
+        $first
     }
 
-    # An exit code of 0 is necessary but not sufficient — require evidence that
-    # tests actually ran. nextest's last line is
-    # `Summary [  12.345s] 57 tests run: 57 passed, 0 skipped`.
-    let summary = ([$result.stdout, $result.stderr] | str join "\n" | lines
-        | where {|l| $l =~ 'tests run:' })
+    let out = ([$decided.stdout, $decided.stderr] | str join "\n")
 
-    if ($summary | is-empty) {
+    # An exit code of 0 is necessary but not sufficient. Three things have to
+    # hold, and each closes a distinct way this job has read as green while
+    # proving nothing.
+
+    # 1. A summary exists at all.
+    if (($out | lines | where {|l| $l =~ 'tests run:'}) | is-empty) {
         error make {
             msg: $"ROS interop run produced no nextest summary line, so it is unknown whether any test ran. Command: ($cmd)"
         }
     }
 
-    let ran = ($summary | last | parse --regex '(?<n>\d+) tests run' | get n.0 | into int)
-    if $ran == 0 {
+    # 2. The *interop* suites ran -- not merely `hiroz-tests`.
+    #
+    # The previous version asserted a non-zero total, then reported it as
+    # "N ROS interop tests". That total is the whole package: on a healthy run
+    # it reads 125, of which only ~41 are interop. Deleting every interop test
+    # would still have printed a confident number. Count the interop binaries
+    # by name instead, and require each to be present.
+    let interop_suites = [
+        pubsub_interop
+        service_interop
+        action_interop
+        parameter_interop
+        type_description_interop
+        demo_nodes
+    ]
+    let counts = ($interop_suites | each {|suite|
+        {
+            suite: $suite
+            n: ($out | lines | where {|l| $l =~ $"hiroz-tests::($suite) "} | length)
+        }
+    })
+    let missing = ($counts | where n == 0 | get suite)
+    if ($missing | is-not-empty) {
         error make {
-            msg: $"ROS interop run executed 0 tests -- a vacuous pass, not a pass. Command: ($cmd)"
+            msg: $"ROS interop suites produced no tests: ($missing | str join ', '). A pass here would be vacuous. Command: ($cmd)"
         }
     }
-    print $"\n($ran) ROS interop tests ran against rmw_zenoh_cpp."
-}
 
+    # 3. No test self-skipped for a missing ros2 CLI.
+    #
+    # Each interop test returns early -- still passing, still counted -- when
+    # `check_ros2_available` is false. That is a pass with no interop in it.
+    let skipped = ($out | lines | where {|l| $l =~ 'ros2 CLI not available'})
+    if ($skipped | is-not-empty) {
+        error make {
+            msg: $"ROS interop tests self-skipped because the ros2 CLI was unavailable; they report as passes but exercised nothing. Command: ($cmd)"
+        }
+    }
+
+    let total = ($counts | get n | math sum)
+    print $"\n($total) ROS interop tests ran against rmw_zenoh_cpp:"
+    for c in $counts { print $"    ($c.suite): ($c.n)" }
+}
 # ============================================================================
 # Test Suite Configuration
 # ============================================================================
