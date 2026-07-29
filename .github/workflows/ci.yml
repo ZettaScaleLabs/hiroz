@@ -479,6 +479,77 @@ jobs:
           source /tmp/nix-dev-env.sh
           bash scripts/ci/hu-tests.sh
 
+  python-stubs-fresh:
+    name: Generated Python Stubs (ubuntu-latest)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          large-packages: true
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
+          swap-storage: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://hiroz.cachix.org
+            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: hiroz
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: ${{ github.event_name == 'pull_request' }}
+
+      - name: Setup nix environment
+        run: |
+          nix print-dev-env '.#pureRust-ci' --accept-flake-config > /tmp/nix-dev-env.sh
+          echo "export CI=true" >> /tmp/nix-dev-env.sh
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-latest-python-stubs
+
+      # Deliberately does NOT restore the `python-tests` job's generated-types
+      # cache: a restored copy would be compared against the tree instead of a
+      # freshly generated one, and the check would report on the cache.
+      #
+      # `touch build.rs` forces the generator to run even when cargo considers
+      # the crate up to date -- otherwise a warm target dir makes this a no-op
+      # that passes without generating anything.
+      - name: Generated Python stubs are up to date
+        run: |
+          source /tmp/nix-dev-env.sh
+          touch crates/hiroz-msgs/build.rs
+          cargo build -j4 -p hiroz-msgs --features python_registry
+          # `git status --porcelain`, not `git diff`: diff only reports tracked
+          # files, so a stub for a newly-added package would be generated,
+          # left untracked, and silently pass.
+          drift=$(git status --porcelain -- crates/hiroz-msgs/python/hiroz_msgs_py/types)
+          if [ -n "$drift" ]; then
+            echo "$drift"
+            git diff -- crates/hiroz-msgs/python/hiroz_msgs_py/types
+            echo "::error::Generated Python stubs are stale. Run"
+            echo "  cargo build -p hiroz-msgs --features python_registry"
+            echo "and commit the result."
+            exit 1
+          fi
+          echo "Generated Python stubs match the message assets."
+
   go-tests:
     name: Go Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

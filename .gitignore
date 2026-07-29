@@ -15,9 +15,17 @@ result*
 *.egg-info
 __pycache__/
 
-# Auto-generated Python message types (regenerated from .msg files during Rust build)
-crates/hiroz-msgs/python/hiroz_msgs_py/types/*.py
-crates/hiroz-msgs/python/hiroz_msgs_py/types/__init__.py
+# The generated Python message types under
+# crates/hiroz-msgs/python/hiroz_msgs_py/types/ are deliberately tracked, not
+# ignored. They are regenerated from the .msg assets during the Rust build, and
+# the "Generated Python Stubs" CI job fails if the committed copy has drifted
+# from what the generator produces. Ignoring them (as this file used to, while
+# twelve of the thirteen were tracked anyway) hid that drift.
+#
+# The negation is required: the generic `_*` rule near the top of this file
+# matches `__init__.py`, which is why that one generated file stayed untracked
+# while its twelve siblings did not.
+!crates/hiroz-msgs/python/hiroz_msgs_py/types/__init__.py
 crates/hiroz-msgs/python/build/lib/hiroz_msgs_py/types/*.py
 crates/hiroz-msgs/python/build/
 crates/hiroz-msgs/python/uv.lock
