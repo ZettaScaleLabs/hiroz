@@ -109,6 +109,13 @@ jobs:
           chmod +x scripts/test-pure-rust.nu
 
       - name: Setup nix environment (Linux)
+        # `nix print-dev-env` has no internal timeout: a substituter fetch that
+        # stalls hangs until GitHub's 6h job limit. Observed healthy range is
+        # 34-63s, so 20m is ~19x headroom while turning a stall into a fast,
+        # re-runnable failure. A cold cache after a flake.lock bump that needs
+        # real source builds will exceed this -- that should surface as a
+        # failure telling you to populate cachix, not run silently for hours.
+        timeout-minutes: 20
         if: runner.os == 'Linux'
         run: |
           nix print-dev-env '.#pureRust-ci' --accept-flake-config > /tmp/nix-dev-env.sh
@@ -203,6 +210,13 @@ jobs:
           chmod +x scripts/test-pure-rust.nu
 
       - name: Setup nix environment (Linux)
+        # `nix print-dev-env` has no internal timeout: a substituter fetch that
+        # stalls hangs until GitHub's 6h job limit. Observed healthy range is
+        # 34-63s, so 20m is ~19x headroom while turning a stall into a fast,
+        # re-runnable failure. A cold cache after a flake.lock bump that needs
+        # real source builds will exceed this -- that should surface as a
+        # failure telling you to populate cachix, not run silently for hours.
+        timeout-minutes: 20
         run: |
           nix print-dev-env '.#pureRust-ci' --accept-flake-config > /tmp/nix-dev-env.sh
           echo "export CI=true" >> /tmp/nix-dev-env.sh
@@ -259,6 +273,13 @@ jobs:
         run: nix profile install nixpkgs#nushell
 
       - name: Setup nix environment
+        # `nix print-dev-env` has no internal timeout: a substituter fetch that
+        # stalls hangs until GitHub's 6h job limit. Observed healthy range is
+        # 34-63s, so 20m is ~19x headroom while turning a stall into a fast,
+        # re-runnable failure. A cold cache after a flake.lock bump that needs
+        # real source builds will exceed this -- that should surface as a
+        # failure telling you to populate cachix, not run silently for hours.
+        timeout-minutes: 20
         run: |
           nix print-dev-env '.#pureRust-ci' --accept-flake-config > /tmp/nix-dev-env.sh
           echo "export CI=true" >> /tmp/nix-dev-env.sh
@@ -341,6 +362,13 @@ jobs:
           chmod +x scripts/test-pure-rust.nu
 
       - name: Setup nix environment (Linux)
+        # `nix print-dev-env` has no internal timeout: a substituter fetch that
+        # stalls hangs until GitHub's 6h job limit. Observed healthy range is
+        # 34-63s, so 20m is ~19x headroom while turning a stall into a fast,
+        # re-runnable failure. A cold cache after a flake.lock bump that needs
+        # real source builds will exceed this -- that should surface as a
+        # failure telling you to populate cachix, not run silently for hours.
+        timeout-minutes: 20
         if: runner.os == 'Linux'
         run: |
           nix print-dev-env '.#pureRust-ci' --accept-flake-config > /tmp/nix-dev-env.sh
@@ -465,6 +493,13 @@ jobs:
           skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup nix environment
+        # `nix print-dev-env` has no internal timeout: a substituter fetch that
+        # stalls hangs until GitHub's 6h job limit. Observed healthy range is
+        # 34-63s, so 20m is ~19x headroom while turning a stall into a fast,
+        # re-runnable failure. A cold cache after a flake.lock bump that needs
+        # real source builds will exceed this -- that should surface as a
+        # failure telling you to populate cachix, not run silently for hours.
+        timeout-minutes: 20
         run: |
           nix print-dev-env '.#pureRust-ci' --accept-flake-config > /tmp/nix-dev-env.sh
           echo "export CI=true" >> /tmp/nix-dev-env.sh
@@ -574,6 +609,13 @@ jobs:
           chmod +x scripts/test-python.nu
 
       - name: Setup nix environment
+        # `nix print-dev-env` has no internal timeout: a substituter fetch that
+        # stalls hangs until GitHub's 6h job limit. Observed healthy range is
+        # 34-63s, so 20m is ~19x headroom while turning a stall into a fast,
+        # re-runnable failure. A cold cache after a flake.lock bump that needs
+        # real source builds will exceed this -- that should surface as a
+        # failure telling you to populate cachix, not run silently for hours.
+        timeout-minutes: 20
         run: |
           nix print-dev-env '.#ros-${{ matrix.distro }}-ci' --accept-flake-config > /tmp/nix-dev-env.sh
           echo "export CI=true" >> /tmp/nix-dev-env.sh
@@ -687,6 +729,13 @@ jobs:
           chmod +x scripts/test-ros.nu
 
       - name: Setup nix environment
+        # `nix print-dev-env` has no internal timeout: a substituter fetch that
+        # stalls hangs until GitHub's 6h job limit. Observed healthy range is
+        # 34-63s, so 20m is ~19x headroom while turning a stall into a fast,
+        # re-runnable failure. A cold cache after a flake.lock bump that needs
+        # real source builds will exceed this -- that should surface as a
+        # failure telling you to populate cachix, not run silently for hours.
+        timeout-minutes: 20
         run: |
           nix print-dev-env '.#ros-${{ matrix.distro }}-ci' \
             --accept-flake-config > /tmp/nix-dev-env.sh
