@@ -47,8 +47,8 @@ def setup-venv [] {
     # and the venv is created with plain `python -m venv`, so it inherits
     # nothing from the surrounding devShell. Without this the tests skip and
     # the suite still reports success -- see #266.
-    run-cmd "cd crates/hiroz-py; source .venv/bin/activate && pip install 'numpy>=1.21'" --shell bash --distro (get-distro)
-    print "  Installed numpy (test dependency for the zero-copy assertions)"
+    run-cmd "cd crates/hiroz-py; source .venv/bin/activate && pip install -e '.[test]'" --shell bash --distro (get-distro)
+    print "  Installed the test extra (numpy, for the zero-copy assertions)"
 
     # Install hiroz-py in editable mode using maturin
     run-cmd "cd crates/hiroz-py; source .venv/bin/activate && RUSTFLAGS='-D warnings' maturin develop" --shell bash --distro (get-distro)
