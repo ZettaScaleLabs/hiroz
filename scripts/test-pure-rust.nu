@@ -72,6 +72,35 @@ def check-rustdoc-links [] {
     }
 }
 
+def check-python-stubs [] {
+    log-step "Generated Python stubs are up to date"
+    # The stubs under crates/hiroz-msgs/python/hiroz_msgs_py/types/ are
+    # generated from the .msg/.srv assets and committed. Nothing used to check
+    # that the committed copy still matched the generator, so an asset change
+    # without a rebuild-and-commit went unnoticed -- which is how six
+    # rcl_interfaces classes fell out of the checked-in copy.
+    #
+    # `touch build.rs` forces the generator to run even when cargo considers
+    # the crate up to date; without it a warm target dir makes this a no-op
+    # that passes without generating anything.
+    let stub_dir = "crates/hiroz-msgs/python/hiroz_msgs_py/types"
+    touch crates/hiroz-msgs/build.rs
+    run-cmd "cargo build -j4 -p hiroz-msgs --features python_registry"
+
+    # `git status --porcelain`, not `git diff`: diff reports only tracked
+    # files, so a stub for a newly-added package would be generated, left
+    # untracked, and silently pass.
+    let drift = (^git status --porcelain -- $stub_dir | complete)
+    if ($drift.stdout | str trim | is-not-empty) {
+        print ($drift.stdout | str trim)
+        print (^git diff -- $stub_dir | complete | get stdout)
+        error make {
+            msg: $"generated Python stubs are stale -- run `cargo build -p hiroz-msgs --features python_registry` and commit ($stub_dir)"
+        }
+    }
+    print $"Generated Python stubs match the message assets."
+}
+
 def check-examples [] {
     log-step "Check all examples (cargo check --examples)"
     run-cmd "cargo check --examples"
@@ -109,6 +138,7 @@ def get-test-map [] {
         check-hu: { check-hu }
         check-examples: { check-examples }
         check-rustdoc-links: { check-rustdoc-links }
+        check-python-stubs: { check-python-stubs }
         check-distro-features: { check-distro-features }
         clippy-hiroz-py: { clippy-hiroz-py }
         clippy-tests: { clippy-tests }
@@ -124,6 +154,7 @@ def get-test-pipeline [] {
         "check-hu"
         "check-examples"
         "check-rustdoc-links"
+        "check-python-stubs"
         "check-distro-features"
         "clippy-hiroz-py"
         "clippy-tests"
