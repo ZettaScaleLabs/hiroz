@@ -396,6 +396,14 @@ jobs:
           fi
           nu scripts/test-pure-rust.nu check-examples
         shell: bash
+      - name: Check rustdoc links
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            source /tmp/nix-dev-env.sh
+          fi
+          nu scripts/test-pure-rust.nu check-rustdoc-links
+        shell: bash
+
 
       - name: Check distro feature flags
         run: |

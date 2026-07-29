@@ -58,6 +58,20 @@ def clippy-tests [] {
     run-cmd "cargo clippy -p hiroz-tests --all-targets --features ros-interop,hu-meter-tests,hu-monitor-tests,jazzy -- -D warnings"
 }
 
+def check-rustdoc-links [] {
+    log-step "Rustdoc links (cargo doc)"
+    # `cargo doc` reports unresolved intra-doc links as *warnings* and still
+    # exits 0, so the exit code proves nothing -- the diagnostics have to be
+    # matched. Both spellings are checked because rustdoc emits the prose form
+    # ("unresolved link to `X`") and, depending on invocation, the lint name.
+    let r = (^cargo doc --no-deps -p hiroz --quiet | complete)
+    let w = ($r.stderr | lines | where {|it| ($it =~ 'unresolved link') or ($it =~ 'broken_intra_doc_links')})
+    if ($w | is-not-empty) {
+        print ($w | str join (char newline))
+        error make {msg: 'rustdoc: unresolved intra-doc links'}
+    }
+}
+
 def check-examples [] {
     log-step "Check all examples (cargo check --examples)"
     run-cmd "cargo check --examples"
@@ -94,6 +108,7 @@ def get-test-map [] {
         check-bundled-msgs: { check-bundled-msgs }
         check-hu: { check-hu }
         check-examples: { check-examples }
+        check-rustdoc-links: { check-rustdoc-links }
         check-distro-features: { check-distro-features }
         clippy-hiroz-py: { clippy-hiroz-py }
         clippy-tests: { clippy-tests }
@@ -108,6 +123,7 @@ def get-test-pipeline [] {
         "check-bundled-msgs"
         "check-hu"
         "check-examples"
+        "check-rustdoc-links"
         "check-distro-features"
         "clippy-hiroz-py"
         "clippy-tests"
