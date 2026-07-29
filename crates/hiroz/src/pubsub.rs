@@ -1506,60 +1506,6 @@ where
         self.build_internal(DataHandler::Callback(callback), None)
     }
 
-    /// Build a callback subscriber that receives the whole [`Sample`], undecoded.
-    ///
-    /// [`Self::build_with_callback`] must hand the callback an owned `S::Output`,
-    /// and [`ZDeserializer::Output`] carries no lifetime — so a serdes that only
-    /// forwards bytes (a language binding's identity codec, say) has no way to
-    /// express "borrow the payload", and must copy the entire message before the
-    /// callback has even seen it. That copy scales with payload size and is pure
-    /// waste when the consumer immediately re-reads the bytes into its own
-    /// representation.
-    ///
-    /// This entry point steps around it: the callback gets the `Sample`, so it
-    /// can borrow the payload (`sample.payload().to_bytes()` is a `Cow` that
-    /// borrows whenever the `ZBuf` is contiguous, which the receive path makes it)
-    /// and decode straight out of the network buffer. It can also reach the
-    /// sample's attachment, encoding and timestamp, which the decoded form drops.
-    ///
-    /// Everything else is identical to `build_with_callback` — same encoding
-    /// validation, same [`CallbackDispatcher`] handling, same liveliness and
-    /// graph registration. The callback is user code and is dispatched by exactly
-    /// the same rules.
-    ///
-    /// # Ownership
-    ///
-    /// As with `build_with_callback`, the returned [`ZSub`] must be kept alive for
-    /// the subscription to stay active.
-    pub fn build_with_sample_callback<F>(self, callback: F) -> Result<ZSub<T, (), S>>
-    where
-        F: Fn(Sample) + Send + Sync + 'static,
-        S: ZDeserializer,
-    {
-        let expected_encoding = self.expected_encoding.clone();
-        let callback = Arc::new(move |sample: Sample| {
-            if let Some(ref expected) = expected_encoding {
-                let encoding_str = sample.encoding().to_string();
-                if let Some(received) =
-                    crate::encoding::Encoding::from_zenoh_encoding(&encoding_str)
-                {
-                    if &received != expected {
-                        tracing::warn!(
-                            "Encoding mismatch: expected {:?}, received {:?}",
-                            expected,
-                            received
-                        );
-                    }
-                } else {
-                    tracing::debug!("Unknown encoding format: {}", encoding_str);
-                }
-            }
-            callback(sample);
-        });
-
-        self.build_internal(DataHandler::Callback(callback), None)
-    }
-
     #[cfg(feature = "rmw")]
     pub fn build_with_notifier<F>(self, notify: F) -> Result<ZSub<T, Sample, S>>
     where
