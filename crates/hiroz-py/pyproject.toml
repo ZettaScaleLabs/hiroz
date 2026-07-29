@@ -28,8 +28,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# numpy carries the only assertion that proves ZPayloadView is zero-copy
-# (`arr.flags["OWNDATA"] is False`). Declared here rather than installed
+# numpy backs the tests that prove it can consume ZPayloadView's exported
+# buffer without adding a copy. Declared here rather than installed
 # imperatively by the test script so that `pip install -e ".[test]"` is a
 # true instruction -- the tests' own failure message points at it.
 test = ["numpy>=1.21"]
