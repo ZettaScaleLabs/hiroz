@@ -520,8 +520,12 @@ pub enum SubscriberHandle {
         dispatcher: Option<CallbackDispatcher>,
     },
     /// A zenoh-ext advanced subscriber, used for `TransientLocal` durability.
-    /// The user callback runs on the dispatcher's thread — see
-    /// [`CallbackDispatcher`] for why it cannot run inline.
+    ///
+    /// `dispatcher` is `Some` only when the handler runs user code. zenoh-ext
+    /// holds its state lock across the callback, so user code must be moved off
+    /// that thread — but a queue-mode handler only enqueues into a
+    /// [`BoundedQueue`] and re-enters nothing, so it can run under that lock
+    /// safely and needs no thread of its own.
     Advanced {
         /// Boxed because it is several times larger than the plain variant.
         ///
@@ -529,7 +533,7 @@ pub enum SubscriberHandle {
         /// new samples from being enqueued before the dispatcher drains and
         /// joins.
         subscriber: Box<AdvancedSubscriber<()>>,
-        dispatcher: CallbackDispatcher,
+        dispatcher: Option<CallbackDispatcher>,
     },
 }
 
@@ -1359,16 +1363,31 @@ where
         let inner = if qos_needs_advanced(&self.entity.qos) {
             debug!("[SUB] Using AdvancedSubscriber (TransientLocal durability)");
             // `AdvancedSubscriber` holds its state lock across the callback and
-            // cannot avoid it, so *every* sample is enqueued and the real
-            // handler runs on the dispatcher's thread. Lossless: dropping would
-            // discard exactly the samples miss-detection recovered. See
-            // `CallbackDispatcher`.
-            let dispatcher =
-                CallbackDispatcher::spawn(&qualified_topic, validated_handler, DISPATCH_UNBOUNDED)?;
-            let mut sub_builder = self
-                .session
-                .declare_subscriber(key_expr)
-                .callback(dispatcher.always_shim());
+            // cannot avoid it, so *user* code is enqueued and runs on the
+            // dispatcher's thread. Lossless: dropping would discard exactly the
+            // samples miss-detection recovered. See `CallbackDispatcher`.
+            //
+            // A queue-mode handler is exempt. It only pushes into a
+            // `BoundedQueue` and re-enters nothing, so running it under
+            // zenoh-ext's lock is safe — and giving it a dispatcher would add a
+            // thread, a wake and an unbounded queue in front of the bounded one
+            // to every TransientLocal rmw subscription, for nothing.
+            let dispatcher = if runs_user_code {
+                Some(CallbackDispatcher::spawn(
+                    &qualified_topic,
+                    validated_handler.clone(),
+                    DISPATCH_UNBOUNDED,
+                )?)
+            } else {
+                None
+            };
+            let mut sub_builder =
+                self.session
+                    .declare_subscriber(key_expr)
+                    .callback(match dispatcher.as_ref() {
+                        Some(d) => d.always_shim(),
+                        None => Arc::new(move |sample: Sample| validated_handler(sample)),
+                    });
             if let Some(locality) = self.locality {
                 sub_builder = sub_builder.allowed_origin(locality);
                 debug!("[SUB] Locality restriction: {:?}", locality);

@@ -253,7 +253,7 @@ fn callback_cycle_across_two_topics_does_not_deadlock() {
 /// This is the detector for the whole point of routing session-local delivery
 /// through the dispatcher. A callback that republishes to its own topic used to
 /// be reached inline from inside `publish()`, so the loop was recursion: it grew
-/// the stack, and hiroz had to cap it at `MAX_CALLBACK_REENTRY_DEPTH = 16` and
+/// the stack, so before this fix it could not be expressed as a loop at all and
 /// drop samples past the cap to avoid a `SIGSEGV`.
 ///
 /// Now the sample is enqueued and the callback runs on the dispatcher thread, so
@@ -310,7 +310,7 @@ fn self_feeding_callback_loop_iterates_without_a_depth_cap() {
         assert!(
             delivered >= ITERATION_TARGET,
             "self-feeding loop stalled at {delivered} deliveries (target {ITERATION_TARGET}). \
-             Under the old inline dispatch this caps out at MAX_CALLBACK_REENTRY_DEPTH = 16."
+             Under the old inline dispatch this deadlocks on the first hop."
         );
     });
 }
