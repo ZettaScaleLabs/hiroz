@@ -47,7 +47,7 @@ SCENARIO_TIMEOUT = 20.0
 HOPS = 4
 
 # How far the self-feeding loop must run to prove it iterates rather than
-# recurses. Two orders of magnitude past the depth cap of 16 that hiroz used to
+# recurses. Two orders of magnitude past the point where the old inline path
 # need, and well past the stack depth a recursive implementation survives.
 ITERATION_TARGET = 2000
 
@@ -227,7 +227,7 @@ def test_self_feeding_loop_iterates(context, durability):
     This is the Python-level view of the change that made the ``afor``
     benchmark's ``intra`` cell expressible. hiroz used to deliver a same-session
     sample inline on the publishing thread, so this shape was recursion: it grew
-    the stack and had to be cut off at a depth cap of 16, dropping samples past
+    the stack; before this fix it deadlocked on the first hop rather than
     it. Delivery now enqueues and returns, so each hop starts from a flat stack
     and the loop runs for as long as it is fed.
 
