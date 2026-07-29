@@ -688,7 +688,9 @@ impl ZNode {
                 subscriber: Box::new(
                     apply_transient_local_sub(subscriber.advanced(), &entity.qos).wait()?,
                 ),
-                dispatcher,
+                // Always `Some` here: this path exists to deliver to an FFI
+                // callback, which is user code by definition.
+                dispatcher: Some(dispatcher),
             }
         } else {
             let dispatcher = CallbackDispatcher::spawn(
