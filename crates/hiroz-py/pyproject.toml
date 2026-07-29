@@ -27,6 +27,13 @@ dependencies = [
     "hiroz-msgs-py>=0.1.0",
 ]
 
+[project.optional-dependencies]
+# numpy carries the only assertion that proves ZPayloadView is zero-copy
+# (`arr.flags["OWNDATA"] is False`). Declared here rather than installed
+# imperatively by the test script so that `pip install -e ".[test]"` is a
+# true instruction -- the tests' own failure message points at it.
+test = ["numpy>=1.21"]
+
 [tool.maturin]
 features = ["pyo3/extension-module", "jazzy"]
 python-source = "python"
