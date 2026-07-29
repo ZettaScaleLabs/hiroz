@@ -88,7 +88,7 @@ def test-codegen [] {
 }
 
 # Test hiroz-go runtime library
-def test-runtime [] {
+def test-runtime [--require-ffi] {
     log-step "Testing hiroz-go (runtime library)"
 
     # Format check
@@ -139,17 +139,25 @@ def test-runtime [] {
         print $ffi_result.stdout
         log-success "hiroz FFI tests pass"
         cd ../..
-    } else {
-        # Not a skip. In CI this step is named "Go FFI tests"; letting it pass
-        # without a library meant it reported success having run nothing --
-        # the FFI surface has never been exercised by any check, which is how
-        # a missing re-entrancy guard in `RawPublisher::publish_bytes` shipped
-        # unnoticed on the path `rmw-zenoh-rs` publishes through. See #270.
+    } else if $require_ffi {
+        # Only when the FFI tests were explicitly asked for -- which is what CI
+        # does. Letting that path pass without a library meant the "Go FFI
+        # tests" step reported success having run nothing, so the FFI surface
+        # was never exercised by any check. That is how a missing re-entrancy
+        # guard in `RawPublisher::publish_bytes` shipped unnoticed, on the path
+        # `rmw-zenoh-rs` publishes through. See #270.
         error make {
             msg: ("hiroz FFI tests cannot run: no libhiroz.a in target/release or target/debug. "
                 + "Build it first with `cargo build -p hiroz --features ffi --release`. "
                 + "This is a failure, not a skip -- see issue #270.")
         }
+    } else {
+        # Default and --runtime-only keep skipping, so a Go-only contributor
+        # without a Rust toolchain can still run the suite. Only the explicit
+        # --ffi-only contract is enforced.
+        print ""
+        log-warning "Skipping hiroz FFI tests (Rust library not built)"
+        print "   Build with: cargo build -p hiroz --features ffi --release"
     }
 }
 
@@ -377,7 +385,7 @@ def main [
     } else if $vet_only {
         test-vet
     } else if $ffi_only {
-        test-runtime  # includes FFI tests when library is present
+        test-runtime --require-ffi  # FFI tests are the point here: absence is a failure
     } else if $integration {
         test-integration --race=$race
     } else {
