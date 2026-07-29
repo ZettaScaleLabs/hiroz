@@ -131,7 +131,10 @@ mod tests {
     fn zero_capacity_retains_one_sample() {
         let q = BoundedQueue::new(0);
 
-        assert!(q.push(1), "capacity 0 reports a drop even on the first push");
+        assert!(
+            q.push(1),
+            "capacity 0 reports a drop even on the first push"
+        );
         assert_eq!(q.len(), 1, "capacity 0 must retain one sample, not zero");
 
         q.push(2);
@@ -146,7 +149,10 @@ mod tests {
     fn capacity_one_retains_one_sample_without_reporting_a_drop() {
         let q = BoundedQueue::new(1);
 
-        assert!(!q.push(1), "an empty capacity-1 queue must not report a drop");
+        assert!(
+            !q.push(1),
+            "an empty capacity-1 queue must not report a drop"
+        );
         assert_eq!(q.len(), 1);
 
         assert!(q.push(2), "the second push evicts the first");
