@@ -119,14 +119,18 @@ def run-ros-interop [] {
     # it reads 125, of which only ~41 are interop. Deleting every interop test
     # would still have printed a confident number. Count the interop binaries
     # by name instead, and require each to be present.
-    let interop_suites = [
+    #
+    # The list is distro-dependent. `type_description_interop.rs` is
+    # `#![cfg(not(ros_humble))]` -- Humble has no type description service to
+    # interoperate with -- so requiring it there would fail a healthy run.
+    # Every other suite must be present on every distro.
+    let interop_suites = ([
         pubsub_interop
         service_interop
         action_interop
         parameter_interop
-        type_description_interop
         demo_nodes
-    ]
+    ] | append (if $distro == "humble" { [] } else { [type_description_interop] }))
     let counts = ($interop_suites | each {|suite|
         {
             suite: $suite
