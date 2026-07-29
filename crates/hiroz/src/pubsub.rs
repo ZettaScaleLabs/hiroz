@@ -1381,13 +1381,13 @@ where
             } else {
                 None
             };
-            let mut sub_builder =
-                self.session
-                    .declare_subscriber(key_expr)
-                    .callback(match dispatcher.as_ref() {
-                        Some(d) => d.always_shim(),
-                        None => Arc::new(move |sample: Sample| validated_handler(sample)),
-                    });
+            // Boxed to a common type: `always_shim` returns an opaque `impl Fn`,
+            // so the two arms cannot share a `match` unerased.
+            let callback: Box<dyn Fn(Sample) + Send + Sync + 'static> = match dispatcher.as_ref() {
+                Some(d) => Box::new(d.always_shim()),
+                None => Box::new(move |sample: Sample| validated_handler(sample)),
+            };
+            let mut sub_builder = self.session.declare_subscriber(key_expr).callback(callback);
             if let Some(locality) = self.locality {
                 sub_builder = sub_builder.allowed_origin(locality);
                 debug!("[SUB] Locality restriction: {:?}", locality);
