@@ -869,28 +869,15 @@ where
 
     /// Build a callback subscriber that receives the whole [`Sample`], undecoded.
     ///
-    /// [`Self::build_with_callback`] must hand the callback an owned `S::Output`,
-    /// and [`ZDeserializer::Output`] carries no lifetime — so a serdes that only
-    /// forwards bytes (a language binding's identity codec, say) has no way to
-    /// express "borrow the payload", and must copy the entire message before the
-    /// callback has even seen it. That copy scales with payload size and is pure
-    /// waste when the consumer immediately re-reads the bytes into its own
-    /// representation.
+    /// [`Self::build_with_callback`] hands the callback an owned `S::Output`, and
+    /// [`ZDeserializer::Output`] carries no lifetime — so a serdes that only
+    /// forwards bytes must copy the whole message before the callback sees it.
+    /// Taking the `Sample` instead lets the callback borrow the payload and
+    /// decode out of the network buffer, and reaches the attachment, encoding and
+    /// timestamp that the decoded form drops.
     ///
-    /// This entry point steps around it: the callback gets the `Sample`, so it
-    /// can borrow the payload (`sample.payload().to_bytes()` is a `Cow` that
-    /// borrows whenever the `ZBuf` is contiguous, which the receive path makes it)
-    /// and decode straight out of the network buffer. It can also reach the
-    /// sample's attachment, encoding and timestamp, which the decoded form drops.
-    ///
-    /// Everything else is identical to `build_with_callback` — same encoding
-    /// validation, same liveliness and graph registration, same dispatch. The
-    /// callback is user code and is handled by exactly the same rules.
-    ///
-    /// # Ownership
-    ///
-    /// As with `build_with_callback`, the returned [`ZSub`] must be kept alive for
-    /// the subscription to stay active.
+    /// Otherwise identical to `build_with_callback`, including that the returned
+    /// [`ZSub`] must be kept alive for the subscription to stay active.
     pub fn build_with_sample_callback<F>(self, callback: F) -> Result<ZSub<T, (), S>>
     where
         F: Fn(Sample) + Send + Sync + 'static,
