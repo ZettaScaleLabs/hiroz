@@ -83,7 +83,19 @@ def check-python-stubs [] {
     # `touch build.rs` forces the generator to run even when cargo considers
     # the crate up to date; without it a warm target dir makes this a no-op
     # that passes without generating anything.
+    #
+    # The directory is emptied first so that *deletions* are caught too. The
+    # generator only writes files for packages it currently emits -- it never
+    # removes one -- so dropping a package's assets would otherwise leave its
+    # orphaned stub tracked and unchanged, and the check would pass. Emptying
+    # turns that into a visible ` D` entry. Verified safe: a build from an
+    # empty directory reproduces exactly the committed set (13 of 13), so this
+    # cannot ask for a legitimately-committed stub to be deleted.
+    #
+    # If the build below fails, the stubs are left deleted in the working
+    # tree; `git checkout -- <stub_dir>` restores them.
     let stub_dir = "crates/hiroz-msgs/python/hiroz_msgs_py/types"
+    rm -f ...(glob $"($stub_dir)/*.py")
     touch crates/hiroz-msgs/build.rs
     run-cmd "cargo build -j4 -p hiroz-msgs --features python_registry"
 
