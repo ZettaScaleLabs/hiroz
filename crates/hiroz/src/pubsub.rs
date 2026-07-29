@@ -884,9 +884,8 @@ where
     /// sample's attachment, encoding and timestamp, which the decoded form drops.
     ///
     /// Everything else is identical to `build_with_callback` — same encoding
-    /// validation, same [`CallbackDispatcher`] handling, same liveliness and
-    /// graph registration. The callback is user code and is dispatched by exactly
-    /// the same rules.
+    /// validation, same liveliness and graph registration, same dispatch. The
+    /// callback is user code and is handled by exactly the same rules.
     ///
     /// # Ownership
     ///
