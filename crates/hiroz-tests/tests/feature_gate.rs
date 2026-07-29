@@ -1,16 +1,22 @@
 //! Fails loudly when `hiroz-tests` is built without the features its suites need.
 //!
-//! Several suites in this crate are `#![cfg(feature = "ros-msgs")]` — most
-//! importantly `reentrant_service.rs`, which is the only coverage the
-//! callback-under-lock deadlocks in the service and parameter paths have. A
-//! crate-level `cfg` that is not satisfied does not error and does not warn: the
-//! file compiles to an empty test binary that reports `0 passed`, which is
-//! indistinguishable from green in every runner and every CI log.
+//! Ten suites in this crate are `#![cfg(feature = "ros-msgs")]` — `cache.rs`,
+//! `lifecycle.rs`, `parameter_tests.rs`, `service_schema_discovery.rs`,
+//! `subscriber_timeout.rs`, `type_description_integration.rs`, the `z_*_example`
+//! suites, and others. A crate-level `cfg` that is not satisfied does not error
+//! and does not warn: the file compiles to an empty test binary reporting
+//! `0 passed`, which is indistinguishable from green in every runner and log.
 //!
-//! That is exactly how those four tests stopped running without anyone noticing.
-//! `scripts/test-pure-rust.nu` linted `hiroz-tests` under interop features but
-//! *tested* it under none, so the clippy step saw the code and the test step did
-//! not.
+//! Two separate mechanisms could hide that, and they are worth keeping distinct:
+//!
+//! * **Selection.** `Cargo.toml` sets
+//!   `default-members = ["crates/hiroz", "crates/hiroz-codegen"]`, so a bare
+//!   `cargo nextest run` never selected `hiroz-tests` at all — the crate was not
+//!   built, rather than built empty. `scripts/test-pure-rust.nu` now names the
+//!   crate explicitly.
+//! * **Empty compilation.** Ask for the crate without features and the gated
+//!   suites really do compile away to `0 passed`. That is what this file and the
+//!   build script guard against.
 //!
 //! This file is deliberately **not** gated, so it is the one thing in the crate
 //! that a featureless build cannot compile away. If the features go missing
@@ -29,7 +35,8 @@ fn ros_msgs_gated_suites_must_not_be_silently_skipped() {
     panic!(
         "hiroz-tests was built without the `ros-msgs` feature.\n\
          \n\
-         The suites gated on it — `reentrant_service.rs` among them — have been \
+         The suites gated on it — `cache.rs`, `lifecycle.rs`, \
+         `parameter_tests.rs` and others — have been \
          compiled to empty test binaries and will report `0 passed`, which reads \
          as green. That is not a pass; it is no coverage.\n\
          \n\

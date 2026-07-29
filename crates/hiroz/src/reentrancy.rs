@@ -113,9 +113,10 @@ pub fn assert_no_guards_held(site: &str) {
             live == 0,
             "hiroz re-entrancy rule violated at `{site}`: about to invoke a user \
              callback with {live} hiroz lock guard(s) still live on this thread. \
-             A callback that re-enters hiroz here will deadlock. Collect what you \
-             need under the lock, drop the guard, then call — see \
-             `GraphEventManager::trigger_graph_change` for the pattern."
+             A callback that re-enters hiroz here may deadlock, and will if it \
+             touches a lock this thread already holds. The fix is always the \
+             same shape: collect what you need into an owned value, drop every \
+             guard, then invoke the callback."
         );
     }
     #[cfg(not(debug_assertions))]

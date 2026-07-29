@@ -20,9 +20,13 @@ def run-tests [] {
 
     log-step "Run tests"
     # `hiroz-tests` is excluded here and run separately below *with* its features.
-    # Several of its suites — `reentrant_service.rs` most importantly — are
+    # Ten of its suites (`cache.rs`, `lifecycle.rs`, `parameter_tests.rs`,
+    # `service_schema_discovery.rs`, `subscriber_timeout.rs` and others) are
     # `#![cfg(feature = "ros-msgs")]`, and a crate-level cfg that is not satisfied
     # compiles to an empty test binary reporting `0 passed`. That reads as green.
+    # Separately, the crate is not in `default-members`, so before this change a
+    # bare `cargo nextest run` did not build it at all -- naming it explicitly is
+    # what makes the features load-bearing rather than moot.
     # None of those features need a ROS installation (hiroz-msgs bundles the
     # definitions), so there is no reason for this job to run the crate blind.
     # `rmw-zenoh-rs` is excluded too: its build script generates bindings from
