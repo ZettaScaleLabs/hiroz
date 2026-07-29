@@ -794,3 +794,77 @@ fn transient_local_subscriber_dropped_inside_its_own_callback_does_not_deadlock(
         }
     });
 }
+
+/// `async_publish` must also hand session-local delivery to the drain thread.
+///
+/// Every other scenario in this file drives the *synchronous* `publish`, so the
+/// async path's guard was unpinned. It is guarded differently, and the
+/// difference is load-bearing: a thread-local held across an `.await` would be
+/// observed on whatever thread resumed the task, so `async_publish` scopes
+/// `LocalPublishGuard` to the `into_future()` call rather than the await. That
+/// is only sufficient because zenoh resolves a put eagerly there --
+/// `IntoFuture for PublicationBuilder<_, PublicationBuilderPut>` is
+/// `std::future::ready(self.wait())` (zenoh 1.9.0, `api/builders/publisher.rs`).
+///
+/// That is an upstream implementation detail, not a documented contract. Should
+/// zenoh ever make the put lazy, it would move outside the guard, session-local
+/// samples would again be dispatched inline on the publishing thread, and every
+/// deadlock this file exists to prevent would return on the async path with no
+/// other test noticing.
+///
+/// The detector is thread identity rather than a hang, so it fails immediately
+/// and for a legible reason instead of timing out: with the guard covering the
+/// put, the callback runs on `hiroz-sub-drain`; without it, on the publishing
+/// thread.
+#[test]
+#[serial]
+fn async_publish_delivers_off_the_publishing_thread() {
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+
+    run_with_deadline("async_publish_off_thread", move || {
+        let ctx = create_hiroz_context_with_endpoint(&endpoint).expect("failed to create context");
+        let node = ctx
+            .create_node("reentrant_async_publish")
+            .build()
+            .expect("failed to create node");
+
+        let publisher = node
+            .create_pub::<Tick>("/reentrant_async")
+            .build()
+            .expect("failed to create publisher");
+
+        let (tx, rx) = mpsc::channel();
+        let _sub = node
+            .create_sub::<Tick>("/reentrant_async")
+            .build_with_callback(move |_msg: Tick| {
+                let _ = tx.send(thread::current().id());
+            })
+            .expect("failed to create subscriber");
+
+        thread::sleep(Duration::from_millis(300));
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build runtime");
+        let publishing_thread = runtime.block_on(async {
+            publisher
+                .async_publish(&Tick { counter: 0 })
+                .await
+                .expect("async publish failed");
+            thread::current().id()
+        });
+
+        let callback_thread = rx
+            .recv_timeout(DELIVERY_TIMEOUT)
+            .expect("async_publish produced no delivery");
+
+        assert_ne!(
+            callback_thread, publishing_thread,
+            "async_publish delivered the sample inline on the publishing thread: \
+             the local-publish guard did not cover the put, so a callback that \
+             publishes would recurse instead of iterate"
+        );
+    });
+}
