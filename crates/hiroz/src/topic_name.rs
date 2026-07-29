@@ -48,6 +48,32 @@ fn is_valid_topic_component(component: &str) -> bool {
         .all(|&b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
+/// Validate every `/`-separated component of `path`.
+///
+/// `path` must already have any leading `/` stripped, so that an empty
+/// component always means a genuine `//` or a trailing `/` rather than the
+/// leading separator of an absolute name.
+///
+/// Empty components are **rejected**, not skipped. Skipping them let `//a//b`
+/// pass ROS validation and fail later inside zenoh's key-expression parser,
+/// with an error that cites a dependency path and never names the offending
+/// topic.
+fn validate_topic_components(path: &str, context: &str) -> Result<(), TopicNameError> {
+    for part in path.split('/') {
+        if part.is_empty() {
+            return Err(TopicNameError::InvalidCharacters(format!(
+                "empty component in {context}: '//' and a trailing '/' are not valid ROS 2 names"
+            )));
+        }
+        if !is_valid_topic_component(part) {
+            return Err(TopicNameError::InvalidCharacters(format!(
+                "invalid component '{part}' in {context}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Validate a namespace string
 /// Namespaces can be empty, "/", or a series of valid components separated by "/"
 fn validate_namespace(namespace: &str) -> Result<(), TopicNameError> {
@@ -157,6 +183,14 @@ pub fn qualify_topic_name(
                 "topic cannot be just '/'".to_string(),
             ));
         }
+        // This branch used to return unchecked, so an absolute name reached
+        // zenoh with no component validation at all -- `create_client("/bad
+        // name", ..)` was accepted and failed later, or silently never matched.
+        // `strip_prefix`, not `trim_start_matches`: exactly one leading slash is
+        // the separator. Trimming all of them would turn `//a` into `a` and
+        // accept it, which is the very form this is meant to reject.
+        let body = topic.strip_prefix('/').unwrap_or(topic);
+        validate_topic_components(body, "absolute topic")?;
         topic.to_string()
     } else if topic.starts_with('~') {
         // Private topic - expand with namespace and node name
@@ -165,14 +199,7 @@ pub fn qualify_topic_name(
 
         // Validate the topic suffix
         if !topic_suffix.is_empty() {
-            for part in topic_suffix.split('/') {
-                if !part.is_empty() && !is_valid_topic_component(part) {
-                    return Err(TopicNameError::InvalidCharacters(format!(
-                        "invalid component '{}' in private topic",
-                        part
-                    )));
-                }
-            }
+            validate_topic_components(topic_suffix, "private topic")?;
         }
 
         if namespace.is_empty() || namespace == "/" {
@@ -191,14 +218,7 @@ pub fn qualify_topic_name(
         let topic = topic.strip_suffix('/').unwrap_or(topic);
 
         // Validate topic components
-        for part in topic.split('/') {
-            if !part.is_empty() && !is_valid_topic_component(part) {
-                return Err(TopicNameError::InvalidCharacters(format!(
-                    "invalid component '{}'",
-                    part
-                )));
-            }
-        }
+        validate_topic_components(topic, "topic")?;
 
         if namespace.is_empty() || namespace == "/" {
             format!("/{}", topic)
@@ -358,5 +378,73 @@ mod tests {
             qualify_service_name("~my_service", "/ns", "node").unwrap(),
             "/ns/node/my_service"
         );
+    }
+
+    /// The absolute branch used to return unchecked, so these all succeeded.
+    ///
+    /// `create_client("/bad name", ..)` was accepted at construction and then
+    /// failed inside zenoh's key-expression parser -- or worse, resolved to a
+    /// name that could never match a peer. Table-driven so the rejected forms
+    /// are visible as a set rather than buried in assertions.
+    #[test]
+    fn absolute_names_reject_invalid_components() {
+        for bad in [
+            "/bad name", // space
+            "/a/b c",    // space in a later component
+            "/1abc",     // must not start with a digit
+            "/a/2b",     // ditto, later component
+            "/a-b",      // hyphen is not a valid component character
+            "/a.b",      // nor is a dot
+            "/a//b",     // empty component
+            "//a",       // empty leading component
+            "/a/b//",    // empty component after trailing-slash strip
+        ] {
+            assert!(
+                qualify_topic_name(bad, "/ns", "node").is_err(),
+                "expected `{bad}` to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn absolute_names_still_accept_valid_components() {
+        for good in [
+            "/chatter",
+            "/a/b/c",
+            "/_private",
+            "/a_1/b_2",
+            "/chatter/", // trailing slash is stripped, not rejected
+        ] {
+            assert!(
+                qualify_topic_name(good, "/ns", "node").is_ok(),
+                "expected `{good}` to be accepted"
+            );
+        }
+    }
+
+    /// Empty components were previously *skipped* rather than rejected, on
+    /// every branch, so `//a//b` passed ROS validation.
+    #[test]
+    fn empty_components_are_rejected_on_every_branch() {
+        assert!(
+            qualify_topic_name("/a//b", "/ns", "node").is_err(),
+            "absolute"
+        );
+        assert!(
+            qualify_topic_name("a//b", "/ns", "node").is_err(),
+            "relative"
+        );
+        assert!(
+            qualify_topic_name("~/a//b", "/ns", "node").is_err(),
+            "private"
+        );
+    }
+
+    /// Services and actions route through the same function, so the fix must
+    /// reach them too -- the issue's reproduction is a client, not a topic.
+    #[test]
+    fn service_names_reject_invalid_absolute_components() {
+        assert!(qualify_service_name("/bad name", "/ns", "node").is_err());
+        assert!(qualify_service_name("/add_two_ints", "/ns", "node").is_ok());
     }
 }
