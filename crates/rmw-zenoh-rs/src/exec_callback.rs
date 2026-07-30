@@ -62,6 +62,23 @@
 //! thread must not wait — waiting for itself is the deadlock. A `set` on an
 //! unrelated thread must wait, because it is the one about to free the pointer.
 //!
+//! ## What this still does not survive
+//!
+//! Two threads *both* dispatching this entity's callback *and* both re-entering
+//! `set` from inside it will wait on each other. Each is in a live dispatch that
+//! may still touch its `user_data` after `set` returns, so neither wait can
+//! safely be skipped.
+//!
+//! Stated rather than hidden, because it is a real residual — but it is not a
+//! regression against the reference. `rmw_zenoh_cpp` cannot survive re-entrant
+//! `set` at all: `set_callback` takes `event_mutex_` (and replays its backlog
+//! under it), so a callback dispatched from `trigger_callback` that calls
+//! `set_callback` re-locks a non-recursive `std::mutex` on the thread that
+//! already holds it. That deadlocks with one thread. This deadlocks only with
+//! two threads mutually re-entering, and the single-threaded case — the one
+//! rclcpp actually exercises when an executor detaches from inside a
+//! notification — is the case this type makes work.
+//!
 //! # Enforcement
 //!
 //! The mutex is a [`hiroz::reentrancy::TrackedMutex`], so its guards are counted
@@ -238,7 +255,6 @@ impl ExecCallback {
     /// in a single call, which is what lets an executor that attaches after
     /// messages have already arrived — the common startup race — see them.
     ///
-    /// [`notify_one`]: Self::notify_one
     /// # Blocking
     ///
     /// This returns only once every dispatch that captured the *outgoing*
@@ -248,6 +264,8 @@ impl ExecCallback {
     /// `rmw_zenoh_cpp` has the same property, where the wait is on
     /// `event_mutex_` instead. A callback re-entering on its own thread never
     /// waits.
+    ///
+    /// [`notify_one`]: Self::notify_one
     pub fn set(&self, callback: Option<ExecCallbackFn>, user_data: *mut crate::c_void) {
         // Collect under the lock, registering the replay — if there is one —
         // before releasing it, for the same reason `notify_one` does: a
@@ -615,25 +633,33 @@ mod tests {
         assert_eq!(calls, 1);
     }
 
-    /// A panicking callback must not leave its registration behind: the wait in
-    /// `set` would then never be satisfiable, turning the use-after-free into a
-    /// permanent hang. Covers the `DispatchToken` unwind path.
+    /// An unwind through a live dispatch must not leave its registration
+    /// behind: the wait in `set` would then never be satisfiable, turning the
+    /// use-after-free into a permanent hang. Covers `DispatchToken`'s `Drop`.
     ///
-    /// The panic is caught, so the run prints one backtrace-ish line from the
-    /// default hook. That noise is expected.
+    /// The unwind is raised directly rather than from a callback, because a
+    /// panic *out of a callback* is not the reachable case: the callbacks are
+    /// `extern "C"`, and Rust aborts rather than unwinding across that
+    /// boundary — a panicking executor callback kills the process before any
+    /// `Drop` runs. What can unwind here is Rust code on this side of the
+    /// boundary, most notably `invoke_user_callback!`'s own debug assertion,
+    /// which fires *before* the call.
+    ///
+    /// The panic is caught, so the run prints one line from the default hook.
+    /// That noise is expected.
     #[test]
-    fn a_panicking_callback_does_not_wedge_later_sets() {
-        unsafe extern "C" fn panics(_user_data: *const std::ffi::c_void, _count: usize) {
-            panic!("executor callback exploded");
-        }
-
+    fn an_unwind_through_a_dispatch_releases_its_registration() {
         let exec = Executor::new("client", 0);
-        exec.slot.set(Some(panics), exec.user_data());
 
-        let unwound = std::panic::catch_unwind(AssertUnwindSafe(|| exec.slot.notify_one()));
+        let unwound = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            let _token = exec.slot.enter_dispatch();
+            panic!("something unwound mid-dispatch");
+        }));
         assert!(unwound.is_err(), "the panic must still propagate");
 
-        assert_completes("set() after a callback panicked", move || {
+        // If the registration leaked, this blocks forever: the wait is looking
+        // for a dispatch on another thread that has already gone.
+        assert_completes("set() after an unwind mid-dispatch", move || {
             exec.slot.set(None, std::ptr::null_mut());
         });
     }
