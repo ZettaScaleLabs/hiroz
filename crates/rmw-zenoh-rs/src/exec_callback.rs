@@ -468,9 +468,11 @@ mod tests {
         match rx.recv_timeout(DEADLOCK_TIMEOUT) {
             Ok(v) => v,
             Err(_) => panic!(
-                "{what} did not return within {DEADLOCK_TIMEOUT:?} — the executor \
-                 callback was invoked while a guard on the same mutex was live, so \
-                 the re-entrant call is blocked on this thread's own lock"
+                "{what} did not return within {DEADLOCK_TIMEOUT:?}, so it is blocked. \
+                 The causes this suite distinguishes: a guard on the state mutex was \
+                 still live across the dispatch (the original defect); the in-flight \
+                 wait counted this thread and is waiting on itself; or a finished \
+                 dispatch failed to deregister and the wait can never be satisfied"
             ),
         }
     }
