@@ -769,6 +769,64 @@ jobs:
           source /tmp/nix-dev-env.sh
           nu scripts/test-pure-rust.nu check-python-stubs
 
+  ffi-header-fresh:
+    name: Generated FFI Header (ubuntu-latest)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          large-packages: true
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
+          swap-storage: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://hiroz.cachix.org
+            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: hiroz
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: ${{ github.event_name == 'pull_request' }}
+
+      - name: Install Nushell
+        run: |
+          nix profile install nixpkgs#nushell
+          chmod +x scripts/test-pure-rust.nu
+
+      - name: Setup nix environment
+        run: |
+          nix print-dev-env '.#pureRust-ci' --accept-flake-config > /tmp/nix-dev-env.sh
+          echo "export CI=true" >> /tmp/nix-dev-env.sh
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-latest-ffi-header
+
+      # Its own job rather than a step in `go-tests`: that job has no Nix
+      # environment, and cbindgen has to come from the same dev shell the check
+      # runs in so a version skew cannot silently change the generated output.
+      - name: Generated FFI header is up to date
+        run: |
+          source /tmp/nix-dev-env.sh
+          nu scripts/test-pure-rust.nu check-ffi-header
+
   go-tests:
     name: Go Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
