@@ -33,6 +33,35 @@
 //! rested on every site agreeing on a lock order. With one, the invariant is
 //! local and there is no order to get wrong.
 //!
+//! # Why dropping the guard is not sufficient on its own
+//!
+//! `rmw_zenoh_cpp` dispatches this callback *under* its `event_mutex_`
+//! (`DataCallbackManager::trigger_callback`), and `event_set_callback` takes the
+//! same mutex. That is not only exclusion — it is a **lifetime guarantee**: once
+//! `set_callback(nullptr)` returns, no callback is in flight, so the caller may
+//! free whatever `user_data` pointed at.
+//!
+//! Collecting the callback and its `user_data` under the lock and dispatching
+//! after the guard drops removes that guarantee. The window:
+//!
+//! 1. A delivery thread enters [`ExecCallback::notify_one`], snapshots
+//!    `(callback, user_data)`, and drops the guard.
+//! 2. The executor thread calls [`ExecCallback::set`] with `None`. It takes the
+//!    lock, clears the slot, and returns — without waiting.
+//! 3. The entity is destroyed and `user_data` is freed.
+//! 4. The delivery thread calls the callback with its stale snapshot —
+//!    use-after-free.
+//!
+//! Restoring the C++ shape is not an option: dispatching under the lock is
+//! exactly the deadlock above. So the exclusion and the lifetime guarantee are
+//! separated. Each dispatch registers the thread performing it, and `set` waits
+//! for registered dispatches **on other threads** to finish before it returns.
+//!
+//! The thread distinction is the whole point, and it is what makes this
+//! different from the original bug. A callback that re-enters `set` on its own
+//! thread must not wait — waiting for itself is the deadlock. A `set` on an
+//! unrelated thread must wait, because it is the one about to free the pointer.
+//!
 //! # Enforcement
 //!
 //! The mutex is a [`hiroz::reentrancy::TrackedMutex`], so its guards are counted
@@ -41,8 +70,12 @@
 //! dispatching. In debug builds a reintroduction of the defect panics with the
 //! site name instead of hanging; in release both the counter and the assertion
 //! compile to nothing.
+//!
+//! Neither the state guard nor the in-flight guard is ever held across user
+//! code. Where both are taken, the order is always state then in-flight.
 
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread::ThreadId;
 
 use hiroz::invoke_user_callback;
 use hiroz::reentrancy::TrackedMutex;
@@ -63,6 +96,44 @@ struct State {
     unread: usize,
 }
 
+/// Threads currently inside a dispatch.
+///
+/// One entry per active dispatch, not per thread: a callback may re-enter
+/// `notify_one` on the same thread, so the same `ThreadId` can appear more than
+/// once and each occurrence must be removed independently.
+#[derive(Default)]
+struct InFlight {
+    threads: Vec<ThreadId>,
+}
+
+/// The in-flight registry and the condvar `set` waits on.
+type InFlightSlot = (Mutex<InFlight>, Condvar);
+
+/// Deregisters this thread's dispatch on scope exit, **including on unwind**.
+///
+/// Without the unwind path, a panicking executor callback would leave its entry
+/// behind forever and every later `set` would block on a dispatch that has
+/// already finished — trading a use-after-free for a permanent hang.
+struct DispatchToken<'a> {
+    slot: &'a InFlightSlot,
+}
+
+impl Drop for DispatchToken<'_> {
+    fn drop(&mut self) {
+        let (lock, condvar) = self.slot;
+        // Poison-tolerant: this lock is only ever held for a push or a remove,
+        // never across user code, so a poisoned state carries no broken
+        // invariant — but failing to deregister here would hang every `set`.
+        let mut in_flight = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let me = std::thread::current().id();
+        if let Some(i) = in_flight.threads.iter().position(|t| *t == me) {
+            in_flight.threads.swap_remove(i);
+        }
+        drop(in_flight);
+        condvar.notify_all();
+    }
+}
+
 /// Shared executor-notification state for one rmw entity.
 ///
 /// Cloning shares the underlying slot; the delivery thread and the rmw API
@@ -70,6 +141,11 @@ struct State {
 #[derive(Clone)]
 pub struct ExecCallback {
     state: Arc<TrackedMutex<State>>,
+    /// Dispatches currently running, so [`set`] can wait for the ones that
+    /// captured the outgoing `user_data`.
+    ///
+    /// [`set`]: Self::set
+    in_flight: Arc<InFlightSlot>,
     /// Entity kind, reproduced in the re-entrancy panic message.
     site: &'static str,
 }
@@ -80,7 +156,40 @@ impl ExecCallback {
     pub fn new(site: &'static str) -> Self {
         Self {
             state: Arc::new(TrackedMutex::new(State::default())),
+            in_flight: Arc::new((Mutex::new(InFlight::default()), Condvar::new())),
             site,
+        }
+    }
+
+    /// Register this thread as dispatching, returning the token that removes it.
+    ///
+    /// **Must be called while the state guard is still held.** `set` swaps the
+    /// slot under that same guard, so registering before releasing it is what
+    /// guarantees that every dispatch holding the outgoing `user_data` is
+    /// already visible to `set`'s wait. Register after, and step 2 of the race
+    /// in the module docs reopens.
+    fn enter_dispatch(&self) -> DispatchToken<'_> {
+        let (lock, _) = &*self.in_flight;
+        lock.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .threads
+            .push(std::thread::current().id());
+        DispatchToken {
+            slot: &self.in_flight,
+        }
+    }
+
+    /// Block until no *other* thread is inside a dispatch.
+    ///
+    /// Entries for the current thread are ignored on purpose: a callback that
+    /// re-enters `set` is the deadlock this type exists to prevent, and it
+    /// cannot be waiting for a pointer it is itself about to stop using.
+    fn wait_for_other_dispatches(&self) {
+        let (lock, condvar) = &*self.in_flight;
+        let me = std::thread::current().id();
+        let mut in_flight = lock.lock().unwrap_or_else(|e| e.into_inner());
+        while in_flight.threads.iter().any(|t| *t != me) {
+            in_flight = condvar.wait(in_flight).unwrap_or_else(|e| e.into_inner());
         }
     }
 
@@ -91,14 +200,20 @@ impl ExecCallback {
     ///
     /// [`set`]: Self::set
     pub fn notify_one(&self) {
-        // Collect under the lock...
+        // Collect under the lock, and register the dispatch before releasing it
+        // so `set` cannot conclude that no callback is in flight.
         let armed = {
             let Ok(mut state) = self.state.lock() else {
                 return;
             };
             match state.callback {
                 Some(callback_fn) => {
-                    Some((callback_fn, state.user_data as *const std::ffi::c_void))
+                    let token = self.enter_dispatch();
+                    Some((
+                        callback_fn,
+                        state.user_data as *const std::ffi::c_void,
+                        token,
+                    ))
                 }
                 None => {
                     state.unread += 1;
@@ -106,8 +221,9 @@ impl ExecCallback {
                 }
             }
         };
-        // ...guard is dropped, and only now do we call into the executor.
-        if let Some((callback_fn, user_data)) = armed {
+        // ...guard is dropped, and only now do we call into the executor. The
+        // token outlives the call and deregisters on the way out, panic or not.
+        if let Some((callback_fn, user_data, _token)) = armed {
             invoke_user_callback!(self.site, unsafe { callback_fn(user_data, 1) });
         }
     }
@@ -123,8 +239,20 @@ impl ExecCallback {
     /// messages have already arrived — the common startup race — see them.
     ///
     /// [`notify_one`]: Self::notify_one
+    /// # Blocking
+    ///
+    /// This returns only once every dispatch that captured the *outgoing*
+    /// `user_data` has finished, so that a caller clearing the slot may then
+    /// free what it pointed at. It therefore blocks for as long as an executor
+    /// callback already running on another thread takes to return —
+    /// `rmw_zenoh_cpp` has the same property, where the wait is on
+    /// `event_mutex_` instead. A callback re-entering on its own thread never
+    /// waits.
     pub fn set(&self, callback: Option<ExecCallbackFn>, user_data: *mut crate::c_void) {
-        // Collect under the lock...
+        // Collect under the lock, registering the replay — if there is one —
+        // before releasing it, for the same reason `notify_one` does: a
+        // concurrent `set` must wait for this replay before freeing the pointer
+        // being handed to it here.
         let backlog = {
             let Ok(mut state) = self.state.lock() else {
                 return;
@@ -133,13 +261,21 @@ impl ExecCallback {
             state.user_data = user_data as usize;
             match callback {
                 Some(callback_fn) if state.unread > 0 => {
-                    Some((callback_fn, std::mem::take(&mut state.unread)))
+                    let token = self.enter_dispatch();
+                    Some((callback_fn, std::mem::take(&mut state.unread), token))
                 }
                 _ => None,
             }
         };
-        // ...guard is dropped, and only now do we call into the executor.
-        if let Some((callback_fn, count)) = backlog {
+
+        // ...guard is dropped. The slot now holds the incoming `user_data`, so
+        // any dispatch starting from here on uses the new pointer; the ones
+        // still registered captured the old one. Wait for exactly those, which
+        // is what lets the caller free it once we return. Our own replay
+        // registration is on this thread and so is not waited for.
+        self.wait_for_other_dispatches();
+
+        if let Some((callback_fn, count, _token)) = backlog {
             tracing::debug!(
                 "[{}] replaying {} unread item(s) to a newly installed callback",
                 self.site,
@@ -169,9 +305,10 @@ impl std::fmt::Debug for ExecCallback {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::panic::AssertUnwindSafe;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::mpsc;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     /// How long a re-entrant call is given before we declare it deadlocked.
     /// The fixed code returns in microseconds; the pre-fix code never returns.
@@ -189,7 +326,42 @@ mod tests {
         /// legal and unbounded re-entry is unbounded recursion, which is a
         /// property of this callback and not of the code under test.
         reentries_left: AtomicUsize,
+        /// Set once a callback is inside and about to block on `gate`.
+        entered: AtomicBool,
+        /// Holds a callback open so a concurrent `set` has something to wait for.
+        gate: Gate,
+        /// Ticket source for the ordering assertions.
+        seq: AtomicUsize,
+        /// Ticket taken as the blocking callback returns.
+        callback_exit: AtomicUsize,
+        /// Ticket taken as the concurrent `set` returns.
+        set_returned: AtomicUsize,
     }
+
+    /// A one-shot gate. Used to pin a callback in flight for as long as a test
+    /// needs, without a sleep deciding the outcome.
+    #[derive(Default)]
+    struct Gate {
+        open: Mutex<bool>,
+        condvar: Condvar,
+    }
+
+    impl Gate {
+        fn wait(&self) {
+            let mut open = self.open.lock().unwrap();
+            while !*open {
+                open = self.condvar.wait(open).unwrap();
+            }
+        }
+
+        fn open(&self) {
+            *self.open.lock().unwrap() = true;
+            self.condvar.notify_all();
+        }
+    }
+
+    /// No ticket taken yet.
+    const NO_TICKET: usize = usize::MAX;
 
     impl Executor {
         fn new(site: &'static str, reentries: usize) -> Box<Self> {
@@ -198,7 +370,16 @@ mod tests {
                 calls: AtomicUsize::new(0),
                 last_count: AtomicUsize::new(0),
                 reentries_left: AtomicUsize::new(reentries),
+                entered: AtomicBool::new(false),
+                gate: Gate::default(),
+                seq: AtomicUsize::new(0),
+                callback_exit: AtomicUsize::new(NO_TICKET),
+                set_returned: AtomicUsize::new(NO_TICKET),
             })
+        }
+
+        fn ticket(&self) -> usize {
+            self.seq.fetch_add(1, Ordering::SeqCst)
         }
 
         fn user_data(&self) -> *mut crate::c_void {
@@ -232,6 +413,17 @@ mod tests {
         if exec.enter(count) {
             exec.slot.notify_one();
         }
+    }
+
+    /// A callback that parks inside the dispatch until the test releases it,
+    /// then takes a ticket on the way out. Lets a test observe whether a
+    /// concurrent `set` returned before or after the callback finished.
+    unsafe extern "C" fn blocks_until_released(user_data: *const std::ffi::c_void, _count: usize) {
+        let exec = unsafe { &*(user_data as *const Executor) };
+        exec.calls.fetch_add(1, Ordering::SeqCst);
+        exec.entered.store(true, Ordering::SeqCst);
+        exec.gate.wait();
+        exec.callback_exit.store(exec.ticket(), Ordering::SeqCst);
     }
 
     /// A callback that does not re-enter.
@@ -343,6 +535,107 @@ mod tests {
             0,
             "notify_one() must dispatch with no guard live"
         );
+    }
+
+    // --- the use-after-free detectors ---
+
+    /// The lifetime guarantee `rmw_zenoh_cpp` gets from dispatching under
+    /// `event_mutex_`: once `set(None, ..)` returns, no callback is in flight,
+    /// so the caller may free what `user_data` pointed at.
+    ///
+    /// Collect-then-dispatch alone does not provide this. Without the in-flight
+    /// wait, `set` takes the lock, clears the slot and returns while a delivery
+    /// thread is still inside the callback holding the outgoing pointer — and
+    /// the next thing rclcpp does is destroy the entity.
+    #[test]
+    fn set_waits_for_a_dispatch_in_flight_on_another_thread() {
+        // Leaked on purpose. Dropping it here would assume exactly what is
+        // under test — that it is safe to free once `set` has returned.
+        let exec: &'static Executor = Box::leak(Executor::new("subscription", 0));
+        exec.slot.set(Some(blocks_until_released), exec.user_data());
+
+        let delivery = std::thread::spawn(move || exec.slot.notify_one());
+
+        // Park until the callback is genuinely inside the dispatch.
+        let start = Instant::now();
+        while !exec.entered.load(Ordering::SeqCst) {
+            assert!(
+                start.elapsed() < DEADLOCK_TIMEOUT,
+                "the callback never entered; the test cannot say anything"
+            );
+            std::thread::yield_now();
+        }
+
+        let clearer = std::thread::spawn(move || {
+            exec.slot.set(None, std::ptr::null_mut());
+            exec.set_returned.store(exec.ticket(), Ordering::SeqCst);
+        });
+
+        // The callback is still parked. A `set` that does not wait has already
+        // returned by now; one that waits cannot have.
+        std::thread::sleep(Duration::from_millis(250));
+        assert_eq!(
+            exec.set_returned.load(Ordering::SeqCst),
+            NO_TICKET,
+            "set() returned while a callback was still in flight on another \
+             thread — rclcpp is now free to destroy the entity and free the \
+             user_data that callback is still holding"
+        );
+
+        exec.gate.open();
+        delivery.join().expect("delivery thread");
+        clearer.join().expect("clearing thread");
+
+        assert_eq!(
+            exec.callback_exit.load(Ordering::SeqCst),
+            0,
+            "the callback should have taken the first ticket"
+        );
+        assert_eq!(
+            exec.set_returned.load(Ordering::SeqCst),
+            1,
+            "and set() the second — it must return strictly after the callback"
+        );
+    }
+
+    /// The other half of the same rule, and the reason the wait is scoped to
+    /// *other* threads: a callback re-entering `set` on its own thread must not
+    /// wait for itself. Waiting for all dispatches unconditionally would
+    /// reinstate the deadlock this type exists to remove, in a new place.
+    #[test]
+    fn set_does_not_wait_for_a_dispatch_on_its_own_thread() {
+        let calls = assert_completes("set() re-entered from its own dispatch", || {
+            let exec = Executor::new("service", 1);
+            exec.slot.set(Some(reenters_by_clearing), exec.user_data());
+            // The callback runs on this thread and calls `set` from inside the
+            // dispatch. If the wait counted this thread, it would block here.
+            exec.slot.notify_one();
+            exec.calls.load(Ordering::SeqCst)
+        });
+        assert_eq!(calls, 1);
+    }
+
+    /// A panicking callback must not leave its registration behind: the wait in
+    /// `set` would then never be satisfiable, turning the use-after-free into a
+    /// permanent hang. Covers the `DispatchToken` unwind path.
+    ///
+    /// The panic is caught, so the run prints one backtrace-ish line from the
+    /// default hook. That noise is expected.
+    #[test]
+    fn a_panicking_callback_does_not_wedge_later_sets() {
+        unsafe extern "C" fn panics(_user_data: *const std::ffi::c_void, _count: usize) {
+            panic!("executor callback exploded");
+        }
+
+        let exec = Executor::new("client", 0);
+        exec.slot.set(Some(panics), exec.user_data());
+
+        let unwound = std::panic::catch_unwind(AssertUnwindSafe(|| exec.slot.notify_one()));
+        assert!(unwound.is_err(), "the panic must still propagate");
+
+        assert_completes("set() after a callback panicked", move || {
+            exec.slot.set(None, std::ptr::null_mut());
+        });
     }
 
     // --- semantics preserved from the pre-fix code ---
