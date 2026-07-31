@@ -63,9 +63,14 @@ thread_local! {
 /// could name it, and `Drop` decrements the thread-local. A stray
 /// `drop(GuardCount)` while a tracked guard was live would take the count to
 /// zero, `assert_no_guards_held` would pass, and a genuine callback-under-lock
-/// would go unreported. `saturating_sub` guaranteed that desync was silent.
-/// Only this module can mint one now, so the count can only be moved by
-/// acquiring and releasing a real guard.
+/// would go unreported. Only this module can mint one now, so the count can only
+/// be moved by acquiring and releasing a real guard.
+///
+/// `Drop` additionally asserts that the count is non-zero before decrementing.
+/// `saturating_sub` alone prevents the wrap but makes the desync *silent*, which
+/// is the failure mode this whole module exists to remove: the counter would
+/// keep reporting zero live guards and the tripwire would pass while a guard was
+/// held. Belt (`saturating_sub`) and braces (the assertion).
 #[derive(Debug)]
 pub struct GuardCount(());
 
@@ -82,7 +87,21 @@ impl Drop for GuardCount {
     #[inline(always)]
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
-        LIVE_GUARDS.with(|n| n.set(n.get().saturating_sub(1)));
+        LIVE_GUARDS.with(|n| {
+            let live = n.get();
+            // `|| panicking()` because a panic raised while unwinding aborts the
+            // process. Without the guard, a `GuardCount` dropped during someone
+            // else's panic would replace their failure with this one and take
+            // the backtrace with it.
+            debug_assert!(
+                live > 0 || std::thread::panicking(),
+                "hiroz GuardCount underflow: a tracked guard was released while \
+                 the live-guard count was already 0. The counter has desynced \
+                 from the guards it tracks, so `assert_no_guards_held` can no \
+                 longer detect a callback invoked under a lock."
+            );
+            n.set(live.saturating_sub(1));
+        });
     }
 }
 
@@ -291,6 +310,21 @@ mod tests {
         // expected to panic there.
         #[cfg(not(debug_assertions))]
         assert_eq!(live_guards(), 0);
+    }
+
+    /// The underflow assertion must also detect. `saturating_sub` on its own
+    /// absorbs a desync silently, which is the shape of defect this module
+    /// exists to remove — so the guard against it needs the same proof the
+    /// tripwire itself gets.
+    ///
+    /// Minting a bare `GuardCount` is only possible inside this module; the
+    /// private field is what makes it unreachable from anywhere else, and that
+    /// is why this can be tested here and nowhere else.
+    #[test]
+    #[cfg_attr(debug_assertions, should_panic(expected = "GuardCount underflow"))]
+    fn underflow_is_not_silent() {
+        assert_eq!(live_guards(), 0);
+        drop(GuardCount(()));
     }
 
     #[test]
