@@ -70,10 +70,10 @@ ROS 2 ships two standard toolsets: `ros2cli` for the terminal and `rqt` for the 
 |---|---|
 | No daemon, always fresh | Every invocation opens a Zenoh session, reads the live liveliness index, and exits — always a real-time snapshot |
 | Byte-level measurement | `hu meter hz` / `hu meter bw` timestamp arrivals at the raw Zenoh byte layer; a 100 MB point cloud costs the same to count as a 10-byte string |
-| JSON output on most commands | Most subcommands emit newline-delimited JSON with `--json`; composable with `jq`, shell scripts, and CI harnesses without fragile text parsing. On some the flag has no effect and the output is not NDJSON — `hu monitor watch`/`log`/`log-level` and `hu meter echo`/`delay`/`param set` among them |
+| JSON output on most commands | Most subcommands emit newline-delimited JSON with `--json`; composable with `jq`, shell scripts, and CI harnesses without fragile text parsing. Some commands ignore the flag; of those, `hu monitor watch`/`log-level` and `hu meter echo`/`delay` are not NDJSON, while `hu monitor log` and `hu meter param set` print bare JSON anyway |
 | Plugin extensibility | Drop a `.wasm` file into `$HU_PLUGIN_PATH` or `~/.local/share/hu/plugins/` and it becomes a `hu <name>` subcommand; no Python entry-points, no `setup.cfg`, no shared runtime state; plugins are sandboxed and capability-gated |
 
-**JSON output on most commands** makes it composable with `jq`, shell scripts, CI harnesses, and log pipelines without fragile text parsing. `--json` is a global flag, so it is *accepted* everywhere, but on some commands it has no effect and the output is not NDJSON — `hu monitor watch`/`log`/`log-level` and `hu meter echo`/`delay`/`param set` among them, so check a command's output before depending on it:
+**JSON output on most commands** makes it composable with `jq`, shell scripts, CI harnesses, and log pipelines without fragile text parsing. `--json` is a global flag, so it is *accepted* everywhere, but some commands ignore it. Of those, `hu monitor log` and `hu meter param set` still print bare JSON, while `hu monitor watch`/`log-level` and `hu meter echo`/`delay` do not — so check a command's output before depending on it:
 
 ```bash
 # Check camera rate in CI

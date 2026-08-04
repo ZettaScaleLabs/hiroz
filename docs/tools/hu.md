@@ -251,7 +251,7 @@ Measurement and introspection:
 | `hu meter echo <topic> --raw` | Hex-dump raw CDR bytes, bypassing schema decode (requires the `access-raw-cdr` permission) |
 | `hu meter delay <topic>` | End-to-end latency |
 | `hu meter pub <topic>` | Publish a message |
-| `hu meter list <kind> [--find <substr>] [--count <n>] [--all]` | Enumerate graph entities. `<kind>` is `topics` (the default when omitted), `nodes` or `services`. Hidden entities — any whose name has a path segment starting with `_` — are excluded unless `--all` is given. `--find` matches name or type for topics and services, name only for nodes; `--count` truncates the result. |
+| `hu meter list <kind> [--find <substr>] [--count <n>] [--all]` | Enumerate graph entities. `<kind>` is `topics` (the default when omitted), `nodes` or `services`. Hidden entities are excluded unless `--all` is given: for topics and services that means any name with a path segment starting with `_`, but for nodes only the bare node name is tested, so a node whose *namespace* has an `_`-prefixed segment stays visible. `--find` matches name or type for topics and services, name only for nodes; `--count` truncates the result. |
 | `hu meter list find-<kind> <substr>` | Shorthand for `list <kind> --find <substr>`, taking the filter as a positional argument: `find-topics`, `find-services`, `find-nodes`. |
 | `hu meter info <kind> <name>` | Full entity introspection; `<kind>` is `topic`, `node` or `service` |
 | `hu meter service list` | List services as `name<TAB>[type]` |
@@ -352,7 +352,7 @@ hu stream
 !!! note "The doubled slash in the snapshot's node lines"
     Snapshot node lines are printed as `<namespace>/<name>`, and a node in the root namespace has the namespace `/` — so it renders as `//talker`, not `/talker`. The event lines below use the raw namespace instead and print `/talker`. `hu` itself joins the graph while streaming, so it appears alongside your nodes.
 
-Add `--json` for structured output. The first line is the initial snapshot, keyed `event`; every line after it is a single `SystemEvent` in serde's externally-tagged form, where the variant name is the sole top-level key:
+Add `--json` for structured output. Every record is one of two shapes: an object with an `"event"` key naming it, or a `SystemEvent` in serde's externally-tagged form, where the variant name is the sole top-level key. The first line is always `"event":"initial_state"`; graph changes after it are the externally-tagged form. Adding `--echo` interleaves two further `"event"`-keyed shapes, `topic_subscribed` and `message_received`, so a filter must not assume every record after the first has a variant-name key:
 
 ```bash
 hu stream --json
