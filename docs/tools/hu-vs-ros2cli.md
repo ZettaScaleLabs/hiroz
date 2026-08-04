@@ -25,7 +25,7 @@
 | Log level get | `ros2 node get-logger-levels` (Jazzy+) | rqt_logger_level | `hu monitor log-level <node>` |
 | Log level set | `ros2 node set-logger-levels` (Jazzy+) | rqt_logger_level | `hu monitor log-level <node> <level>` |
 | **General** | | | |
-| Machine-readable output | — (human text only) | — | `--json` on every command |
+| Machine-readable output | — (human text only) | — | `--json` on most commands ([exceptions](#machine-readable-output)) |
 | Daemon-free operation | no (requires `_ros2_daemon`) | no | yes |
 | Works without a ROS 2 install | no | no | yes |
 | Extensible via plugins | no | yes (rqt plugins) | yes (`.wasm` plugins) |
@@ -101,7 +101,10 @@ When using the Fast-DDS Discovery Server (`FASTRTPS_DEFAULT_PROFILES_FILE` with 
 
 ## Machine-readable output
 
-Every `hu` command accepts `--json` and emits newline-delimited JSON. This makes it composable with `jq`, shell scripts, CI test harnesses, and logging pipelines without fragile text parsing.
+Most `hu` commands emit newline-delimited JSON with `--json`. This makes them composable with `jq`, shell scripts, CI test harnesses, and logging pipelines without fragile text parsing.
+
+!!! warning "`--json` is accepted everywhere but honoured selectively"
+    `--json` is a global flag, so the argument parser accepts it on *every* command — including ones that ignore it. It is silently ignored by `hu monitor watch`, `hu monitor log` and `hu monitor log-level`, which always print human-readable text; only `hu monitor graph` honours it. Redirecting one of those into a `.jsonl` file yields human text, not JSON. For a machine-readable stream of graph change events, use [`hu stream --json`](hu.md#stream-mode) instead of `hu monitor watch --json`.
 
 `ros2cli` outputs human-formatted text with no stable machine-readable format. Parsing `ros2 topic list` output requires string splitting on `/` and filtering out blank lines; parsing `ros2 topic info` requires column-counting. Both break across ROS 2 versions.
 
@@ -116,8 +119,9 @@ hu meter info topic /scan --json | jq '.publishers[].node'
 rate=$(hu meter hz /camera/image_raw --duration 5 --json | jq '.rate_hz')
 [ "$(echo "$rate > 25" | bc)" = "1" ] || exit 1
 
-# Stream graph events to a log file
-hu monitor watch --json >> /var/log/ros-graph-events.jsonl
+# Stream graph events to a log file as newline-delimited JSON
+# (hu stream, not hu monitor watch — the latter ignores --json)
+hu stream --json >> /var/log/ros-graph-events.jsonl
 ```
 
 ---

@@ -254,11 +254,10 @@ Measurement and introspection:
 | `hu meter list topics\|nodes\|services` | Enumerate graph entities |
 | `hu meter info topic\|node\|service <name>` | Full entity introspection |
 | `hu meter service call <name> --yaml <yaml> --msg-type <type> [--timeout <s>]` | Call a service |
-| `hu meter param list\|get\|dump\|describe\|set\|delete\|load <node> [...]` | Read/write/delete node parameters, or bulk-load from a ROS-style YAML params file (`load <node> <yaml-file>`). `load` is host-handled: `hu` reads and parses the YAML on the host (WASM plugins have no filesystem access) and hands the plugin pre-flattened parameter data. |
+| `hu meter param list\|get\|dump\|describe\|set\|load <node> [...]` | Read and write node parameters, or bulk-load from a ROS-style YAML params file (`load <node> <yaml-file>`). `load` is host-handled: `hu` reads and parses the YAML on the host (WASM plugins have no filesystem access) and hands the plugin pre-flattened parameter data. There is no `delete` verb — parameter deletion (`ros2 param delete`) is not implemented. |
 | `hu meter action list` | List available actions |
 | `hu meter action info <name>` | Show an action's type and server count |
-| `hu meter action send <name> <type> <goal-json> [--timeout <s>]` | Send a goal (JSON) and poll for the result |
-| `hu meter action send-goal <name> --payload <hex> [--timeout <s>]` | Send a goal from raw hex-encoded CDR bytes |
+| `hu meter action send-goal <name> --payload <hex> [--timeout <s>]` | Send a goal from raw hex-encoded CDR bytes, and poll for the result. This is the only way to send a goal — there is no JSON-goal verb; unlike `hu meter service call --yaml`, goals are not accepted in a human-authored form. |
 | `hu meter action echo <name> --msg-type <type> [--count <n>]` | Echo action feedback messages |
 
 ### hu monitor
@@ -332,20 +331,36 @@ hu meter info node /talker --json | jq '.publishers[].name'
 
 `hu stream` streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal:
 
+It first prints the current graph as a snapshot, then one line per change event, each prefixed with a UTC timestamp:
+
 ```bash
 hu stream
-# node appeared:  /camera_driver
-# topic appeared: /camera/image_raw
+# Discovered Topics:
+#   topic: /camera/image_raw (sensor_msgs/msg/Image)
+# Discovered Services:
+#   (none)
+# Discovered Nodes:
+#   node: <namespace>/<name>
+# [2026-08-04 12:34:56] Node discovered: /camera_driver
+# [2026-08-04 12:34:57] Topic discovered: /camera/image_raw (sensor_msgs/msg/Image)
 ```
 
-Add `--json` for structured output:
+Add `--json` for structured output. The first line is the initial snapshot, keyed `event`; every line after it is a single `SystemEvent` in serde's externally-tagged form, where the variant name is the sole top-level key:
 
 ```bash
 hu stream --json
-# {"type":"initial_state","nodes":[...],"topics":[...]}
-# {"type":"node_appeared","name":"/camera_driver"}
-# {"type":"topic_appeared","name":"/camera/image_raw","type_name":"sensor_msgs/msg/Image"}
+# {"event":"initial_state","timestamp":{"secs_since_epoch":1754308800,"nanos_since_epoch":0},"domain_id":0,"topics":[{"name":"/camera/image_raw","type":"sensor_msgs/msg/Image","publishers":1,"subscribers":0}],"nodes":[{"name":"camera_driver","namespace":"/"}],"services":[]}
+# {"NodeDiscovered":{"namespace":"/","name":"camera_driver","timestamp":{"secs_since_epoch":1754308801,"nanos_since_epoch":0}}}
+# {"TopicDiscovered":{"topic":"/camera/image_raw","type_name":"sensor_msgs/msg/Image","timestamp":{"secs_since_epoch":1754308802,"nanos_since_epoch":0}}}
 ```
+
+Because the variant name is the key rather than a `type` field, filtering with `jq` selects on key presence:
+
+```bash
+hu stream --json | jq -c 'select(has("TopicDiscovered")) | .TopicDiscovered.topic'
+```
+
+The event variants are `TopicDiscovered`, `TopicRemoved`, `RateMeasured`, `NodeDiscovered`, `NodeRemoved`, `ServiceDiscovered` and `MetricsSnapshot`. Note that the snapshot's per-topic and per-service type field is named `type`, while the event payloads use `type_name`.
 
 Add `--echo <TOPIC>` to also subscribe to a topic and interleave decoded messages. `--echo` can be repeated for multiple topics:
 

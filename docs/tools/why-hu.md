@@ -70,18 +70,19 @@ ROS 2 ships two standard toolsets: `ros2cli` for the terminal and `rqt` for the 
 |---|---|
 | No daemon, always fresh | Every invocation opens a Zenoh session, reads the live liveliness index, and exits — always a real-time snapshot |
 | Byte-level measurement | `hu meter hz` / `hu meter bw` timestamp arrivals at the raw Zenoh byte layer; a 100 MB point cloud costs the same to count as a 10-byte string |
-| JSON output everywhere | Every subcommand accepts `--json` and emits newline-delimited JSON; composable with `jq`, shell scripts, and CI harnesses without fragile text parsing |
+| JSON output on most commands | Most subcommands emit newline-delimited JSON with `--json`; composable with `jq`, shell scripts, and CI harnesses without fragile text parsing. `hu monitor watch`, `log` and `log-level` are the exceptions — they always print human text |
 | Plugin extensibility | Drop a `.wasm` file into `$HU_PLUGIN_PATH` or `~/.local/share/hu/plugins/` and it becomes a `hu <name>` subcommand; no Python entry-points, no `setup.cfg`, no shared runtime state; plugins are sandboxed and capability-gated |
 
-**JSON output on every command** makes it composable with `jq`, shell scripts, CI harnesses, and log pipelines without fragile text parsing:
+**JSON output on most commands** makes it composable with `jq`, shell scripts, CI harnesses, and log pipelines without fragile text parsing. `--json` is a global flag, so it is *accepted* everywhere, but `hu monitor watch`, `hu monitor log` and `hu monitor log-level` ignore it and always print human text:
 
 ```bash
 # Check camera rate in CI
 rate=$(hu meter hz /camera/image_raw --duration 5 --json | jq '.rate_hz')
 [ "$(echo "$rate > 28.0" | bc)" = "1" ] || exit 1
 
-# Stream graph events to a log file
-hu monitor watch --json >> /var/log/ros-graph-events.jsonl
+# Stream graph events to a log file as newline-delimited JSON
+# (hu stream, not hu monitor watch — the latter ignores --json)
+hu stream --json >> /var/log/ros-graph-events.jsonl
 ```
 
 ---
@@ -100,7 +101,7 @@ There is no `hu launch`, no `hu pkg`, and no `hu run`. `hu` is scoped to graph i
 |---|---|---|
 | RMW implementation | `rmw_zenoh_cpp` or pure hiroz | `rmw_fastrtps_cpp` or `rmw_cyclonedds_cpp` |
 | Rate measurement above 500 Hz | yes | no — Python GIL saturates |
-| CLI tools in CI / automation | yes — `--json` on every command | fragile text parsing |
+| CLI tools in CI / automation | yes — `--json` on most commands | fragile text parsing |
 | No ROS 2 install available | yes — single binary | no — requires distro + `setup.bash` |
 | Live graph events without polling | yes — `hu monitor watch` | no — must poll `ros2 node list` |
 | `ros2 launch` / `ros2 pkg` / `ros2 run` | not planned | yes |
