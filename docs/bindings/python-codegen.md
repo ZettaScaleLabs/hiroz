@@ -253,7 +253,7 @@ accDescr: Zenoh delivers CDR bytes which are zero-copy deserialized into a Rust 
 | `T[]` (unbounded array) | `list[T]` | |
 | `T[N]` (fixed array) | `list[T]` | Size not enforced in Python |
 | `uint8[]` / `byte[]` | `ZBufView` | Zero-copy buffer protocol (on receive); accepts `bytes`, `bytearray`, or `ZBufView` on publish |
-| Nested message | `"pkg.MsgName \| None"` | Forward reference string |
+| Nested message | `"pkg.MsgName` \| `None"` | Forward reference string; a quoted optional-union annotation |
 
 
 ## Design: Hybrid Python + Rust with Derive Macros
