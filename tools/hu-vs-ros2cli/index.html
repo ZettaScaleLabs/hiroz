@@ -2815,7 +2815,7 @@
 <td>Machine-readable output</td>
 <td>— (human text only)</td>
 <td>—</td>
-<td><code>--json</code> on every command</td>
+<td><code>--json</code> on most commands (<a href="#machine-readable-output">exceptions</a>)</td>
 </tr>
 <tr>
 <td>Daemon-free operation</td>
@@ -2932,7 +2932,11 @@
 <p><code>hu</code> reads the Zenoh liveliness index directly from the router — no DDS layer, no Discovery Server concept. This advantage is scoped: if your network uses <code>rmw_fastrtps_cpp</code> or <code>rmw_cyclonedds_cpp</code>, <code>hu</code> cannot see those nodes at all (see <a href="#when-ros2cli-is-the-right-choice">When ros2cli is the right choice</a>).</p>
 <hr />
 <h2 id="machine-readable-output">Machine-readable output<a class="headerlink" href="#machine-readable-output" title="Permanent link">&para;</a></h2>
-<p>Every <code>hu</code> command accepts <code>--json</code> and emits newline-delimited JSON. This makes it composable with <code>jq</code>, shell scripts, CI test harnesses, and logging pipelines without fragile text parsing.</p>
+<p>Most <code>hu</code> commands emit newline-delimited JSON with <code>--json</code>. This makes them composable with <code>jq</code>, shell scripts, CI test harnesses, and logging pipelines without fragile text parsing.</p>
+<div class="admonition warning">
+<p class="admonition-title"><code>--json</code> is accepted everywhere but honoured selectively</p>
+<p><code>--json</code> is a global flag, so the argument parser accepts it on <em>every</em> command — including ones where it has no effect. Those are <code>hu monitor watch</code>, <code>log</code> and <code>log-level</code> (only <code>graph</code> honours it), <code>hu meter echo</code>, <code>delay</code>, <code>param set</code>, <code>service find</code> and <code>service type</code>. Ignoring the flag does not always mean the output is unparseable: <code>hu monitor log</code> and <code>hu meter param set</code> already print one bare JSON object per line, because the plugin host hands plugins their messages and service responses pre-serialised as JSON. The rest are not JSON — <code>hu monitor watch</code> and <code>hu meter delay</code> print prose, <code>hu monitor log-level</code> prefixes its JSON with <code>log levels:</code>, <code>hu meter echo</code> prefixes each message with its topic (<code>[/chatter] {"data":"hello"}</code>), and <code>service find</code>/<code>service type</code> print bare unquoted values. Treat this as a non-exhaustive list and check a command's output before depending on it in a pipeline. For a machine-readable stream of graph change events, use <a href="../hu/#stream-mode"><code>hu stream --json</code></a> instead of <code>hu monitor watch --json</code>.</p>
+</div>
 <p><code>ros2cli</code> outputs human-formatted text with no stable machine-readable format. Parsing <code>ros2 topic list</code> output requires string splitting on <code>/</code> and filtering out blank lines; parsing <code>ros2 topic info</code> requires column-counting. Both break across ROS 2 versions.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Filter to sensor_msgs topics only</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>hu<span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics<span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.[] | select(.type | contains(&quot;sensor_msgs&quot;))&#39;</span>
@@ -2944,13 +2948,14 @@
 </span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="nv">rate</span><span class="o">=</span><span class="k">$(</span>hu<span class="w"> </span>meter<span class="w"> </span>hz<span class="w"> </span>/camera/image_raw<span class="w"> </span>--duration<span class="w"> </span><span class="m">5</span><span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.rate_hz&#39;</span><span class="k">)</span>
 </span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="o">[</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$rate</span><span class="s2"> &gt; 25&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>bc<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;1&quot;</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
 </span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1"># Stream graph events to a log file</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>hu<span class="w"> </span>monitor<span class="w"> </span>watch<span class="w"> </span>--json<span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/ros-graph-events.jsonl
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1"># Stream graph events to a log file as newline-delimited JSON</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="c1"># (hu stream, not hu monitor watch — the latter ignores --json)</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json<span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/ros-graph-events.jsonl
 </span></code></pre></div>
 <hr />
 <h2 id="live-graph-events-hu-monitor-watch">Live graph events: <code>hu monitor watch</code><a class="headerlink" href="#live-graph-events-hu-monitor-watch" title="Permanent link">&para;</a></h2>
 <p><code>ros2cli</code> has no command that streams graph change events. To detect when a node appears or disappears you must poll <code>ros2 node list</code> in a loop, introducing latency proportional to your polling interval and burning CPU during quiet periods.</p>
-<p><code>hu monitor watch</code> subscribes to Zenoh liveliness tokens, which are the mechanism hiroz and <code>rmw_zenoh_cpp</code> use to announce entity existence. It emits a JSON event the moment a node, topic, service, or action appears or disappears — with sub-millisecond latency after the transport propagates the change.</p>
+<p><code>hu monitor watch</code> subscribes to Zenoh liveliness tokens, which are the mechanism hiroz and <code>rmw_zenoh_cpp</code> use to announce entity existence. It prints a line the moment a node, topic, service, or action appears or disappears — with sub-millisecond latency after the transport propagates the change.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>hu<span class="w"> </span>monitor<span class="w"> </span>watch
 </span></code></pre></div>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>node appeared:    /camera_driver

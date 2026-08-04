@@ -3094,20 +3094,36 @@
 <td>Publish a message</td>
 </tr>
 <tr>
-<td><code>hu meter list topics\|nodes\|services</code></td>
-<td>Enumerate graph entities</td>
+<td><code>hu meter list &lt;kind&gt; [--find &lt;substr&gt;] [--count &lt;n&gt;] [--all]</code></td>
+<td>Enumerate graph entities. <code>&lt;kind&gt;</code> is <code>topics</code> (the default when omitted), <code>nodes</code> or <code>services</code>. Hidden entities are excluded unless <code>--all</code> is given: for topics and services that means any name with a path segment starting with <code>_</code>, but for nodes only the bare node name is tested, so a node whose <em>namespace</em> has an <code>_</code>-prefixed segment stays visible. <code>--find</code> matches name or type for topics and services, name only for nodes; <code>--count</code> truncates the result.</td>
 </tr>
 <tr>
-<td><code>hu meter info topic\|node\|service &lt;name&gt;</code></td>
-<td>Full entity introspection</td>
+<td><code>hu meter list find-&lt;kind&gt; &lt;substr&gt;</code></td>
+<td>Shorthand for <code>list &lt;kind&gt; --find &lt;substr&gt;</code>, taking the filter as a positional argument: <code>find-topics</code>, <code>find-services</code>, <code>find-nodes</code>.</td>
 </tr>
 <tr>
-<td><code>hu meter service call &lt;name&gt; --yaml &lt;yaml&gt; --msg-type &lt;type&gt; [--timeout &lt;s&gt;]</code></td>
-<td>Call a service</td>
+<td><code>hu meter info &lt;kind&gt; &lt;name&gt;</code></td>
+<td>Full entity introspection; <code>&lt;kind&gt;</code> is <code>topic</code>, <code>node</code> or <code>service</code></td>
 </tr>
 <tr>
-<td><code>hu meter param list\|get\|dump\|describe\|set\|delete\|load &lt;node&gt; [...]</code></td>
-<td>Read/write/delete node parameters, or bulk-load from a ROS-style YAML params file (<code>load &lt;node&gt; &lt;yaml-file&gt;</code>). <code>load</code> is host-handled: <code>hu</code> reads and parses the YAML on the host (WASM plugins have no filesystem access) and hands the plugin pre-flattened parameter data.</td>
+<td><code>hu meter service list</code></td>
+<td>List services as <code>name&lt;TAB&gt;[type]</code></td>
+</tr>
+<tr>
+<td><code>hu meter service find &lt;substr&gt;</code></td>
+<td>List the names of services whose name contains <code>&lt;substr&gt;</code></td>
+</tr>
+<tr>
+<td><code>hu meter service type &lt;name&gt;</code></td>
+<td>Print a single service's type name, or exit 1 if it is not in the graph</td>
+</tr>
+<tr>
+<td><code>hu meter service call &lt;name&gt; [--timeout &lt;s&gt;]</code></td>
+<td>Call a service. The request is given either as <code>--yaml &lt;yaml&gt; --msg-type &lt;type&gt;</code>, or as raw hex-encoded CDR bytes with <code>--payload &lt;hex&gt;</code></td>
+</tr>
+<tr>
+<td><code>hu meter param &lt;verb&gt; &lt;node&gt; [...]</code></td>
+<td>Read and write node parameters, or bulk-load them from a ROS-style YAML params file. <code>&lt;verb&gt;</code> is <code>list</code>, <code>get</code>, <code>dump</code>, <code>describe</code>, <code>set</code> or <code>load</code> (<code>load &lt;node&gt; &lt;yaml-file&gt;</code>). <code>load</code> is host-handled: <code>hu</code> reads and parses the YAML on the host (WASM plugins have no filesystem access) and hands the plugin pre-flattened parameter data. There is no <code>delete</code> verb — parameter deletion (<code>ros2 param delete</code>) is not implemented.</td>
 </tr>
 <tr>
 <td><code>hu meter action list</code></td>
@@ -3118,12 +3134,8 @@
 <td>Show an action's type and server count</td>
 </tr>
 <tr>
-<td><code>hu meter action send &lt;name&gt; &lt;type&gt; &lt;goal-json&gt; [--timeout &lt;s&gt;]</code></td>
-<td>Send a goal (JSON) and poll for the result</td>
-</tr>
-<tr>
 <td><code>hu meter action send-goal &lt;name&gt; --payload &lt;hex&gt; [--timeout &lt;s&gt;]</code></td>
-<td>Send a goal from raw hex-encoded CDR bytes</td>
+<td>Send a goal from raw hex-encoded CDR bytes, and poll for the result. This is the only way to send a goal — there is no JSON-goal verb; unlike <code>hu meter service call --yaml</code>, goals are not accepted in a human-authored form.</td>
 </tr>
 <tr>
 <td><code>hu meter action echo &lt;name&gt; --msg-type &lt;type&gt; [--count &lt;n&gt;]</code></td>
@@ -3262,19 +3274,40 @@
 </span></code></pre></div>
 <hr />
 <h2 id="stream-mode">Stream mode<a class="headerlink" href="#stream-mode" title="Permanent link">&para;</a></h2>
-<p><code>hu stream</code> streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal:</p>
+<p><code>hu stream</code> streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal.</p>
+<p>It first prints the current graph as a snapshot, then one line per change event, each prefixed with a UTC timestamp. Type names appear in their DDS-mangled form (<code>std_msgs::msg::dds_::String_</code>), not the ROS <code>std_msgs/msg/String</code> form:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>hu<span class="w"> </span>stream
-</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="c1"># node appeared:  /camera_driver</span>
-</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="c1"># topic appeared: /camera/image_raw</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="c1"># Discovered Topics:</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="c1">#   topic: /chatter (std_msgs::msg::dds_::String_)</span>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="c1"># Discovered Services:</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="c1">#   service: /talker/get_parameters (rcl_interfaces::srv::dds_::GetParameters_)</span>
+</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="c1"># Discovered Nodes:</span>
+</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="c1">#   node: //talker</span>
+</span><span id="__span-20-8"><a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="c1"># [2026-08-04 07:42:06] Node discovered: /talker</span>
+</span><span id="__span-20-9"><a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a><span class="c1"># [2026-08-04 07:42:06] Topic discovered: /chatter (std_msgs::msg::dds_::String_)</span>
 </span></code></pre></div>
-<p>Add <code>--json</code> for structured output:</p>
+<div class="admonition note">
+<p class="admonition-title">The doubled slash in the snapshot's node lines</p>
+<p>Snapshot node lines are printed as <code>&lt;namespace&gt;/&lt;name&gt;</code>, and a node in the root namespace has the namespace <code>/</code> — so it renders as <code>//talker</code>, not <code>/talker</code>. The event lines below use the raw namespace instead and print <code>/talker</code>. <code>hu</code> itself joins the graph while streaming, so it appears alongside your nodes.</p>
+</div>
+<p>Add <code>--json</code> for structured output. Every record is one of two shapes: an object with an <code>"event"</code> key naming it, or a <code>SystemEvent</code> in serde's externally-tagged form, where the variant name is the sole top-level key. The first line is always <code>"event":"initial_state"</code>; graph changes after it are the externally-tagged form. Adding <code>--echo</code> interleaves two further <code>"event"</code>-keyed shapes, <code>topic_subscribed</code> and <code>message_received</code>, so a filter must not assume every record after the first has a variant-name key:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json
-</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="c1"># {&quot;type&quot;:&quot;initial_state&quot;,&quot;nodes&quot;:[...],&quot;topics&quot;:[...]}</span>
-</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="c1"># {&quot;type&quot;:&quot;node_appeared&quot;,&quot;name&quot;:&quot;/camera_driver&quot;}</span>
-</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="c1"># {&quot;type&quot;:&quot;topic_appeared&quot;,&quot;name&quot;:&quot;/camera/image_raw&quot;,&quot;type_name&quot;:&quot;sensor_msgs/msg/Image&quot;}</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="c1"># {&quot;event&quot;:&quot;initial_state&quot;,&quot;timestamp&quot;:{&quot;secs_since_epoch&quot;:1785829316,&quot;nanos_since_epoch&quot;:522800352},&quot;domain_id&quot;:0,&quot;topics&quot;:[{&quot;name&quot;:&quot;/chatter&quot;,&quot;type&quot;:&quot;std_msgs::msg::dds_::String_&quot;,&quot;publishers&quot;:1,&quot;subscribers&quot;:0}],&quot;nodes&quot;:[{&quot;name&quot;:&quot;talker&quot;,&quot;namespace&quot;:&quot;/&quot;}],&quot;services&quot;:[{&quot;name&quot;:&quot;/talker/get_parameters&quot;,&quot;type&quot;:&quot;rcl_interfaces::srv::dds_::GetParameters_&quot;}]}</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="c1"># {&quot;NodeDiscovered&quot;:{&quot;namespace&quot;:&quot;&quot;,&quot;name&quot;:&quot;talker&quot;,&quot;timestamp&quot;:{&quot;secs_since_epoch&quot;:1785829316,&quot;nanos_since_epoch&quot;:522703282}}}</span>
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="c1"># {&quot;TopicDiscovered&quot;:{&quot;topic&quot;:&quot;/chatter&quot;,&quot;type_name&quot;:&quot;std_msgs::msg::dds_::String_&quot;,&quot;timestamp&quot;:{&quot;secs_since_epoch&quot;:1785829316,&quot;nanos_since_epoch&quot;:522693292}}}</span>
 </span></code></pre></div>
+<p>The arrays are shown with one entry each for brevity; a real graph also carries <code>/parameter_events</code> and each node's parameter services.</p>
+<p>Because the variant name is the key rather than a <code>type</code> field, filtering with <code>jq</code> selects on key presence:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;select(has(&quot;TopicDiscovered&quot;)) | .TopicDiscovered.topic&#39;</span>
+</span></code></pre></div>
+<p>The event variants are <code>TopicDiscovered</code>, <code>TopicRemoved</code>, <code>RateMeasured</code>, <code>NodeDiscovered</code>, <code>NodeRemoved</code>, <code>ServiceDiscovered</code> and <code>MetricsSnapshot</code>.</p>
+<p>Two field-naming traps when writing filters:</p>
+<ul>
+<li>The snapshot's per-topic and per-service type field is <code>type</code>; the event payloads use <code>type_name</code>.</li>
+<li>A root-namespace node is reported as <code>"namespace":"/"</code> in the snapshot but <code>"namespace":""</code> in <code>NodeDiscovered</code>/<code>NodeRemoved</code> — the snapshot normalises the empty namespace, the events do not. Joining namespace and name naively will produce <code>//talker</code> from the snapshot.</li>
+</ul>
 <p>Add <code>--echo &lt;TOPIC&gt;</code> to also subscribe to a topic and interleave decoded messages. <code>--echo</code> can be repeated for multiple topics:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json<span class="w"> </span>--echo<span class="w"> </span>/scan<span class="w"> </span>--echo<span class="w"> </span>/cmd_vel
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json<span class="w"> </span>--echo<span class="w"> </span>/scan<span class="w"> </span>--echo<span class="w"> </span>/cmd_vel
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -3283,8 +3316,8 @@
 <hr />
 <h2 id="web-mode">Web mode<a class="headerlink" href="#web-mode" title="Permanent link">&para;</a></h2>
 <p><code>hu web</code> starts an HTTP server (default port 8080) that dispatches requests to <code>hu-web-plugin</code> WASM plugins. Requires <code>hu</code> built with the <code>web-plugins</code> feature:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>hu<span class="w"> </span>web<span class="w">                </span><span class="c1"># listen on 0.0.0.0:8080</span>
-</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>hu<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9090</span><span class="w">    </span><span class="c1"># listen on 0.0.0.0:9090</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>hu<span class="w"> </span>web<span class="w">                </span><span class="c1"># listen on 0.0.0.0:8080</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>hu<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9090</span><span class="w">    </span><span class="c1"># listen on 0.0.0.0:9090</span>
 </span></code></pre></div>
 <p>Each web plugin is reachable at <code>/plugins/&lt;name&gt;/</code> and <code>/plugins/&lt;name&gt;/*path</code>. The plugin handles the full HTTP request/response cycle (see <a href="../hu-plugins/">hu Plugin Authoring Guide</a>).</p>
 <div class="admonition note">
@@ -3294,9 +3327,9 @@
 <hr />
 <h2 id="running-a-router">Running a router<a class="headerlink" href="#running-a-router" title="Permanent link">&para;</a></h2>
 <p><code>hu router</code> starts an embedded Zenoh router configured to match <code>rmw_zenoh_cpp</code>, so you don't need a separate <code>zenohd</code> install or the <code>cargo run --example zenoh_router</code> helper for local development. It listens on <code>tcp/[::]:7447</code> by default and runs until Ctrl-C:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>hu<span class="w"> </span>router<span class="w">                              </span><span class="c1"># listen on tcp/[::]:7447</span>
-</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>hu<span class="w"> </span>router<span class="w"> </span>--listen<span class="w"> </span>tcp/0.0.0.0:7448<span class="w">    </span><span class="c1"># custom endpoint (repeatable)</span>
-</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>hu<span class="w"> </span>router<span class="w"> </span>--config<span class="w"> </span>router.json5<span class="w">        </span><span class="c1"># full JSON5/YAML config, overrides --listen</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>hu<span class="w"> </span>router<span class="w">                              </span><span class="c1"># listen on tcp/[::]:7447</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>hu<span class="w"> </span>router<span class="w"> </span>--listen<span class="w"> </span>tcp/0.0.0.0:7448<span class="w">    </span><span class="c1"># custom endpoint (repeatable)</span>
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>hu<span class="w"> </span>router<span class="w"> </span>--config<span class="w"> </span>router.json5<span class="w">        </span><span class="c1"># full JSON5/YAML config, overrides --listen</span>
 </span></code></pre></div>
 <p>Point every other <code>hu</code> command (and your ROS 2 / hiroz nodes) at it with <code>--connect</code> / <code>HU_CONNECT</code>. For production deployments, prefer the bundled <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenohd</code></a> or a standalone <code>zenohd</code>.</p>
 <h2 id="additional-flags">Additional flags<a class="headerlink" href="#additional-flags" title="Permanent link">&para;</a></h2>
@@ -3382,10 +3415,10 @@
     H --&gt; C["custom.wasm&lt;br&gt;hu &amp;lt;name&amp;gt; &amp;lt;args&amp;gt;"]
     HU_PLUGIN_PATH["$HU_PLUGIN_PATH&lt;br&gt;~/.local/share/hu/plugins/"] --&gt; H</code></pre>
 <p>Any team can ship a <code>hu-&lt;name&gt;.wasm</code> file and it becomes a <code>hu &lt;name&gt;</code> subcommand with no build-system changes, no Python packaging, and no shared runtime state:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1"># Drop a .wasm file and it becomes available immediately</span>
-</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>cp<span class="w"> </span>./my-debug-tool.wasm<span class="w"> </span>~/.local/share/hu/plugins/
-</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>hu<span class="w"> </span>plugin<span class="w"> </span>list<span class="w">          </span><span class="c1"># shows all loaded plugins with name and path</span>
-</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a>hu<span class="w"> </span>my-debug-tool<span class="w"> </span>--help
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="c1"># Drop a .wasm file and it becomes available immediately</span>
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>cp<span class="w"> </span>./my-debug-tool.wasm<span class="w"> </span>~/.local/share/hu/plugins/
+</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a>hu<span class="w"> </span>plugin<span class="w"> </span>list<span class="w">          </span><span class="c1"># shows all loaded plugins with name and path</span>
+</span><span id="__span-26-4"><a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a>hu<span class="w"> </span>my-debug-tool<span class="w"> </span>--help
 </span></code></pre></div>
 <p>Plugins are sandboxed: they declare the capabilities they need (subscriptions, raw CDR, additional Zenoh sessions) in a manifest, and the host refuses calls for anything undeclared. Plugins also never manage Zenoh connections directly — the host opens all sessions declared in the plugin's manifest before the first event fires. The same <code>.wasm</code> binary runs as a TUI panel and as a CLI subcommand.</p>
 <p>See <a href="../hu-plugins/">hu Plugin Authoring Guide</a> for the WIT interface reference and a worked example.</p>

@@ -2576,8 +2576,8 @@
 <td><code>hu meter hz</code> / <code>hu meter bw</code> timestamp arrivals at the raw Zenoh byte layer; a 100 MB point cloud costs the same to count as a 10-byte string</td>
 </tr>
 <tr>
-<td>JSON output everywhere</td>
-<td>Every subcommand accepts <code>--json</code> and emits newline-delimited JSON; composable with <code>jq</code>, shell scripts, and CI harnesses without fragile text parsing</td>
+<td>JSON output on most commands</td>
+<td>Most subcommands emit newline-delimited JSON with <code>--json</code>; composable with <code>jq</code>, shell scripts, and CI harnesses without fragile text parsing. Some commands ignore the flag; of those, <code>hu monitor watch</code>/<code>log-level</code> and <code>hu meter echo</code>/<code>delay</code> are not NDJSON, while <code>hu monitor log</code> and <code>hu meter param set</code> print bare JSON anyway</td>
 </tr>
 <tr>
 <td>Plugin extensibility</td>
@@ -2585,13 +2585,14 @@
 </tr>
 </tbody>
 </table>
-<p><strong>JSON output on every command</strong> makes it composable with <code>jq</code>, shell scripts, CI harnesses, and log pipelines without fragile text parsing:</p>
+<p><strong>JSON output on most commands</strong> makes it composable with <code>jq</code>, shell scripts, CI harnesses, and log pipelines without fragile text parsing. <code>--json</code> is a global flag, so it is <em>accepted</em> everywhere, but some commands ignore it. Of those, <code>hu monitor log</code> and <code>hu meter param set</code> still print bare JSON, while <code>hu monitor watch</code>/<code>log-level</code> and <code>hu meter echo</code>/<code>delay</code> do not — so check a command's output before depending on it:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Check camera rate in CI</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nv">rate</span><span class="o">=</span><span class="k">$(</span>hu<span class="w"> </span>meter<span class="w"> </span>hz<span class="w"> </span>/camera/image_raw<span class="w"> </span>--duration<span class="w"> </span><span class="m">5</span><span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.rate_hz&#39;</span><span class="k">)</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">[</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$rate</span><span class="s2"> &gt; 28.0&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>bc<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;1&quot;</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># Stream graph events to a log file</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>hu<span class="w"> </span>monitor<span class="w"> </span>watch<span class="w"> </span>--json<span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/ros-graph-events.jsonl
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># Stream graph events to a log file as newline-delimited JSON</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># (hu stream, not hu monitor watch — the latter ignores --json)</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json<span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/ros-graph-events.jsonl
 </span></code></pre></div>
 <hr />
 <h2 id="what-hu-does-not-do">What hu does not do<a class="headerlink" href="#what-hu-does-not-do" title="Permanent link">&para;</a></h2>
@@ -2620,7 +2621,7 @@
 </tr>
 <tr>
 <td>CLI tools in CI / automation</td>
-<td>yes — <code>--json</code> on every command</td>
+<td>yes — <code>--json</code> on most commands</td>
 <td>fragile text parsing</td>
 </tr>
 <tr>
