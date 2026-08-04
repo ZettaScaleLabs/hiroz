@@ -331,28 +331,33 @@ hu meter info node /talker --json | jq '.publishers[].name'
 
 `hu stream` streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal.
 
-It first prints the current graph as a snapshot, then one line per change event, each prefixed with a UTC timestamp. Node lines are rendered as `<namespace>/<name>`:
+It first prints the current graph as a snapshot, then one line per change event, each prefixed with a UTC timestamp. Type names appear in their DDS-mangled form (`std_msgs::msg::dds_::String_`), not the ROS `std_msgs/msg/String` form:
 
 ```bash
 hu stream
 # Discovered Topics:
-#   topic: /camera/image_raw (sensor_msgs/msg/Image)
+#   topic: /chatter (std_msgs::msg::dds_::String_)
 # Discovered Services:
-#   (none)
+#   service: /talker/get_parameters (rcl_interfaces::srv::dds_::GetParameters_)
 # Discovered Nodes:
-#   node: /sensors/camera_driver
-# [2026-08-04 12:34:56] Node discovered: /sensors/camera_driver
-# [2026-08-04 12:34:57] Topic discovered: /camera/image_raw (sensor_msgs/msg/Image)
+#   node: //talker
+# [2026-08-04 07:42:06] Node discovered: /talker
+# [2026-08-04 07:42:06] Topic discovered: /chatter (std_msgs::msg::dds_::String_)
 ```
+
+!!! note "The doubled slash in the snapshot's node lines"
+    Snapshot node lines are printed as `<namespace>/<name>`, and a node in the root namespace has the namespace `/` — so it renders as `//talker`, not `/talker`. The event lines below use the raw namespace instead and print `/talker`. `hu` itself joins the graph while streaming, so it appears alongside your nodes.
 
 Add `--json` for structured output. The first line is the initial snapshot, keyed `event`; every line after it is a single `SystemEvent` in serde's externally-tagged form, where the variant name is the sole top-level key:
 
 ```bash
 hu stream --json
-# {"event":"initial_state","timestamp":{"secs_since_epoch":1754308800,"nanos_since_epoch":0},"domain_id":0,"topics":[{"name":"/camera/image_raw","type":"sensor_msgs/msg/Image","publishers":1,"subscribers":0}],"nodes":[{"name":"camera_driver","namespace":"/sensors"}],"services":[]}
-# {"NodeDiscovered":{"namespace":"/sensors","name":"camera_driver","timestamp":{"secs_since_epoch":1754308801,"nanos_since_epoch":0}}}
-# {"TopicDiscovered":{"topic":"/camera/image_raw","type_name":"sensor_msgs/msg/Image","timestamp":{"secs_since_epoch":1754308802,"nanos_since_epoch":0}}}
+# {"event":"initial_state","timestamp":{"secs_since_epoch":1785829316,"nanos_since_epoch":522800352},"domain_id":0,"topics":[{"name":"/chatter","type":"std_msgs::msg::dds_::String_","publishers":1,"subscribers":0}],"nodes":[{"name":"talker","namespace":"/"}],"services":[{"name":"/talker/get_parameters","type":"rcl_interfaces::srv::dds_::GetParameters_"}]}
+# {"NodeDiscovered":{"namespace":"","name":"talker","timestamp":{"secs_since_epoch":1785829316,"nanos_since_epoch":522703282}}}
+# {"TopicDiscovered":{"topic":"/chatter","type_name":"std_msgs::msg::dds_::String_","timestamp":{"secs_since_epoch":1785829316,"nanos_since_epoch":522693292}}}
 ```
+
+The arrays are shown with one entry each for brevity; a real graph also carries `/parameter_events` and each node's parameter services.
 
 Because the variant name is the key rather than a `type` field, filtering with `jq` selects on key presence:
 
@@ -360,7 +365,12 @@ Because the variant name is the key rather than a `type` field, filtering with `
 hu stream --json | jq -c 'select(has("TopicDiscovered")) | .TopicDiscovered.topic'
 ```
 
-The event variants are `TopicDiscovered`, `TopicRemoved`, `RateMeasured`, `NodeDiscovered`, `NodeRemoved`, `ServiceDiscovered` and `MetricsSnapshot`. Note that the snapshot's per-topic and per-service type field is named `type`, while the event payloads use `type_name`.
+The event variants are `TopicDiscovered`, `TopicRemoved`, `RateMeasured`, `NodeDiscovered`, `NodeRemoved`, `ServiceDiscovered` and `MetricsSnapshot`.
+
+Two field-naming traps when writing filters:
+
+- The snapshot's per-topic and per-service type field is `type`; the event payloads use `type_name`.
+- A root-namespace node is reported as `"namespace":"/"` in the snapshot but `"namespace":""` in `NodeDiscovered`/`NodeRemoved` — the snapshot normalises the empty namespace, the events do not. Joining namespace and name naively will produce `//talker` from the snapshot.
 
 Add `--echo <TOPIC>` to also subscribe to a topic and interleave decoded messages. `--echo` can be repeated for multiple topics:
 
