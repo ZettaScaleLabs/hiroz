@@ -79,7 +79,6 @@ pub mod python_bridge;
 pub mod qos;
 /// Internal message queues.
 pub mod queue;
-
 /// Debug-time enforcement of "no user callback under a hiroz lock guard".
 pub mod reentrancy;
 /// Message type metadata traits (`WithTypeInfo`, etc.).

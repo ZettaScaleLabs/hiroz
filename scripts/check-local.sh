@@ -35,8 +35,9 @@ run_check() {
 }
 
 # 1. Check formatting
-# --all is required: without it cargo fmt only covers the default workspace
-# members, silently skipping hiroz-py and rmw-zenoh-rs.
+# --all is required: default-members is just hiroz and hiroz-codegen, so without
+# it every other member is skipped -- which is how the hiroz-tests violation
+# fixed in #286 reached main.
 run_check "Formatting (cargo fmt)" "cargo fmt --all --check"
 
 # 2. Clippy lints
