@@ -10,8 +10,7 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::*;
-use hiroz::Builder;
-use hiroz::dynamic::DynamicError;
+use hiroz::{Builder, dynamic::DynamicError};
 
 /// With no service server present, discovery waits until the timeout and then
 /// returns `SchemaNotFound` — it must not hang or panic.
