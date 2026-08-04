@@ -251,14 +251,14 @@ Measurement and introspection:
 | `hu meter echo <topic> --raw` | Hex-dump raw CDR bytes, bypassing schema decode (requires the `access-raw-cdr` permission) |
 | `hu meter delay <topic>` | End-to-end latency |
 | `hu meter pub <topic>` | Publish a message |
-| `hu meter list topics\|nodes\|services [--find <substr>] [--count <n>] [--all]` | Enumerate graph entities. Defaults to `topics` when the kind is omitted. Hidden entities — any whose name has a path segment starting with `_` — are excluded unless `--all` is given. `--find` matches name or type for topics and services, name only for nodes; `--count` truncates the result. |
-| `hu meter list find-topics\|find-services\|find-nodes <substr>` | Shorthand for the corresponding `list <kind> --find <substr>`, taking the filter as a positional argument. |
-| `hu meter info topic\|node\|service <name>` | Full entity introspection |
+| `hu meter list <kind> [--find <substr>] [--count <n>] [--all]` | Enumerate graph entities. `<kind>` is `topics` (the default when omitted), `nodes` or `services`. Hidden entities — any whose name has a path segment starting with `_` — are excluded unless `--all` is given. `--find` matches name or type for topics and services, name only for nodes; `--count` truncates the result. |
+| `hu meter list find-<kind> <substr>` | Shorthand for `list <kind> --find <substr>`, taking the filter as a positional argument: `find-topics`, `find-services`, `find-nodes`. |
+| `hu meter info <kind> <name>` | Full entity introspection; `<kind>` is `topic`, `node` or `service` |
 | `hu meter service list` | List services as `name<TAB>[type]` |
 | `hu meter service find <substr>` | List the names of services whose name contains `<substr>` |
 | `hu meter service type <name>` | Print a single service's type name, or exit 1 if it is not in the graph |
-| `hu meter service call <name> [--yaml <yaml> --msg-type <type> \| --payload <hex>] [--timeout <s>]` | Call a service, with the request either as YAML plus its type, or as raw hex-encoded CDR bytes |
-| `hu meter param list\|get\|dump\|describe\|set\|load <node> [...]` | Read and write node parameters, or bulk-load from a ROS-style YAML params file (`load <node> <yaml-file>`). `load` is host-handled: `hu` reads and parses the YAML on the host (WASM plugins have no filesystem access) and hands the plugin pre-flattened parameter data. There is no `delete` verb — parameter deletion (`ros2 param delete`) is not implemented. |
+| `hu meter service call <name> [--timeout <s>]` | Call a service. The request is given either as `--yaml <yaml> --msg-type <type>`, or as raw hex-encoded CDR bytes with `--payload <hex>` |
+| `hu meter param <verb> <node> [...]` | Read and write node parameters, or bulk-load them from a ROS-style YAML params file. `<verb>` is `list`, `get`, `dump`, `describe`, `set` or `load` (`load <node> <yaml-file>`). `load` is host-handled: `hu` reads and parses the YAML on the host (WASM plugins have no filesystem access) and hands the plugin pre-flattened parameter data. There is no `delete` verb — parameter deletion (`ros2 param delete`) is not implemented. |
 | `hu meter action list` | List available actions |
 | `hu meter action info <name>` | Show an action's type and server count |
 | `hu meter action send-goal <name> --payload <hex> [--timeout <s>]` | Send a goal from raw hex-encoded CDR bytes, and poll for the result. This is the only way to send a goal — there is no JSON-goal verb; unlike `hu meter service call --yaml`, goals are not accepted in a human-authored form. |
