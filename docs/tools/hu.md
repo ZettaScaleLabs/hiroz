@@ -329,9 +329,9 @@ hu meter info node /talker --json | jq '.publishers[].name'
 
 ## Stream mode
 
-`hu stream` streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal:
+`hu stream` streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal.
 
-It first prints the current graph as a snapshot, then one line per change event, each prefixed with a UTC timestamp:
+It first prints the current graph as a snapshot, then one line per change event, each prefixed with a UTC timestamp. Node lines are rendered as `<namespace>/<name>`:
 
 ```bash
 hu stream
@@ -340,8 +340,8 @@ hu stream
 # Discovered Services:
 #   (none)
 # Discovered Nodes:
-#   node: <namespace>/<name>
-# [2026-08-04 12:34:56] Node discovered: /camera_driver
+#   node: /sensors/camera_driver
+# [2026-08-04 12:34:56] Node discovered: /sensors/camera_driver
 # [2026-08-04 12:34:57] Topic discovered: /camera/image_raw (sensor_msgs/msg/Image)
 ```
 
@@ -349,8 +349,8 @@ Add `--json` for structured output. The first line is the initial snapshot, keye
 
 ```bash
 hu stream --json
-# {"event":"initial_state","timestamp":{"secs_since_epoch":1754308800,"nanos_since_epoch":0},"domain_id":0,"topics":[{"name":"/camera/image_raw","type":"sensor_msgs/msg/Image","publishers":1,"subscribers":0}],"nodes":[{"name":"camera_driver","namespace":"/"}],"services":[]}
-# {"NodeDiscovered":{"namespace":"/","name":"camera_driver","timestamp":{"secs_since_epoch":1754308801,"nanos_since_epoch":0}}}
+# {"event":"initial_state","timestamp":{"secs_since_epoch":1754308800,"nanos_since_epoch":0},"domain_id":0,"topics":[{"name":"/camera/image_raw","type":"sensor_msgs/msg/Image","publishers":1,"subscribers":0}],"nodes":[{"name":"camera_driver","namespace":"/sensors"}],"services":[]}
+# {"NodeDiscovered":{"namespace":"/sensors","name":"camera_driver","timestamp":{"secs_since_epoch":1754308801,"nanos_since_epoch":0}}}
 # {"TopicDiscovered":{"topic":"/camera/image_raw","type_name":"sensor_msgs/msg/Image","timestamp":{"secs_since_epoch":1754308802,"nanos_since_epoch":0}}}
 ```
 
