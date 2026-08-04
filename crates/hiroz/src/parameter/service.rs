@@ -202,9 +202,10 @@ impl ParameterState {
         //   (it deadlocks if a writer is queued between the two acquisitions).
         //
         // `SetCallback` is already an `Arc`, so cloning it costs one refcount
-        // bump and removes both hazards. This is the same class of defect as the
-        // zenoh-ext `AdvancedSubscriber` deadlock this branch fixes for pub/sub:
-        // a non-reentrant lock held across a user callback.
+        // bump and removes both hazards. Same defect class as the pub/sub,
+        // lifecycle, event/graph and rmw cases fixed alongside this one: a
+        // non-reentrant lock held across a user callback, closed by the same
+        // rewrite — collect, release, call.
         let callback: Option<SetCallback> = self
             .on_set_callback
             .read()
