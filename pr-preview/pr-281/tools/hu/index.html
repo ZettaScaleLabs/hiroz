@@ -3094,16 +3094,32 @@
 <td>Publish a message</td>
 </tr>
 <tr>
-<td><code>hu meter list topics\|nodes\|services</code></td>
-<td>Enumerate graph entities</td>
+<td><code>hu meter list topics\|nodes\|services [--find &lt;substr&gt;] [--count &lt;n&gt;] [--all]</code></td>
+<td>Enumerate graph entities. Defaults to <code>topics</code> when the kind is omitted. Hidden entities — any whose name has a path segment starting with <code>_</code> — are excluded unless <code>--all</code> is given. <code>--find</code> matches name or type for topics and services, name only for nodes; <code>--count</code> truncates the result.</td>
+</tr>
+<tr>
+<td><code>hu meter list find-topics\|find-services\|find-nodes &lt;substr&gt;</code></td>
+<td>Shorthand for the corresponding <code>list &lt;kind&gt; --find &lt;substr&gt;</code>, taking the filter as a positional argument.</td>
 </tr>
 <tr>
 <td><code>hu meter info topic\|node\|service &lt;name&gt;</code></td>
 <td>Full entity introspection</td>
 </tr>
 <tr>
-<td><code>hu meter service call &lt;name&gt; --yaml &lt;yaml&gt; --msg-type &lt;type&gt; [--timeout &lt;s&gt;]</code></td>
-<td>Call a service</td>
+<td><code>hu meter service list</code></td>
+<td>List services as <code>name&lt;TAB&gt;[type]</code></td>
+</tr>
+<tr>
+<td><code>hu meter service find &lt;substr&gt;</code></td>
+<td>List the names of services whose name contains <code>&lt;substr&gt;</code></td>
+</tr>
+<tr>
+<td><code>hu meter service type &lt;name&gt;</code></td>
+<td>Print a single service's type name, or exit 1 if it is not in the graph</td>
+</tr>
+<tr>
+<td><code>hu meter service call &lt;name&gt; [--yaml &lt;yaml&gt; --msg-type &lt;type&gt; \| --payload &lt;hex&gt;] [--timeout &lt;s&gt;]</code></td>
+<td>Call a service, with the request either as YAML plus its type, or as raw hex-encoded CDR bytes</td>
 </tr>
 <tr>
 <td><code>hu meter param list\|get\|dump\|describe\|set\|load &lt;node&gt; [...]</code></td>
