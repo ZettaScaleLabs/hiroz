@@ -1,32 +1,23 @@
 //! Fails loudly when `hiroz-tests` is built without the features its suites need.
 //!
-//! Ten suites in this crate are `#![cfg(feature = "ros-msgs")]` — `cache.rs`,
-//! `lifecycle.rs`, `parameter_tests.rs`, `service_schema_discovery.rs`,
-//! `subscriber_timeout.rs`, `type_description_integration.rs`, the `z_*_example`
-//! suites, and others. A crate-level `cfg` that is not satisfied does not error
-//! and does not warn: the file compiles to an empty test binary reporting
-//! `0 passed`, which is indistinguishable from green in every runner and log.
+//! Several suites here carry a crate-level `#![cfg(feature = "ros-msgs")]`. An
+//! unsatisfied crate-level `cfg` neither errors nor warns: the file compiles to
+//! an empty test binary reporting `0 passed`, which no runner or log can
+//! distinguish from green.
 //!
-//! Two separate mechanisms could hide that, and they are worth keeping distinct:
+//! This file is deliberately **not** gated, so it is the one target a
+//! featureless build cannot compile away. `build.rs` enforces the same
+//! requirement for the whole package, covering the narrower `--test <name>`
+//! invocations that never select this target.
 //!
-//! * **Selection.** `Cargo.toml` sets
-//!   `default-members = ["crates/hiroz", "crates/hiroz-codegen"]`, so a bare
-//!   `cargo nextest run` never selected `hiroz-tests` at all — the crate was not
-//!   built, rather than built empty. `scripts/test-pure-rust.nu` now names the
-//!   crate explicitly.
-//! * **Empty compilation.** Ask for the crate without features and the gated
-//!   suites really do compile away to `0 passed`. That is what this file and the
-//!   build script guard against.
+//! Consequence: `hiroz-tests` has no supported featureless configuration. Run it
+//! as `cargo test -p hiroz-tests --features ros-msgs,jazzy`, or with
+//! `ros-interop,<distro>` for the suites that also drive a ROS installation.
 //!
-//! This file is deliberately **not** gated, so it is the one thing in the crate
-//! that a featureless build cannot compile away. If the features go missing
-//! again, the run fails with a message naming the cause instead of quietly
-//! shrinking.
-//!
-//! Consequence, stated so it is a decision rather than a surprise: `hiroz-tests`
-//! has no supported featureless configuration. Run it as
-//! `cargo test -p hiroz-tests --features ros-msgs,jazzy` (or with `ros-interop`
-//! for the suites that also need a ROS installation).
+//! Note that selection is a separate failure mode from compilation. `Cargo.toml`
+//! sets `default-members` to exclude this crate, so a bare `cargo nextest run`
+//! skips it entirely rather than building it empty; `scripts/test-pure-rust.nu`
+//! names it explicitly to close that path.
 
 /// Without `ros-msgs`, the gated suites are silently absent — fail instead.
 #[test]
@@ -35,10 +26,10 @@ fn ros_msgs_gated_suites_must_not_be_silently_skipped() {
     panic!(
         "hiroz-tests was built without the `ros-msgs` feature.\n\
          \n\
-         The suites gated on it — `cache.rs`, `lifecycle.rs`, \
-         `parameter_tests.rs` and others — have been \
-         compiled to empty test binaries and will report `0 passed`, which reads \
-         as green. That is not a pass; it is no coverage.\n\
+         The suites gated on it — `cache.rs`, `subscriber_timeout.rs`, \
+         `service_schema_discovery.rs`, the `z_*_example` suites and others — \
+         have been compiled to empty test binaries and will report `0 passed`, \
+         which reads as green. That is not a pass; it is no coverage.\n\
          \n\
          Build the crate with its features:\n\
          \n\
