@@ -63,7 +63,22 @@ git-hooks.lib.${system}.run {
   };
   hooks = {
     # Rust tooling
-    rustfmt.enable = true;
+    # The stock hook orders its PATH alphabetically over packageOverrides, so
+    # `cargo` (stable, ships its own rustfmt) shadows the nightly one. Stable
+    # then drops every unstable option in rustfmt.toml -- warning only, exit 0 --
+    # including imports_granularity. Pin the binary instead.
+    rustfmt = {
+      enable = true;
+      entry = toString (
+        pkgs.writeShellScript "rustfmt-nightly-all" ''
+          export RUSTFMT=${rustfmtNightly}/bin/rustfmt
+          export PATH=${rustfmtNightly}/bin:${rustToolchain}/bin:$PATH
+          exec cargo fmt --all -- --check --color always
+        ''
+      );
+      files = "\\.rs$";
+      pass_filenames = false;
+    };
     taplo.enable = true;
 
     # Python tooling
