@@ -22,11 +22,9 @@ def clippy-rmw [] {
     }
 
     log-step "Clippy (rmw feature)"
-    # `hiroz-tests` is excluded and linted separately with its features. Under
-    # plain `--workspace` it is selected with none, and its suites are
-    # `#![cfg(feature = "ros-msgs")]` — so clippy would lint a set of empty
-    # files and report success. Its build script now refuses that configuration
-    # outright rather than let it look clean.
+    # `hiroz-tests` is linted separately with its features: under plain
+    # `--workspace` it is selected with none, so clippy would lint a set of
+    # empty files and report success.
     run-cmd "cargo clippy --all-targets --workspace --exclude hiroz-tests -F rmw -- -D warnings"
     run-cmd $"cargo clippy --all-targets -p hiroz-tests --features ros-interop,($distro) -- -D warnings"
 }

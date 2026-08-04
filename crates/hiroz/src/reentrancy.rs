@@ -1,52 +1,29 @@
-//! Debug-time enforcement of hiroz's one hard rule about user callbacks:
+//! Debug-time enforcement of: **a user callback is never invoked while a hiroz
+//! lock guard is live.**
 //!
-//! > **A user callback is never invoked while a hiroz lock guard is live.**
+//! A callback invoked under a guard runs user code inside hiroz's critical
+//! section. If it re-enters hiroz it re-acquires a non-reentrant lock on the
+//! thread already holding it — a deterministic hang, not a race.
 //!
-//! Every re-entrancy deadlock hiroz has had was one violation of that sentence.
-//! A callback invoked under a guard is user code running inside hiroz's own
-//! critical section, and the first thing such code usually does is call back
-//! into hiroz — re-acquiring a non-reentrant `Mutex`/`RwLock` on the thread that
-//! already holds it. There is no race to lose; it is a deterministic hang.
+//! No lint catches this. `clippy::significant_drop_in_scrutinee` targets guards
+//! that are unnamed scrutinee temporaries; the shape here is
+//! `if let Ok(cb) = holder.lock()`, which *binds* the guard. Measured on this
+//! crate: zero hits, with the lint confirmed live against its own documented
+//! trigger. Nor could a bespoke one do better — the guard lifetime spans a
+//! dynamic dispatch through `Arc<dyn Fn>` or an opaque `extern "C" fn`.
 //!
-//! The rule was previously enforced by review. That does not scale, and it
-//! demonstrably leaked: a mechanical sweep of this workspace found further
-//! instances in `rmw-zenoh-rs` after five had already been fixed by hand.
+//! Zero cost in release: [`GuardCount`] is zero-sized, and it and
+//! [`assert_no_guards_held`] compile to nothing without `debug_assertions`.
+//! Tests and CI run in debug.
 //!
-//! # Why a runtime tripwire and not a lint
+//! Usage: declare locks on callback-reachable paths as [`TrackedMutex`] /
+//! [`TrackedRwLock`], and route every user-code invocation through
+//! [`invoke_user_callback!`].
 //!
-//! The obvious candidate, `clippy::significant_drop_in_scrutinee`, was tried and
-//! **does not fire on this code at all**. It targets guards that are unnamed
-//! temporaries in a `match`/`if let` scrutinee; hiroz's (and rmw's) shape is
-//! `if let Ok(cb) = holder.lock()`, where the guard is *bound* to a name and so
-//! is not a scrutinee temporary. Verified: `cargo clippy -p rmw-zenoh-rs -W
-//! clippy::significant_drop_in_scrutinee` reports zero hits on code containing
-//! five genuine instances of the defect.
-//!
-//! A bespoke lint fares no better. The defect is a *dynamic* guard lifetime
-//! spanning a *dynamic* dispatch through `Arc<dyn Fn>` or an `extern "C" fn`
-//! pointer. Static analysis cannot see through either, and the FFI pointers are
-//! opaque by construction.
-//!
-//! A counter can see both, trivially.
-//!
-//! # Cost
-//!
-//! Zero in release. [`GuardCount`](crate::reentrancy::GuardCount) is a
-//! zero-sized newtype whose constructor and `Drop` compile to nothing without
-//! `debug_assertions`, and
-//! [`assert_no_guards_held`](crate::reentrancy::assert_no_guards_held)
-//! expands to nothing. Tests and CI run in debug, which is where the assertion
-//! is wanted.
-//!
-//! # Using it
-//!
-//! Lock declarations on a user-callback-reachable path use
-//! [`TrackedMutex`](crate::reentrancy::TrackedMutex) /
-//! [`TrackedRwLock`](crate::reentrancy::TrackedRwLock) instead of the
-//! `std::sync` originals. Every site that invokes user code calls
-//! [`assert_no_guards_held`](crate::reentrancy::assert_no_guards_held) first — in practice via
-//! [`invoke_user_callback!`], which does both in one line and names the site in
-//! the panic message.
+//! [`GuardCount`]: crate::reentrancy::GuardCount
+//! [`assert_no_guards_held`]: crate::reentrancy::assert_no_guards_held
+//! [`TrackedMutex`]: crate::reentrancy::TrackedMutex
+//! [`TrackedRwLock`]: crate::reentrancy::TrackedRwLock
 
 use std::sync::{LockResult, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -58,19 +35,13 @@ thread_local! {
 
 /// RAII counter embedded in every tracked guard.
 ///
-/// The private field is what makes the counter trustworthy. As a fieldless unit
-/// struct this was constructible — and therefore *droppable* — by any code that
-/// could name it, and `Drop` decrements the thread-local. A stray
-/// `drop(GuardCount)` while a tracked guard was live would take the count to
-/// zero, `assert_no_guards_held` would pass, and a genuine callback-under-lock
-/// would go unreported. Only this module can mint one now, so the count can only
-/// be moved by acquiring and releasing a real guard.
+/// The private field makes it unforgeable: as a fieldless unit struct, any code
+/// naming it could `drop` one, decrementing the count to zero while a guard was
+/// live and silently disarming [`assert_no_guards_held`].
 ///
-/// `Drop` additionally asserts that the count is non-zero before decrementing.
-/// `saturating_sub` alone prevents the wrap but makes the desync *silent*, which
-/// is the failure mode this whole module exists to remove: the counter would
-/// keep reporting zero live guards and the tripwire would pass while a guard was
-/// held. Belt (`saturating_sub`) and braces (the assertion).
+/// `Drop` asserts non-zero before decrementing. `saturating_sub` alone prevents
+/// the wrap but hides the desync, which is the failure mode this module exists
+/// to remove.
 #[derive(Debug)]
 pub struct GuardCount(());
 
@@ -89,16 +60,14 @@ impl Drop for GuardCount {
         #[cfg(debug_assertions)]
         LIVE_GUARDS.with(|n| {
             let live = n.get();
-            // `|| panicking()` because a panic raised while unwinding aborts the
-            // process. Without the guard, a `GuardCount` dropped during someone
-            // else's panic would replace their failure with this one and take
-            // the backtrace with it.
+            // `|| panicking()`: panicking while unwinding aborts, which would
+            // replace someone else's failure with this one.
             debug_assert!(
                 live > 0 || std::thread::panicking(),
-                "hiroz GuardCount underflow: a tracked guard was released while \
-                 the live-guard count was already 0. The counter has desynced \
-                 from the guards it tracks, so `assert_no_guards_held` can no \
-                 longer detect a callback invoked under a lock."
+                "hiroz GuardCount underflow: guard released with the live count \
+                 already 0. The counter has desynced from the guards it tracks, \
+                 so `assert_no_guards_held` can no longer detect a callback \
+                 invoked under a lock."
             );
             n.set(live.saturating_sub(1));
         });
@@ -118,11 +87,11 @@ pub fn live_guards() -> usize {
     }
 }
 
-/// Panics (debug builds only) if any tracked hiroz guard is live on this thread.
+/// Panics (debug only) if any tracked guard is live on this thread.
 ///
-/// Call immediately before invoking user code. `site` names the call site and is
-/// reproduced in the panic message, because the useful information when this
-/// fires is *which* callback was about to run, not the backtrace of the counter.
+/// Call immediately before invoking user code. `site` is reproduced in the panic
+/// message — when this fires, *which* callback was about to run is the useful
+/// information, not the counter's backtrace.
 #[inline(always)]
 pub fn assert_no_guards_held(site: &str) {
     #[cfg(debug_assertions)]
@@ -131,10 +100,9 @@ pub fn assert_no_guards_held(site: &str) {
         assert!(
             live == 0,
             "hiroz re-entrancy rule violated at `{site}`: about to invoke a user \
-             callback with {live} hiroz lock guard(s) still live on this thread. \
-             A callback that re-enters hiroz here may deadlock, and will if it \
-             touches a lock this thread already holds. The fix is always the \
-             same shape: collect what you need into an owned value, drop every \
+             callback with {live} lock guard(s) live on this thread. A callback \
+             that re-enters hiroz will deadlock if it touches a lock this thread \
+             holds. Fix: collect what you need into an owned value, drop every \
              guard, then invoke the callback."
         );
     }
@@ -298,28 +266,20 @@ mod tests {
         assert_no_guards_held("test");
     }
 
-    /// The detector must actually detect. Without this, a tripwire that never
-    /// fires is indistinguishable from a codebase with no defects.
+    /// A tripwire that never fires is indistinguishable from a clean codebase.
     #[test]
     #[cfg_attr(debug_assertions, should_panic(expected = "re-entrancy rule violated"))]
     fn assert_fires_while_a_guard_is_live() {
         let m = TrackedMutex::new(0u32);
         let _g = m.lock().unwrap();
         assert_no_guards_held("deliberate violation");
-        // In release the assertion is compiled out, so the test must not be
-        // expected to panic there.
+        // Compiled out in release, so no panic is expected there.
         #[cfg(not(debug_assertions))]
         assert_eq!(live_guards(), 0);
     }
 
-    /// The underflow assertion must also detect. `saturating_sub` on its own
-    /// absorbs a desync silently, which is the shape of defect this module
-    /// exists to remove — so the guard against it needs the same proof the
-    /// tripwire itself gets.
-    ///
-    /// Minting a bare `GuardCount` is only possible inside this module; the
-    /// private field is what makes it unreachable from anywhere else, and that
-    /// is why this can be tested here and nowhere else.
+    /// The underflow assertion needs the same proof the tripwire gets. Only this
+    /// module can mint a bare `GuardCount`, so only here can it be tested.
     #[test]
     #[cfg_attr(debug_assertions, should_panic(expected = "GuardCount underflow"))]
     fn underflow_is_not_silent() {

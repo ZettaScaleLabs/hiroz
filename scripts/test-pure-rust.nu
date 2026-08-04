@@ -19,29 +19,19 @@ def run-tests [] {
     $env.RUSTFLAGS = "-D warnings"
 
     log-step "Run tests"
-    # `hiroz-tests` is excluded here and run separately below *with* its features.
-    # Ten of its suites (`cache.rs`, `lifecycle.rs`, `parameter_tests.rs`,
-    # `service_schema_discovery.rs`, `subscriber_timeout.rs` and others) are
-    # `#![cfg(feature = "ros-msgs")]`, and a crate-level cfg that is not satisfied
-    # compiles to an empty test binary reporting `0 passed`. That reads as green.
-    # Separately, the crate is not in `default-members`, so before this change a
-    # bare `cargo nextest run` did not build it at all -- naming it explicitly is
-    # what makes the features load-bearing rather than moot.
-    # None of those features need a ROS installation (hiroz-msgs bundles the
-    # definitions), so there is no reason for this job to run the crate blind.
-    # `rmw-zenoh-rs` is excluded too: its build script generates bindings from
-    # ROS C headers (`rcutils/strdup.h`), which this job by definition does not
-    # have. It is not in `default-members`, so it was never built here before
-    # `--workspace` was introduced -- excluding it restores that, rather than
-    # dropping coverage. The ROS jobs build and lint it via `-F rmw`.
-    # `shm_size_estimation` is skipped, not excluded for convenience: it asks the
-    # OS for a POSIX shared-memory segment large enough to hold a PointCloud2,
-    # and a GitHub runner's `/dev/shm` cannot provide it -- the failure is
-    # `OS error 12` (ENOMEM) from `zenoh-shm`, before any hiroz code runs. It is
-    # a property of the machine, not of the change under test. SHM is covered by
-    # the dedicated `test-shm` step, which uses segments a runner can allocate.
-    # `hiroz-msgs` is not in `default-members`, so these never ran in this job
-    # until `--workspace` was introduced here.
+    # Three exclusions, each run or covered elsewhere:
+    #
+    # - `hiroz-tests`: run separately below with `ros-msgs,jazzy`. Its gated
+    #   suites are `#![cfg(feature = "ros-msgs")]` and compile to empty binaries
+    #   reporting `0 passed` without them. No ROS install needed -- hiroz-msgs
+    #   bundles the definitions.
+    # - `rmw-zenoh-rs`: its build script generates bindings from ROS C headers,
+    #   which this job does not have. The ROS jobs lint it via `-F rmw`.
+    # - `shm_size_estimation`: needs a `/dev/shm` segment sized for a
+    #   PointCloud2; a runner cannot allocate it and `zenoh-shm` fails with
+    #   ENOMEM before any hiroz code runs. Covered by the `test-shm` step.
+    #
+    # None were in `default-members`, so none ran here before `--workspace`.
     run-cmd "cargo nextest run --no-fail-fast --workspace --exclude hiroz-tests --exclude rmw-zenoh-rs -E 'not binary(shm_size_estimation)'"
     run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy"
 }
@@ -159,9 +149,8 @@ def test-shm [] {
     # Integration-style unit tests (pub/sub with SHM)
     run-cmd "cargo test --package hiroz --test shm"
     # Integration tests (validate shm_pointcloud2 example)
-    # `hiroz-tests` has no featureless configuration -- its build script now
-    # enforces that -- so this names the features even though shm_example
-    # itself is ungated.
+    # `hiroz-tests` has no featureless configuration (enforced by its build
+    # script), so name the features even though shm_example itself is ungated.
     run-cmd "cargo test --package hiroz-tests --test shm_example --features ros-msgs,jazzy"
 }
 

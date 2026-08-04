@@ -1,23 +1,20 @@
 //! Fails loudly when `hiroz-tests` is built without the features its suites need.
 //!
-//! Several suites here carry a crate-level `#![cfg(feature = "ros-msgs")]`. An
-//! unsatisfied crate-level `cfg` neither errors nor warns: the file compiles to
-//! an empty test binary reporting `0 passed`, which no runner or log can
-//! distinguish from green.
+//! Several suites carry a crate-level `#![cfg(feature = "ros-msgs")]`. An
+//! unsatisfied crate-level `cfg` neither errors nor warns — the file compiles to
+//! an empty test binary reporting `0 passed`, indistinguishable from green.
 //!
-//! This file is deliberately **not** gated, so it is the one target a
-//! featureless build cannot compile away. `build.rs` enforces the same
-//! requirement for the whole package, covering the narrower `--test <name>`
-//! invocations that never select this target.
+//! This file is deliberately ungated, so a featureless build cannot compile it
+//! away. `build.rs` covers the narrower `--test <name>` invocations that never
+//! select this target.
 //!
-//! Consequence: `hiroz-tests` has no supported featureless configuration. Run it
-//! as `cargo test -p hiroz-tests --features ros-msgs,jazzy`, or with
-//! `ros-interop,<distro>` for the suites that also drive a ROS installation.
+//! `hiroz-tests` therefore has no supported featureless configuration: run it as
+//! `cargo test -p hiroz-tests --features ros-msgs,jazzy`, or with
+//! `ros-interop,<distro>` for suites that drive a real ROS installation.
 //!
-//! Note that selection is a separate failure mode from compilation. `Cargo.toml`
-//! sets `default-members` to exclude this crate, so a bare `cargo nextest run`
-//! skips it entirely rather than building it empty; `scripts/test-pure-rust.nu`
-//! names it explicitly to close that path.
+//! Selection is a separate failure mode from compilation: this crate is not in
+//! `default-members`, so a bare `cargo nextest run` skips it rather than
+//! building it empty. `scripts/test-pure-rust.nu` names it explicitly.
 
 /// Without `ros-msgs`, the gated suites are silently absent — fail instead.
 #[test]

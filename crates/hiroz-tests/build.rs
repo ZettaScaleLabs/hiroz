@@ -3,20 +3,12 @@ use std::{env, path::PathBuf};
 fn main() {
     // Package-wide enforcement of the feature requirement.
     //
-    // `tests/feature_gate.rs` fails loudly when the crate is built without
-    // `ros-msgs`, but only if Cargo happens to select *that* target. Ask for one
-    // gated suite on its own -- `cargo test -p hiroz-tests --test cache` with no
-    // features -- and Cargo builds only that target, the crate-level `cfg`
-    // compiles it to an empty binary, `0 passed` is reported, and the guard
-    // never runs. The silent-skip mode the guard exists to close is still
-    // reachable through the narrower invocation.
-    //
-    // A build script runs for every build of this package regardless of which
-    // targets are selected, so this is the only place the requirement can be
-    // stated once and hold everywhere.
-    //
-    // Consequence, already declared in `feature_gate.rs`: `hiroz-tests` has no
-    // supported featureless configuration.
+    // `tests/feature_gate.rs` only fires if Cargo selects that target.
+    // `cargo test -p hiroz-tests --test cache` with no features builds only
+    // `cache`, which the crate-level `cfg` compiles to an empty binary --
+    // `0 passed`, guard never run. A build script runs for every build of the
+    // package regardless of target selection, so this is the one place the
+    // requirement holds everywhere.
     if std::env::var_os("CARGO_FEATURE_ROS_MSGS").is_none() {
         panic!(
             "\n\nhiroz-tests requires the `ros-msgs` feature.\n\n\
