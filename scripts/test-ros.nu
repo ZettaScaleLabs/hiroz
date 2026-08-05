@@ -79,6 +79,18 @@ def run-ros-interop [] {
     # Try without verbose logging first (faster)
     let result = (do -i { run-cmd $cmd --distro $distro | complete })
 
+    # Always surface the runner's own output.
+    #
+    # This used to capture with `complete` and then never print, so a passing
+    # ROS job logged the nextest command, produced not one line of test output,
+    # and printed "All ROS 2 <distro> tests passed!". That banner was
+    # unfalsifiable: nextest exits 0 when it runs *zero* tests, and each interop
+    # test additionally returns early (still passing) when `check_ros2_available`
+    # says no. Nothing in the log distinguished "57 interop tests passed against
+    # rmw_zenoh_cpp" from "the binary matched no tests".
+    print $result.stdout
+    print $result.stderr
+
     # If tests failed, retry with trace logging for detailed diagnostics
     # This is CRITICAL for debugging interop issues - shows type hashes, key expressions, service calls
     if $result.exit_code != 0 {
@@ -86,6 +98,26 @@ def run-ros-interop [] {
         $env.RUST_LOG = "hiroz=trace,rmw_zenoh_cpp=debug,warn"
         run-cmd $cmd --distro $distro
     }
+
+    # An exit code of 0 is necessary but not sufficient — require evidence that
+    # tests actually ran. nextest's last line is
+    # `Summary [  12.345s] 57 tests run: 57 passed, 0 skipped`.
+    let summary = ([$result.stdout, $result.stderr] | str join "\n" | lines
+        | where {|l| $l =~ 'tests run:' })
+
+    if ($summary | is-empty) {
+        error make {
+            msg: $"ROS interop run produced no nextest summary line, so it is unknown whether any test ran. Command: ($cmd)"
+        }
+    }
+
+    let ran = ($summary | last | parse --regex '(?<n>\d+) tests run' | get n.0 | into int)
+    if $ran == 0 {
+        error make {
+            msg: $"ROS interop run executed 0 tests -- a vacuous pass, not a pass. Command: ($cmd)"
+        }
+    }
+    print $"\n($ran) ROS interop tests ran against rmw_zenoh_cpp."
 }
 
 # ============================================================================
