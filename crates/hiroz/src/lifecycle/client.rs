@@ -173,16 +173,16 @@ fn state_from_lc(s: &LcState) -> LifecycleState {
         2 => LifecycleState::Inactive,
         3 => LifecycleState::Active,
         4 => LifecycleState::Finalized,
-        // Transition ("busy") states. A node genuinely reports these while a
-        // transition callback is running; mapping them onto `Unconfigured` told
-        // a lifecycle manager the node had reset itself, which is both wrong and
-        // indistinguishable from the real thing.
+        // Reported while a transition callback runs. Previously folded into
+        // `Unconfigured`, which reads as "the node reset itself".
         10 => LifecycleState::Configuring,
         11 => LifecycleState::CleaningUp,
         12 => LifecycleState::ShuttingDown,
         13 => LifecycleState::Activating,
         14 => LifecycleState::Deactivating,
         15 => LifecycleState::ErrorProcessing,
-        _ => LifecycleState::Unconfigured,
+        // id 0 and anything unrecognised: report it as unknown, not as a state
+        // the node never claimed.
+        _ => LifecycleState::Unknown,
     }
 }

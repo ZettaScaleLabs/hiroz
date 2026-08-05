@@ -142,41 +142,28 @@ impl ZLifecycleNode {
             | TransitionId::ActiveShutdown => self.on_shutdown.as_ref(),
         };
 
-        // The transition is driven in two locked steps with the user callback in
-        // between, *outside* the lock. `state_machine` is shared with the
-        // `~/get_state` / `~/change_state` service handlers and with
-        // `get_current_state`, so running the callback under the guard would
-        // deadlock any callback that inspects its own node.
+        // begin / callback / finish, with the callback outside the lock:
+        // `state_machine` also backs `~/get_state`, `~/change_state` and
+        // `get_current_state`, so a callback inspecting its own node deadlocks
+        // if it runs under the guard.
         //
-        // NOTE: the `begin` call is bound to its own `let` on purpose. Writing
-        // `match self.state_machine.lock().unwrap().begin(..) { .. }` keeps the
-        // temporary guard alive for the whole `match` body — which silently
-        // reintroduces exactly the deadlock this split exists to remove.
+        // Bind `begin` to its own `let`. `match self.state_machine.lock()...` would
+        // hold the temporary guard for the whole match body and restore the deadlock.
         let begun = self.state_machine.lock().unwrap().begin(transition);
         let cb_result = match begun {
             Some(start_state) => {
                 // Lock released; observers see the intermediate ("busy") state.
                 //
-                // A panic here must not escape without settling the state
-                // machine. `begin` has already moved `current` to the
-                // intermediate state, and the guard it took is gone — so an
-                // unwind straight out of this function would leave `current`
-                // at `Configuring`/`Activating`/... permanently, *and* leave
-                // the mutex unpoisoned, so nothing would ever report it. Every
-                // later `begin` returns `None` and `~/get_state` answers
-                // `configuring` for the life of the process: a silent wedge.
-                // Before the callback was moved out of the lock, the unwind
-                // passed through a live guard and poisoned the mutex, so the
-                // next access failed loudly.
+                // A panic must not escape unsettled. `begin` already moved
+                // `current` to the intermediate state and dropped its guard, so
+                // an unwind would strand it there with the mutex *unpoisoned* —
+                // every later `begin` returns `None` and `~/get_state` answers
+                // `configuring` forever, silently. (Pre-split, the unwind
+                // crossed a live guard and poisoned the mutex, failing loudly.)
                 //
-                // Settle on `Failure`, which reverts to `start_state` — the
-                // same "nothing changed" outcome as the invalid-transition arm
-                // below, and the only result that is both well-defined and
-                // leaves the node usable. `on_error` is deliberately not run:
-                // we are already unwinding, and running more user code on the
-                // way out would risk a second panic. The payload is then
-                // re-raised, so a panicking callback still fails exactly as
-                // loudly as it did before the split.
+                // Settle on `Failure` — reverts to `start_state`, same as the
+                // invalid-transition arm. `on_error` is skipped: running user
+                // code while unwinding risks a second panic. Payload re-raised.
                 let ret = match catch_unwind(AssertUnwindSafe(|| callback(start_state))) {
                     Ok(ret) => ret,
                     Err(payload) => {

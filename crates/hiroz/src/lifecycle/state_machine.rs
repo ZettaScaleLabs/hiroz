@@ -2,6 +2,8 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum State {
+    /// Decode-only: a remote node reported id 0. Never held by a live machine.
+    Unknown = 0,
     // Primary states
     Unconfigured = 1,
     Inactive = 2,
@@ -23,6 +25,7 @@ impl State {
 
     pub fn label(self) -> &'static str {
         match self {
+            State::Unknown => "unknown",
             State::Unconfigured => "unconfigured",
             State::Inactive => "inactive",
             State::Active => "active",
@@ -172,18 +175,15 @@ impl StateMachine {
         }
     }
 
-    /// First half of [`Self::trigger`]: validate the transition and enter the
-    /// intermediate ("busy") state.
+    /// First half of [`Self::trigger`]: validate and enter the intermediate
+    /// ("busy") state.
     ///
-    /// Returns the *start* state to hand to the user callback, or `None` if the
-    /// transition is not legal from the current state (in which case nothing
-    /// changed).
+    /// Returns the start state for the user callback, or `None` if the
+    /// transition is illegal from the current state (nothing changed).
     ///
-    /// Split out from `trigger` so a caller holding a lock around the state
-    /// machine can release it before running the user callback and re-acquire it
-    /// for [`Self::finish`]. The user callback is free to call back into the
-    /// node (e.g. `get_current_state`, or the `~/get_state` service), which would
-    /// self-deadlock on a non-reentrant mutex if it ran inside `trigger`.
+    /// Split from `trigger` so a caller can drop its lock before running the
+    /// callback and re-acquire it for [`Self::finish`] — a callback calling
+    /// `get_current_state` or `~/get_state` self-deadlocks otherwise.
     pub fn begin(&mut self, transition: TransitionId) -> Option<State> {
         let start_state = self.current;
 
