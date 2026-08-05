@@ -15,6 +15,21 @@
 //! re-entrancy deadlock fails the test instead of wedging the suite — the same
 //! shape as `reentrant_publish.rs`.
 //!
+//! # What each test is evidence *of*
+//!
+//! Only one of the four detects the defect this change fixes. Measured by
+//! reverting `parameter/service.rs` and re-running:
+//!
+//! * `parameter_on_set_callback_reregistering_does_not_deadlock` — **detector**.
+//!   Fails on its deadline without the fix.
+//! * `parameter_on_set_callback_setting_another_parameter_does_not_deadlock` —
+//!   guard, not detector: recursive `read()` usually succeeds unless a writer is
+//!   queued, so against unfixed source it is a coin flip. See its own note.
+//! * the two service scenarios — the audit's **negative result**. They show
+//!   services are clean; they pass with or without the fix, because the fix does
+//!   not touch them. Their value is that "services came back clean" is a claim
+//!   this file substantiates rather than asserts.
+//!
 //! Note on which API each test exercises. hiroz's *ergonomic* service server
 //! (`create_service(..).build()`) is queue-mode: the query is pushed onto a
 //! `BoundedQueue` and the user drains it with `take_request()` from their own

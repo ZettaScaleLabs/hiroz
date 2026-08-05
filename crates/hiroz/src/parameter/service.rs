@@ -189,23 +189,17 @@ impl ParameterState {
             }
         }
 
-        // Clone the `Arc` out and drop the guard *before* invoking the user
-        // callback. Holding `on_set_callback.read()` across the call makes the
-        // callback re-entrant-hostile in two ways, both reachable from the
-        // ordinary public API:
+        // Clone the `Arc` out and drop the guard before invoking. Holding
+        // `on_set_callback.read()` across the call breaks two paths reachable
+        // from the public API:
         //
-        // * calling `on_set_parameters` from inside the callback asks the same
-        //   thread for `on_set_callback.write()` while it still holds a read
-        //   guard — a guaranteed self-deadlock, no race required;
-        // * calling `set_parameter` re-enters `validate_and_apply` and takes the
-        //   read lock recursively, which `std::sync::RwLock` does not guarantee
-        //   (it deadlocks if a writer is queued between the two acquisitions).
+        // * `on_set_parameters` from inside the callback wants `write()` on a
+        //   thread already holding the read guard — deadlock, no race needed;
+        // * `set_parameter` re-enters `validate_and_apply` and takes `read()`
+        //   recursively, which `std::sync::RwLock` does not guarantee — it
+        //   deadlocks if a writer queues between the two.
         //
-        // `SetCallback` is already an `Arc`, so cloning it costs one refcount
-        // bump and removes both hazards. Same defect class as the pub/sub,
-        // lifecycle, event/graph and rmw cases fixed alongside this one: a
-        // non-reentrant lock held across a user callback, closed by the same
-        // rewrite — collect, release, call.
+        // `SetCallback` is already an `Arc`, so this costs one refcount bump.
         let callback: Option<SetCallback> = self
             .on_set_callback
             .read()
