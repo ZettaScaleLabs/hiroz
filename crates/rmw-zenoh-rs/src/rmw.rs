@@ -2404,6 +2404,47 @@ pub extern "C" fn rmw_subscription_event_init(
     RMW_RET_OK as _
 }
 
+/// The `user_data` pointer rmw handed us, carried into the event callback.
+///
+/// The callback is stored as `Fn(i32) + Send + Sync`, and a raw pointer is
+/// neither — so capturing `user_data` directly does not compile. Casting it to
+/// `usize` makes it compile, which is why the surrounding code used to do that.
+/// It is the wrong remedy twice over: it silences the auto-trait check that was
+/// correctly flagging a pointer crossing threads, and it destroys the pointer's
+/// provenance, so Miri and provenance-aware tooling stop seeing the access too.
+///
+/// This newtype makes the same assertion explicitly, in one place, with the
+/// obligation written down.
+///
+/// # Safety
+///
+/// The `unsafe impl`s below assert only that the pointer may be *moved* between
+/// threads — which is true, since rmw's contract is that `user_data` is opaque
+/// to us and the callback may run on any thread. They assert nothing about how
+/// long the pointee lives; see the known hazard below.
+struct EventUserData(*mut c_void);
+
+impl EventUserData {
+    /// Hand the pointer back in the form the C callback expects.
+    ///
+    /// Deliberately a method rather than a field read. Closures capture the
+    /// most precise path they use (RFC 2229), so `move |..| { ud.0 }` captures
+    /// the bare `*mut c_void` and the newtype's `Send`/`Sync` never apply —
+    /// the closure simply fails to satisfy its bound. Taking `&self` forces
+    /// the whole struct to be captured.
+    fn as_ptr(&self) -> *const ::std::os::raw::c_void {
+        self.0 as *const ::std::os::raw::c_void
+    }
+}
+
+// SAFETY: the pointer is opaque to hiroz — it is never dereferenced here, only
+// handed back to the C callback that supplied it. rmw's contract is that the
+// callback may be invoked from any thread, so the caller has already accepted
+// that `user_data` is reachable from other threads.
+unsafe impl Send for EventUserData {}
+// SAFETY: as above. `&EventUserData` exposes no operation on the pointee.
+unsafe impl Sync for EventUserData {}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn rmw_event_set_callback(
     event: *mut rmw_event_t,
@@ -2419,11 +2460,18 @@ pub extern "C" fn rmw_event_set_callback(
     }
 
     let rm_event_handle = unsafe { &mut *((*event).data as *mut RmEventHandle) };
-    let user_data_ptr = user_data as usize;
+    let user_data = EventUserData(user_data);
     rm_event_handle.set_callback(move |change: i32| {
         if let Some(cb) = callback {
-            let ud = user_data_ptr as *mut ::std::os::raw::c_void;
-            unsafe { cb(ud as *const ::std::os::raw::c_void, change as usize) };
+            // SAFETY: `cb` and `user_data.0` were supplied together by rmw, and
+            // this is the pair's only use. Validity of the pointee is the
+            // caller's obligation and is NOT guaranteed here — a concurrent
+            // `rmw_event_set_callback(.., null)` can return, and rclcpp can
+            // free, between the registry lock being released and this call.
+            // Tracked as a known residual; see `hiroz::event` for why closing
+            // it needs detach to block on in-flight invocations rather than a
+            // check here.
+            unsafe { cb(user_data.as_ptr(), change as usize) };
         }
     });
 

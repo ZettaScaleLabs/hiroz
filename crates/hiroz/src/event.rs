@@ -458,9 +458,16 @@ pub fn update_shared_event_status(
 /// *closure* alive; nothing owns the raw C pointer it captured.
 ///
 /// Not fixable by re-locking: that is the deadlock this exists to remove, and
-/// callbacks legitimately call `set_callback` on their own thread. Closing it
-/// needs a generation counter or a per-registration token checked inside the
-/// closure. Tracked separately; see the PR description.
+/// callbacks legitimately call `set_callback` on their own thread. Nor by a
+/// flag checked in the closure — that only narrows the window, since the free
+/// can still land between the check and the call.
+///
+/// Closing it requires detach to *block* until any in-flight invocation
+/// returns, with a bypass when detach is called from the invoking thread
+/// itself. That is exactly `std::stop_callback`'s destructor contract, and the
+/// same shape as NT rundown protection. Note DDS does not provide this
+/// guarantee either, so it is hardening beyond the RMW contract rather than
+/// conformance to it. Tracked separately; see the PR description.
 pub fn update_shared_event_status_with_policy(
     events_mgr: &Mutex<EventsManager>,
     event_type: ZenohEventType,
