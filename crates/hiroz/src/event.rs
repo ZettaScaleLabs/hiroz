@@ -78,9 +78,10 @@ impl EventsManager {
     /// it. The "outside the lock" this releases is only the *inner*
     /// `event_mutex`.
     ///
-    /// Anyone holding an `Arc<Mutex<EventsManager>>` must use
-    /// [`set_shared_callback`] instead, which is to registration what
-    /// [`update_shared_event_status`] is to status updates.
+    /// Anyone holding an `Arc<Mutex<EventsManager>>` must instead collect the
+    /// backlog under the guard, drop it, and only then call — as
+    /// `RmEventHandle::set_callback` does, and as
+    /// [`update_shared_event_status`] does for status updates.
     pub fn set_callback<F>(&mut self, event_type: ZenohEventType, callback: F)
     where
         F: Fn(i32) + Send + Sync + 'static,
@@ -438,40 +439,6 @@ impl EventWaitData {
 /// outer guard alive across the callback, and the callback is user code handed
 /// to an rclcpp executor which routinely calls straight back into the same
 /// manager (`rmw_take_event` → [`RmEventHandle::take_event`]).
-/// Install a callback on a shared manager, delivering any backlog **after**
-/// the outer guard is released.
-///
-/// The registration counterpart of [`update_shared_event_status`], and the
-/// entry point every holder of an `Arc<Mutex<EventsManager>>` must use.
-/// [`EventsManager::set_callback`] takes `&mut self`, so it can only be called
-/// with the outer mutex already held, and it fires the backlog underneath it —
-/// a callback that re-enters (`RmEventHandle::take_event`) then self-deadlocks
-/// on a non-reentrant `Mutex`. This collects the backlog under the guard, drops
-/// it, and only then calls.
-pub fn set_shared_callback<F>(
-    events_mgr: &Mutex<EventsManager>,
-    event_type: ZenohEventType,
-    callback: F,
-) where
-    F: Fn(i32) + Send + Sync + 'static,
-{
-    let callback: EventCallback = Arc::new(callback);
-
-    // Bound to its own `let` inside a block, for the same reason as
-    // `update_shared_event_status_with_policy`: as a `match`/`if let` scrutinee
-    // the guard would outlive the invocation below and reinstate the deadlock.
-    let unread_count = {
-        let Ok(mut mgr) = events_mgr.lock() else {
-            return;
-        };
-        mgr.install_callback(event_type, callback.clone())
-    };
-
-    if unread_count != 0 {
-        callback(unread_count);
-    }
-}
-
 pub fn update_shared_event_status(
     events_mgr: &Mutex<EventsManager>,
     event_type: ZenohEventType,
@@ -481,6 +448,19 @@ pub fn update_shared_event_status(
 }
 
 /// [`update_shared_event_status`] with a QoS policy kind.
+///
+/// # Known hazard: the callback can outlive `rmw_event_set_callback(.., null)`
+///
+/// Releasing the guard before invoking also releases the mutual exclusion that
+/// used to serialise this against `RmEventHandle::set_callback`. A concurrent
+/// detach can therefore return — and rclcpp can free the object `user_data`
+/// points at — between the clone below and the call. The `Arc` keeps the
+/// *closure* alive; nothing owns the raw C pointer it captured.
+///
+/// Not fixable by re-locking: that is the deadlock this exists to remove, and
+/// callbacks legitimately call `set_callback` on their own thread. Closing it
+/// needs a generation counter or a per-registration token checked inside the
+/// closure. Tracked separately; see the PR description.
 pub fn update_shared_event_status_with_policy(
     events_mgr: &Mutex<EventsManager>,
     event_type: ZenohEventType,

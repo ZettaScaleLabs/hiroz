@@ -392,13 +392,11 @@ pub extern "C" fn rmw_wait(
                         // inside `trigger` on this same object right now.
                         let gc_impl =
                             &*(gc_impl_ptr as *const crate::guard_condition::GuardConditionImpl);
-                        if !gc_impl.is_ready() {
-                            // Not ready - set to NULL in place
+                        // Check and consume in one atomic op. Reading then
+                        // resetting would drop a trigger landing between the
+                        // two: this wake is reported, the next one is lost.
+                        if !gc_impl.take_triggered() {
                             *gc_array.guard_conditions.add(i) = std::ptr::null_mut();
-                        } else {
-                            // Reset the guard condition after it's been detected as ready
-                            // This prevents it from staying triggered forever
-                            gc_impl.reset();
                         }
                     }
                 }

@@ -35,6 +35,16 @@ impl GuardConditionState {
         self.triggered.store(false, Ordering::SeqCst);
     }
 
+    /// Consume the triggered flag, returning what it was.
+    ///
+    /// One atomic op, so a `trigger()` racing this either wins or is preserved.
+    /// `is_triggered()` then `reset()` is two ops and silently drops a trigger
+    /// landing between them: the waiter reports this wake, and the next
+    /// `rmw_wait` blocks until timeout.
+    pub(crate) fn take_triggered(&self) -> bool {
+        self.triggered.swap(false, Ordering::SeqCst)
+    }
+
     pub(crate) fn is_triggered(&self) -> bool {
         self.triggered.load(Ordering::SeqCst)
     }
@@ -69,6 +79,11 @@ impl GuardConditionImpl {
 
     pub fn reset(&self) {
         self.state.reset();
+    }
+
+    /// Consume the triggered flag. See [`GuardConditionState::take_triggered`].
+    pub(crate) fn take_triggered(&self) -> bool {
+        self.state.take_triggered()
     }
 
     /// A shared handle to this guard condition's state, for registration with

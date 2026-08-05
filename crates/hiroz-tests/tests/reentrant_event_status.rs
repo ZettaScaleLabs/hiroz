@@ -19,6 +19,14 @@
 //! Each scenario runs on a dedicated thread behind a hard deadline, so a
 //! re-entrancy deadlock fails the test instead of wedging the suite — the same
 //! shape as `reentrant_graph_event.rs`.
+//!
+//! # These are not A/B detectors
+//!
+//! Both tests call `update_shared_event_status`, which this change introduces.
+//! Reverting the production code does not make them fail — it makes this file
+//! stop compiling. They show the new entry point is re-entrancy-safe; they are
+//! not evidence that the old shape deadlocked. The detectors for that live in
+//! `reentrant_graph_event.rs`, which does go red on a revert.
 
 use std::{
     sync::{
