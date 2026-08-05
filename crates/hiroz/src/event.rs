@@ -47,7 +47,19 @@ pub struct ZenohEventStatus {
 // makes any such re-entry a self-deadlock on a non-reentrant `Mutex`.
 pub type EventCallback = Arc<dyn Fn(i32) + Send + Sync>;
 
-// EventsManager - manages event state for a single publisher/subscription
+/// Event state for a single publisher/subscription.
+///
+/// # The `&mut self` rule
+///
+/// This type is shared as `Arc<Mutex<EventsManager>>`, so **`&mut self` proves
+/// the caller holds that outer mutex**. Any `&mut self` method that invoked a
+/// callback would therefore run user code under a lock the same thread already
+/// holds — and these callbacks re-enter (`rmw_take_event` →
+/// [`RmEventHandle::take_event`], or `set_callback` to re-arm). Non-reentrant
+/// mutex, one thread, no race: a guaranteed deadlock.
+///
+/// So the `&mut self` methods here *return* the callback instead, and
+/// [`update_shared_event_status`] is the entry point holders actually use.
 pub struct EventsManager {
     event_statuses: Vec<ZenohEventStatus>,
     event_callbacks: Vec<Option<EventCallback>>,
@@ -71,17 +83,11 @@ impl EventsManager {
 
     /// Install a callback, delivering any backlog immediately.
     ///
-    /// **Only for a caller that owns this manager outright.** `&mut self` means
-    /// the caller holds whatever `Mutex<EventsManager>` wraps it, and the
-    /// backlog callback below runs while that outer guard is still live — so a
-    /// callback that re-enters (`RmEventHandle::take_event`, say) deadlocks on
-    /// it. The "outside the lock" this releases is only the *inner*
-    /// `event_mutex`.
-    ///
-    /// Anyone holding an `Arc<Mutex<EventsManager>>` must instead collect the
-    /// backlog under the guard, drop it, and only then call — as
-    /// `RmEventHandle::set_callback` does, and as
-    /// [`update_shared_event_status`] does for status updates.
+    /// **Only for a caller that owns this manager outright.** It fires the
+    /// backlog while the caller's outer guard is still live — the lock this
+    /// releases is only the *inner* `event_mutex` — so a re-entering callback
+    /// deadlocks. See the `&mut self` note on [`EventsManager`]; holders of an
+    /// `Arc<Mutex<..>>` want [`RmEventHandle::set_callback`] instead.
     pub fn set_callback<F>(&mut self, event_type: ZenohEventType, callback: F)
     where
         F: Fn(i32) + Send + Sync + 'static,
@@ -138,12 +144,8 @@ impl EventsManager {
     /// Record a status change and hand back the callback that owes a
     /// notification, *without* invoking it.
     ///
-    /// Deliberately does not invoke, for the same reason as
-    /// [`EventsManager::install_callback`]: `&mut self` means the caller holds
-    /// the outer `Mutex<EventsManager>`, and the callback is user code that
-    /// routinely re-enters this manager (`rmw_take_event` on the handle that
-    /// just fired). Firing it here would self-deadlock on that outer,
-    /// non-reentrant mutex.
+    /// Not invoking is the point: see the `&mut self` note on
+    /// [`EventsManager`]. The caller invokes once every guard is dropped.
     #[must_use = "the returned callback must be invoked after every guard is dropped"]
     pub fn record_event_status_with_policy(
         &mut self,
@@ -192,19 +194,15 @@ impl EventsManager {
 /// A graph guard condition this manager may trigger on a graph change.
 ///
 /// Registrations are **owned**, not raw pointers, and that is the whole point.
-/// Triggering happens after the registry lock is released — it has to, because
-/// the trigger is rmw-side code that re-enters hiroz. But a raw pointer cloned
-/// out of the lock is only valid while something guarantees the target outlives
-/// the call, and nothing did: `rmw_destroy_node` unregisters and then
-/// immediately frees the guard condition, so a destroy landing between the
-/// snapshot and the call left the trigger dereferencing freed memory.
+/// Triggering happens with the registry lock released — it must, since the
+/// trigger re-enters hiroz — and a raw pointer cloned out of the lock is only
+/// valid if something keeps the target alive across the call. Nothing did:
+/// `rmw_destroy_node` unregisters and immediately frees, so a destroy landing
+/// mid-call dereferenced freed memory.
 ///
-/// Holding an `Arc` for the duration of the call closes that window without
-/// reintroducing the lock: the implementation's state stays alive as long as
-/// this manager holds a reference, even if the C-side handle is destroyed
-/// concurrently. Implementors must therefore keep [`trigger`] valid after the
-/// owning C object is gone — the natural shape is state behind its own `Arc`,
-/// with the C handle holding one reference and this registry another.
+/// **Implementors must keep [`trigger`] valid after the owning C object is
+/// gone.** The natural shape is state behind its own `Arc`, one reference held
+/// by the C handle and one by this registry.
 ///
 /// [`trigger`]: GraphGuardCondition::trigger
 pub trait GraphGuardCondition: Send + Sync {
@@ -449,25 +447,17 @@ pub fn update_shared_event_status(
 
 /// [`update_shared_event_status`] with a QoS policy kind.
 ///
-/// # Known hazard: the callback can outlive `rmw_event_set_callback(.., null)`
+/// # Known hazard
 ///
-/// Releasing the guard before invoking also releases the mutual exclusion that
-/// used to serialise this against `RmEventHandle::set_callback`. A concurrent
-/// detach can therefore return — and rclcpp can free the object `user_data`
-/// points at — between the clone below and the call. The `Arc` keeps the
-/// *closure* alive; nothing owns the raw C pointer it captured.
+/// Releasing the guard also releases the mutual exclusion that used to
+/// serialise this against `RmEventHandle::set_callback`, so a concurrent detach
+/// can return — and rclcpp can free `user_data` — between the clone below and
+/// the call. The `Arc` keeps the *closure* alive; nothing owns the raw C
+/// pointer it captured.
 ///
-/// Not fixable by re-locking: that is the deadlock this exists to remove, and
-/// callbacks legitimately call `set_callback` on their own thread. Nor by a
-/// flag checked in the closure — that only narrows the window, since the free
-/// can still land between the check and the call.
-///
-/// Closing it requires detach to *block* until any in-flight invocation
-/// returns, with a bypass when detach is called from the invoking thread
-/// itself. That is exactly `std::stop_callback`'s destructor contract, and the
-/// same shape as NT rundown protection. Note DDS does not provide this
-/// guarantee either, so it is hardening beyond the RMW contract rather than
-/// conformance to it. Tracked separately; see the PR description.
+/// Do not "fix" this by re-locking (that is the deadlock this removes) or by a
+/// flag checked in the closure (the free can land between check and call).
+/// Tracked with the design in hiroz#287.
 pub fn update_shared_event_status_with_policy(
     events_mgr: &Mutex<EventsManager>,
     event_type: ZenohEventType,
@@ -755,21 +745,13 @@ mod tests {
         assert_eq!(*fired.lock().unwrap(), 3);
     }
 
-    /// The graph-guard-condition registry must **own** what it registers.
+    /// The registry must **own** what it registers — the invariant that makes
+    /// triggering outside the lock safe. See [`GraphGuardCondition`].
     ///
-    /// This is the invariant that makes triggering outside the lock safe.
-    /// `trigger_graph_change` snapshots the registrations, releases the lock,
-    /// and only then calls them; meanwhile `rmw_destroy_node` may unregister
-    /// and free its C handle. When the registry held raw pointers, that window
-    /// was a use-after-free. Holding an `Arc` closes it — an in-flight trigger
-    /// keeps the target alive regardless of what the registrant does.
-    ///
-    /// The test pins the ownership half of that contract, which is the part
-    /// that is deterministic: the registry keeps the value alive after the
-    /// registrant drops its handle, and releases it on unregister. It does not
-    /// attempt to schedule the destroy-during-trigger race itself — that would
-    /// be a timing test, and the ownership property is what makes the race
-    /// harmless in the first place.
+    /// Pins the deterministic half: the registry keeps the value alive after
+    /// the registrant drops its handle, and releases it on unregister. It does
+    /// not try to schedule the destroy-during-trigger race, which would be a
+    /// timing test — ownership is what makes that race harmless.
     #[test]
     fn graph_guard_condition_registration_is_owned_by_the_manager() {
         use std::sync::atomic::{AtomicUsize, Ordering};

@@ -1,32 +1,30 @@
 //! Re-entrancy audit for endpoint event-status updates.
 //!
-//! An `EventsManager` lives behind an `Arc<Mutex<..>>` that its owners share
-//! with `RmEventHandle`. `update_event_status` takes `&mut self`, so every
-//! caller necessarily holds that outer mutex — and the method fires the
-//! registered callback. The callback is user code: the rmw layer hands it
-//! straight to an rclcpp executor, and the first thing such a callback does is
-//! usually ask the handle that fired for the status behind it
-//! (`rmw_take_event` → `RmEventHandle::take_event`), which locks the very same
-//! mutex. On a non-reentrant `std::sync::Mutex` that is a self-deadlock on the
-//! thread already holding the guard, with no race needed.
+//! `EventsManager` is shared as `Arc<Mutex<..>>`, so `&mut self` proves the
+//! caller holds that mutex — and `update_event_status` fired the callback from
+//! there. The callback is user code the rmw layer hands to an rclcpp executor,
+//! and the first thing it usually does is ask the handle that fired for its
+//! status (`rmw_take_event` → `RmEventHandle::take_event`), locking the same
+//! mutex on the same thread. Non-reentrant, no race needed.
 //!
-//! The fix is the shape used throughout this module and by zenoh core in
-//! `resolve_put`: record under the lock, drop the guard, then invoke.
-//! `EventsManager::record_event_status_with_policy` returns the callback
-//! instead of calling it, and `update_shared_event_status[_with_policy]` is the
-//! entry point every `Arc<Mutex<EventsManager>>` holder uses.
+//! Fix: record under the lock, drop the guard, invoke.
+//! `record_event_status_with_policy` returns the callback rather than calling
+//! it, and `update_shared_event_status[_with_policy]` is what holders use.
 //!
-//! Each scenario runs on a dedicated thread behind a hard deadline, so a
-//! re-entrancy deadlock fails the test instead of wedging the suite — the same
-//! shape as `reentrant_graph_event.rs`.
+//! Each scenario runs on its own thread behind a deadline, so a deadlock fails
+//! the test instead of wedging the suite.
 //!
-//! # These are not A/B detectors
+//! # What these detect, and what they do not
 //!
-//! Both tests call `update_shared_event_status`, which this change introduces.
-//! Reverting the production code does not make them fail — it makes this file
-//! stop compiling. They show the new entry point is re-entrancy-safe; they are
-//! not evidence that the old shape deadlocked. The detectors for that live in
-//! `reentrant_graph_event.rs`, which does go red on a revert.
+//! Both call `update_shared_event_status`, which this change *introduces* — so
+//! a wholesale revert does not turn them red, it stops this file compiling.
+//! They are not evidence the old shape deadlocked; `reentrant_graph_event.rs`
+//! carries that.
+//!
+//! They are still detectors, for the property rather than the history:
+//! reinstate the callout inside `update_shared_event_status_with_policy` and
+//! both fail on their deadline. That is the regression worth guarding, since
+//! the old entry point is gone.
 
 use std::{
     sync::{

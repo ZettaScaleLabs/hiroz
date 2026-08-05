@@ -2406,32 +2406,24 @@ pub extern "C" fn rmw_subscription_event_init(
 
 /// The `user_data` pointer rmw handed us, carried into the event callback.
 ///
-/// The callback is stored as `Fn(i32) + Send + Sync`, and a raw pointer is
-/// neither — so capturing `user_data` directly does not compile. Casting it to
-/// `usize` makes it compile, which is why the surrounding code used to do that.
-/// It is the wrong remedy twice over: it silences the auto-trait check that was
-/// correctly flagging a pointer crossing threads, and it destroys the pointer's
-/// provenance, so Miri and provenance-aware tooling stop seeing the access too.
-///
-/// This newtype makes the same assertion explicitly, in one place, with the
-/// obligation written down.
-///
-/// # Safety
+/// The callback is `Fn(i32) + Send + Sync` and a raw pointer is neither, so
+/// capturing `user_data` directly does not compile. The previous `as usize`
+/// round-trip made it compile by silencing exactly the check that was flagging
+/// the hazard, and destroyed the pointer's provenance with it. This asserts the
+/// same thing explicitly, once.
 ///
 /// The `unsafe impl`s below assert only that the pointer may be *moved* between
-/// threads — which is true, since rmw's contract is that `user_data` is opaque
-/// to us and the callback may run on any thread. They assert nothing about how
-/// long the pointee lives; see the known hazard below.
+/// threads. They say nothing about how long the pointee lives — see the known
+/// hazard on `update_shared_event_status_with_policy`.
 struct EventUserData(*mut c_void);
 
 impl EventUserData {
     /// Hand the pointer back in the form the C callback expects.
     ///
-    /// Deliberately a method rather than a field read. Closures capture the
-    /// most precise path they use (RFC 2229), so `move |..| { ud.0 }` captures
-    /// the bare `*mut c_void` and the newtype's `Send`/`Sync` never apply —
-    /// the closure simply fails to satisfy its bound. Taking `&self` forces
-    /// the whole struct to be captured.
+    /// A method, not a field read: closures capture the most precise path they
+    /// use (RFC 2229), so `move |..| { ud.0 }` captures the bare pointer and
+    /// the newtype's `Send`/`Sync` never apply. `&self` forces whole-struct
+    /// capture.
     fn as_ptr(&self) -> *const ::std::os::raw::c_void {
         self.0 as *const ::std::os::raw::c_void
     }
@@ -2463,14 +2455,9 @@ pub extern "C" fn rmw_event_set_callback(
     let user_data = EventUserData(user_data);
     rm_event_handle.set_callback(move |change: i32| {
         if let Some(cb) = callback {
-            // SAFETY: `cb` and `user_data.0` were supplied together by rmw, and
-            // this is the pair's only use. Validity of the pointee is the
-            // caller's obligation and is NOT guaranteed here — a concurrent
-            // `rmw_event_set_callback(.., null)` can return, and rclcpp can
-            // free, between the registry lock being released and this call.
-            // Tracked as a known residual; see `hiroz::event` for why closing
-            // it needs detach to block on in-flight invocations rather than a
-            // check here.
+            // SAFETY: `cb` and the pointer were supplied together by rmw and
+            // this is the pair's only use. Pointee validity is NOT established
+            // here — a concurrent detach can free it first. See hiroz#287.
             unsafe { cb(user_data.as_ptr(), change as usize) };
         }
     });

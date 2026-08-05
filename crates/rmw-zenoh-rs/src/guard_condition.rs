@@ -7,16 +7,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The triggerable state of a guard condition, separated from the C handle.
 ///
-/// This lives behind an `Arc` so it can outlive `rmw_destroy_guard_condition`.
-/// hiroz's graph-event manager registers a clone (as
-/// `Arc<dyn GraphGuardCondition>`) and triggers it **after** dropping its
-/// registry lock; without shared ownership, a `rmw_destroy_node` racing that
-/// window would free the target and the trigger would write through dangling
-/// memory. The C handle holds one reference and the registry another, so
-/// whichever outlives the other, the state is valid for the whole call.
+/// Behind an `Arc` so it can outlive `rmw_destroy_guard_condition`: hiroz's
+/// graph-event manager registers a clone and triggers it **after** dropping its
+/// registry lock, so a racing `rmw_destroy_node` would otherwise free the target
+/// mid-call. The C handle holds one reference and the registry another.
 ///
-/// `triggered` is atomic because triggering no longer happens under any lock:
-/// a graph-event thread can set it while `rmw_wait` reads it.
+/// `triggered` is atomic because triggering no longer happens under any lock.
 #[derive(Debug, Default)]
 pub struct GuardConditionState {
     pub(crate) notifier: Option<Arc<Notifier>>,
@@ -65,14 +61,11 @@ pub struct GuardConditionImpl {
 }
 
 impl GuardConditionImpl {
-    // `&self`, not `&mut self`. `rmw_wait` holds shared references to this
-    // object while scanning the wait set, and `rmw_trigger_guard_condition` can
-    // fire from a zenoh delivery thread at the same time. Handing out a `&mut`
-    // to an object another thread holds a `&` to is undefined behaviour in Rust
-    // whatever the field types are -- moving `triggered` behind an atomic
-    // defines the *data race* but says nothing about the aliasing. All mutation
-    // now goes through the atomics in `GuardConditionState`, so shared access is
-    // sufficient and every borrow can be immutable.
+    // `&self`, not `&mut self`: `rmw_wait` holds shared references while
+    // scanning the wait set, and a zenoh thread can trigger concurrently.
+    // Handing out `&mut` to an object another thread holds a `&` to is UB
+    // regardless of field types — the atomic defines the *data race* but says
+    // nothing about the aliasing. All mutation goes through the atomics.
     pub(crate) fn trigger(&self) -> Result<(), ()> {
         self.state.fire()
     }
