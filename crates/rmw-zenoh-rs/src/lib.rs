@@ -13,6 +13,7 @@ macro_rules! cfile {
 
 pub mod common;
 pub mod context;
+pub mod exec_callback;
 pub mod guard_condition;
 pub mod msg;
 pub mod node;
