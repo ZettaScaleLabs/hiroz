@@ -34,7 +34,7 @@ use std::{
 use common::{TestRouter, create_hiroz_context_with_endpoint};
 use hiroz::{
     Builder, TypeHash,
-    qos::{QosHistory, QosProfile},
+    qos::{QosDurability, QosHistory, QosProfile},
     ros_msg::MessageTypeInfo,
 };
 use serde::{Deserialize, Serialize};
@@ -120,9 +120,11 @@ fn burst_through_dispatcher(
     node: &str,
     topic: &str,
     history: QosHistory,
+    durability: QosDurability,
 ) -> Vec<u64> {
     let qos = QosProfile {
         history,
+        durability,
         ..Default::default()
     };
 
@@ -220,6 +222,7 @@ fn keep_last_drops_the_oldest_local_samples() {
             "dispatch_keep_last",
             "/dispatch_keep_last",
             QosHistory::KeepLast(NonZeroUsize::new(DEPTH).unwrap()),
+            QosDurability::Volatile,
         );
 
         let mut expected = vec![0];
@@ -247,12 +250,82 @@ fn keep_all_delivers_every_local_sample() {
             "dispatch_keep_all",
             "/dispatch_keep_all",
             QosHistory::KeepAll,
+            QosDurability::Volatile,
         );
 
         let expected: Vec<u64> = (0..BURST).collect();
         assert_eq!(
             delivered, expected,
             "a KeepAll callback subscriber must not drop"
+        );
+    });
+}
+
+/// The **advanced** path must honour `KeepLast(DEPTH)` too.
+///
+/// `TransientLocal` routes through `AdvancedSubscriber`, a different construction
+/// site with its own `CallbackDispatcher::spawn` call. That site passed
+/// `DISPATCH_UNBOUNDED` unconditionally, so a `KeepLast` subscriber got an
+/// unbounded queue — and because the advanced path's shim enqueues *remote*
+/// samples too, that replaced zenoh's transport backpressure with unbounded
+/// growth. Nothing detected it: every other test in this file takes the plain
+/// path.
+///
+/// Asserting values rather than a count makes this a drop-**oldest** detector in
+/// both directions, exactly as on the plain path: unbounded yields `0,1,2,…`,
+/// drop-newest yields the first `DEPTH + 1`.
+#[test]
+#[serial]
+fn transient_local_keep_last_drops_the_oldest_local_samples() {
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+
+    run_with_deadline("transient_local_keep_last_drops_oldest", move || {
+        let delivered = burst_through_dispatcher(
+            &endpoint,
+            "dispatch_tl_keep_last",
+            "/dispatch_tl_keep_last",
+            QosHistory::KeepLast(NonZeroUsize::new(DEPTH).unwrap()),
+            QosDurability::TransientLocal,
+        );
+
+        let mut expected = vec![0];
+        expected.extend((BURST - DEPTH as u64)..BURST);
+
+        assert_eq!(
+            delivered, expected,
+            "a TransientLocal KeepLast({DEPTH}) callback subscriber must deliver the \
+             seed plus the last {DEPTH} of the burst; an unbounded advanced queue \
+             delivers all {BURST}"
+        );
+    });
+}
+
+/// `KeepAll` on the advanced path stays lossless.
+///
+/// This is the half of the previous test's argument that survives: replaying
+/// history and recovering missed samples is what `TransientLocal` is for, so a
+/// profile that asks to keep everything must keep everything. Bounding by the
+/// declared depth must not have collapsed this case too.
+#[test]
+#[serial]
+fn transient_local_keep_all_delivers_every_local_sample() {
+    let router = TestRouter::new();
+    let endpoint = router.endpoint().to_string();
+
+    run_with_deadline("transient_local_keep_all_lossless", move || {
+        let delivered = burst_through_dispatcher(
+            &endpoint,
+            "dispatch_tl_keep_all",
+            "/dispatch_tl_keep_all",
+            QosHistory::KeepAll,
+            QosDurability::TransientLocal,
+        );
+
+        let expected: Vec<u64> = (0..BURST).collect();
+        assert_eq!(
+            delivered, expected,
+            "a TransientLocal KeepAll callback subscriber must not drop"
         );
     });
 }
