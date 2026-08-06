@@ -1019,7 +1019,7 @@ impl<T: ZMessage, Q, S: ZDeserializer> std::fmt::Debug for ZSub<T, Q, S> {
 /// needs to install an event callback, and the only way to observe
 /// [`MessageLost`](crate::event::ZenohEventType::MessageLost). Neither field has
 /// anything to do with the queue.
-impl<T, Q, S> ZSub<T, Q, S> {
+impl<T: ZMessage, Q, S: ZDeserializer> ZSub<T, Q, S> {
     /// The event manager this subscriber raises endpoint events on.
     pub fn events_mgr(&self) -> &Arc<Mutex<EventsManager>> {
         &self.events_mgr
