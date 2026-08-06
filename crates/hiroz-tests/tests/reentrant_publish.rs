@@ -613,6 +613,19 @@ fn intra_closed_loop_runs_iteratively() {
 /// The shim enqueues from inside `handle_sample` — i.e. under zenoh-ext's state
 /// mutex, in exactly the order zenoh-ext chose to deliver — and a single thread
 /// pops FIFO, so the observed order must be the publish order.
+///
+/// **Ordering, not completeness.** The burst is far deeper than the declared
+/// `KeepLast` depth, so the queue drops the oldest — exactly as
+/// `rmw_zenoh_cpp`'s `add_new_message` does (`rmw_subscription_data.cpp`:
+/// `size() >= adapted_qos_profile.depth` → `pop_front()`, with no
+/// `TransientLocal` exemption). Asserting the delivered values were *all*
+/// published would therefore assert a promise no RMW makes.
+///
+/// Asserting a strictly increasing subsequence is the stronger test anyway: it
+/// catches reordering whether or not anything was dropped, whereas an equality
+/// check conflates the two failures. `keep_all_delivers_every_local_sample` in
+/// `dispatch_backpressure.rs` covers losslessness on the profile that promises
+/// it.
 #[test]
 #[serial]
 fn transient_local_delivery_preserves_order() {
@@ -655,14 +668,35 @@ fn transient_local_delivery_preserves_order() {
                 .expect("publish failed");
         }
 
-        await_deliveries(&seen, COUNT as usize);
+        // Settle rather than wait for a fixed count: with a bounded queue the
+        // delivered total is a property of scheduling, not of the publish count.
+        let mut last = 0usize;
+        let mut stable_since = Instant::now();
+        let deadline = Instant::now() + DELIVERY_TIMEOUT;
+        loop {
+            let len = seen.load(Ordering::SeqCst);
+            if len != last {
+                last = len;
+                stable_since = Instant::now();
+            } else if stable_since.elapsed() >= Duration::from_millis(300) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "delivery never settled");
+            thread::sleep(Duration::from_millis(25));
+        }
 
         let received = received.lock().unwrap();
-        let expected: Vec<u64> = (0..COUNT).collect();
-        assert_eq!(
-            &received[..COUNT as usize],
-            &expected[..],
-            "delivery thread reordered samples"
+        assert!(
+            !received.is_empty(),
+            "nothing was delivered — the scenario proved nothing"
+        );
+        assert!(
+            received.windows(2).all(|w| w[0] < w[1]),
+            "delivery thread reordered samples: {received:?}"
+        );
+        assert!(
+            received.iter().all(|&c| c < COUNT),
+            "delivered a counter that was never published: {received:?}"
         );
     });
 }
