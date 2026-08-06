@@ -642,7 +642,7 @@ impl ZNode {
         use crate::{
             entity::{EndpointEntity, EndpointKind},
             pubsub::{
-                CallbackDispatcher, DISPATCH_UNBOUNDED, SubscriberHandle,
+                CallbackDispatcher, SubscriberHandle,
                 apply_transient_local_sub, dispatch_capacity, qos_needs_advanced,
             },
             topic_name,
@@ -678,8 +678,11 @@ impl ZNode {
         // never runs on a thread that is inside a hiroz publish — see
         // `pubsub::CallbackDispatcher`.
         let subscriber = if qos_needs_advanced(&entity.qos) {
-            let dispatcher =
-                CallbackDispatcher::spawn(&qualified_topic, raw_callback, DISPATCH_UNBOUNDED)?;
+            let dispatcher = CallbackDispatcher::spawn(
+                &qualified_topic,
+                raw_callback,
+                dispatch_capacity(&entity.qos),
+            )?;
             let subscriber = self
                 .session
                 .declare_subscriber((*topic_ke).clone())

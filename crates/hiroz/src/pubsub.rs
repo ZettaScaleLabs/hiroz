@@ -392,9 +392,15 @@ impl CallbackDispatcher {
     /// [`Self::local_only_shim`] to obtain the callback to hand to zenoh.
     ///
     /// `capacity` is the number of undelivered samples retained before the
-    /// oldest is dropped. Both paths pass [`dispatch_capacity`], so a callback
-    /// subscriber retains what its history QoS declares regardless of which
-    /// path it takes. See the "Backpressure" section.
+    /// oldest is dropped. **All four construction sites pass
+    /// [`dispatch_capacity`]** — the plain and advanced arms of both the typed
+    /// builder (this module) and the FFI raw subscriber (`node.rs`) — so a
+    /// callback subscriber retains what its history QoS declares regardless of
+    /// which path it takes. See the "Backpressure" section.
+    ///
+    /// The FFI advanced arm was missed when the other three were converted, and
+    /// nothing caught it: the `ffi` feature is enabled by no crate, so that arm
+    /// is not compiled on the PR gate at all (#291).
     pub(crate) fn spawn<F>(topic: &str, handler: Arc<F>, capacity: usize) -> Result<Self>
     where
         F: Fn(Sample) + Send + Sync + 'static,
