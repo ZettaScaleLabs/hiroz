@@ -342,15 +342,24 @@ impl DispatchQueue {
 ///   survives, so the ordering objection that applies to the advanced path does
 ///   not apply here.
 ///
-/// * **Advanced path — same bound, and the same expression.** A `TransientLocal`
-///   subscriber exists to replay history and to recover samples flagged as
-///   missed, so dropping discards data zenoh-ext went out of its way to fetch
-///   and breaks the reordering contract mid-flight — a single
-///   `deliver_and_flush` enqueues several back-to-back samples whose contiguity
-///   is the point. That argument is why `KeepAll` maps to
-///   [`DISPATCH_UNBOUNDED`]. It is *not* a reason to ignore a declared
-///   `KeepLast(depth)`, which is what an unbounded capacity on every profile
-///   amounted to.
+/// * **Advanced path — same bound, and the same expression.** This matches
+///   `rmw_zenoh_cpp`: `SubscriptionData::add_new_message` drops the oldest once
+///   `message_queue_.size() >= adapted_qos_profile.depth`, for every arriving
+///   sample, with **no `TransientLocal` exemption** — the check reads the
+///   history policy only. Its advanced-subscriber cache is sized the same way
+///   (`adv_sub_opts.history->max_samples = qos_.depth`).
+///
+///   An earlier revision left this path unbounded on *every* profile, reasoning
+///   that dropping discards what miss-detection recovered. That is why `KeepAll`
+///   maps to [`DISPATCH_UNBOUNDED`] — but applied to a declared
+///   `KeepLast(depth)` it ignores the QoS, and since [`Self::always_shim`]
+///   enqueues remote samples too, it also traded zenoh's transport backpressure
+///   for unbounded growth.
+///
+///   Both implementations drop **silently** as far as the ROS event API is
+///   concerned: upstream's `MESSAGE_LOST` is raised from *sequence-number gaps*
+///   among arriving messages, which a depth-drop cannot produce. The escalating
+///   `warn!` below is strictly more visible than upstream's debug log.
 ///
 /// Two consequences are worth stating rather than discovering.
 ///
