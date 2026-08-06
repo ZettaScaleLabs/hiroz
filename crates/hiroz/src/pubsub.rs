@@ -398,9 +398,11 @@ impl CallbackDispatcher {
     /// callback subscriber retains what its history QoS declares regardless of
     /// which path it takes. See the "Backpressure" section.
     ///
-    /// The FFI advanced arm was missed when the other three were converted, and
-    /// nothing caught it: the `ffi` feature is enabled by no crate, so that arm
-    /// is not compiled on the PR gate at all (#291).
+    /// The FFI advanced arm was missed when the other three were converted. That
+    /// arm *is* compiled on the PR gate, but never linted and never tested, and
+    /// its re-entrancy detector had been deleted — so a wrong constant there is
+    /// neither a compile error nor a lint, and nothing was left to catch it
+    /// (#291). Building is not testing.
     pub(crate) fn spawn<F>(topic: &str, handler: Arc<F>, capacity: usize) -> Result<Self>
     where
         F: Fn(Sample) + Send + Sync + 'static,
