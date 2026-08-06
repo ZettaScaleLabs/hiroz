@@ -55,6 +55,13 @@ fn gid(n: u8) -> GidArray {
     g
 }
 
+/// A CDR-encoded `Tick`, ready to hand to `Session::put`.
+fn payload(counter: u64) -> zenoh::bytes::ZBytes {
+    use hiroz::msg::ZSerializer;
+    let zbuf = <hiroz::msg::SerdeCdrSerdes<Tick>>::serialize_to_zbuf(&Tick { counter });
+    zenoh::bytes::ZBytes::from(zbuf)
+}
+
 /// Wait until `total_count` for `MessageLost` stops changing, then return it.
 fn settled_loss_count(sub_events: &Arc<Mutex<hiroz::event::EventsManager>>) -> i32 {
     let mut last = -1;
@@ -107,11 +114,8 @@ fn a_sequence_gap_raises_message_lost() {
     let publisher_gid = gid(42);
 
     let put = |sn: i64, counter: u64| {
-        let zbuf = <hiroz::msg::SerdeCdrSerdes<Tick> as hiroz::msg::ZSerializer>::serialize_to_zbuf(
-            &Tick { counter },
-        );
         session
-            .put((*ke).clone(), zenoh::bytes::ZBytes::from(zbuf))
+            .put((*ke).clone(), payload(counter))
             .attachment(Attachment::new(sn, publisher_gid))
             .wait()
             .expect("put");
@@ -169,11 +173,8 @@ fn joining_late_reports_no_loss() {
 
     // First sample this subscriber ever sees from this publisher, and it is
     // already well into the publisher's stream.
-    let zbuf = <hiroz::msg::SerdeCdrSerdes<Tick> as hiroz::msg::ZSerializer>::serialize_to_zbuf(
-        &Tick { counter: 9000 },
-    );
     session
-        .put((*ke).clone(), zenoh::bytes::ZBytes::from(zbuf))
+        .put((*ke).clone(), payload(9000))
         .attachment(Attachment::new(9000, gid(7)))
         .wait()
         .expect("put");
