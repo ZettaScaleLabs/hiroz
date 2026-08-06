@@ -10,7 +10,7 @@ use crate::Builder;
 use crate::attachment::{Attachment, GidArray};
 use crate::common::DataHandler;
 use crate::entity::{EndpointEntity, EndpointKind};
-use crate::event::EventsManager;
+use crate::event::{EventsManager, MessageLossTracker};
 use crate::graph::Graph;
 use crate::impl_with_type_info;
 use crate::queue::BoundedQueue;
@@ -35,6 +35,22 @@ const SAMPLE_MISS_HEARTBEAT_PERIOD: Duration = Duration::from_millis(500);
 /// (`Duration::from_millis(u64::MAX)`, not `Duration::MAX`, to avoid any
 /// truncation surprises inside zenoh-ext's internal `as_millis()` paths).
 const TRANSIENT_LOCAL_QUERY_TIMEOUT: Duration = Duration::from_millis(u64::MAX);
+
+/// Feed an arriving sample's attachment to the loss tracker.
+///
+/// A sample whose attachment is missing or undecodable is **ignored, not
+/// counted**. The sequence number is the only thing that makes loss detectable,
+/// and a publisher that does not send one — a plain zenoh peer rather than a
+/// hiroz node — must not be reported as lossy just for being unrecognised.
+fn observe_loss(loss: &MessageLossTracker, sample: &Sample) {
+    let Some(bytes) = sample.attachment() else {
+        return;
+    };
+    let Ok(attachment) = Attachment::try_from(bytes) else {
+        return;
+    };
+    loss.observe(attachment.source_gid, attachment.sequence_number);
+}
 
 fn cache_depth_from_history(history: QosHistory) -> usize {
     // Mirrors rmw_zenoh_cpp's `QoS::best_available_qos` (`qos.cpp:107`):
@@ -802,9 +818,17 @@ where
             key_expr, self.entity.qos
         );
 
+        // Built here rather than at `ZSub` construction: the loss tracker needs
+        // a handle to it, and the tracker is captured by the callback below.
+        let gid = crate::entity::endpoint_gid(&self.entity)
+            .expect("local endpoint always has node identity");
+        let events_mgr = Arc::new(Mutex::new(EventsManager::new(gid)));
+        let loss = Arc::new(MessageLossTracker::new(events_mgr.clone()));
+
         // Wrap handler with encoding validation if expected encoding is set
         let expected_encoding = self.expected_encoding.clone();
         let validated_handler = move |sample: Sample| {
+            observe_loss(&loss, &sample);
             // Validate encoding if expected encoding is set
             if let Some(ref expected) = expected_encoding {
                 let encoding_str = sample.encoding().to_string();
@@ -841,8 +865,6 @@ where
         let sub_builder = apply_transient_local_sub(sub_builder, &self.entity.qos);
         let inner = sub_builder.wait()?;
 
-        let gid = crate::entity::endpoint_gid(&self.entity)
-            .expect("local endpoint always has node identity");
         let lv_ke = self
             .keyexpr_format
             .liveliness_key_expr(&self.entity, &self.session.zid())?;
@@ -859,7 +881,7 @@ where
             _inner: inner,
             _lv_token: lv_token,
             queue,
-            events_mgr: Arc::new(Mutex::new(EventsManager::new(gid))),
+            events_mgr,
             graph: self.graph,
             dyn_schema: self.dyn_schema,
             expected_encoding: self.expected_encoding,
