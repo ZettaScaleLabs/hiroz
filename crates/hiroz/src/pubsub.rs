@@ -342,33 +342,23 @@ impl DispatchQueue {
 ///   survives, so the ordering objection that applies to the advanced path does
 ///   not apply here.
 ///
-/// * **Advanced path — same bound, and the same expression.** A `TransientLocal`
-///   subscriber exists to replay history and to recover samples flagged as
-///   missed, so dropping discards data zenoh-ext went out of its way to fetch
-///   and breaks the reordering contract mid-flight — a single
+/// * **Advanced path — unbounded, lossless.** A `TransientLocal` subscriber
+///   exists to replay history and to recover samples flagged as missed; dropping
+///   here would discard data that zenoh-ext went out of its way to fetch, and
+///   would break the reordering contract mid-flight, since a single
 ///   `deliver_and_flush` enqueues several back-to-back samples whose contiguity
-///   is the point. That argument is why `KeepAll` maps to
-///   [`DISPATCH_UNBOUNDED`]. It is *not* a reason to ignore a declared
-///   `KeepLast(depth)`, which is what an unbounded capacity on every profile
-///   amounted to.
+///   is the whole point. Loss on this path is a correctness bug, not a QoS
+///   allowance, so growth is accepted and surfaced by an escalating backlog
+///   warning instead.
 ///
-/// Two consequences are worth stating rather than discovering.
-///
-/// **Which samples the bound applies to differs by path.** On the plain path
-/// only *locally published* samples pass through this queue; a sample arriving
-/// over a transport is delivered inline on an RX worker and is backpressured by
-/// zenoh instead. On the advanced path [`Self::always_shim`] enqueues
-/// everything, remote included. So a slow callback loses local samples and
-/// stalls remote ones on the plain path, and loses either on the advanced one.
-/// That asymmetry is inherent to delivering the two on different threads — which
-/// is what makes re-entrancy impossible without taxing the inter-process path.
-///
-/// **On the advanced path a `KeepAll` subscriber has no backpressure at all.**
-/// Because the queue is genuinely unbounded there and remote samples go into it,
-/// a publisher outpacing the callback grows `pending` without limit — the
-/// escalating backlog warning is the only signal. That is the declared QoS being
-/// honoured rather than a defect, but `KeepAll` on a slow callback is an
-/// unbounded memory commitment and should be chosen deliberately.
+/// One consequence is worth stating rather than discovering: on the plain path
+/// only the *locally published* samples pass through this queue, so only they
+/// are subject to the bound. A sample arriving over a transport is delivered
+/// inline on an RX worker and is instead backpressured by zenoh's transport. A
+/// slow callback therefore loses local samples and stalls remote ones. That
+/// asymmetry is inherent to delivering the two on different threads — which is
+/// what makes re-entrancy impossible without taxing the inter-process path — and
+/// pre-dates the bound; the bound only changes which of the two is lossy.
 pub struct CallbackDispatcher {
     queue: Arc<DispatchQueue>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -383,9 +373,9 @@ impl CallbackDispatcher {
     /// [`Self::local_only_shim`] to obtain the callback to hand to zenoh.
     ///
     /// `capacity` is the number of undelivered samples retained before the
-    /// oldest is dropped. Both paths pass [`dispatch_capacity`], so a callback
-    /// subscriber retains what its history QoS declares regardless of which
-    /// path it takes. See the "Backpressure" section.
+    /// oldest is dropped — [`dispatch_capacity`] on the plain path,
+    /// [`DISPATCH_UNBOUNDED`] on the advanced one. See the "Backpressure"
+    /// section for why the two differ.
     pub(crate) fn spawn<F>(topic: &str, handler: Arc<F>, capacity: usize) -> Result<Self>
     where
         F: Fn(Sample) + Send + Sync + 'static,
@@ -1374,32 +1364,19 @@ where
             debug!("[SUB] Using AdvancedSubscriber (TransientLocal durability)");
             // `AdvancedSubscriber` holds its state lock across the callback and
             // cannot avoid it, so *user* code is enqueued and runs on the
-            // dispatcher's thread. See `CallbackDispatcher`.
-            //
-            // Capacity comes from the history QoS, exactly as on the plain path.
-            // An earlier revision passed `DISPATCH_UNBOUNDED` here, on the
-            // grounds that dropping would discard the samples miss-detection
-            // recovered. That argument holds for `KeepAll` — which
-            // `dispatch_capacity` still maps to `DISPATCH_UNBOUNDED` — but it
-            // was applied to every profile, so a `KeepLast(10)` subscriber got
-            // an unbounded queue. Since `always_shim` enqueues *remote* samples
-            // too, that traded zenoh's transport backpressure for unbounded
-            // in-process growth: a publisher outpacing a slow callback grew
-            // `pending` until the process died, with only a doubling-threshold
-            // `warn!` for a signal. Honouring the declared depth keeps the
-            // lossless guarantee where the user asked for it and bounds it
-            // where they did not.
+            // dispatcher's thread. Lossless: dropping would discard exactly the
+            // samples miss-detection recovered. See `CallbackDispatcher`.
             //
             // A queue-mode handler is exempt. It only pushes into a
             // `BoundedQueue` and re-enters nothing, so running it under
             // zenoh-ext's lock is safe — and giving it a dispatcher would add a
-            // thread, a wake and a second queue in front of the bounded one to
-            // every TransientLocal rmw subscription, for nothing.
+            // thread, a wake and an unbounded queue in front of the bounded one
+            // to every TransientLocal rmw subscription, for nothing.
             let dispatcher = if runs_user_code {
                 Some(CallbackDispatcher::spawn(
                     &qualified_topic,
                     validated_handler.clone(),
-                    dispatch_capacity(&self.entity.qos),
+                    DISPATCH_UNBOUNDED,
                 )?)
             } else {
                 None
