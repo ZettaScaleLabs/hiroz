@@ -163,12 +163,32 @@ class TestZPayloadView:
 
 
 class TestZPayloadViewNumpy:
-    """Test ZPayloadView with numpy (if available)."""
+    """Test that numpy can consume ZPayloadView without adding a copy.
+
+    numpy is a declared test dependency, so its absence is a failure rather
+    than a skip. These tests previously guarded with ``importorskip`` and
+    numpy was never installed, so both had *always* skipped. A permanently
+    skipped test is indistinguishable from a passing one in the summary line.
+
+    Scope, precisely: ``arr.flags["OWNDATA"] is False`` proves numpy borrowed
+    the buffer ZPayloadView exported rather than copying it. It does *not*
+    prove the transport was zero-copy — ``ZPayloadView::new`` falls back to
+    ``PayloadBytes::Owned`` for a fragmented payload, and numpy borrows that
+    owned copy just as happily. ``test_payload_view_is_zero_copy`` asserts
+    ``payload.is_zero_copy_py``, which is the transport-level check.
+    """
 
     @pytest.fixture(autouse=True)
     def check_numpy(self):
-        """Skip tests if numpy is not available."""
-        pytest.importorskip("numpy")
+        """Fail loudly if numpy is missing, rather than skipping silently."""
+        try:
+            import numpy  # noqa: F401
+        except ImportError:  # pragma: no cover - env misconfiguration
+            pytest.fail(
+                "numpy is a declared test dependency but is not installed, so "
+                "the ZPayloadView zero-copy assertions cannot run. Install it "
+                "with the test extra; do not restore importorskip here."
+            )
 
     def test_numpy_frombuffer(self, byte_array_pubsub):
         """Test that numpy.frombuffer works with ZPayloadView."""

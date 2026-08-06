@@ -27,6 +27,13 @@ dependencies = [
     "hiroz-msgs-py>=0.1.0",
 ]
 
+[project.optional-dependencies]
+# numpy backs the tests that prove it can consume ZPayloadView's exported
+# buffer without adding a copy. Declared here rather than installed
+# imperatively by the test script so that `pip install -e ".[test]"` is a
+# true instruction -- the tests' own failure message points at it.
+test = ["numpy>=1.21"]
+
 [tool.maturin]
 features = ["pyo3/extension-module", "jazzy"]
 python-source = "python"
