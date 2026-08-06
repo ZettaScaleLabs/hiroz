@@ -1012,6 +1012,25 @@ impl<T: ZMessage, Q, S: ZDeserializer> std::fmt::Debug for ZSub<T, Q, S> {
     }
 }
 
+/// Accessors that do not depend on how the subscriber delivers.
+///
+/// These were on the `ZSub<T, Sample, S>` (queue-mode) impl only, so a callback
+/// subscriber could not reach its own events manager — the handle the rmw layer
+/// needs to install an event callback, and the only way to observe
+/// [`MessageLost`](crate::event::ZenohEventType::MessageLost). Neither field has
+/// anything to do with the queue.
+impl<T, Q, S> ZSub<T, Q, S> {
+    /// The event manager this subscriber raises endpoint events on.
+    pub fn events_mgr(&self) -> &Arc<Mutex<EventsManager>> {
+        &self.events_mgr
+    }
+
+    /// Get a reference to the endpoint entity for this subscriber.
+    pub fn entity(&self) -> &EndpointEntity {
+        &self.entity
+    }
+}
+
 impl<T, S> ZSub<T, Sample, S>
 where
     T: ZMessage,
@@ -1041,15 +1060,6 @@ where
         queue
             .recv_timeout(timeout)
             .ok_or_else(|| crate::error::Error::timeout(timeout))
-    }
-
-    pub fn events_mgr(&self) -> &Arc<Mutex<EventsManager>> {
-        &self.events_mgr
-    }
-
-    /// Get a reference to the endpoint entity for this subscriber.
-    pub fn entity(&self) -> &EndpointEntity {
-        &self.entity
     }
 
     /// Check if there are messages available in the queue
