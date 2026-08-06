@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -484,22 +485,42 @@ impl MessageLossTracker {
             let Ok(mut seen) = self.last_seen.lock() else {
                 return;
             };
-            match seen.insert(source_gid, sequence_number) {
-                // Not the first from this publisher: anything strictly between
-                // the two never arrived. A non-positive difference means a
-                // retransmit, a reorder, or a publisher that restarted its
-                // numbering — none of which is loss, so it reports nothing.
-                Some(previous) => sequence_number.saturating_sub(previous).saturating_sub(1),
+            match seen.entry(source_gid) {
                 // First sample from this publisher. There is no baseline to
                 // measure against, and a subscriber that joined late has not
                 // "lost" the history it was never sent.
-                None => 0,
+                Entry::Vacant(slot) => {
+                    slot.insert(sequence_number);
+                    0
+                }
+                Entry::Occupied(mut slot) => {
+                    let high_water = *slot.get();
+                    // The baseline only ever moves **forward**. An arrival at or
+                    // below it is a replay, a retransmit or a reorder — not
+                    // loss — and letting it move the baseline backwards would
+                    // make the *next* ordinary sample look like a gap.
+                    //
+                    // This is a deliberate divergence from `rmw_zenoh_cpp`,
+                    // which uses `std::abs(sn - last)` and rewrites the
+                    // baseline unconditionally. On a `TransientLocal`
+                    // subscriber, history replay delivers older sequence
+                    // numbers as a matter of course, so that shape reports
+                    // phantom loss twice per replayed sample.
+                    if sequence_number <= high_water {
+                        0
+                    } else {
+                        slot.insert(sequence_number);
+                        sequence_number.saturating_sub(high_water).saturating_sub(1)
+                    }
+                }
             }
         };
 
         if lost > 0 {
             // Clamped rather than truncated: the rmw status field is i32, and a
-            // publisher restart can produce an arbitrarily large apparent jump.
+            // publisher that restarts its numbering can present an arbitrarily
+            // large apparent jump. (In ROS a restarted endpoint normally gets a
+            // fresh GID and lands in the vacant arm instead.)
             let lost = lost.min(i64::from(i32::MAX)) as i32;
             update_shared_event_status(&self.events_mgr, ZenohEventType::MessageLost, lost);
         }
@@ -656,6 +677,17 @@ mod tests {
         // A non-positive difference is a retransmit, a reorder, or a publisher
         // that restarted its numbering — none of which is loss.
         assert_eq!(losses_for(&[(1, 5), (1, 3), (1, 5), (1, 0)]), 0);
+    }
+
+    /// A replayed sample must not make the *next* ordinary one look like a gap.
+    ///
+    /// This is the case `rmw_zenoh_cpp` gets wrong: `std::abs(sn - last)` plus
+    /// an unconditional baseline rewrite reports 1 lost for the replay and 2
+    /// more for the sample after it. Every `TransientLocal` subscriber replays
+    /// history, so it is reachable rather than theoretical.
+    #[test]
+    fn message_loss_survives_a_transient_local_replay() {
+        assert_eq!(losses_for(&[(1, 5), (1, 3), (1, 6)]), 0);
     }
 
     #[test]
