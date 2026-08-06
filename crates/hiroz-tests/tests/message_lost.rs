@@ -20,9 +20,7 @@ use std::{
 
 use common::{TestRouter, create_hiroz_context_with_endpoint};
 use hiroz::{
-    Builder, GidArray, TypeHash,
-    attachment::Attachment,
-    event::ZenohEventType,
+    Builder, GidArray, TypeHash, attachment::Attachment, event::ZenohEventType,
     ros_msg::MessageTypeInfo,
 };
 use serde::{Deserialize, Serialize};
