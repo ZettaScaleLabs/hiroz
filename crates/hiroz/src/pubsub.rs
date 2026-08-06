@@ -30,6 +30,549 @@ use zenoh_ext::{
 /// Matches rmw_zenoh_cpp's `SAMPLE_MISS_DETECTION_HEARTBEAT_PERIOD`.
 const SAMPLE_MISS_HEARTBEAT_PERIOD: Duration = Duration::from_millis(500);
 
+thread_local! {
+    /// How many hiroz publish calls are currently on this thread's stack.
+    ///
+    /// Non-zero means: any sample this thread is *about* to deliver was produced
+    /// by this same thread, synchronously, from inside `put`. See
+    /// [`local_publish_active`].
+    static LOCAL_PUBLISH_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// RAII marker set for the duration of a hiroz publish.
+///
+/// There is no single choke point: each of `ZPub`'s four publish paths —
+/// [`ZPub::publish`], [`ZPub::async_publish`], [`ZPub::publish_serialized`] and
+/// [`ZPub::publish_sample`] — enters one of these itself and holds it across the
+/// zenoh `put`. A fifth publish path added later must do the same, or
+/// session-local delivery on that path runs inline on the publishing thread and
+/// the deadlock this guard exists to prevent comes back.
+///
+/// Nesting is counted rather than flagged so that a publish issued from inside a
+/// callback that is itself running on a thread already inside a publish restores
+/// the right state on unwind.
+pub(crate) struct LocalPublishGuard;
+
+impl LocalPublishGuard {
+    pub(crate) fn enter() -> Self {
+        LOCAL_PUBLISH_DEPTH.with(|d| d.set(d.get() + 1));
+        Self
+    }
+}
+
+impl Drop for LocalPublishGuard {
+    fn drop(&mut self) {
+        LOCAL_PUBLISH_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
+
+/// Whether this thread is currently inside a hiroz publish.
+///
+/// This is the discriminator between the two ways a subscriber callback can be
+/// reached, and it is what makes re-entrancy structurally impossible without
+/// taxing the inter-process path:
+///
+/// * **true** — the sample is being delivered *synchronously on the publishing
+///   thread*. Zenoh does this for same-session delivery (`Session::resolve_put`
+///   drops the session lock and calls the local callbacks inline) and also for
+///   two sessions sharing one process with a direct in-process route
+///   (`send_push_consume` -> `route_data` -> the peer session's callbacks, no
+///   thread hop). Running the user callback here is what allowed a callback that
+///   publishes into its own topic graph to *recurse* instead of iterate. So on
+///   this path hiroz enqueues and returns, exactly as zenoh's own `FifoChannel`
+///   handler does, and the callback runs on the dispatcher thread.
+///
+/// * **false** — the sample arrived over a transport and is being delivered on a
+///   zenoh RX worker (`ZRuntime::RX`, threads named `rx-N`), which is never an
+///   application thread and never inside a hiroz publish. There is nothing to
+///   re-enter, so the callback runs inline and the inter-process path pays only
+///   this thread-local read.
+///
+/// Note this deliberately keys on the *publishing thread*, not on zenoh's
+/// `Locality`. A `Locality::Remote`-tagged sample crossing two sessions inside
+/// one process is still delivered inline on the publisher's thread, so an
+/// `allowed_origin(SessionLocal)` split would miss it. The thread is the honest
+/// signal; the origin is not.
+fn local_publish_active() -> bool {
+    LOCAL_PUBLISH_DEPTH.with(|d| d.get()) != 0
+}
+
+/// Backlog size at which an *unbounded* [`CallbackDispatcher`] first warns.
+/// Doubles after each warning so a persistently slow callback does not flood the
+/// log. Bounded dispatchers are excluded explicitly at the check rather than by
+/// this value being out of their reach: a `KeepLast(1024)` subscriber has
+/// exactly this capacity, so it would otherwise warn that its queue is lossless
+/// right before dropping. Bounded dispatchers warn on drops instead.
+const DISPATCH_BACKLOG_WARN_AT: usize = 1024;
+
+/// Capacity a [`CallbackDispatcher`] must be given to be unbounded, i.e. lossless.
+pub(crate) const DISPATCH_UNBOUNDED: usize = usize::MAX;
+
+/// The dispatcher capacity implied by a subscriber's history QoS.
+///
+/// Matches what [`ZSubBuilder::build`] gives the queue-mode [`BoundedQueue`]:
+/// `KeepLast(depth)` keeps `depth`, `KeepAll` keeps everything. A callback
+/// subscriber and a queue subscriber declared with the same QoS therefore retain
+/// the same number of undelivered samples, which is the only reading of ROS
+/// `KEEP_LAST(depth)` that does not depend on which hiroz API the user happened
+/// to pick.
+///
+/// The two are *not* the same expression, and the difference is confined to a
+/// zero depth (the rmw spelling of "system default", which cannot be produced
+/// through [`QosProfile`] but can arrive over the wire). Here it is floored at 1
+/// rather than degenerating into "keep nothing"; the queue path passes the 0
+/// through. Retention still agrees, because [`BoundedQueue::push`] evicts before
+/// it inserts (`len >= capacity` → `pop_front`, then `push_back`), so a capacity
+/// of 0 also retains exactly one sample — see `queue::tests::
+/// zero_capacity_retains_one_sample`. What differs is bookkeeping, not data: at
+/// capacity 0 every push reports a drop, including the first one into an empty
+/// queue.
+pub(crate) fn dispatch_capacity(qos: &hiroz_protocol::qos::QosProfile) -> usize {
+    match qos.history {
+        QosHistory::KeepLast(depth) => depth.max(1),
+        QosHistory::KeepAll => DISPATCH_UNBOUNDED,
+    }
+}
+
+struct DispatchState {
+    /// Samples awaiting delivery, in the order zenoh decided to deliver them.
+    pending: std::collections::VecDeque<Sample>,
+    /// Set by [`CallbackDispatcher::drop`]: stop delivering and exit. Queued
+    /// but undelivered samples are discarded -- see [`DispatchQueue::dequeue`]
+    /// for why teardown does not drain them.
+    closed: bool,
+    /// Next backlog length that triggers a warning. Unbounded queues only.
+    warn_at: usize,
+    /// Samples discarded because the queue was at capacity.
+    dropped: u64,
+    /// Next `dropped` total that triggers a warning.
+    warn_dropped_at: u64,
+}
+
+struct DispatchQueue {
+    state: Mutex<DispatchState>,
+    ready: std::sync::Condvar,
+    topic: String,
+    /// Maximum number of undelivered samples retained. [`DISPATCH_UNBOUNDED`]
+    /// means lossless; anything smaller drops the *oldest* on overflow, exactly
+    /// as [`BoundedQueue::push`] does. See [`CallbackDispatcher`]'s
+    /// "Backpressure" section for which path gets which.
+    capacity: usize,
+}
+
+impl DispatchQueue {
+    fn lock(&self) -> std::sync::MutexGuard<'_, DispatchState> {
+        // A panicking user callback must not wedge the subscriber: the queue
+        // holds no invariant that a partial mutation could break.
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The shim callback handed to zenoh. May run with zenoh-ext's state mutex
+    /// held (advanced path) or on the publishing thread inside `put` (local
+    /// path), so it must not do anything that could publish or block.
+    fn enqueue(&self, sample: Sample) {
+        let (backlog, dropped) = {
+            let mut state = self.lock();
+            if state.closed {
+                return;
+            }
+
+            // Drop the oldest, never the newest and never the incoming sample:
+            // the same choice `BoundedQueue::push` makes, and the same one ROS
+            // `KEEP_LAST(depth)` describes. A bounded queue that *blocked* here
+            // would re-create the original deadlock — see the type's docs.
+            let dropped = if state.pending.len() >= self.capacity {
+                state.pending.pop_front();
+                state.dropped = state.dropped.saturating_add(1);
+                if state.dropped >= state.warn_dropped_at {
+                    state.warn_dropped_at = state.dropped.saturating_mul(2);
+                    Some(state.dropped)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            state.pending.push_back(sample);
+            let len = state.pending.len();
+            // Unbounded queues only. A bounded queue *can* reach
+            // `DISPATCH_BACKLOG_WARN_AT` — nothing stops a subscriber declaring
+            // `KeepLast(1024)` or deeper — and it would then log that the queue
+            // is lossless and merely costs memory, which is the opposite of
+            // what a bounded queue does. Bounded queues report drops instead;
+            // that warning is immediately below and is the accurate one.
+            let backlog = if self.capacity == DISPATCH_UNBOUNDED && len >= state.warn_at {
+                state.warn_at = len.saturating_mul(2);
+                Some(len)
+            } else {
+                None
+            };
+            (backlog, dropped)
+        };
+        self.ready.notify_one();
+        if let Some(len) = backlog {
+            warn!(
+                topic = %self.topic,
+                backlog = len,
+                "subscriber delivery backlog is growing; the callback is slower than the \
+                 publish rate. This queue is lossless, so the backlog costs memory."
+            );
+        }
+        if let Some(total) = dropped {
+            warn!(
+                topic = %self.topic,
+                dropped = total,
+                capacity = self.capacity,
+                "subscriber delivery queue is full; dropping the oldest undelivered sample. \
+                 The callback is slower than the publish rate — raise the history depth or \
+                 make the callback cheaper."
+            );
+        }
+    }
+
+    /// Blocks until a sample is available, or until the queue is closed
+    /// (returns `None`, ending the drain loop).
+    ///
+    /// `closed` is checked **before** `pending`, and that ordering is the
+    /// difference between a bounded and an unbounded teardown. Draining the
+    /// backlog first meant `drop(subscriber)` ran a user callback for every
+    /// queued sample before returning: on the unbounded (TransientLocal) path
+    /// that is `backlog × callback_duration` with no ceiling -- a 1 kHz
+    /// publisher against a 5 ms callback leaves ~30 000 samples queued after
+    /// 30 s, so the drop blocks for minutes, silently. It could also block
+    /// *forever*, if a callback waits on anything the dropping thread must
+    /// supply.
+    ///
+    /// Dropping a subscriber means "stop delivering to me", so undelivered
+    /// samples are discarded rather than forced through a callback the caller
+    /// has already disposed of -- the same thing destroying an rclcpp
+    /// subscription does. Teardown now costs at most one in-flight callback.
+    fn dequeue(&self) -> Option<Sample> {
+        let mut state = self.lock();
+        loop {
+            if state.closed {
+                return None;
+            }
+            if let Some(entry) = state.pending.pop_front() {
+                return Some(entry);
+            }
+            state = self.ready.wait(state).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+}
+
+/// Runs a subscriber's user callback on a dedicated thread, fed by a FIFO queue.
+///
+/// This is hiroz's equivalent of zenoh's `FifoChannel` handler, and of
+/// zenoh-python's `Callback(indirect=True)` — which is what zenoh-python
+/// installs by default when you hand `declare_subscriber` a plain callable. The
+/// delivery thread enqueues and returns; user code runs here.
+///
+/// Two independent reasons a sample takes this path:
+///
+/// 1. **It was published by this same thread** ([`local_publish_active`]) — the
+///    session-local case. Delivering inline would let a callback that publishes
+///    into its own topic graph recurse instead of iterate. Enqueuing makes the
+///    feedback loop *iterative*, which is why hiroz no longer needs a
+///    re-entrancy depth cap: a callback simply cannot be reached from inside
+///    `put`.
+/// 2. **The subscriber is a zenoh-ext `AdvancedSubscriber`**, which invokes the
+///    sample callback while holding the `std::sync::Mutex` that guards its
+///    reordering state — and it *has* to: `handle_sample` interleaves
+///    `callback.call(sample)` with mutation of `last_delivered` /
+///    `pending_samples` (see `deliver_and_flush`, which calls the callback,
+///    records the delivered sequence number, then drains newly-contiguous
+///    pending samples calling the callback again). The guard cannot simply be
+///    dropped before the call the way `Session::resolve_put` does, because the
+///    lock protects exactly the state the delivery loop is walking.
+///
+/// A sample that is neither — i.e. one that arrived over a transport, on a
+/// zenoh RX worker, for a plain subscriber — is delivered inline and never
+/// touches this queue. That is deliberate: the RX thread is not an application
+/// thread and holds no hiroz lock, so there is nothing to re-enter, and the
+/// inter-process path must not pay for a hazard it does not have.
+///
+/// # Ordering
+///
+/// One producer path, one FIFO queue, one drain thread, so the user observes
+/// exactly the order zenoh decided to deliver in. On the advanced path the shim
+/// enqueues from inside `handle_sample`, i.e. under zenoh-ext's state mutex, so
+/// enqueue order includes the several back-to-back deliveries a single
+/// `deliver_and_flush` performs when it drains pending samples; the reordering
+/// and recovery guarantees `AdvancedSubscriber` exists to provide are
+/// unaffected, only the thread the callback runs on changes.
+///
+/// The one ordering property that is *not* preserved is between the two paths:
+/// a plain subscriber that receives both local and remote publications on the
+/// same topic now runs the local ones on this thread and the remote ones on an
+/// RX thread, so their relative order is no longer guaranteed and the two can
+/// overlap. Neither ROS 2 nor zenoh guarantees ordering across distinct
+/// publishers, and a plain zenoh subscriber can already be invoked concurrently
+/// from several RX workers, so this weakens no guarantee that was actually
+/// being offered — but it is a real change and is called out here rather than
+/// discovered later.
+///
+/// # Backpressure
+///
+/// The queue **never blocks its producer**. That is not a tuning choice: a
+/// bounded queue that blocked would re-create the original deadlock in a new
+/// form on both paths. On the advanced path the blocked thread sits inside
+/// `sub_callback` holding zenoh-ext's state mutex; on the local path it sits
+/// inside the user's own `publish()`, and in a closed feedback loop the drain
+/// thread it waits on is the very thread that must publish for the queue to
+/// drain. zenoh's own `FifoChannel` is bounded *and* blocking and documents
+/// exactly this cost ("a slow subscriber could block the underlying Zenoh
+/// thread", `fifo.rs`); hiroz does not adopt that failure mode.
+///
+/// What remains is a choice between unbounded (lossless, can grow without
+/// limit) and bounded drop-oldest (lossy, constant memory). **The two paths get
+/// different answers, because they make different promises:**
+///
+/// * **Plain path — bounded, drop-oldest, capacity from the subscriber's
+///   history QoS** ([`dispatch_capacity`]). A plain subscriber is `Volatile`
+///   with `KEEP_LAST(depth)`: it already promises only the last `depth`
+///   undelivered samples, and hiroz's own queue-mode path enforces exactly that
+///   with [`BoundedQueue`], from the same expression. A callback subscriber that
+///   instead retained *every* undelivered sample would honour a QoS stricter
+///   than the one it was declared with, and would let a tight local publish loop
+///   with a slow callback grow the process until it died — a failure mode with
+///   no upside, since the samples being retained are ones the declared QoS says
+///   may be discarded. Drop-oldest also preserves the relative order of what
+///   survives, so the ordering objection that applies to the advanced path does
+///   not apply here.
+///
+/// * **Advanced path — same bound, and the same expression.** This matches
+///   `rmw_zenoh_cpp`: `SubscriptionData::add_new_message` drops the oldest once
+///   `message_queue_.size() >= adapted_qos_profile.depth`, for every arriving
+///   sample, with **no `TransientLocal` exemption** — the check reads the
+///   history policy only. Its advanced-subscriber cache is sized the same way
+///   (`adv_sub_opts.history->max_samples = qos_.depth`).
+///
+///   An earlier revision left this path unbounded on *every* profile, reasoning
+///   that dropping discards what miss-detection recovered. That is why `KeepAll`
+///   maps to [`DISPATCH_UNBOUNDED`] — but applied to a declared
+///   `KeepLast(depth)` it ignores the QoS, and since [`Self::always_shim`]
+///   enqueues remote samples too, it also traded zenoh's transport backpressure
+///   for unbounded growth.
+///
+///   Both implementations drop **silently** as far as the ROS event API is
+///   concerned: upstream's `MESSAGE_LOST` is raised from *sequence-number gaps*
+///   among arriving messages, which a depth-drop cannot produce. The escalating
+///   `warn!` below is strictly more visible than upstream's debug log.
+///
+/// Two consequences are worth stating rather than discovering.
+///
+/// **Which samples the bound applies to differs by path.** On the plain path
+/// only *locally published* samples pass through this queue; a sample arriving
+/// over a transport is delivered inline on an RX worker and is backpressured by
+/// zenoh instead. On the advanced path [`Self::always_shim`] enqueues
+/// everything, remote included. So a slow callback loses local samples and
+/// stalls remote ones on the plain path, and loses either on the advanced one.
+/// That asymmetry is inherent to delivering the two on different threads — which
+/// is what makes re-entrancy impossible without taxing the inter-process path.
+///
+/// **On the advanced path a `KeepAll` subscriber has no backpressure at all.**
+/// Because the queue is genuinely unbounded there and remote samples go into it,
+/// a publisher outpacing the callback grows `pending` without limit — the
+/// escalating backlog warning is the only signal. That is the declared QoS being
+/// honoured rather than a defect, but `KeepAll` on a slow callback is an
+/// unbounded memory commitment and should be chosen deliberately.
+pub struct CallbackDispatcher {
+    queue: Arc<DispatchQueue>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl CallbackDispatcher {
+    /// Spawns the drain thread.
+    ///
+    /// `handler` is shared: the drain thread always calls it, and the *plain*
+    /// path's shim additionally calls it inline for samples that did not
+    /// originate on this thread. Use [`Self::always_shim`] or
+    /// [`Self::local_only_shim`] to obtain the callback to hand to zenoh.
+    ///
+    /// `capacity` is the number of undelivered samples retained before the
+    /// oldest is dropped. **All four construction sites pass
+    /// [`dispatch_capacity`]** — the plain and advanced arms of both the typed
+    /// builder (this module) and the FFI raw subscriber (`node.rs`) — so a
+    /// callback subscriber retains what its history QoS declares regardless of
+    /// which path it takes. See the "Backpressure" section.
+    ///
+    /// The FFI advanced arm was missed when the other three were converted. That
+    /// arm *is* compiled on the PR gate, but never linted and never tested, and
+    /// its re-entrancy detector had been deleted — so a wrong constant there is
+    /// neither a compile error nor a lint, and nothing was left to catch it
+    /// (#291). Building is not testing.
+    pub(crate) fn spawn<F>(topic: &str, handler: Arc<F>, capacity: usize) -> Result<Self>
+    where
+        F: Fn(Sample) + Send + Sync + 'static,
+    {
+        let queue = Arc::new(DispatchQueue {
+            state: Mutex::new(DispatchState {
+                pending: std::collections::VecDeque::new(),
+                closed: false,
+                warn_at: DISPATCH_BACKLOG_WARN_AT,
+                dropped: 0,
+                warn_dropped_at: 1,
+            }),
+            ready: std::sync::Condvar::new(),
+            topic: topic.to_string(),
+            capacity,
+        });
+
+        let drain_queue = queue.clone();
+        let drain_topic = topic.to_string();
+        let thread = std::thread::Builder::new()
+            .name("hiroz-sub-drain".to_string())
+            .spawn(move || {
+                while let Some(sample) = drain_queue.dequeue() {
+                    // A panicking user callback must not kill the drain thread —
+                    // that would silently stop all further delivery.
+                    //
+                    // This holds only where panics unwind. Under `panic = "abort"`
+                    // — which this workspace's `[profile.opt]` sets — the panic
+                    // aborts the process before `catch_unwind` can return `Err`,
+                    // so neither the recovery below nor the log line happens. The
+                    // guard is therefore effective for dev, test and `release`
+                    // builds (including everything CI runs) and inert for `opt`.
+                    // That is a deliberate consequence of choosing `abort` for
+                    // that profile, not an oversight here: a build that opts into
+                    // aborting on panic has opted out of surviving one.
+                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (*handler)(sample)))
+                        .is_err()
+                    {
+                        tracing::error!(
+                            topic = %drain_topic,
+                            "subscriber callback panicked; dropping the sample and continuing"
+                        );
+                    }
+                }
+            })
+            .map_err(|e| {
+                zenoh::Error::from(format!("failed to spawn subscriber delivery thread: {e}"))
+            })?;
+
+        Ok(Self {
+            queue,
+            thread: Some(thread),
+        })
+    }
+
+    /// A shim that enqueues **every** sample. Used for the advanced path, where
+    /// zenoh-ext holds its state mutex across the callback regardless of where
+    /// the sample came from.
+    pub(crate) fn always_shim(&self) -> impl Fn(Sample) + Send + Sync + 'static {
+        let queue = self.queue.clone();
+        move |sample: Sample| queue.enqueue(sample)
+    }
+
+    /// A shim that enqueues only samples produced by the delivering thread
+    /// itself, and invokes `handler` inline otherwise. Used for the plain path.
+    ///
+    /// The inline branch is the inter-process hot path: a sample that arrived
+    /// over a transport is delivered on a zenoh RX worker, which is never inside
+    /// a hiroz publish, so [`local_publish_active`] is false and the only cost
+    /// added to that path is this one thread-local read.
+    pub(crate) fn local_only_shim<F>(
+        &self,
+        handler: Arc<F>,
+    ) -> impl Fn(Sample) + Send + Sync + 'static
+    where
+        F: Fn(Sample) + Send + Sync + 'static,
+    {
+        let queue = self.queue.clone();
+        move |sample: Sample| {
+            if local_publish_active() {
+                queue.enqueue(sample);
+            } else {
+                handler(sample);
+            }
+        }
+    }
+}
+
+impl Drop for CallbackDispatcher {
+    fn drop(&mut self) {
+        self.queue.lock().closed = true;
+        self.queue.ready.notify_all();
+
+        let Some(thread) = self.thread.take() else {
+            return;
+        };
+        if thread.thread().id() == std::thread::current().id() {
+            // The subscriber was dropped from inside its own callback. Joining
+            // ourselves would deadlock; the thread will observe `closed` and
+            // exit once this callback returns.
+            return;
+        }
+        if thread.join().is_err() {
+            warn!(
+                topic = %self.queue.topic,
+                "subscriber delivery thread terminated abnormally"
+            );
+        }
+    }
+}
+
+/// Whether a QoS profile needs a zenoh-ext advanced subscriber/publisher.
+///
+/// The advanced entities exist for history replay, sample-miss detection and
+/// recovery, and publisher/subscriber detection — all of which
+/// [`apply_transient_local_sub`] and [`apply_transient_local_pub`] configure only
+/// for `TransientLocal` durability. For the ROS 2 default (`Volatile`) an
+/// unconfigured `AdvancedSubscriber` adds no protocol behaviour, but it *does*
+/// run the user callback while holding a non-reentrant `std::sync::Mutex`
+/// (`advanced_subscriber.rs`: `sub_callback` takes `zlock!(statesref)` and
+/// `handle_sample` calls the callback under that guard). Combined with zenoh's
+/// synchronous local delivery, that turns any publish from inside a callback
+/// into a self-deadlock. So only pay for it when the QoS actually asks for it.
+pub(crate) fn qos_needs_advanced(qos: &hiroz_protocol::qos::QosProfile) -> bool {
+    matches!(qos.durability, QosDurability::TransientLocal)
+}
+
+/// The declared zenoh subscriber backing a [`ZSub`].
+///
+/// hiroz declares a plain subscriber unless the QoS profile actually configures
+/// advanced features — see [`qos_needs_advanced`].
+pub enum SubscriberHandle {
+    /// A plain zenoh subscriber (the `Volatile` default).
+    ///
+    /// Samples that arrived over a transport run inline on the zenoh RX worker.
+    /// Samples published by the delivering thread itself are handed to the
+    /// dispatcher — see [`CallbackDispatcher`]. `dispatcher` is `None` for
+    /// queue-mode subscribers, which run no user code on the delivery thread and
+    /// so need no handoff.
+    Plain {
+        subscriber: zenoh::pubsub::Subscriber<()>,
+        dispatcher: Option<CallbackDispatcher>,
+    },
+    /// A zenoh-ext advanced subscriber, used for `TransientLocal` durability.
+    ///
+    /// `dispatcher` is `Some` only when the handler runs user code. zenoh-ext
+    /// holds its state lock across the callback, so user code must be moved off
+    /// that thread — but a queue-mode handler only enqueues into a
+    /// [`BoundedQueue`] and re-enters nothing, so it can run under that lock
+    /// safely and needs no thread of its own.
+    Advanced {
+        /// Boxed because it is several times larger than the plain variant.
+        ///
+        /// Declared first so it drops first: undeclaring the subscriber stops
+        /// new samples from being enqueued before the dispatcher drains and
+        /// joins.
+        subscriber: Box<AdvancedSubscriber<()>>,
+        dispatcher: Option<CallbackDispatcher>,
+    },
+}
+
+impl std::fmt::Debug for SubscriberHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Plain { .. } => f.write_str("SubscriberHandle::Plain"),
+            Self::Advanced { .. } => f.write_str("SubscriberHandle::Advanced"),
+        }
+    }
+}
+
 /// Query timeout for TransientLocal subscribers' initial history fetch.
 /// Matches rmw_zenoh_cpp's `query_timeout_ms = u64::max()` literally
 /// (`Duration::from_millis(u64::MAX)`, not `Duration::MAX`, to avoid any
@@ -522,6 +1065,7 @@ where
             trace!("[PUB] Attached sn={}", sn);
         }
 
+        let _local = LocalPublishGuard::enter();
         put_builder.wait()
     }
 
@@ -556,7 +1100,18 @@ where
         if self.with_attachment {
             put_builder = put_builder.attachment(self.new_attachment());
         }
-        put_builder.await
+        // The guard must cover the delivery, and delivery happens in
+        // `into_future`, not at the await: zenoh's `PublicationBuilder` future is
+        // `std::future::ready(self.wait())`, so the put — including any inline
+        // local-subscriber dispatch — completes before a future exists to poll.
+        // Scoping the guard here rather than across the `.await` also keeps this
+        // future `Send`, which a thread-local guard held across an await point
+        // would not.
+        let fut = {
+            let _local = LocalPublishGuard::enter();
+            std::future::IntoFuture::into_future(put_builder)
+        };
+        fut.await
     }
 
     /// Publish pre-serialized data directly
@@ -577,6 +1132,7 @@ where
         if self.with_attachment {
             put_builder = put_builder.attachment(self.new_attachment());
         }
+        let _local = LocalPublishGuard::enter();
         put_builder.wait()
     }
 
@@ -593,6 +1149,7 @@ where
         if self.with_attachment {
             put_builder = put_builder.attachment(self.new_attachment());
         }
+        let _local = LocalPublishGuard::enter();
         put_builder.wait()
     }
 
@@ -802,9 +1359,12 @@ where
             key_expr, self.entity.qos
         );
 
-        // Wrap handler with encoding validation if expected encoding is set
+        // Wrap handler with encoding validation. No re-entrancy accounting is
+        // needed: a user callback is never reached from inside `put` — see
+        // `CallbackDispatcher`.
         let expected_encoding = self.expected_encoding.clone();
-        let validated_handler = move |sample: Sample| {
+        let runs_user_code = handler.runs_user_code();
+        let validated_handler = Arc::new(move |sample: Sample| {
             // Validate encoding if expected encoding is set
             if let Some(ref expected) = expected_encoding {
                 let encoding_str = sample.encoding().to_string();
@@ -823,23 +1383,101 @@ where
                 }
             }
             handler.handle(sample)
+        });
+
+        // Only go through zenoh-ext when the QoS profile actually configures
+        // advanced features. See `qos_needs_advanced`.
+        let inner = if qos_needs_advanced(&self.entity.qos) {
+            debug!("[SUB] Using AdvancedSubscriber (TransientLocal durability)");
+            // `AdvancedSubscriber` holds its state lock across the callback and
+            // cannot avoid it, so *user* code is enqueued and runs on the
+            // dispatcher's thread. See `CallbackDispatcher`.
+            //
+            // Capacity comes from the history QoS, exactly as on the plain path.
+            // An earlier revision passed `DISPATCH_UNBOUNDED` here, on the
+            // grounds that dropping would discard the samples miss-detection
+            // recovered. That argument holds for `KeepAll` — which
+            // `dispatch_capacity` still maps to `DISPATCH_UNBOUNDED` — but it
+            // was applied to every profile, so a `KeepLast(10)` subscriber got
+            // an unbounded queue. Since `always_shim` enqueues *remote* samples
+            // too, that traded zenoh's transport backpressure for unbounded
+            // in-process growth: a publisher outpacing a slow callback grew
+            // `pending` until the process died, with only a doubling-threshold
+            // `warn!` for a signal. Honouring the declared depth keeps the
+            // lossless guarantee where the user asked for it and bounds it
+            // where they did not.
+            //
+            // A queue-mode handler is exempt. It only pushes into a
+            // `BoundedQueue` and re-enters nothing, so running it under
+            // zenoh-ext's lock is safe — and giving it a dispatcher would add a
+            // thread, a wake and a second queue in front of the bounded one to
+            // every TransientLocal rmw subscription, for nothing.
+            let dispatcher = if runs_user_code {
+                Some(CallbackDispatcher::spawn(
+                    &qualified_topic,
+                    validated_handler.clone(),
+                    dispatch_capacity(&self.entity.qos),
+                )?)
+            } else {
+                None
+            };
+            // Boxed to a common type: `always_shim` returns an opaque `impl Fn`,
+            // so the two arms cannot share a `match` unerased.
+            let callback: Box<dyn Fn(Sample) + Send + Sync + 'static> = match dispatcher.as_ref() {
+                Some(d) => Box::new(d.always_shim()),
+                None => Box::new(move |sample: Sample| validated_handler(sample)),
+            };
+            let mut sub_builder = self.session.declare_subscriber(key_expr).callback(callback);
+            if let Some(locality) = self.locality {
+                sub_builder = sub_builder.allowed_origin(locality);
+                debug!("[SUB] Locality restriction: {:?}", locality);
+            }
+            let sub_builder = apply_transient_local_sub(sub_builder.advanced(), &self.entity.qos);
+            SubscriberHandle::Advanced {
+                subscriber: Box::new(sub_builder.wait()?),
+                dispatcher,
+            }
+        } else if runs_user_code {
+            // A plain subscriber holds no lock across the callback, but zenoh
+            // still delivers a same-thread publication *inline* — so a callback
+            // that publishes into its own topic graph would recurse. Hand those
+            // samples to the dispatcher; deliver everything else inline, which
+            // keeps the inter-process path at one thread-local read. Bounded at
+            // the history depth, drop-oldest — the same `KEEP_LAST(depth)` the
+            // queue-mode path enforces with `BoundedQueue`.
+            let dispatcher = CallbackDispatcher::spawn(
+                &qualified_topic,
+                validated_handler.clone(),
+                dispatch_capacity(&self.entity.qos),
+            )?;
+            let mut sub_builder = self
+                .session
+                .declare_subscriber(key_expr)
+                .callback(dispatcher.local_only_shim(validated_handler));
+            if let Some(locality) = self.locality {
+                sub_builder = sub_builder.allowed_origin(locality);
+                debug!("[SUB] Locality restriction: {:?}", locality);
+            }
+            SubscriberHandle::Plain {
+                subscriber: sub_builder.wait()?,
+                dispatcher: Some(dispatcher),
+            }
+        } else {
+            // Queue mode: the delivery thread only enqueues, so there is no user
+            // code to move off it and no dispatcher to pay for.
+            let mut sub_builder = self
+                .session
+                .declare_subscriber(key_expr)
+                .callback(move |sample: Sample| validated_handler(sample));
+            if let Some(locality) = self.locality {
+                sub_builder = sub_builder.allowed_origin(locality);
+                debug!("[SUB] Locality restriction: {:?}", locality);
+            }
+            SubscriberHandle::Plain {
+                subscriber: sub_builder.wait()?,
+                dispatcher: None,
+            }
         };
-
-        // Build an AdvancedSubscriber and configure based on durability
-        let mut sub_builder = self
-            .session
-            .declare_subscriber(key_expr)
-            .callback(validated_handler)
-            .advanced();
-
-        // Apply locality restriction if specified
-        if let Some(locality) = self.locality {
-            sub_builder = sub_builder.allowed_origin(locality);
-            debug!("[SUB] Locality restriction: {:?}", locality);
-        }
-
-        let sub_builder = apply_transient_local_sub(sub_builder, &self.entity.qos);
-        let inner = sub_builder.wait()?;
 
         let gid = crate::entity::endpoint_gid(&self.entity)
             .expect("local endpoint always has node identity");
@@ -970,7 +1608,7 @@ where
 pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     pub entity: EndpointEntity,
     pub queue: Option<Arc<BoundedQueue<Q>>>,
-    _inner: AdvancedSubscriber<()>,
+    _inner: SubscriberHandle,
     _lv_token: LivelinessToken,
     events_mgr: Arc<Mutex<EventsManager>>,
     graph: Arc<Graph>,
