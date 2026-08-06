@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -445,6 +446,87 @@ pub fn update_shared_event_status(
     update_shared_event_status_with_policy(events_mgr, event_type, change, 0)
 }
 
+/// Detects samples lost **in transit** and raises [`ZenohEventType::MessageLost`].
+///
+/// Every sample carries an [`Attachment`] with the publisher's GID and a
+/// per-publisher sequence number. Holding the last sequence seen from each
+/// publisher makes a gap detectable: receiving `n` when `n - 2` was the last
+/// means one sample never arrived.
+///
+/// [`Attachment`]: crate::attachment::Attachment
+///
+/// # What this does *not* count
+///
+/// A subscriber dropping its own oldest queued sample because the queue is at
+/// its history depth. That sample **arrived** — it updated the last-seen
+/// sequence on the way in — so it produces no gap, and the ROS event does not
+/// claim it. `rmw_zenoh_cpp` draws the line in the same place: its depth-drops
+/// are a debug log, and only sequence gaps raise `MESSAGE_LOST`.
+pub struct MessageLossTracker {
+    events_mgr: Arc<Mutex<EventsManager>>,
+    /// Last sequence number seen per publisher GID.
+    ///
+    /// Its own lock, and never held across the callout below — raising the
+    /// event runs user code, which may re-enter this subscriber.
+    last_seen: Mutex<HashMap<GidArray, i64>>,
+}
+
+impl MessageLossTracker {
+    pub fn new(events_mgr: Arc<Mutex<EventsManager>>) -> Self {
+        Self {
+            events_mgr,
+            last_seen: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Record an arrival, raising the event if it skipped past anything.
+    pub fn observe(&self, source_gid: GidArray, sequence_number: i64) {
+        let lost = {
+            let Ok(mut seen) = self.last_seen.lock() else {
+                return;
+            };
+            match seen.entry(source_gid) {
+                // First sample from this publisher. There is no baseline to
+                // measure against, and a subscriber that joined late has not
+                // "lost" the history it was never sent.
+                Entry::Vacant(slot) => {
+                    slot.insert(sequence_number);
+                    0
+                }
+                Entry::Occupied(mut slot) => {
+                    let high_water = *slot.get();
+                    // The baseline only ever moves **forward**. An arrival at or
+                    // below it is a replay, a retransmit or a reorder — not
+                    // loss — and letting it move the baseline backwards would
+                    // make the *next* ordinary sample look like a gap.
+                    //
+                    // This is a deliberate divergence from `rmw_zenoh_cpp`,
+                    // which uses `std::abs(sn - last)` and rewrites the
+                    // baseline unconditionally. On a `TransientLocal`
+                    // subscriber, history replay delivers older sequence
+                    // numbers as a matter of course, so that shape reports
+                    // phantom loss twice per replayed sample.
+                    if sequence_number <= high_water {
+                        0
+                    } else {
+                        slot.insert(sequence_number);
+                        sequence_number.saturating_sub(high_water).saturating_sub(1)
+                    }
+                }
+            }
+        };
+
+        if lost > 0 {
+            // Clamped rather than truncated: the rmw status field is i32, and a
+            // publisher that restarts its numbering can present an arbitrarily
+            // large apparent jump. (In ROS a restarted endpoint normally gets a
+            // fresh GID and lands in the vacant arm instead.)
+            let lost = lost.min(i64::from(i32::MAX)) as i32;
+            update_shared_event_status(&self.events_mgr, ZenohEventType::MessageLost, lost);
+        }
+    }
+}
+
 /// [`update_shared_event_status`] with a QoS policy kind.
 ///
 /// # Known hazard
@@ -554,6 +636,65 @@ mod tests {
         assert!(!status.changed);
         assert_eq!(status.total_count, 0);
         assert_eq!(status.current_count, 0);
+    }
+
+    /// Drive a tracker through a sequence of arrivals and return the total
+    /// `MessageLost` count it reported.
+    fn losses_for(arrivals: &[(u8, i64)]) -> i32 {
+        let mgr = Arc::new(Mutex::new(EventsManager::new(gid(1))));
+        let tracker = MessageLossTracker::new(mgr.clone());
+        for &(publisher, sn) in arrivals {
+            tracker.observe(gid(publisher), sn);
+        }
+        mgr.lock()
+            .unwrap()
+            .take_event_status(ZenohEventType::MessageLost)
+            .total_count
+    }
+
+    #[test]
+    fn message_loss_is_counted_from_sequence_gaps() {
+        // 0,1,2 contiguous → nothing lost. Then 5 skips 3 and 4.
+        assert_eq!(losses_for(&[(1, 0), (1, 1), (1, 2), (1, 5)]), 2);
+    }
+
+    #[test]
+    fn message_loss_ignores_the_first_sample_from_a_publisher() {
+        // A late joiner's first sample has no baseline. Reporting `sn` as the
+        // loss count would make every subscriber that starts late look lossy.
+        assert_eq!(losses_for(&[(1, 9_000)]), 0);
+    }
+
+    #[test]
+    fn message_loss_is_tracked_per_publisher() {
+        // Interleaved publishers each keep their own baseline; without that,
+        // alternating 0,0,1,1 reads as a gap on every other sample.
+        assert_eq!(losses_for(&[(1, 0), (2, 0), (1, 1), (2, 1)]), 0);
+    }
+
+    #[test]
+    fn message_loss_ignores_reorder_and_republish() {
+        // A non-positive difference is a retransmit, a reorder, or a publisher
+        // that restarted its numbering — none of which is loss.
+        assert_eq!(losses_for(&[(1, 5), (1, 3), (1, 5), (1, 0)]), 0);
+    }
+
+    /// A replayed sample must not make the *next* ordinary one look like a gap.
+    ///
+    /// This is the case `rmw_zenoh_cpp` gets wrong: `std::abs(sn - last)` plus
+    /// an unconditional baseline rewrite reports 1 lost for the replay and 2
+    /// more for the sample after it. Every `TransientLocal` subscriber replays
+    /// history, so it is reachable rather than theoretical.
+    #[test]
+    fn message_loss_survives_a_transient_local_replay() {
+        assert_eq!(losses_for(&[(1, 5), (1, 3), (1, 6)]), 0);
+    }
+
+    #[test]
+    fn message_loss_clamps_an_implausible_jump() {
+        // A restarted publisher can present an arbitrarily large apparent gap;
+        // the rmw status field is i32, so it must saturate rather than wrap.
+        assert_eq!(losses_for(&[(1, 0), (1, i64::MAX)]), i32::MAX);
     }
 
     #[test]
