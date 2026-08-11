@@ -11,6 +11,13 @@
 //! Thread counts come from `/proc/self/status`, so the first two are Linux-only.
 //! The teardown test is portable and is the one that guards a *deadlock*, so it
 //! is deliberately not gated.
+//!
+//! **Every test here is `#[serial]`, and that is load-bearing.** `Threads:` is a
+//! *process-wide* count, and cargo runs a binary's tests in parallel threads of
+//! one process — so a concurrently running test that spawns threads corrupts the
+//! baseline of one that is counting them. Measured: without `#[serial]` the two
+//! counting tests fail while passing under `--test-threads=1`, which reads as a
+//! bug in the code under test rather than in the harness. Do not remove it.
 
 use std::{
     sync::{
@@ -22,6 +29,7 @@ use std::{
 
 use hiroz::{Builder, Result, context::ZContextBuilder};
 use hiroz_msgs::std_msgs::String as RosString;
+use serial_test::serial;
 
 /// Wall-clock budget for a teardown that must not block.
 ///
@@ -49,6 +57,7 @@ fn thread_count() -> usize {
 /// delta `N` instead of `0`.
 #[cfg(target_os = "linux")]
 #[test]
+#[serial]
 fn a_callback_subscriber_with_no_local_publish_spawns_no_thread() -> Result<()> {
     const N: usize = 8;
 
@@ -88,6 +97,7 @@ fn a_callback_subscriber_with_no_local_publish_spawns_no_thread() -> Result<()> 
 /// leaked — the process keeps threads nobody joins.
 #[cfg(target_os = "linux")]
 #[test]
+#[serial]
 fn concurrent_first_publishes_spawn_exactly_one_thread() -> Result<()> {
     const PUBLISHERS: usize = 8;
 
@@ -143,6 +153,7 @@ fn concurrent_first_publishes_spawn_exactly_one_thread() -> Result<()> {
 /// makes this test hang rather than fail, which is why it runs under a budget
 /// in its own thread.
 #[test]
+#[serial]
 fn dropping_a_subscriber_while_the_first_sample_is_in_flight_does_not_hang() -> Result<()> {
     let (done_tx, done_rx) = std::sync::mpsc::channel();
 
