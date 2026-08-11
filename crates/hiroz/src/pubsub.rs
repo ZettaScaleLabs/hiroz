@@ -378,13 +378,107 @@ impl DispatchQueue {
 /// escalating backlog warning is the only signal. That is the declared QoS being
 /// honoured rather than a defect, but `KeepAll` on a slow callback is an
 /// unbounded memory commitment and should be chosen deliberately.
-pub struct CallbackDispatcher {
+/// The shared half of a dispatcher: everything the enqueue path needs.
+///
+/// This exists so the shims can start the drain thread. A shim is an
+/// `impl Fn` handed to zenoh, so it cannot borrow the [`CallbackDispatcher`];
+/// it clones this instead.
+///
+/// The drain thread deliberately does **not** hold a `DrainControl`. It
+/// captures the queue and the handler directly, so the `JoinHandle` stored here
+/// never participates in a reference cycle with the thread it names.
+struct DrainControl {
     queue: Arc<DispatchQueue>,
-    thread: Option<std::thread::JoinHandle<()>>,
+    /// Retained so the thread can be started after construction.
+    handler: Arc<dyn Fn(Sample) + Send + Sync>,
+    /// `None` until the first sample is enqueued.
+    thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    topic: String,
+}
+
+impl DrainControl {
+    /// Push, then make sure something is draining.
+    ///
+    /// The order is load-bearing: the sample is queued *before* the thread is
+    /// started, so a freshly started drain loop cannot miss it.
+    fn enqueue(&self, sample: Sample) {
+        self.queue.enqueue(sample);
+        self.ensure_thread();
+    }
+
+    /// Starts the drain thread if it is not already running. Idempotent.
+    ///
+    /// Racing callers serialise on `thread`; the loser observes `Some` and
+    /// returns. A caller that arrives after [`CallbackDispatcher::drop`] has
+    /// closed the queue observes `closed` and declines to start a thread that
+    /// would immediately exit.
+    fn ensure_thread(&self) {
+        let mut slot = self.thread.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.is_some() {
+            return;
+        }
+        if self.queue.lock().closed {
+            return;
+        }
+
+        let drain_queue = self.queue.clone();
+        let drain_handler = self.handler.clone();
+        let drain_topic = self.topic.clone();
+        match std::thread::Builder::new()
+            .name("hiroz-sub-drain".to_string())
+            .spawn(move || {
+                while let Some(sample) = drain_queue.dequeue() {
+                    // A panicking user callback must not kill the drain thread —
+                    // that would silently stop all further delivery.
+                    //
+                    // This holds only where panics unwind. Under `panic = "abort"`
+                    // — which this workspace's `[profile.opt]` sets — the panic
+                    // aborts the process before `catch_unwind` can return `Err`,
+                    // so neither the recovery below nor the log line happens. The
+                    // guard is therefore effective for dev, test and `release`
+                    // builds (including everything CI runs) and inert for `opt`.
+                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        (drain_handler)(sample)
+                    }))
+                    .is_err()
+                    {
+                        tracing::error!(
+                            topic = %drain_topic,
+                            "subscriber callback panicked; dropping the sample and continuing"
+                        );
+                    }
+                }
+            }) {
+            Ok(thread) => *slot = Some(thread),
+            Err(e) => {
+                // There is no caller to return this to: the failure happens on a
+                // delivery thread, not at subscriber construction. Samples stay
+                // queued (bounded, drop-oldest) and the next enqueue retries.
+                //
+                // Running the callback inline here would be worse than a stall:
+                // it is exactly the re-entrancy this type exists to prevent.
+                tracing::error!(
+                    topic = %self.topic,
+                    error = %e,
+                    "failed to spawn subscriber delivery thread; samples remain queued"
+                );
+            }
+        }
+    }
+}
+
+pub struct CallbackDispatcher {
+    control: Arc<DrainControl>,
 }
 
 impl CallbackDispatcher {
-    /// Spawns the drain thread.
+    /// Builds the queue. **The drain thread is not started here** — it starts on
+    /// the first enqueued sample.
+    ///
+    /// A callback subscriber that never receives a sample through the queue
+    /// therefore costs no thread. On the plain path that is the common case: the
+    /// shim only enqueues samples published from the delivering thread itself,
+    /// so an inter-process-only subscriber never starts one.
     ///
     /// `handler` is shared: the drain thread always calls it, and the *plain*
     /// path's shim additionally calls it inline for samples that did not
@@ -403,7 +497,7 @@ impl CallbackDispatcher {
     /// its re-entrancy detector had been deleted — so a wrong constant there is
     /// neither a compile error nor a lint, and nothing was left to catch it
     /// (#291). Building is not testing.
-    pub(crate) fn spawn<F>(topic: &str, handler: Arc<F>, capacity: usize) -> Result<Self>
+    pub(crate) fn new<F>(topic: &str, handler: Arc<F>, capacity: usize) -> Self
     where
         F: Fn(Sample) + Send + Sync + 'static,
     {
@@ -420,50 +514,22 @@ impl CallbackDispatcher {
             capacity,
         });
 
-        let drain_queue = queue.clone();
-        let drain_topic = topic.to_string();
-        let thread = std::thread::Builder::new()
-            .name("hiroz-sub-drain".to_string())
-            .spawn(move || {
-                while let Some(sample) = drain_queue.dequeue() {
-                    // A panicking user callback must not kill the drain thread —
-                    // that would silently stop all further delivery.
-                    //
-                    // This holds only where panics unwind. Under `panic = "abort"`
-                    // — which this workspace's `[profile.opt]` sets — the panic
-                    // aborts the process before `catch_unwind` can return `Err`,
-                    // so neither the recovery below nor the log line happens. The
-                    // guard is therefore effective for dev, test and `release`
-                    // builds (including everything CI runs) and inert for `opt`.
-                    // That is a deliberate consequence of choosing `abort` for
-                    // that profile, not an oversight here: a build that opts into
-                    // aborting on panic has opted out of surviving one.
-                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (*handler)(sample)))
-                        .is_err()
-                    {
-                        tracing::error!(
-                            topic = %drain_topic,
-                            "subscriber callback panicked; dropping the sample and continuing"
-                        );
-                    }
-                }
-            })
-            .map_err(|e| {
-                zenoh::Error::from(format!("failed to spawn subscriber delivery thread: {e}"))
-            })?;
-
-        Ok(Self {
-            queue,
-            thread: Some(thread),
-        })
+        Self {
+            control: Arc::new(DrainControl {
+                queue,
+                handler,
+                thread: Mutex::new(None),
+                topic: topic.to_string(),
+            }),
+        }
     }
 
     /// A shim that enqueues **every** sample. Used for the advanced path, where
     /// zenoh-ext holds its state mutex across the callback regardless of where
     /// the sample came from.
     pub(crate) fn always_shim(&self) -> impl Fn(Sample) + Send + Sync + 'static {
-        let queue = self.queue.clone();
-        move |sample: Sample| queue.enqueue(sample)
+        let control = self.control.clone();
+        move |sample: Sample| control.enqueue(sample)
     }
 
     /// A shim that enqueues only samples produced by the delivering thread
@@ -480,10 +546,10 @@ impl CallbackDispatcher {
     where
         F: Fn(Sample) + Send + Sync + 'static,
     {
-        let queue = self.queue.clone();
+        let control = self.control.clone();
         move |sample: Sample| {
             if local_publish_active() {
-                queue.enqueue(sample);
+                control.enqueue(sample);
             } else {
                 handler(sample);
             }
@@ -493,10 +559,31 @@ impl CallbackDispatcher {
 
 impl Drop for CallbackDispatcher {
     fn drop(&mut self) {
-        self.queue.lock().closed = true;
-        self.queue.ready.notify_all();
+        // Take the handle out *and release the spawn lock* before joining.
+        //
+        // Holding it across `join()` would deadlock: this thread would wait for
+        // the drain thread, while a callback running on that drain thread which
+        // publishes to its own topic would call `ensure_thread` and block here.
+        // That is the very shape this type exists to remove, so it must not be
+        // reintroduced in its own teardown.
+        //
+        // Closing the queue under the same lock is what makes a concurrent
+        // `ensure_thread` safe: it either completed before us (we take its
+        // handle) or runs after and observes `closed`.
+        let handle = {
+            let mut slot = self
+                .control
+                .thread
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            self.control.queue.lock().closed = true;
+            self.control.queue.ready.notify_all();
+            slot.take()
+        };
 
-        let Some(thread) = self.thread.take() else {
+        // Never enqueued a sample, so no thread was ever started. Dropping such
+        // a subscriber cannot block.
+        let Some(thread) = handle else {
             return;
         };
         if thread.thread().id() == std::thread::current().id() {
@@ -507,7 +594,7 @@ impl Drop for CallbackDispatcher {
         }
         if thread.join().is_err() {
             warn!(
-                topic = %self.queue.topic,
+                topic = %self.control.queue.topic,
                 "subscriber delivery thread terminated abnormally"
             );
         }
@@ -1413,11 +1500,11 @@ where
             // thread, a wake and a second queue in front of the bounded one to
             // every TransientLocal rmw subscription, for nothing.
             let dispatcher = if runs_user_code {
-                Some(CallbackDispatcher::spawn(
+                Some(CallbackDispatcher::new(
                     &qualified_topic,
                     validated_handler.clone(),
                     dispatch_capacity(&self.entity.qos),
-                )?)
+                ))
             } else {
                 None
             };
@@ -1445,11 +1532,11 @@ where
             // keeps the inter-process path at one thread-local read. Bounded at
             // the history depth, drop-oldest — the same `KEEP_LAST(depth)` the
             // queue-mode path enforces with `BoundedQueue`.
-            let dispatcher = CallbackDispatcher::spawn(
+            let dispatcher = CallbackDispatcher::new(
                 &qualified_topic,
                 validated_handler.clone(),
                 dispatch_capacity(&self.entity.qos),
-            )?;
+            );
             let mut sub_builder = self
                 .session
                 .declare_subscriber(key_expr)

@@ -678,11 +678,11 @@ impl ZNode {
         // never runs on a thread that is inside a hiroz publish — see
         // `pubsub::CallbackDispatcher`.
         let subscriber = if qos_needs_advanced(&entity.qos) {
-            let dispatcher = CallbackDispatcher::spawn(
+            let dispatcher = CallbackDispatcher::new(
                 &qualified_topic,
                 raw_callback,
                 dispatch_capacity(&entity.qos),
-            )?;
+            );
             let subscriber = self
                 .session
                 .declare_subscriber((*topic_ke).clone())
@@ -696,11 +696,11 @@ impl ZNode {
                 dispatcher: Some(dispatcher),
             }
         } else {
-            let dispatcher = CallbackDispatcher::spawn(
+            let dispatcher = CallbackDispatcher::new(
                 &qualified_topic,
                 raw_callback.clone(),
                 dispatch_capacity(&entity.qos),
-            )?;
+            );
             let subscriber = self
                 .session
                 .declare_subscriber((*topic_ke).clone())
