@@ -98,11 +98,15 @@ fn local_publish_active() -> bool {
 }
 
 /// Backlog size at which an *unbounded* [`CallbackDispatcher`] first warns.
-/// Doubles after each warning so a persistently slow callback does not flood the
-/// log. Bounded dispatchers are excluded explicitly at the check rather than by
-/// this value being out of their reach: a `KeepLast(1024)` subscriber has
-/// exactly this capacity, so it would otherwise warn that its queue is lossless
-/// right before dropping. Bounded dispatchers warn on drops instead.
+///
+/// The threshold doubles after each warning. A persistently slow callback
+/// therefore does not flood the log.
+///
+/// The check excludes bounded dispatchers explicitly. It does not rely on this
+/// value being out of their reach: a `KeepLast(1024)` subscriber has exactly
+/// this capacity. Such a subscriber would otherwise warn that its queue is
+/// lossless immediately before it drops a sample. Bounded dispatchers warn on
+/// drops instead.
 const DISPATCH_BACKLOG_WARN_AT: usize = 1024;
 
 /// Capacity a [`CallbackDispatcher`] must be given to be unbounded, i.e. lossless.
@@ -110,23 +114,21 @@ pub(crate) const DISPATCH_UNBOUNDED: usize = usize::MAX;
 
 /// The dispatcher capacity implied by a subscriber's history QoS.
 ///
-/// Matches what [`ZSubBuilder::build`] gives the queue-mode [`BoundedQueue`]:
-/// `KeepLast(depth)` keeps `depth`, `KeepAll` keeps everything. A callback
-/// subscriber and a queue subscriber declared with the same QoS therefore retain
-/// the same number of undelivered samples, which is the only reading of ROS
-/// `KEEP_LAST(depth)` that does not depend on which hiroz API the user happened
-/// to pick.
+/// This matches what [`ZSubBuilder::build`] gives the queue-mode
+/// [`BoundedQueue`]: `KeepLast(depth)` keeps `depth`, and `KeepAll` keeps
+/// everything. A callback subscriber and a queue subscriber with the same QoS
+/// therefore retain the same number of undelivered samples. Retention does not
+/// depend on which hiroz API the caller chose.
 ///
-/// The two are *not* the same expression, and the difference is confined to a
-/// zero depth (the rmw spelling of "system default", which cannot be produced
-/// through [`QosProfile`] but can arrive over the wire). Here it is floored at 1
-/// rather than degenerating into "keep nothing"; the queue path passes the 0
-/// through. Retention still agrees, because [`BoundedQueue::push`] evicts before
-/// it inserts (`len >= capacity` → `pop_front`, then `push_back`), so a capacity
-/// of 0 also retains exactly one sample — see `queue::tests::
-/// zero_capacity_retains_one_sample`. What differs is bookkeeping, not data: at
-/// capacity 0 every push reports a drop, including the first one into an empty
-/// queue.
+/// The two are *not* the same expression. The difference applies only to a zero
+/// depth. Zero is the rmw spelling of "system default". [`QosProfile`] cannot
+/// produce it, but it can arrive over the wire. This function floors it at 1;
+/// the queue path passes it through.
+///
+/// Retention still agrees. [`BoundedQueue::push`] evicts before it inserts
+/// (`len >= capacity` → `pop_front`, then `push_back`), so a capacity of 0 also
+/// retains exactly one sample. Only the bookkeeping differs: at capacity 0
+/// every push reports a drop, including the first push into an empty queue.
 pub(crate) fn dispatch_capacity(qos: &hiroz_protocol::qos::QosProfile) -> usize {
     match qos.history {
         QosHistory::KeepLast(depth) => depth.max(1),
@@ -325,41 +327,40 @@ impl DispatchQueue {
 /// exactly this cost ("a slow subscriber could block the underlying Zenoh
 /// thread", `fifo.rs`); hiroz does not adopt that failure mode.
 ///
-/// What remains is a choice between unbounded (lossless, can grow without
-/// limit) and bounded drop-oldest (lossy, constant memory). **The two paths get
-/// different answers, because they make different promises:**
+/// What remains is a choice between unbounded (lossless, grows without limit)
+/// and bounded drop-oldest (lossy, constant memory). **Both paths take the same
+/// bound from the same expression. They differ only in which samples reach it:**
 ///
 /// * **Plain path — bounded, drop-oldest, capacity from the subscriber's
 ///   history QoS** ([`dispatch_capacity`]). A plain subscriber is `Volatile`
-///   with `KEEP_LAST(depth)`: it already promises only the last `depth`
-///   undelivered samples, and hiroz's own queue-mode path enforces exactly that
-///   with [`BoundedQueue`], from the same expression. A callback subscriber that
-///   instead retained *every* undelivered sample would honour a QoS stricter
-///   than the one it was declared with, and would let a tight local publish loop
-///   with a slow callback grow the process until it died — a failure mode with
-///   no upside, since the samples being retained are ones the declared QoS says
-///   may be discarded. Drop-oldest also preserves the relative order of what
-///   survives, so the ordering objection that applies to the advanced path does
-///   not apply here.
+///   with `KEEP_LAST(depth)`. It already promises only the last `depth`
+///   undelivered samples, and the queue-mode path enforces exactly that with
+///   [`BoundedQueue`], from the same expression.
 ///
-/// * **Advanced path — same bound, and the same expression.** This matches
-///   `rmw_zenoh_cpp`: `SubscriptionData::add_new_message` drops the oldest once
-///   `message_queue_.size() >= adapted_qos_profile.depth`, for every arriving
-///   sample, with **no `TransientLocal` exemption** — the check reads the
-///   history policy only. Its advanced-subscriber cache is sized the same way
-///   (`adv_sub_opts.history->max_samples = qos_.depth`).
+///   A callback subscriber that retained *every* undelivered sample would
+///   honour a QoS stricter than its declared one. It would also let a tight
+///   local publish loop with a slow callback grow the process until it died.
+///   The retained samples are ones the declared QoS permits it to discard, so
+///   that trade has no upside. Drop-oldest also preserves the relative order of
+///   the samples that survive.
 ///
-///   An earlier revision left this path unbounded on *every* profile, reasoning
-///   that dropping discards what miss-detection recovered. That is why `KeepAll`
-///   maps to [`DISPATCH_UNBOUNDED`] — but applied to a declared
-///   `KeepLast(depth)` it ignores the QoS, and since [`Self::always_shim`]
-///   enqueues remote samples too, it also traded zenoh's transport backpressure
-///   for unbounded growth.
+/// * **Advanced path — the same bound, from the same expression.** This matches
+///   `rmw_zenoh_cpp`. Its `SubscriptionData::add_new_message` drops the oldest
+///   sample once `message_queue_.size() >= adapted_qos_profile.depth`. It does
+///   so for every arriving sample, with **no `TransientLocal` exemption**: the
+///   check reads the history policy only. Upstream sizes its advanced-subscriber
+///   cache the same way (`adv_sub_opts.history->max_samples = qos_.depth`).
 ///
-///   Both implementations drop **silently** as far as the ROS event API is
-///   concerned: upstream's `MESSAGE_LOST` is raised from *sequence-number gaps*
-///   among arriving messages, which a depth-drop cannot produce. The escalating
-///   `warn!` below is strictly more visible than upstream's debug log.
+///   `KeepAll` maps to [`DISPATCH_UNBOUNDED`] because that profile asks for
+///   losslessness. A declared `KeepLast(depth)` does not, so this path honours
+///   the depth. [`Self::always_shim`] enqueues remote samples too, so an
+///   unbounded queue here would also replace zenoh's transport backpressure with
+///   unbounded in-process growth.
+///
+///   Both implementations drop **silently**, as the ROS event API sees it.
+///   Upstream raises `MESSAGE_LOST` from *sequence-number gaps* between arriving
+///   messages, and a depth-drop cannot produce such a gap. The escalating
+///   `warn!` below is more visible than upstream's debug log.
 ///
 /// Two consequences are worth stating rather than discovering.
 ///
@@ -426,18 +427,19 @@ impl CallbackDispatcher {
             .name("hiroz-sub-drain".to_string())
             .spawn(move || {
                 while let Some(sample) = drain_queue.dequeue() {
-                    // A panicking user callback must not kill the drain thread —
-                    // that would silently stop all further delivery.
+                    // A panicking user callback must not kill the drain thread.
+                    // If it did, the subscriber would stop delivering silently.
                     //
-                    // This holds only where panics unwind. Under `panic = "abort"`
-                    // — which this workspace's `[profile.opt]` sets — the panic
-                    // aborts the process before `catch_unwind` can return `Err`,
-                    // so neither the recovery below nor the log line happens. The
-                    // guard is therefore effective for dev, test and `release`
-                    // builds (including everything CI runs) and inert for `opt`.
-                    // That is a deliberate consequence of choosing `abort` for
-                    // that profile, not an oversight here: a build that opts into
-                    // aborting on panic has opted out of surviving one.
+                    // This guard works only where panics unwind. This
+                    // workspace's `[profile.opt]` sets `panic = "abort"`, so
+                    // there the panic aborts the process before `catch_unwind`
+                    // can return `Err`. Neither the recovery nor the log line
+                    // runs on that profile.
+                    //
+                    // The guard is therefore effective for dev, test and
+                    // `release` builds, which is everything CI runs, and inert
+                    // for `opt`. A build that opts into aborting on panic has
+                    // opted out of surviving one.
                     if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (*handler)(sample)))
                         .is_err()
                     {
@@ -514,18 +516,24 @@ impl Drop for CallbackDispatcher {
     }
 }
 
-/// Whether a QoS profile needs a zenoh-ext advanced subscriber/publisher.
+/// Whether a QoS profile needs a zenoh-ext `AdvancedSubscriber`.
+///
+/// Both callers are subscriber paths. `ZPubBuilder::build` calls `.advanced()`
+/// unconditionally and does not consult this function.
 ///
 /// The advanced entities exist for history replay, sample-miss detection and
-/// recovery, and publisher/subscriber detection — all of which
-/// [`apply_transient_local_sub`] and [`apply_transient_local_pub`] configure only
-/// for `TransientLocal` durability. For the ROS 2 default (`Volatile`) an
-/// unconfigured `AdvancedSubscriber` adds no protocol behaviour, but it *does*
-/// run the user callback while holding a non-reentrant `std::sync::Mutex`
-/// (`advanced_subscriber.rs`: `sub_callback` takes `zlock!(statesref)` and
-/// `handle_sample` calls the callback under that guard). Combined with zenoh's
-/// synchronous local delivery, that turns any publish from inside a callback
-/// into a self-deadlock. So only pay for it when the QoS actually asks for it.
+/// recovery, and entity detection. [`apply_transient_local_sub`] and
+/// [`apply_transient_local_pub`] configure all of these for `TransientLocal`
+/// durability only.
+///
+/// For the ROS 2 default (`Volatile`) an unconfigured `AdvancedSubscriber` adds
+/// no protocol behaviour. It *does* run the user callback while holding a
+/// non-reentrant `std::sync::Mutex`: in `advanced_subscriber.rs`, `sub_callback`
+/// takes `zlock!(statesref)` and `handle_sample` calls the callback under that
+/// guard. zenoh delivers a session-local sample synchronously on the publishing
+/// thread, so a publish from inside such a callback deadlocks that thread
+/// against itself. A `Volatile` subscriber therefore pays the lock and gains
+/// nothing, which is why it declares a plain subscriber instead.
 pub(crate) fn qos_needs_advanced(qos: &hiroz_protocol::qos::QosProfile) -> bool {
     matches!(qos.durability, QosDurability::TransientLocal)
 }
@@ -556,9 +564,15 @@ pub enum SubscriberHandle {
     Advanced {
         /// Boxed because it is several times larger than the plain variant.
         ///
-        /// Declared first so it drops first: undeclaring the subscriber stops
-        /// new samples from being enqueued before the dispatcher drains and
-        /// joins.
+        /// Declared first so it drops first. Undeclaring the subscriber stops
+        /// new samples from entering the queue before the dispatcher discards
+        /// its backlog and joins its thread.
+        ///
+        /// Rust drops struct fields in declaration order, so this order is a
+        /// proof obligation rather than a style choice. The guarantee is weaker
+        /// than it looks: zenoh undeclares with `wait_callbacks: false`, so a
+        /// sample can still arrive afterwards. `enqueue` returns early once
+        /// `closed` is set, which makes such a sample harmless.
         subscriber: Box<AdvancedSubscriber<()>>,
         dispatcher: Option<CallbackDispatcher>,
     },
