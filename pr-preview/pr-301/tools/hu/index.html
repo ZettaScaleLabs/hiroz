@@ -3387,6 +3387,7 @@
 </span></code></pre></div>
 <p>The arrays are shown with one entry each for brevity; a real graph also carries <code>/parameter_events</code> and each node's parameter services.</p>
 <p>Because the variant name is the key rather than a <code>type</code> field, filtering with <code>jq</code> selects on key presence:</p>
+<!-- repro: timeout-quiet 5 -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;select(has(&quot;TopicDiscovered&quot;)) | .TopicDiscovered.topic&#39;</span>
 </span></code></pre></div>
 <p>The event variants are <code>TopicDiscovered</code>, <code>TopicRemoved</code>, <code>RateMeasured</code>, <code>NodeDiscovered</code>, <code>NodeRemoved</code>, <code>ServiceDiscovered</code> and <code>MetricsSnapshot</code>.</p>
