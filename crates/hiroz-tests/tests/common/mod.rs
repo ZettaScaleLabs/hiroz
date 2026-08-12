@@ -54,20 +54,26 @@ impl OutputCapture {
     /// Call directly after `spawn`, before any wait loop. A stream that was not
     /// piped contributes nothing.
     pub fn start(child: &mut Child) -> Self {
-        use std::io::Read;
+        use std::io::{BufRead, BufReader, Read};
 
         fn drain<R: Read + Send + 'static>(
             stream: Option<R>,
             sink: Arc<std::sync::Mutex<String>>,
         ) -> Option<thread::JoinHandle<()>> {
-            let mut stream = stream?;
+            let stream = stream?;
             Some(thread::spawn(move || {
-                let mut buf = String::new();
+                // Append line by line rather than reading to EOF in one call, so
+                // [`OutputCapture::snapshot`] can observe a still-running child.
+                // A process that never exits on its own — a subscriber, say —
+                // would otherwise yield nothing until it was killed.
+                //
                 // A read error is not worth failing over: the caller is already
                 // reporting a failure and this is supplementary detail.
-                let _ = stream.read_to_string(&mut buf);
-                if let Ok(mut sink) = sink.lock() {
-                    *sink = buf;
+                for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                    if let Ok(mut sink) = sink.lock() {
+                        sink.push_str(&line);
+                        sink.push('\n');
+                    }
                 }
             }))
         }
@@ -87,6 +93,15 @@ impl OutputCapture {
             stderr,
             readers,
         }
+    }
+
+    /// Everything captured on `stdout` so far, without waiting for the child.
+    ///
+    /// For a process that does not exit on its own — a subscriber that runs
+    /// until it is signalled — this is the only way to assert on what it
+    /// printed. [`Self::finish`] would block until the reader threads see EOF.
+    pub fn stdout_snapshot(&self) -> String {
+        self.stdout.lock().map(|s| s.clone()).unwrap_or_default()
     }
 
     /// Joins the reader threads and renders both streams as a printable block.

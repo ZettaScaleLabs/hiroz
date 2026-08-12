@@ -166,7 +166,7 @@ fn test_hiroz_talker_to_rcl_listener() {
     println!("\n=== Test: hiroz talker -> RCL demo_nodes_cpp listener ===");
 
     // Start RCL listener
-    let listener = Command::new("ros2")
+    let mut listener = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "listener"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
@@ -176,6 +176,7 @@ fn test_hiroz_talker_to_rcl_listener() {
         .spawn()
         .expect("Failed to start RCL listener");
 
+    let listener_output = common::OutputCapture::start(&mut listener);
     let _listener_guard = ProcessGuard::new(listener, "RCL listener");
 
     // Proceed as soon as the RCL listener is discoverable, not after a blind sleep.
@@ -198,6 +199,17 @@ fn test_hiroz_talker_to_rcl_listener() {
 
     // Give some time for RCL listener to process
     wait_for_ready(Duration::from_secs(1));
+
+    // Assert the C++ listener actually received. Without this the test passes
+    // whether or not the listener works at all -- it could crash on the first
+    // sample and nothing here would notice. The listener never exits on its
+    // own, so read what it has printed so far rather than waiting for EOF.
+    let heard = listener_output.stdout_snapshot();
+    assert!(
+        heard.contains("I heard"),
+        "the C++ listener printed no `I heard` line, so it received nothing from the hiroz \
+         talker. Captured stdout:\n{heard}"
+    );
 
     println!("Test passed: hiroz talker published messages to RCL listener");
 }
@@ -545,20 +557,49 @@ fn test_hiroz_fibonacci_action_server_to_rcl_client() {
     wait_for_ready(Duration::from_secs(2));
 
     // Start RCL client
-    let client = Command::new("ros2")
+    let mut client = Command::new("ros2")
         .args(["run", "action_tutorials_cpp", "fibonacci_action_client"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .process_group(0)
         .spawn()
         .expect("Failed to start RCL fibonacci action client");
 
-    let _client_guard = ProcessGuard::new(client, "RCL fibonacci action client");
+    let client_output = common::OutputCapture::start(&mut client);
+    let mut client_guard = ProcessGuard::new(client, "RCL fibonacci action client");
 
-    // Wait for the client to complete
-    wait_for_ready(Duration::from_secs(10));
+    // Wait on the client's actual exit rather than a fixed sleep, and require it
+    // to succeed. Previously this test slept and then declared success without
+    // looking at the client at all: it passed whether the client completed the
+    // action, crashed, or never started.
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let client_status = loop {
+        let child = client_guard
+            .child
+            .as_mut()
+            .expect("client child owned by guard");
+        if let Some(status) = child.try_wait().expect("Failed to poll RCL action client") {
+            break Some(status);
+        }
+        if std::time::Instant::now() >= deadline {
+            break None;
+        }
+        thread::sleep(Duration::from_millis(200));
+    };
+
+    match client_status {
+        None => panic!(
+            "RCL fibonacci action client did not exit within 30s\n{}",
+            client_output.finish()
+        ),
+        Some(status) if !status.success() => panic!(
+            "RCL fibonacci action client exited with failure status {status:?}\n{}",
+            client_output.finish()
+        ),
+        Some(_) => {}
+    }
 
     // Stop the server
     server_handle.join().expect("Server thread panicked");
