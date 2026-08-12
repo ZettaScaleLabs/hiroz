@@ -1,4 +1,5 @@
 #![cfg(feature = "ros-interop")]
+// CI baseline probe: does the lyrical interop job pass on unmodified main today?
 
 mod common;
 
