@@ -125,6 +125,31 @@ jobs:
             ros-${{ matrix.distro }}-nav-msgs \
             protobuf-compiler
 
+      # An interop run tests hiroz against a specific set of ROS binaries, and
+      # nothing recorded which. When the lyrical leg started failing (#303) the
+      # first question — "what changed?" — was unanswerable from the logs, and
+      # re-running a job replaces its log, so the last-known-good run's inputs
+      # were already gone by the time anyone looked.
+      #
+      # Recording them costs a second and makes any two runs comparable. It also
+      # ruled out three hypotheses in #303 that would otherwise have needed a
+      # guess: the image, the ROS package builds, and the C runtime.
+      - name: Record what this run tests against
+        run: |
+          echo "::group::Environment under test"
+          echo "distro: ${{ matrix.distro }}"
+          echo "image:  ${{ matrix.image }}   (floating tag — see versions below)"
+          grep -E '^(NAME|VERSION)=' /etc/os-release || true
+          echo "--- ROS packages under test ---"
+          dpkg-query -W -f='${Package} ${Version}\n' \
+            "ros-${{ matrix.distro }}-rmw-zenoh-cpp" \
+            "ros-${{ matrix.distro }}-demo-nodes-cpp" \
+            "ros-${{ matrix.distro }}-example-interfaces" \
+            "ros-${{ matrix.distro }}-action-tutorials-cpp" 2>&1 || true
+          echo "--- C runtime (glibc detects the heap corruption in #303) ---"
+          dpkg-query -W -f='${Package} ${Version}\n' libc6 2>&1 || true
+          echo "::endgroup::"
+
       - name: Fix broken rmw_zenoh_cpp config for Kilted
         if: matrix.distro == 'kilted'
         run: |
