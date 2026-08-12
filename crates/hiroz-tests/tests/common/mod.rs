@@ -28,6 +28,87 @@ impl ProcessGuard {
     }
 }
 
+/// Concurrently drains a child's piped `stdout` and `stderr` so they can be
+/// reported when the child fails.
+///
+/// A test that spawns an external process and discards its diagnostics can only
+/// report *that* the process failed, never why. `ros2 run` writes its reason to
+/// stderr, so a test which asserts on an exit status must capture both streams
+/// and surface them in the failure message.
+///
+/// **Draining concurrently is what makes piping safe.** A pipe nobody reads
+/// fills, and the child then blocks writing to it — which would convert a fast
+/// failure into whatever timeout the caller's wait loop uses. One reader thread
+/// per stream removes that coupling: they run until EOF, which arrives when the
+/// child exits.
+pub struct OutputCapture {
+    stdout: Arc<std::sync::Mutex<String>>,
+    stderr: Arc<std::sync::Mutex<String>>,
+    readers: Vec<thread::JoinHandle<()>>,
+}
+
+#[allow(dead_code)]
+impl OutputCapture {
+    /// Takes the child's piped handles and starts draining them immediately.
+    ///
+    /// Call directly after `spawn`, before any wait loop. A stream that was not
+    /// piped contributes nothing.
+    pub fn start(child: &mut Child) -> Self {
+        use std::io::Read;
+
+        fn drain<R: Read + Send + 'static>(
+            stream: Option<R>,
+            sink: Arc<std::sync::Mutex<String>>,
+        ) -> Option<thread::JoinHandle<()>> {
+            let mut stream = stream?;
+            Some(thread::spawn(move || {
+                let mut buf = String::new();
+                // A read error is not worth failing over: the caller is already
+                // reporting a failure and this is supplementary detail.
+                let _ = stream.read_to_string(&mut buf);
+                if let Ok(mut sink) = sink.lock() {
+                    *sink = buf;
+                }
+            }))
+        }
+
+        let stdout = Arc::new(std::sync::Mutex::new(String::new()));
+        let stderr = Arc::new(std::sync::Mutex::new(String::new()));
+        let readers = [
+            drain(child.stdout.take(), stdout.clone()),
+            drain(child.stderr.take(), stderr.clone()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
+        Self {
+            stdout,
+            stderr,
+            readers,
+        }
+    }
+
+    /// Joins the reader threads and renders both streams as a printable block.
+    ///
+    /// Call only once the child has exited, so the readers have reached EOF.
+    pub fn finish(self) -> String {
+        for reader in self.readers {
+            let _ = reader.join();
+        }
+        let mut block = String::new();
+        for (label, sink) in [("stdout", &self.stdout), ("stderr", &self.stderr)] {
+            let text = sink.lock().map(|s| s.clone()).unwrap_or_default();
+            if text.trim().is_empty() {
+                block.push_str(&format!("--- child {label}: <empty> ---\n"));
+            } else {
+                block.push_str(&format!("--- child {label} ---\n{}\n", text.trim_end()));
+            }
+        }
+        block
+    }
+}
+
 impl Drop for ProcessGuard {
     fn drop(&mut self) {
         if let Some(mut child) = self.child.take() {

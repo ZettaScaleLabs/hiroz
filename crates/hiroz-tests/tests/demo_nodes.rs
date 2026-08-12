@@ -383,17 +383,22 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
     // discoverable before it starts.
     wait_for_ready(Duration::from_secs(5));
 
-    // Start RCL client. Null stdout — nothing reads it, and the try_wait loop
-    // below waits on the child's exit, which a full unread pipe would block.
-    let client = Command::new("ros2")
+    // Start RCL client with both streams piped, and drain them on reader threads
+    // (see `OutputCapture`). `ros2 run` reports why it failed on stderr; without
+    // that text a failure here is only diagnosable as an exit code. Draining
+    // concurrently is what keeps piping safe for the try_wait loop below — an
+    // unread pipe would fill and block the child.
+    let mut client = Command::new("ros2")
         .args(["run", "demo_nodes_cpp", "add_two_ints_client"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .process_group(0)
         .spawn()
         .expect("Failed to start RCL client");
+
+    let client_output = common::OutputCapture::start(&mut client);
 
     // Guard owns the child throughout; poll try_wait through the guard's own
     // handle. Reaping via a separate handle first could let Drop later signal a
@@ -420,10 +425,14 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
     // verb, bad args) also exits within 30s and would false-pass.
     match client_status {
         None => panic!(
-            "RCL add_two_ints client did not exit within 30s (likely failed to discover the hiroz server)"
+            "RCL add_two_ints client did not exit within 30s (likely failed to discover the hiroz server)\n{}",
+            client_output.finish()
         ),
         Some(status) if !status.success() => {
-            panic!("RCL add_two_ints client exited with failure status {status:?}")
+            panic!(
+                "RCL add_two_ints client exited with failure status {status:?}\n{}",
+                client_output.finish()
+            )
         }
         Some(_) => {}
     }

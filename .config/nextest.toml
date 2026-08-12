@@ -7,3 +7,8 @@ slow-timeout = { period = "30s", terminate-after = 2 }
 [profile.interop]
 slow-timeout = { period = "60s", terminate-after = 2 }
 test-threads = 8
+# These tests drive external `ros2` processes, so one environment problem is not
+# evidence about the rest of the suite. Cancelling on the first failure hid that:
+# a single failing test left 108 of 154 unrun, and the leg then reported far less
+# than a green run would. Run them all and report every failure.
+fail-fast = false
