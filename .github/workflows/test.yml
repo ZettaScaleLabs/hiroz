@@ -110,8 +110,19 @@ jobs:
           NU_VERSION=0.102.0
           ARCH=$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')
           NU_TARBALL="nu-${NU_VERSION}-${ARCH}-unknown-linux-gnu"
-          curl -fsSL "https://github.com/nushell/nushell/releases/download/${NU_VERSION}/${NU_TARBALL}.tar.gz" \
-            | tar -xz -C /usr/local/bin --strip-components=1 "${NU_TARBALL}/nu"
+          # Download to a file rather than piping into tar. A piped curl reports
+          # a network failure as `gzip: stdin: unexpected end of file` and the
+          # step's exit code comes from tar, so a dropped connection reads as a
+          # corrupt archive. Observed on a jazzy leg: `curl: (56) Connection
+          # died` produced `tar: Error is not recoverable` and exit 2.
+          #
+          # --retry alone does not cover connection resets mid-transfer;
+          # --retry-all-errors does.
+          curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
+            -o nu.tar.gz \
+            "https://github.com/nushell/nushell/releases/download/${NU_VERSION}/${NU_TARBALL}.tar.gz"
+          tar -xzf nu.tar.gz -C /usr/local/bin --strip-components=1 "${NU_TARBALL}/nu"
+          rm -f nu.tar.gz
 
       - name: Install ROS dependencies
         run: |
