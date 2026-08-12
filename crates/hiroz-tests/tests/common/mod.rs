@@ -95,13 +95,22 @@ impl OutputCapture {
         }
     }
 
-    /// Everything captured on `stdout` so far, without waiting for the child.
+    /// Everything captured so far on **both** streams, without waiting for the
+    /// child.
     ///
     /// For a process that does not exit on its own — a subscriber that runs
     /// until it is signalled — this is the only way to assert on what it
     /// printed. [`Self::finish`] would block until the reader threads see EOF.
-    pub fn stdout_snapshot(&self) -> String {
-        self.stdout.lock().map(|s| s.clone()).unwrap_or_default()
+    ///
+    /// Both streams are included because **ROS 2 logging goes to stderr by
+    /// default**: an `RCLCPP_INFO` line such as the listener's `I heard` is not
+    /// on stdout unless `RCUTILS_LOGGING_USE_STDOUT` is set. Asserting on stdout
+    /// alone silently observes an empty buffer and reads as "the node received
+    /// nothing".
+    pub fn snapshot(&self) -> String {
+        let out = self.stdout.lock().map(|s| s.clone()).unwrap_or_default();
+        let err = self.stderr.lock().map(|s| s.clone()).unwrap_or_default();
+        format!("{out}{err}")
     }
 
     /// Joins the reader threads and renders both streams as a printable block.

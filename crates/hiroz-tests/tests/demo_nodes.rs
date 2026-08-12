@@ -170,8 +170,10 @@ fn test_hiroz_talker_to_rcl_listener() {
         .args(["run", "demo_nodes_cpp", "listener"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        // ROS 2 logging goes to stderr by default, so the listener's `I heard`
+        // lines are not on stdout. Capture both.
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .process_group(0)
         .spawn()
         .expect("Failed to start RCL listener");
@@ -204,11 +206,11 @@ fn test_hiroz_talker_to_rcl_listener() {
     // whether or not the listener works at all -- it could crash on the first
     // sample and nothing here would notice. The listener never exits on its
     // own, so read what it has printed so far rather than waiting for EOF.
-    let heard = listener_output.stdout_snapshot();
+    let heard = listener_output.snapshot();
     assert!(
         heard.contains("I heard"),
         "the C++ listener printed no `I heard` line, so it received nothing from the hiroz \
-         talker. Captured stdout:\n{heard}"
+         talker. Captured output:\n{heard}"
     );
 
     println!("Test passed: hiroz talker published messages to RCL listener");
