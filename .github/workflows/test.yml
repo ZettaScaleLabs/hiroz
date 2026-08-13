@@ -163,6 +163,20 @@ jobs:
           echo "distro: ${{ matrix.distro }}"
           echo "image:  ${{ matrix.image }}   (floating tag — see versions below)"
           grep -E '^(NAME|VERSION)=' /etc/os-release || true
+          # The core libraries come first, and they are the point: the four
+          # application packages below are installed from the repository on every
+          # run, so they always read as current. Only the core libraries carry
+          # the image-vs-repository skew that caused #303, and printing the
+          # application packages alone would report "nothing changed" for exactly
+          # the failure this step exists to explain.
+          echo "--- ROS core libraries (where image/repo skew shows up) ---"
+          dpkg-query -W -f='${Package} ${Version}\n' \
+            "ros-${{ matrix.distro }}-rclcpp" \
+            "ros-${{ matrix.distro }}-rcl" \
+            "ros-${{ matrix.distro }}-rmw" \
+            "ros-${{ matrix.distro }}-rcutils" \
+            "ros-${{ matrix.distro }}-rcpputils" \
+            "ros-${{ matrix.distro }}-rosidl-runtime-c" 2>&1 || true
           echo "--- ROS packages under test ---"
           dpkg-query -W -f='${Package} ${Version}\n' \
             "ros-${{ matrix.distro }}-rmw-zenoh-cpp" \
