@@ -221,11 +221,23 @@ class TriggerResponse(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'example_interfaces/msg/TriggerResponse'
     __hash__: ClassVar[str] = 'RIHS01_cfeeee47f8105dd7685e4c92d46d4074669cb1c477402be1dea37486542a69e0'
 
-class AddTwoInts:
-    """Service grouping type. Use AddTwoInts.Request and AddTwoInts.Response."""
-    __srvtype__: ClassVar[str] = 'example_interfaces/srv/AddTwoInts'
-    Request: ClassVar[type] = AddTwoIntsRequest
-    Response: ClassVar[type] = AddTwoIntsResponse
+class FibonacciGoal(msgspec.Struct, frozen=True, kw_only=True):
+    order: int = 0
+
+    __msgtype__: ClassVar[str] = 'example_interfaces/msg/FibonacciGoal'
+    __hash__: ClassVar[str] = 'RIHS01_8de2ceb74ed728966498ae1f9498a0a61a3cfb0930c59bbcdf2686ad454dace0'
+
+class FibonacciResult(msgspec.Struct, frozen=True, kw_only=True):
+    sequence: list[int] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'example_interfaces/msg/FibonacciResult'
+    __hash__: ClassVar[str] = 'RIHS01_8de2ceb74ed728966498ae1f9498a0a61a3cfb0930c59bbcdf2686ad454dace0'
+
+class FibonacciFeedback(msgspec.Struct, frozen=True, kw_only=True):
+    sequence: list[int] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'example_interfaces/msg/FibonacciFeedback'
+    __hash__: ClassVar[str] = 'RIHS01_8de2ceb74ed728966498ae1f9498a0a61a3cfb0930c59bbcdf2686ad454dace0'
 
 class SetBool:
     """Service grouping type. Use SetBool.Request and SetBool.Response."""
@@ -233,9 +245,22 @@ class SetBool:
     Request: ClassVar[type] = SetBoolRequest
     Response: ClassVar[type] = SetBoolResponse
 
+class AddTwoInts:
+    """Service grouping type. Use AddTwoInts.Request and AddTwoInts.Response."""
+    __srvtype__: ClassVar[str] = 'example_interfaces/srv/AddTwoInts'
+    Request: ClassVar[type] = AddTwoIntsRequest
+    Response: ClassVar[type] = AddTwoIntsResponse
+
 class Trigger:
     """Service grouping type. Use Trigger.Request and Trigger.Response."""
     __srvtype__: ClassVar[str] = 'example_interfaces/srv/Trigger'
     Request: ClassVar[type] = TriggerRequest
     Response: ClassVar[type] = TriggerResponse
+
+class Fibonacci:
+    """Action grouping type. Use Fibonacci.Goal, .Result and .Feedback."""
+    __actiontype__: ClassVar[str] = 'example_interfaces/action/Fibonacci'
+    Goal: ClassVar[type] = FibonacciGoal
+    Result: ClassVar[type] = FibonacciResult
+    Feedback: ClassVar[type] = FibonacciFeedback
 

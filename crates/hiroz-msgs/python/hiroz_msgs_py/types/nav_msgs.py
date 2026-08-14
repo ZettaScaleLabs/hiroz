@@ -103,27 +103,27 @@ class SetMapResponse(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'nav_msgs/msg/SetMapResponse'
     __hash__: ClassVar[str] = 'RIHS01_5e11a5b2ca53d8ae85b666a019f16c9904ebc787828f1f566c4e048a1ddedfb4'
 
-class GetMap:
-    """Service grouping type. Use GetMap.Request and GetMap.Response."""
-    __srvtype__: ClassVar[str] = 'nav_msgs/srv/GetMap'
-    Request: ClassVar[type] = GetMapRequest
-    Response: ClassVar[type] = GetMapResponse
-
 class GetPlan:
     """Service grouping type. Use GetPlan.Request and GetPlan.Response."""
     __srvtype__: ClassVar[str] = 'nav_msgs/srv/GetPlan'
     Request: ClassVar[type] = GetPlanRequest
     Response: ClassVar[type] = GetPlanResponse
 
-class LoadMap:
-    """Service grouping type. Use LoadMap.Request and LoadMap.Response."""
-    __srvtype__: ClassVar[str] = 'nav_msgs/srv/LoadMap'
-    Request: ClassVar[type] = LoadMapRequest
-    Response: ClassVar[type] = LoadMapResponse
+class GetMap:
+    """Service grouping type. Use GetMap.Request and GetMap.Response."""
+    __srvtype__: ClassVar[str] = 'nav_msgs/srv/GetMap'
+    Request: ClassVar[type] = GetMapRequest
+    Response: ClassVar[type] = GetMapResponse
 
 class SetMap:
     """Service grouping type. Use SetMap.Request and SetMap.Response."""
     __srvtype__: ClassVar[str] = 'nav_msgs/srv/SetMap'
     Request: ClassVar[type] = SetMapRequest
     Response: ClassVar[type] = SetMapResponse
+
+class LoadMap:
+    """Service grouping type. Use LoadMap.Request and LoadMap.Response."""
+    __srvtype__: ClassVar[str] = 'nav_msgs/srv/LoadMap'
+    Request: ClassVar[type] = LoadMapRequest
+    Response: ClassVar[type] = LoadMapResponse
 

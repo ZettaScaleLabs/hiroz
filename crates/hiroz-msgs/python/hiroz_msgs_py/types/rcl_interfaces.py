@@ -25,6 +25,13 @@ class ListParametersResult(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ListParametersResult'
     __hash__: ClassVar[str] = 'RIHS01_237ae3428413dcbcfb452b510c42355f3a2b021dc091afa3e18526d57022f1cd'
 
+class LoggerLevel(msgspec.Struct, frozen=True, kw_only=True):
+    name: str = ""
+    level: int = 0
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/LoggerLevel'
+    __hash__: ClassVar[str] = 'RIHS01_95785cc42f048ab4f395af65035aeaf2181d8e1c7a44edb8ad4558445fdb43c0'
+
 class Parameter(msgspec.Struct, frozen=True, kw_only=True):
     name: str = ""
     value: "rcl_interfaces.ParameterValue | None" = None
@@ -83,6 +90,13 @@ class ParameterValue(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ParameterValue'
     __hash__: ClassVar[str] = 'RIHS01_115fc089a387e23c7ecd3525c9189c379109119d6ab82e8dfbde0fdf6a7f9b68'
 
+class SetLoggerLevelsResult(msgspec.Struct, frozen=True, kw_only=True):
+    successful: bool = False
+    reason: str = ""
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetLoggerLevelsResult'
+    __hash__: ClassVar[str] = 'RIHS01_9316e5e679a5b72d2dd7fd80c539bae9e106fa0890a06dc5da3a8177a3ff6909'
+
 class SetParametersResult(msgspec.Struct, frozen=True, kw_only=True):
     successful: bool = False
     reason: str = ""
@@ -101,6 +115,18 @@ class DescribeParametersResponse(msgspec.Struct, frozen=True, kw_only=True):
 
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/DescribeParametersResponse'
     __hash__: ClassVar[str] = 'RIHS01_845b484d71eb0673dae682f2e3ba3c4851a65a3dcfb97bddd82c5b57e91e4cff'
+
+class GetLoggerLevelsRequest(msgspec.Struct, frozen=True, kw_only=True):
+    names: list[str] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/GetLoggerLevelsRequest'
+    __hash__: ClassVar[str] = 'RIHS01_03bf1bebd0d6514c7ed0ba7c5e08dc9f2f39c759fe99e1e30ea4157d7674f72d'
+
+class GetLoggerLevelsResponse(msgspec.Struct, frozen=True, kw_only=True):
+    levels: list["rcl_interfaces.LoggerLevel"] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/GetLoggerLevelsResponse'
+    __hash__: ClassVar[str] = 'RIHS01_03bf1bebd0d6514c7ed0ba7c5e08dc9f2f39c759fe99e1e30ea4157d7674f72d'
 
 class GetParameterTypesRequest(msgspec.Struct, frozen=True, kw_only=True):
     names: list[str] = msgspec.field(default_factory=list)
@@ -139,17 +165,17 @@ class ListParametersResponse(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/ListParametersResponse'
     __hash__: ClassVar[str] = 'RIHS01_3e6062bfbb27bfb8730d4cef2558221f51a11646d78e7bb30a1e83afac3aad9d'
 
-class SetParametersRequest(msgspec.Struct, frozen=True, kw_only=True):
-    parameters: list["rcl_interfaces.Parameter"] = msgspec.field(default_factory=list)
+class SetLoggerLevelsRequest(msgspec.Struct, frozen=True, kw_only=True):
+    levels: list["rcl_interfaces.LoggerLevel"] = msgspec.field(default_factory=list)
 
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetParametersRequest'
-    __hash__: ClassVar[str] = 'RIHS01_56eed9a67e169f9cb6c1f987bc88f868c14a8fc9f743a263bc734c154015d7e0'
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetLoggerLevelsRequest'
+    __hash__: ClassVar[str] = 'RIHS01_3ff86cb4e91fbf9abae15c234ecc874448de6ece8e193401c077cf116e4f6d78'
 
-class SetParametersResponse(msgspec.Struct, frozen=True, kw_only=True):
-    results: list["rcl_interfaces.SetParametersResult"] = msgspec.field(default_factory=list)
+class SetLoggerLevelsResponse(msgspec.Struct, frozen=True, kw_only=True):
+    results: list["rcl_interfaces.SetLoggerLevelsResult"] = msgspec.field(default_factory=list)
 
-    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetParametersResponse'
-    __hash__: ClassVar[str] = 'RIHS01_56eed9a67e169f9cb6c1f987bc88f868c14a8fc9f743a263bc734c154015d7e0'
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetLoggerLevelsResponse'
+    __hash__: ClassVar[str] = 'RIHS01_3ff86cb4e91fbf9abae15c234ecc874448de6ece8e193401c077cf116e4f6d78'
 
 class SetParametersAtomicallyRequest(msgspec.Struct, frozen=True, kw_only=True):
     parameters: list["rcl_interfaces.Parameter"] = msgspec.field(default_factory=list)
@@ -163,17 +189,29 @@ class SetParametersAtomicallyResponse(msgspec.Struct, frozen=True, kw_only=True)
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetParametersAtomicallyResponse'
     __hash__: ClassVar[str] = 'RIHS01_0e192ef259c07fc3c07a13191d27002222e65e00ccec653ca05e856f79285fcd'
 
+class SetParametersRequest(msgspec.Struct, frozen=True, kw_only=True):
+    parameters: list["rcl_interfaces.Parameter"] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetParametersRequest'
+    __hash__: ClassVar[str] = 'RIHS01_56eed9a67e169f9cb6c1f987bc88f868c14a8fc9f743a263bc734c154015d7e0'
+
+class SetParametersResponse(msgspec.Struct, frozen=True, kw_only=True):
+    results: list["rcl_interfaces.SetParametersResult"] = msgspec.field(default_factory=list)
+
+    __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetParametersResponse'
+    __hash__: ClassVar[str] = 'RIHS01_56eed9a67e169f9cb6c1f987bc88f868c14a8fc9f743a263bc734c154015d7e0'
+
 class DescribeParameters:
     """Service grouping type. Use DescribeParameters.Request and DescribeParameters.Response."""
     __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/DescribeParameters'
     Request: ClassVar[type] = DescribeParametersRequest
     Response: ClassVar[type] = DescribeParametersResponse
 
-class GetParameterTypes:
-    """Service grouping type. Use GetParameterTypes.Request and GetParameterTypes.Response."""
-    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/GetParameterTypes'
-    Request: ClassVar[type] = GetParameterTypesRequest
-    Response: ClassVar[type] = GetParameterTypesResponse
+class GetLoggerLevels:
+    """Service grouping type. Use GetLoggerLevels.Request and GetLoggerLevels.Response."""
+    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/GetLoggerLevels'
+    Request: ClassVar[type] = GetLoggerLevelsRequest
+    Response: ClassVar[type] = GetLoggerLevelsResponse
 
 class GetParameters:
     """Service grouping type. Use GetParameters.Request and GetParameters.Response."""
@@ -181,21 +219,33 @@ class GetParameters:
     Request: ClassVar[type] = GetParametersRequest
     Response: ClassVar[type] = GetParametersResponse
 
-class ListParameters:
-    """Service grouping type. Use ListParameters.Request and ListParameters.Response."""
-    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/ListParameters'
-    Request: ClassVar[type] = ListParametersRequest
-    Response: ClassVar[type] = ListParametersResponse
-
 class SetParameters:
     """Service grouping type. Use SetParameters.Request and SetParameters.Response."""
     __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/SetParameters'
     Request: ClassVar[type] = SetParametersRequest
     Response: ClassVar[type] = SetParametersResponse
 
+class ListParameters:
+    """Service grouping type. Use ListParameters.Request and ListParameters.Response."""
+    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/ListParameters'
+    Request: ClassVar[type] = ListParametersRequest
+    Response: ClassVar[type] = ListParametersResponse
+
+class GetParameterTypes:
+    """Service grouping type. Use GetParameterTypes.Request and GetParameterTypes.Response."""
+    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/GetParameterTypes'
+    Request: ClassVar[type] = GetParameterTypesRequest
+    Response: ClassVar[type] = GetParameterTypesResponse
+
 class SetParametersAtomically:
     """Service grouping type. Use SetParametersAtomically.Request and SetParametersAtomically.Response."""
     __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/SetParametersAtomically'
     Request: ClassVar[type] = SetParametersAtomicallyRequest
     Response: ClassVar[type] = SetParametersAtomicallyResponse
+
+class SetLoggerLevels:
+    """Service grouping type. Use SetLoggerLevels.Request and SetLoggerLevels.Response."""
+    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/SetLoggerLevels'
+    Request: ClassVar[type] = SetLoggerLevelsRequest
+    Response: ClassVar[type] = SetLoggerLevelsResponse
 
