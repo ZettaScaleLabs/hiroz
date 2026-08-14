@@ -344,13 +344,15 @@ impl DispatchQueue {
 ///
 /// That leaves a choice between unbounded (lossless, grows without limit) and
 /// bounded drop-oldest (lossy, constant memory). **Both paths take the same
-/// bound from the same expression. They differ only in which samples reach it:**
+/// bound from the same history depth. They differ only in which samples reach
+/// it:**
 ///
 /// * **Plain path — bounded, drop-oldest, capacity from the subscriber's
 ///   history QoS** ([`dispatch_capacity`]). A plain subscriber is `Volatile`
 ///   with `KEEP_LAST(depth)`. It already promises only the last `depth`
 ///   undelivered samples. The queue-mode path enforces exactly that with
-///   [`BoundedQueue`], from the same expression.
+///   [`BoundedQueue`], from the same history depth. The two expressions differ
+///   only for a zero depth, which [`dispatch_capacity`] documents.
 ///
 ///   A callback subscriber that retained *every* undelivered sample would
 ///   honour a QoS stricter than its declared one. It would also let a tight
@@ -359,7 +361,7 @@ impl DispatchQueue {
 ///   that trade has no upside. Drop-oldest also preserves the relative order of
 ///   the samples that survive.
 ///
-/// * **Advanced path — the same bound, from the same expression.** This matches
+/// * **Advanced path — the same bound, from the same history depth.** This matches
 ///   `rmw_zenoh_cpp`. Its `SubscriptionData::add_new_message` drops the oldest
 ///   sample once `message_queue_.size() >= adapted_qos_profile.depth`. It does
 ///   so for every arriving sample, with **no `TransientLocal` exemption**: the
@@ -1559,6 +1561,19 @@ where
     /// pattern), so Python/Go callers do not need to assign the return value.
     /// Rust callers must store the `ZSub` in their node or context.
     ///
+    /// # Dropping blocks on an in-flight callback
+    ///
+    /// A callback subscriber owns a drain thread. Dropping the `ZSub` joins that
+    /// thread, and the thread may be inside your callback. **Dropping therefore
+    /// blocks for as long as your callback runs, with no timeout.**
+    ///
+    /// Do not drop a callback subscriber while holding a lock, a GIL or a channel
+    /// that its callback also takes. The drop waits for the callback, and the
+    /// callback waits for the lock. Neither returns.
+    ///
+    /// Dropping from inside the callback itself is safe. The drain thread detaches
+    /// rather than joining itself.
+    ///
     /// # Arguments
     ///
     /// * `callback` - A function that will be called with each deserialized message
@@ -1904,6 +1919,43 @@ impl ZSub<crate::dynamic::DynamicMessage, Sample, crate::dynamic::DynamicSerdeCd
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -----------------------------------------------------------------------
+    // Advanced-subscriber gating
+    //
+    // Reverting `qos_needs_advanced` to return `true` unconditionally puts the
+    // non-reentrant zenoh-ext lock back on the ROS 2 default profile, which is
+    // what #249 was. These pin the decision the rest of the fix rests on.
+    //
+    // They do not pin the wiring -- that the decision reaches
+    // `SubscriberHandle::Plain` -- because `ZSub` holds its handle privately.
+    // That gap is #296's first item.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn volatile_does_not_need_an_advanced_subscriber() {
+        let qos = hiroz_protocol::qos::QosProfile {
+            durability: QosDurability::Volatile,
+            ..Default::default()
+        };
+        assert!(
+            !qos_needs_advanced(&qos),
+            "Volatile is the ROS 2 default. An AdvancedSubscriber adds no protocol \
+             behaviour for it and runs the user callback under a non-reentrant mutex"
+        );
+    }
+
+    #[test]
+    fn transient_local_needs_an_advanced_subscriber() {
+        let qos = hiroz_protocol::qos::QosProfile {
+            durability: QosDurability::TransientLocal,
+            ..Default::default()
+        };
+        assert!(
+            qos_needs_advanced(&qos),
+            "TransientLocal needs history replay and miss recovery"
+        );
+    }
 
     // -----------------------------------------------------------------------
     // Topic name qualification (leading '/' is added when missing)
