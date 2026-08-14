@@ -577,6 +577,12 @@ pub enum SubscriberHandle {
     /// queue-mode subscribers. They run no user code on the delivery thread, so
     /// they need no handoff.
     Plain {
+        /// This field comes first in the declaration so that it drops first.
+        ///
+        /// Rust drops struct fields in declaration order, so this order is a
+        /// proof obligation rather than a style choice. See the same field on
+        /// [`SubscriberHandle::Advanced`] for why the undeclare must precede
+        /// the join.
         subscriber: zenoh::pubsub::Subscriber<()>,
         dispatcher: Option<CallbackDispatcher>,
     },
