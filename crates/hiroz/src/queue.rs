@@ -121,12 +121,13 @@ mod tests {
 
     /// A zero capacity retains one sample, not zero.
     ///
-    /// `pubsub::dispatch_capacity` floors a zero history depth at 1 while the
-    /// queue-mode path passes the 0 straight through, so the two sizing
-    /// expressions differ. This pins the reason that divergence is harmless:
-    /// `push` evicts *before* it inserts, so capacity 0 behaves as capacity 1
-    /// for retention. If `push` is ever reordered to insert-then-evict, a
-    /// zero-depth queue starts discarding every sample and this fails.
+    /// `pubsub::dispatch_capacity` floors a zero history depth at 1. The
+    /// queue-mode path passes the 0 straight through. The two sizing
+    /// expressions therefore differ. This test pins the reason that divergence
+    /// is harmless: `push` evicts *before* it inserts, so capacity 0 retains
+    /// one sample just as capacity 1 does. A reordering of `push` to
+    /// insert-then-evict makes a zero-depth queue discard every sample, and
+    /// this test then fails.
     #[test]
     fn zero_capacity_retains_one_sample() {
         let q = BoundedQueue::new(0);
@@ -143,8 +144,8 @@ mod tests {
         assert!(q.is_empty());
     }
 
-    /// The capacity-1 comparison the doc claims equivalence against: same
-    /// retention, but no spurious drop report on the first push.
+    /// The capacity-1 case that the doc claims equivalence against. Retention
+    /// is the same. Capacity 1 reports no spurious drop on the first push.
     #[test]
     fn capacity_one_retains_one_sample_without_reporting_a_drop() {
         let q = BoundedQueue::new(1);

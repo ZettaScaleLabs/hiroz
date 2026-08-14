@@ -673,9 +673,9 @@ impl ZNode {
             callback(&payload);
         });
 
-        // Same rule as the typed path: only use zenoh-ext when the QoS asks for
-        // advanced features. Either way this callback is user (FFI) code, so it
-        // never runs on a thread that is inside a hiroz publish — see
+        // Same rule as the typed path: use zenoh-ext only when the QoS asks for
+        // advanced features. This callback is user (FFI) code on either arm. It
+        // therefore never runs on a thread that is inside a hiroz publish — see
         // `pubsub::CallbackDispatcher`.
         let subscriber = if qos_needs_advanced(&entity.qos) {
             let dispatcher = CallbackDispatcher::spawn(
