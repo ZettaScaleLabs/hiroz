@@ -136,8 +136,23 @@ def test-runtime [--require-ffi] {
             print $ffi_result.stderr
             exit 1
         }
+        # `go test` exits 0 for a package that has no test files. It prints
+        # `? <pkg> [no test files]` and reports success. A deleted test file, or
+        # one excluded by a build tag, would therefore pass this step having run
+        # nothing -- the same silent skip this flag exists to stop, reached by a
+        # different route. Count the run events instead of trusting the status.
+        let ran = ($ffi_result.stdout | lines | filter {|l| $l | str starts-with "=== RUN" } | length)
+        if $ran == 0 {
+            print $ffi_result.stdout
+            error make {
+                msg: ("hiroz FFI tests ran 0 tests. `go test` exits 0 when a package has no "
+                    + "test files, so this is a silent skip and not a pass. "
+                    + "Check that crates/hiroz-go/hiroz/*_test.go exist and no build tag "
+                    + "excludes them -- see issue #270.")
+            }
+        }
         print $ffi_result.stdout
-        log-success "hiroz FFI tests pass"
+        log-success $"hiroz FFI tests pass \(($ran) tests ran)"
         cd ../..
     } else if $require_ffi {
         # Only when the FFI tests were explicitly asked for -- which is what CI
