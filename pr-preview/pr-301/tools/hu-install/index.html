@@ -1548,10 +1548,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-release-host-needs-a-credential" class="md-nav__link">
+  <a href="#credentials" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The release host needs a credential
+        Credentials
       
     </span>
   </a>
@@ -2440,10 +2440,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-release-host-needs-a-credential" class="md-nav__link">
+  <a href="#credentials" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The release host needs a credential
+        Credentials
       
     </span>
   </a>
@@ -2566,6 +2566,7 @@
 </ul>
 <p>Everything here works with no ROS 2 install. <code>hu</code> only needs to reach a Zenoh router.</p>
 <h2 id="quickest-path">Quickest path<a class="headerlink" href="#quickest-path" title="Permanent link">&para;</a></h2>
+<!-- repro: skip <release-base> is a placeholder; needs a published release and network access to it -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>&lt;release-base&gt;/install-hu.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="nv">HU_VERSION</span><span class="o">=</span><span class="m">0</span>.1.0<span class="w"> </span>sh
 </span></code></pre></div>
 <p>That downloads the binary and the plugins, verifies both against <code>SHA256SUMS</code>, installs <code>hu</code> to <code>~/.local/bin/</code> and the plugins to <code>~/.local/share/hu/plugins/</code>.</p>
@@ -2576,28 +2577,33 @@
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>hu<span class="w"> </span>plugin<span class="w"> </span>list
 </span></code></pre></div>
 <p><code>hu plugin list</code> must show <code>meter</code> and <code>monitor</code>. If it is empty, the plugins did not install and every <code>hu meter</code> / <code>hu monitor</code> command will fail.</p>
-<h2 id="the-release-host-needs-a-credential">The release host needs a credential<a class="headerlink" href="#the-release-host-needs-a-credential" title="Permanent link">&para;</a></h2>
-<p>The release host is private. The installer looks for a token in this order and <strong>never</strong> carries one of its own:</p>
+<h2 id="credentials">Credentials<a class="headerlink" href="#credentials" title="Permanent link">&para;</a></h2>
+<p>Whether you need a token depends on the release host, so the installer does not decide for you. It looks for one in this order and <strong>never</strong> carries one of its own:</p>
 <ol>
 <li><code>$FORGEJO_TOKEN</code></li>
 <li>the <code>token:</code> field of <code>~/.config/tea/config.yml</code></li>
 </ol>
-<p>If neither is present it stops and tells you so, rather than downloading an error page and installing it as a binary.</p>
+<p>If it finds one it sends it with every download. If it finds none it proceeds without one — a public release host needs no credential, and refusing up front would block installing from, say, a public GitHub release that anyone can <code>curl</code>.</p>
+<p>A missing credential therefore surfaces as a failed download, not as an early refusal, because that is the first point at which the host's requirement is actually known. The failure message names both places to put a token. Nothing is ever installed from an error page: <code>curl --fail</code> makes an HTTP error an error, so a 401 or a 404 body is never written to disk and never unpacked.</p>
 <p>If you have no account, use the offline path below — it needs no network and no credential.</p>
 <h2 id="offline-install">Offline install<a class="headerlink" href="#offline-install" title="Permanent link">&para;</a></h2>
 <p>Someone hands you the release files; you install from a directory:</p>
+<!-- repro: skip needs ./hu-release, a directory of release files the reader supplies -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>install-hu.sh<span class="w"> </span>--offline<span class="w"> </span>./hu-release
 </span></code></pre></div>
 <p>The directory needs at least <code>SHA256SUMS</code> and the binary tarball for your platform. Include <code>hu-plugins-&lt;ver&gt;.tar.gz</code> to get <code>meter</code> and <code>monitor</code> too. Checksums are still enforced — a file with no entry in <code>SHA256SUMS</code> is refused, because an unlisted file is exactly what a substituted file looks like.</p>
 <h2 id="manual-install">Manual install<a class="headerlink" href="#manual-install" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>hu-0.1.0-x86_64-unknown-linux-gnu.tar.gz
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>install<span class="w"> </span>-Dm755<span class="w"> </span>hu<span class="w"> </span>~/.local/bin/hu
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>~/.local/share/hu/plugins
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>hu-plugins-0.1.0.tar.gz<span class="w"> </span>-C<span class="w"> </span>~/.local/share/hu/plugins
+<p>Verify the download first. <code>sha256sum -c</code> exits non-zero on a mismatch, so stop here if it does — do not extract a file that failed this check:</p>
+<!-- repro: skip needs the release tarballs and their SHA256SUMS already downloaded -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sha256sum<span class="w"> </span>-c<span class="w"> </span>SHA256SUMS
 </span></code></pre></div>
-<p>Verify the download first:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sha256sum<span class="w"> </span>-c<span class="w"> </span>SHA256SUMS
+<p>Then extract and install:</p>
+<!-- repro: skip needs the release tarballs already downloaded and verified -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>hu-0.1.0-x86_64-unknown-linux-gnu.tar.gz
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>install<span class="w"> </span>-Dm755<span class="w"> </span>hu<span class="w"> </span>~/.local/bin/hu
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>~/.local/share/hu/plugins
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>hu-plugins-0.1.0.tar.gz<span class="w"> </span>-C<span class="w"> </span>~/.local/share/hu/plugins
 </span></code></pre></div>
 <h2 id="installing-plugins-individually">Installing plugins individually<a class="headerlink" href="#installing-plugins-individually" title="Permanent link">&para;</a></h2>
 <p><code>hu plugin install</code> accepts a local file, a URL, or a name from a release index:</p>
@@ -2625,6 +2631,7 @@
 </span></code></pre></div>
 <p><code>$HU_PLUGIN_PATH</code> is searched before <code>~/.local/share/hu/plugins/</code>, so a development build shadows an installed one of the same name. <code>hu plugin list</code> shows the path each plugin was loaded from, plus a <code>SOURCE</code> column — <code>unmanaged</code> means it was not installed by <code>hu plugin install</code>.</p>
 <h2 id="uninstalling">Uninstalling<a class="headerlink" href="#uninstalling" title="Permanent link">&para;</a></h2>
+<!-- repro: skip removes the installed hu the rest of this suite runs against -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>rm<span class="w"> </span>~/.local/bin/hu
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>rm<span class="w"> </span>-rf<span class="w"> </span>~/.local/share/hu
 </span></code></pre></div>
