@@ -110,14 +110,17 @@ jobs:
           NU_VERSION=0.102.0
           ARCH=$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')
           NU_TARBALL="nu-${NU_VERSION}-${ARCH}-unknown-linux-gnu"
-          # Download to a file rather than piping into tar. A piped curl reports
-          # a network failure as `gzip: stdin: unexpected end of file` and the
-          # step's exit code comes from tar, so a dropped connection reads as a
-          # corrupt archive. Observed on a jazzy leg: `curl: (56) Connection
-          # died` produced `tar: Error is not recoverable` and exit 2.
+          # Download to a file. Do not pipe into tar.
           #
-          # --retry alone does not cover connection resets mid-transfer;
-          # --retry-all-errors does.
+          # A piped curl reports a network failure as `gzip: stdin: unexpected
+          # end of file`. The step then takes its exit code from tar. A dropped
+          # connection therefore reads as a corrupt archive.
+          #
+          # A jazzy leg showed this. `curl: (56) Connection died` produced
+          # `tar: Error is not recoverable` and exit 2.
+          #
+          # `--retry` alone does not cover a connection reset mid-transfer.
+          # `--retry-all-errors` does.
           curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
             -o nu.tar.gz \
             "https://github.com/nushell/nushell/releases/download/${NU_VERSION}/${NU_TARBALL}.tar.gz"
@@ -126,17 +129,19 @@ jobs:
 
       - name: Install ROS dependencies
         run: |
-          # `ros-<distro>-rclcpp` is named explicitly so apt upgrades the copy
+          # Name `ros-<distro>-rclcpp` explicitly. apt then upgrades the copy
           # baked into the image. Every other package here comes from the
-          # repository; if the image is stale, those two disagree on ABI.
+          # repository. If the image is stale, the two disagree on ABI.
           #
-          # Not hypothetical: `ros:lyrical-ros-base` shipped rclcpp 32.0.0
-          # (built 2026-06-06) while the repository served 32.0.2 (2026-07-30,
-          # the same build date as demo-nodes-cpp 0.37.9). `ExecutorOptions`
-          # holds a pimpl and is stack-allocated in demo_nodes_cpp's
-          # `send_request`, so the layout mismatch made ~ExecutorOptions() free
-          # a stack address — glibc reported "double free or corruption (out)"
-          # and the client aborted (#303). Verified both directions.
+          # This is not hypothetical. `ros:lyrical-ros-base` shipped rclcpp
+          # 32.0.0, built 2026-06-06. The repository served 32.0.2, built
+          # 2026-07-30. That is the same day as demo-nodes-cpp 0.37.9.
+          #
+          # `ExecutorOptions` holds a pimpl. demo_nodes_cpp allocates one on
+          # the stack in `send_request`. The layout mismatch therefore made
+          # ~ExecutorOptions() free a stack address. glibc reported
+          # "double free or corruption (out)" and the client aborted. See #303.
+          # Verified in both directions.
           apt-get install -y \
             ros-${{ matrix.distro }}-rclcpp \
             ros-${{ matrix.distro }}-example-interfaces \
@@ -148,27 +153,33 @@ jobs:
             ros-${{ matrix.distro }}-nav-msgs \
             protobuf-compiler
 
-      # An interop run tests hiroz against a specific set of ROS binaries, and
-      # nothing recorded which. When the lyrical leg started failing (#303) the
-      # first question — "what changed?" — was unanswerable from the logs, and
-      # re-running a job replaces its log, so the last-known-good run's inputs
-      # were already gone by the time anyone looked.
+      # An interop run tests hiroz against a specific set of ROS binaries.
+      # Nothing recorded which ones.
       #
-      # Recording them costs a second and makes any two runs comparable. It also
-      # ruled out three hypotheses in #303 that would otherwise have needed a
-      # guess: the image, the ROS package builds, and the C runtime.
+      # When the lyrical leg started to fail, the logs could not answer the
+      # first question: what changed? A re-run replaces the job's log. The
+      # inputs of the last good run had therefore already gone. See #303.
+      #
+      # Recording them costs a second. It makes any two runs comparable. It
+      # also ruled out three hypotheses in #303:
+      #   - the container image
+      #   - the ROS package builds
+      #   - the C runtime
       - name: Record what this run tests against
         run: |
           echo "::group::Environment under test"
           echo "distro: ${{ matrix.distro }}"
           echo "image:  ${{ matrix.image }}   (floating tag — see versions below)"
           grep -E '^(NAME|VERSION)=' /etc/os-release || true
-          # The core libraries come first, and they are the point: the four
-          # application packages below are installed from the repository on every
-          # run, so they always read as current. Only the core libraries carry
-          # the image-vs-repository skew that caused #303, and printing the
-          # application packages alone would report "nothing changed" for exactly
-          # the failure this step exists to explain.
+          # The core libraries come first. They are the point.
+          #
+          # apt installs the four application packages below from the
+          # repository on every run. Those packages therefore always read as
+          # current. Only the core libraries carry the image-versus-repository
+          # skew that caused #303.
+          #
+          # A list of the application packages alone would report "nothing
+          # changed" for the exact failure this step must explain.
           echo "--- ROS core libraries (where image/repo skew shows up) ---"
           dpkg-query -W -f='${Package} ${Version}\n' \
             "ros-${{ matrix.distro }}-rclcpp" \
