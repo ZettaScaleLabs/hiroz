@@ -199,14 +199,24 @@ fn test_hiroz_talker_to_rcl_listener() {
 
     talker_handle.join().expect("Talker thread panicked");
 
-    // Give some time for RCL listener to process
-    wait_for_ready(Duration::from_secs(1));
-
+    // Poll for the listener's output on a deadline rather than sampling once
+    // after a fixed sleep. The talker publishes a finite burst of 10 messages
+    // over ~900ms, so a single sample races CI-load stalls. The reverse
+    // direction (`test_rcl_talker_to_hiroz_listener`) documents the same hazard
+    // and solves it the same way.
+    //
     // Assert the C++ listener actually received. Without this the test passes
     // whether or not the listener works at all -- it could crash on the first
     // sample and nothing here would notice. The listener never exits on its
     // own, so read what it has printed so far rather than waiting for EOF.
-    let heard = listener_output.snapshot();
+    let heard_deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let heard = loop {
+        let snap = listener_output.snapshot();
+        if snap.contains("I heard") || std::time::Instant::now() >= heard_deadline {
+            break snap;
+        }
+        thread::sleep(Duration::from_millis(200));
+    };
     assert!(
         heard.contains("I heard"),
         "the C++ listener printed no `I heard` line, so it received nothing from the hiroz \
@@ -438,10 +448,18 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
     // Require success, not just exit: an instantly-failing `ros2 run` (missing
     // verb, bad args) also exits within 30s and would false-pass.
     match client_status {
-        None => panic!(
-            "RCL add_two_ints client did not exit within 30s (likely failed to discover the hiroz server)\n{}",
-            client_output.finish()
-        ),
+        None => {
+            // Kill the child before rendering. `finish()` joins the reader
+            // threads, and they block on the open pipes until the child exits.
+            // In this branch the child provably has not exited, so calling
+            // `finish()` first would hang until nextest's kill and print
+            // nothing -- the exact failure this capture exists to prevent.
+            drop(client_guard);
+            panic!(
+                "RCL add_two_ints client did not exit within 30s (likely failed to discover the hiroz server)\n{}",
+                client_output.finish()
+            )
+        }
         Some(status) if !status.success() => {
             panic!(
                 "RCL add_two_ints client exited with failure status {status:?}\n{}",
@@ -576,7 +594,12 @@ fn test_hiroz_fibonacci_action_server_to_rcl_client() {
     // to succeed. Previously this test slept and then declared success without
     // looking at the client at all: it passed whether the client completed the
     // action, crashed, or never started.
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    // Bound the wait by the server's own lifetime, not by a round number. The
+    // server above runs for 10s and the client starts ~2s into that, so a client
+    // that has not succeeded by then never will -- the server is gone. A longer
+    // deadline would only delay the report.
+    const CLIENT_BUDGET: Duration = Duration::from_secs(15);
+    let deadline = std::time::Instant::now() + CLIENT_BUDGET;
     let client_status = loop {
         let child = client_guard
             .child
@@ -592,10 +615,16 @@ fn test_hiroz_fibonacci_action_server_to_rcl_client() {
     };
 
     match client_status {
-        None => panic!(
-            "RCL fibonacci action client did not exit within 30s\n{}",
-            client_output.finish()
-        ),
+        None => {
+            // Kill the child before rendering -- see the same branch in
+            // `test_hiroz_add_two_ints_server_to_rcl_client` for why.
+            drop(client_guard);
+            panic!(
+                "RCL fibonacci action client did not exit within {}s\n{}",
+                CLIENT_BUDGET.as_secs(),
+                client_output.finish()
+            )
+        }
         Some(status) if !status.success() => panic!(
             "RCL fibonacci action client exited with failure status {status:?}\n{}",
             client_output.finish()
