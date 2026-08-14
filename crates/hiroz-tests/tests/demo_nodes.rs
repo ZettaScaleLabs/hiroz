@@ -438,6 +438,9 @@ fn test_hiroz_add_two_ints_server_to_rcl_client() {
             .as_mut()
             .expect("client child owned by guard");
         if let Some(status) = child.try_wait().expect("Failed to poll RCL client") {
+            // Reaped: take it out of the guard so `Drop` cannot signal a PID the
+            // OS may have recycled. See the action test for the same reasoning.
+            client_guard.child.take();
             break Some(status);
         }
         if std::time::Instant::now() >= client_deadline {
@@ -606,6 +609,11 @@ fn test_hiroz_fibonacci_action_server_to_rcl_client() {
             .as_mut()
             .expect("client child owned by guard");
         if let Some(status) = child.try_wait().expect("Failed to poll RCL action client") {
+            // The child is reaped, so its PID is free for the OS to reuse. Take
+            // it out of the guard: `ProcessGuard::drop` signals the process
+            // group by negative PID, and that runs only after the 10s server
+            // thread joins below. By then the PGID may belong to something else.
+            client_guard.child.take();
             break Some(status);
         }
         if std::time::Instant::now() >= deadline {
@@ -631,6 +639,19 @@ fn test_hiroz_fibonacci_action_server_to_rcl_client() {
         ),
         Some(_) => {}
     }
+
+    // A zero exit status does not prove the client completed the action.
+    // `action_tutorials_cpp` calls `rclcpp::shutdown()` when its 10s
+    // `wait_for_action_server` expires, so the client exits 0 after printing
+    // "Action server not available after waiting" -- which is exactly the case
+    // this test exists to catch. Require the marker that only the result
+    // callback emits.
+    let client_out = client_output.finish();
+    assert!(
+        client_out.contains("Result received"),
+        "the C++ action client exited 0 but never reported a result, so it did not complete \
+         the action against the hiroz server. Captured output:\n{client_out}"
+    );
 
     // Stop the server
     server_handle.join().expect("Server thread panicked");
