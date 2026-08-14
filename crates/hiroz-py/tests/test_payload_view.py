@@ -165,22 +165,22 @@ class TestZPayloadView:
 class TestZPayloadViewNumpy:
     """Test that numpy can consume ZPayloadView without adding a copy.
 
-    numpy is a declared test dependency, so its absence is a failure rather
-    than a skip. These tests previously guarded with ``importorskip`` and
-    numpy was never installed, so both had *always* skipped. A permanently
-    skipped test is indistinguishable from a passing one in the summary line.
+    numpy is a declared test dependency. Its absence is a failure, not a skip.
+    These tests previously guarded with ``importorskip``. No job installed
+    numpy, so both tests had *always* skipped. The summary line shows a
+    permanently skipped test and a passing test in the same way.
 
-    Scope, precisely: ``arr.flags["OWNDATA"] is False`` proves numpy borrowed
-    the buffer ZPayloadView exported rather than copying it. It does *not*
-    prove the transport was zero-copy — ``ZPayloadView::new`` falls back to
-    ``PayloadBytes::Owned`` for a fragmented payload, and numpy borrows that
-    owned copy just as happily. ``test_payload_view_is_zero_copy`` asserts
+    Scope, precisely: ``arr.flags["OWNDATA"] is False`` proves that numpy
+    borrowed the buffer ZPayloadView exported. It does *not* prove that the
+    transport was zero-copy. ``ZPayloadView::new`` falls back to
+    ``PayloadBytes::Owned`` for a fragmented payload. numpy borrows that owned
+    copy in the same way. ``test_payload_view_is_zero_copy`` asserts
     ``payload.is_zero_copy_py``, which is the transport-level check.
     """
 
     @pytest.fixture(autouse=True)
     def check_numpy(self):
-        """Fail loudly if numpy is missing, rather than skipping silently."""
+        """Fail the test when numpy is missing. Do not skip silently."""
         try:
             import numpy  # noqa: F401
         except ImportError:  # pragma: no cover - env misconfiguration

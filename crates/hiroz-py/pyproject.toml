@@ -29,9 +29,9 @@ dependencies = [
 
 [project.optional-dependencies]
 # numpy backs the tests that prove it can consume ZPayloadView's exported
-# buffer without adding a copy. Declared here rather than installed
-# imperatively by the test script so that `pip install -e ".[test]"` is a
-# true instruction -- the tests' own failure message points at it.
+# buffer without adding a copy. This file declares numpy. The test script does
+# not install it imperatively. That keeps `pip install -e ".[test]"` a true
+# instruction, which is what the tests' own failure message points at.
 test = ["numpy>=1.21"]
 
 [tool.maturin]

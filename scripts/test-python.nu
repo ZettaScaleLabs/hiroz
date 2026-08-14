@@ -43,10 +43,10 @@ def setup-venv [] {
     print "  Installed hiroz-msgs-py (message types)"
 
     # Test-only dependency. `TestZPayloadViewNumpy` checks that numpy consumes
-    # ZPayloadView's exported buffer without adding a copy, and the venv is
-    # created with plain `python -m venv`, so it inherits nothing from the
-    # surrounding devShell. Without this the tests skip and the suite still
-    # reports success -- see #266.
+    # ZPayloadView's exported buffer without adding a copy. Plain `python -m
+    # venv` creates this venv, so it inherits no package from the surrounding
+    # devShell. Without this install the tests skip. The suite then still
+    # reports success. See #266.
     run-cmd "cd crates/hiroz-py; source .venv/bin/activate && pip install -e '.[test]'" --shell bash --distro (get-distro)
     print "  Installed the test extra (numpy, for the zero-copy assertions)"
 
