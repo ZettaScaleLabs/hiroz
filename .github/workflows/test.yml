@@ -131,17 +131,12 @@ jobs:
         run: |
           # Name `ros-<distro>-rclcpp` explicitly. apt then upgrades the copy
           # baked into the image. Every other package here comes from the
-          # repository. If the image is stale, the two disagree on ABI.
+          # repository. If the image is stale, the two disagree on ABI. The
+          # mismatch then corrupts memory instead of failing to link.
           #
-          # This is not hypothetical. `ros:lyrical-ros-base` shipped rclcpp
-          # 32.0.0, built 2026-06-06. The repository served 32.0.2, built
-          # 2026-07-30. That is the same day as demo-nodes-cpp 0.37.9.
-          #
-          # `ExecutorOptions` holds a pimpl. demo_nodes_cpp allocates one on
-          # the stack in `send_request`. The layout mismatch therefore made
-          # ~ExecutorOptions() free a stack address. glibc reported
-          # "double free or corruption (out)" and the client aborted. See #303.
-          # Verified in both directions.
+          # #303 carries the diagnosis: the version pair, the valgrind trace and
+          # the hypotheses it ruled out. Keep them there. A version number in a
+          # comment goes stale, and a stale comment is worse than none.
           apt-get install -y \
             ros-${{ matrix.distro }}-rclcpp \
             ros-${{ matrix.distro }}-example-interfaces \
@@ -161,10 +156,7 @@ jobs:
       # inputs of the last good run had therefore already gone. See #303.
       #
       # Recording them costs a second. It makes any two runs comparable. It
-      # also ruled out three hypotheses in #303:
-      #   - the container image
-      #   - the ROS package builds
-      #   - the C runtime
+      # also ruled out three hypotheses in #303.
       - name: Record what this run tests against
         run: |
           echo "::group::Environment under test"
