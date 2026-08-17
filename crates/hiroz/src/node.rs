@@ -642,8 +642,8 @@ impl ZNode {
         use crate::{
             entity::{EndpointEntity, EndpointKind},
             pubsub::{
-                CallbackDispatcher, SubscriberHandle,
-                apply_transient_local_sub, dispatch_capacity, qos_needs_advanced,
+                CallbackDispatcher, SubscriberHandle, apply_transient_local_sub, dispatch_capacity,
+                qos_needs_advanced,
             },
             topic_name,
         };
