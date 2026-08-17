@@ -157,6 +157,16 @@ struct DispatchState {
 struct DispatchQueue {
     state: Mutex<DispatchState>,
     ready: std::sync::Condvar,
+    /// Set by the drain thread as its last action, once the drain loop has
+    /// exited and the final user callback has returned.
+    ///
+    /// [`CallbackDispatcher::close`] waits on this rather than on
+    /// [`std::thread::JoinHandle::join`], because `join` has no timed form on
+    /// stable Rust and `close` must honour a deadline. It lives in its own
+    /// mutex so that a waiting `close` never contends with delivery.
+    finished: Mutex<bool>,
+    /// Signalled with `finished`.
+    done: std::sync::Condvar,
     topic: String,
     /// Maximum number of undelivered samples the queue retains.
     /// [`DISPATCH_UNBOUNDED`] means lossless. Any smaller capacity drops the
@@ -441,6 +451,8 @@ impl CallbackDispatcher {
                 warn_dropped_at: 1,
             }),
             ready: std::sync::Condvar::new(),
+            finished: Mutex::new(false),
+            done: std::sync::Condvar::new(),
             topic: topic.to_string(),
             capacity,
         });
@@ -473,6 +485,17 @@ impl CallbackDispatcher {
                         );
                     }
                 }
+                // Last action of the thread. `close` waits for this. It is set
+                // even when the loop exits because the queue closed mid-flight,
+                // which is the case `close` exists to observe.
+                {
+                    let mut finished = drain_queue
+                        .finished
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    *finished = true;
+                }
+                drain_queue.done.notify_all();
             })
             .map_err(|e| {
                 zenoh::Error::from(format!("failed to spawn subscriber delivery thread: {e}"))
@@ -519,19 +542,115 @@ impl CallbackDispatcher {
     }
 }
 
+/// What [`CallbackDispatcher::close`], [`SubscriberHandle::close`] and
+/// [`ZSub::close`] observed. Branch on it; do not ignore it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseOutcome {
+    /// The drain thread exited before the deadline. No user callback from this
+    /// subscriber can still be running.
+    Joined,
+    /// The deadline expired first. The drain thread was **detached**, not
+    /// killed: a user callback from this subscriber may still be running, and
+    /// will run to completion. No further callback starts.
+    TimedOut,
+}
+
 impl Drop for CallbackDispatcher {
+    /// Stops delivery and returns at once. **It never joins the drain thread.**
+    ///
+    /// Dropping a subscriber guarantees that no *new* callback starts. It does
+    /// not guarantee that a callback already running has finished. Call
+    /// [`CallbackDispatcher::close`] (or [`ZSub::close`]) to wait for that.
+    ///
+    /// An earlier version joined here. That made `drop(sub)` block for the
+    /// whole of an in-flight callback, with no timeout and no log, and it made
+    /// every Python drop site depend on remembering `py.allow_threads` — the
+    /// callback body is `Python::with_gil`, so joining it while holding the GIL
+    /// waits for a thread that is waiting for the GIL. See
+    /// #296 (tag G2) for the decision.
+    ///
+    /// Detaching is not a new state. This type already detached when the caller
+    /// dropped the subscriber from inside its own callback, because joining a
+    /// thread from itself deadlocks. That special case is gone: it is now the
+    /// general rule, so it needs no separate branch.
+    ///
+    /// Detaching cannot be memory-unsafe. The handler is `Arc<F>` with
+    /// `F: Send + Sync + 'static` and the queue is an `Arc`, so the detached
+    /// thread borrows nothing from the dropping scope.
     fn drop(&mut self) {
+        self.queue.lock().closed = true;
+        self.queue.ready.notify_all();
+        // Dropping the `JoinHandle` detaches the thread. It does not stop the
+        // thread; it stops *waiting* for it. The thread observes `closed` on
+        // its next `dequeue` and exits.
+        drop(self.thread.take());
+    }
+}
+
+impl CallbackDispatcher {
+    /// Stops delivery and waits, for at most `deadline`, until the drain thread
+    /// has exited.
+    ///
+    /// This is the explicit barrier that [`Drop`] no longer provides. It
+    /// consumes the dispatcher, so it cannot be called twice.
+    ///
+    /// It **discards the undelivered backlog**, exactly as [`Drop`] does. This
+    /// is a teardown barrier, not a flush. Draining first would re-create the
+    /// unbounded teardown cost that [`DispatchQueue::dequeue`]'s
+    /// `closed`-before-`pending` order exists to remove.
+    ///
+    /// Returns [`CloseOutcome::Joined`] when the thread exited in time, and
+    /// [`CloseOutcome::TimedOut`] when it did not — in which case the thread is
+    /// detached and its in-flight callback runs to completion.
+    ///
+    /// Calling this from inside the subscriber's own callback returns
+    /// [`CloseOutcome::TimedOut`] immediately. That thread cannot finish while
+    /// it is waiting for itself, so there is nothing to wait for.
+    pub fn close(mut self, deadline: Duration) -> CloseOutcome {
         self.queue.lock().closed = true;
         self.queue.ready.notify_all();
 
         let Some(thread) = self.thread.take() else {
-            return;
+            return CloseOutcome::Joined;
         };
         if thread.thread().id() == std::thread::current().id() {
-            // The caller dropped the subscriber from inside its own callback.
-            // Joining this thread from itself would deadlock. The thread
-            // observes `closed` and exits once this callback returns.
-            return;
+            return CloseOutcome::TimedOut;
+        }
+
+        let start = std::time::Instant::now();
+        let mut finished = self
+            .queue
+            .finished
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        while !*finished {
+            let Some(remaining) = deadline.checked_sub(start.elapsed()) else {
+                break;
+            };
+            if remaining.is_zero() {
+                break;
+            }
+            let (guard, timed_out) = self
+                .queue
+                .done
+                .wait_timeout(finished, remaining)
+                .unwrap_or_else(|e| e.into_inner());
+            finished = guard;
+            if timed_out.timed_out() {
+                break;
+            }
+        }
+        let exited = *finished;
+        drop(finished);
+
+        if !exited {
+            warn!(
+                topic = %self.queue.topic,
+                ?deadline,
+                "subscriber delivery thread did not exit before the close deadline; \
+                 detaching it. Its in-flight callback will run to completion."
+            );
+            return CloseOutcome::TimedOut;
         }
         if thread.join().is_err() {
             warn!(
@@ -539,6 +658,7 @@ impl Drop for CallbackDispatcher {
                 "subscriber delivery thread terminated abnormally"
             );
         }
+        CloseOutcome::Joined
     }
 }
 
@@ -582,7 +702,7 @@ pub enum SubscriberHandle {
         /// Rust drops struct fields in declaration order, so this order is a
         /// proof obligation rather than a style choice. See the same field on
         /// [`SubscriberHandle::Advanced`] for why the undeclare must precede
-        /// the join.
+        /// the dispatcher's teardown.
         subscriber: zenoh::pubsub::Subscriber<()>,
         dispatcher: Option<CallbackDispatcher>,
     },
@@ -599,7 +719,7 @@ pub enum SubscriberHandle {
         /// This field comes first in the declaration so that it drops first.
         /// Undeclaring the
         /// subscriber stops new samples from entering the queue. Only then does
-        /// the dispatcher discard its backlog and join its thread.
+        /// the dispatcher discard its backlog and release its thread.
         ///
         /// Rust drops struct fields in declaration order, so this order is a
         /// proof obligation rather than a style choice. The guarantee is weaker
@@ -609,6 +729,38 @@ pub enum SubscriberHandle {
         subscriber: Box<AdvancedSubscriber<()>>,
         dispatcher: Option<CallbackDispatcher>,
     },
+}
+
+impl SubscriberHandle {
+    /// Undeclares the zenoh subscriber, then waits for at most `deadline` for
+    /// the dispatcher's drain thread to exit. See [`CallbackDispatcher::close`].
+    ///
+    /// A queue-mode subscriber has no dispatcher and runs no user code on the
+    /// delivery thread, so it reports [`CloseOutcome::Joined`] at once.
+    pub fn close(self, deadline: Duration) -> CloseOutcome {
+        // Undeclare first, for the same reason the field order does it: no new
+        // sample should enter a queue that is about to be discarded.
+        let dispatcher = match self {
+            Self::Plain {
+                subscriber,
+                dispatcher,
+            } => {
+                drop(subscriber);
+                dispatcher
+            }
+            Self::Advanced {
+                subscriber,
+                dispatcher,
+            } => {
+                drop(subscriber);
+                dispatcher
+            }
+        };
+        match dispatcher {
+            Some(dispatcher) => dispatcher.close(deadline),
+            None => CloseOutcome::Joined,
+        }
+    }
 }
 
 impl std::fmt::Debug for SubscriberHandle {
@@ -1567,18 +1719,22 @@ where
     /// pattern), so Python/Go callers do not need to assign the return value.
     /// Rust callers must store the `ZSub` in their node or context.
     ///
-    /// # Dropping blocks on an in-flight callback
+    /// # Dropping is not a barrier
     ///
-    /// A callback subscriber owns a drain thread. Dropping the `ZSub` joins that
-    /// thread, and the thread may be inside your callback. **Dropping therefore
-    /// blocks for as long as your callback runs, with no timeout.**
+    /// **Dropping a subscriber guarantees that no *new* callback starts. It does
+    /// not guarantee that a callback already running has finished.** The drop
+    /// returns at once: it closes the queue, discards the undelivered backlog
+    /// and detaches the drain thread.
     ///
-    /// Do not drop a callback subscriber while holding a lock, a GIL or a channel
-    /// that its callback also takes. The drop waits for the callback, and the
-    /// callback waits for the lock. Neither returns.
+    /// A callback that was already running therefore runs to completion, and may
+    /// still be running after `drop(sub)` returns. Do not assume that dropping
+    /// the subscriber releases a resource your callback captured.
     ///
-    /// Dropping from inside the callback itself is safe. The drain thread detaches
-    /// rather than joining itself.
+    /// Call [`ZSub::close`] when you need the barrier. It waits, with a deadline
+    /// you choose, and tells you whether the thread exited or was detached.
+    ///
+    /// Dropping from inside the callback itself is safe, and needs no special
+    /// case: the drop never waits for anything.
     ///
     /// # Arguments
     ///
@@ -1675,6 +1831,35 @@ pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     /// Expected encoding for validation.
     pub expected_encoding: Option<crate::encoding::Encoding>,
     _phantom_data: PhantomData<(T, Q, S)>,
+}
+
+impl<T: ZMessage, Q, S: ZDeserializer> ZSub<T, Q, S> {
+    /// Tears the subscriber down and waits, for at most `deadline`, until no
+    /// callback of this subscriber is still running.
+    ///
+    /// Use this when you need a barrier. Plain `drop` gives you none: it
+    /// guarantees that no *new* callback starts, and returns without waiting
+    /// for one that is already running.
+    ///
+    /// This **discards the undelivered backlog**, exactly as `drop` does. It is
+    /// a teardown barrier, not a flush.
+    ///
+    /// ```text
+    /// match sub.close(Duration::from_secs(5)) {
+    ///     CloseOutcome::Joined   => // nothing of mine is still running
+    ///     CloseOutcome::TimedOut => // a callback is still running; it was detached
+    /// }
+    /// ```
+    pub fn close(self, deadline: Duration) -> CloseOutcome {
+        let ZSub {
+            _inner, _lv_token, ..
+        } = self;
+        let outcome = _inner.close(deadline);
+        // Same order the field declarations impose on `drop`: the subscriber
+        // goes away, then the liveliness token leaves the ROS graph.
+        drop(_lv_token);
+        outcome
+    }
 }
 
 impl<T: ZMessage, Q, S: ZDeserializer> std::fmt::Debug for ZSub<T, Q, S> {
@@ -1937,6 +2122,213 @@ mod tests {
     // `SubscriberHandle::Plain` -- because `ZSub` holds its handle privately.
     // That gap is #296's first item.
     // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // D1 -- the teardown contract (#296, tag G2)
+    //
+    // The contract: `Drop` sets `closed`, notifies, and NEVER joins. It returns
+    // at once. `close(deadline)` gives the caller the barrier when they want it,
+    // and reports which of the two things happened.
+    //
+    // `ci/revert-d1.patch` restores the join in `Drop`. Under that revert
+    // `drop_returns_while_a_callback_is_still_running` must fail. Every wait
+    // below has its own deadline, so the reverted run fails rather than hangs.
+    // -----------------------------------------------------------------------
+
+    /// A one-shot latch the test controls. `wait_for` returns whether the latch
+    /// was set before the deadline, so a failing run reports rather than hangs.
+    struct Latch {
+        set: Mutex<bool>,
+        cv: std::sync::Condvar,
+    }
+
+    impl Latch {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                set: Mutex::new(false),
+                cv: std::sync::Condvar::new(),
+            })
+        }
+
+        fn set(&self) {
+            *self.set.lock().unwrap() = true;
+            self.cv.notify_all();
+        }
+
+        fn wait_for(&self, deadline: Duration) -> bool {
+            let start = std::time::Instant::now();
+            let mut set = self.set.lock().unwrap();
+            while !*set {
+                let Some(remaining) = deadline.checked_sub(start.elapsed()) else {
+                    break;
+                };
+                if remaining.is_zero() {
+                    break;
+                }
+                let (guard, res) = self.cv.wait_timeout(set, remaining).unwrap();
+                set = guard;
+                if res.timed_out() {
+                    break;
+                }
+            }
+            *set
+        }
+    }
+
+    /// Long enough that a genuinely blocking teardown cannot pass by luck,
+    /// short enough that a red run reports quickly.
+    const D1_SHORT: Duration = Duration::from_secs(5);
+    /// The upper bound on a parked callback. Only a red run ever waits this
+    /// long, and only to clean up after the assertion has already been made.
+    const D1_LONG: Duration = Duration::from_secs(60);
+
+    fn d1_sample() -> Sample {
+        zenoh::sample::SampleBuilder::put(
+            zenoh::key_expr::KeyExpr::try_from("hiroz/test/d1").unwrap(),
+            vec![0u8],
+        )
+        .into()
+    }
+
+    /// Spawns a dispatcher whose callback parks on `release` until the test
+    /// lets it go, and signals `entered` as it starts. Returns the dispatcher
+    /// with one sample already enqueued and its callback confirmed running.
+    fn d1_parked_dispatcher(
+        entered: &Arc<Latch>,
+        release: &Arc<Latch>,
+        calls: &Arc<AtomicUsize>,
+    ) -> CallbackDispatcher {
+        let (e, r, c) = (entered.clone(), release.clone(), calls.clone());
+        let handler = Arc::new(move |_sample: Sample| {
+            c.fetch_add(1, Ordering::SeqCst);
+            e.set();
+            assert!(
+                r.wait_for(D1_LONG),
+                "the parked callback was never released; the test leaked a thread"
+            );
+        });
+        let dispatcher = CallbackDispatcher::spawn("/d1", handler, 8).unwrap();
+        let shim = dispatcher.always_shim();
+        shim(d1_sample());
+        assert!(
+            entered.wait_for(D1_SHORT),
+            "the callback never started, so the teardown assertion would be vacuous"
+        );
+        dispatcher
+    }
+
+    #[test]
+    fn drop_returns_while_a_callback_is_still_running() {
+        let entered = Latch::new();
+        let release = Latch::new();
+        let dropped = Latch::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        let dispatcher = d1_parked_dispatcher(&entered, &release, &calls);
+
+        // Drop from another thread, so this thread can time the drop while the
+        // callback is still parked.
+        let dropped_signal = dropped.clone();
+        let dropper = std::thread::spawn(move || {
+            drop(dispatcher);
+            dropped_signal.set();
+        });
+
+        let returned = dropped.wait_for(D1_SHORT);
+        // Release before asserting: a failing run must still terminate.
+        release.set();
+        dropper.join().unwrap();
+
+        assert!(
+            returned,
+            "drop(dispatcher) did not return within {D1_SHORT:?} while a callback was \
+             still running. Dropping a subscriber must stop new callbacks, not wait \
+             for the in-flight one -- see #296 (tag G2)."
+        );
+    }
+
+    #[test]
+    fn close_waits_for_an_in_flight_callback() {
+        let entered = Latch::new();
+        let release = Latch::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        let dispatcher = d1_parked_dispatcher(&entered, &release, &calls);
+
+        let releaser = {
+            let release = release.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(200));
+                release.set();
+            })
+        };
+
+        let outcome = dispatcher.close(D1_SHORT);
+        releaser.join().unwrap();
+
+        assert_eq!(
+            outcome,
+            CloseOutcome::Joined,
+            "close() must report that it joined when the callback finishes in time"
+        );
+    }
+
+    #[test]
+    fn close_reports_a_timeout_rather_than_blocking_forever() {
+        let entered = Latch::new();
+        let release = Latch::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        let dispatcher = d1_parked_dispatcher(&entered, &release, &calls);
+
+        let start = std::time::Instant::now();
+        let outcome = dispatcher.close(Duration::from_millis(300));
+        let waited = start.elapsed();
+        release.set();
+
+        assert_eq!(
+            outcome,
+            CloseOutcome::TimedOut,
+            "a callback that outlives the deadline must be reported, not waited on"
+        );
+        assert!(
+            waited < D1_SHORT,
+            "close() waited {waited:?}, far past its 300ms deadline"
+        );
+    }
+
+    #[test]
+    fn close_discards_the_backlog_rather_than_flushing_it() {
+        let entered = Latch::new();
+        let release = Latch::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        let dispatcher = d1_parked_dispatcher(&entered, &release, &calls);
+
+        // Three more samples queue up behind the parked callback.
+        let shim = dispatcher.always_shim();
+        for _ in 0..3 {
+            shim(d1_sample());
+        }
+
+        let releaser = {
+            let release = release.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(200));
+                release.set();
+            })
+        };
+        let outcome = dispatcher.close(D1_SHORT);
+        releaser.join().unwrap();
+
+        assert_eq!(outcome, CloseOutcome::Joined);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "close() is a teardown barrier, not a flush: the three queued samples \
+             must be discarded, exactly as drop discards them"
+        );
+    }
 
     #[test]
     fn volatile_does_not_need_an_advanced_subscriber() {
