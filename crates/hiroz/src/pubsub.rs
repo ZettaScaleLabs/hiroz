@@ -532,11 +532,33 @@ impl CallbackDispatcher {
         F: Fn(Sample) + Send + Sync + 'static,
     {
         let queue = self.queue.clone();
+        let topic = self.queue.topic.clone();
         move |sample: Sample| {
             if local_publish_active() {
                 queue.enqueue(sample);
             } else {
-                handler(sample);
+                // The inline branch runs on a zenoh RX worker, so it needs the
+                // same guard the drain loop has. Without one, a panicking
+                // callback unwinds out of hiroz and into zenoh's receive path.
+                //
+                // This is the DEFAULT profile, which is what makes it matter:
+                // `qos_needs_advanced` is true only for `TransientLocal`, and
+                // the ROS 2 default is `Volatile`. Guarding only the drain
+                // thread therefore left every remote sample on the common path
+                // unguarded -- the half that carries inter-process traffic.
+                //
+                // The `panic = "abort"` caveat on the drain loop's guard
+                // applies here identically: a build that opts into aborting on
+                // a panic has opted out of surviving one.
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(sample)))
+                    .is_err()
+                {
+                    tracing::error!(
+                        topic = %topic,
+                        "subscriber callback panicked on the inline path; dropping the \
+                         sample and continuing"
+                    );
+                }
             }
         }
     }
