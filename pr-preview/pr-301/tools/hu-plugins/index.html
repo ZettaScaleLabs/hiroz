@@ -3049,6 +3049,7 @@
 <p>Then <code>cargo build --release</code> builds the component with no flags (after a one-time <code>rustup target add wasm32-wasip2</code>).</p>
 <h3 id="5-install">5. Install<a class="headerlink" href="#5-install" title="Permanent link">&para;</a></h3>
 <p>Name the file <code>&lt;subcommand&gt;.wasm</code> — <code>hu</code> strips any <code>hu-</code> prefix when discovering plugins, so <code>hu-meter.wasm</code> registers as <code>meter</code> and is invoked by <code>hu meter &lt;args&gt;</code>.</p>
+<!-- repro: skip authoring walkthrough; my_hu_plugin.wasm is the plugin the reader has just written -->
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>~/.local/share/hu/plugins
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>cp<span class="w"> </span>target/wasm32-wasip2/release/my_hu_plugin.wasm<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">   </span>~/.local/share/hu/plugins/my-plugin.wasm
