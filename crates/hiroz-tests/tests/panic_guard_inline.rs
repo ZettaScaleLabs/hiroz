@@ -151,12 +151,18 @@ fn deliver_remote(endpoint: &str, topic: &str, panic_at: Option<u64>) -> Observe
             c_seen.lock().expect("seen poisoned").insert(msg.counter);
             c_recv.fetch_add(1, Ordering::Relaxed);
             if panic_at == Some(msg.counter) {
-                panic!("deliberate panic in a subscriber callback, counter={}", msg.counter);
+                panic!(
+                    "deliberate panic in a subscriber callback, counter={}",
+                    msg.counter
+                );
             }
         })
         .expect("subscriber");
 
-    let zpub = pub_node.create_pub::<Seq>(topic).build().expect("publisher");
+    let zpub = pub_node
+        .create_pub::<Seq>(topic)
+        .build()
+        .expect("publisher");
 
     // Let discovery settle so the first samples are not lost to a race. A lost
     // early sample would weaken the "delivery started" half of the assertion.
