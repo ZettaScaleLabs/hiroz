@@ -38,6 +38,7 @@ use std::{
 use common::{TestRouter, create_hiroz_context_with_endpoint};
 use hiroz::{
     Builder, TypeHash,
+    pubsub::CloseOutcome,
     qos::{QosDurability, QosProfile},
     ros_msg::MessageTypeInfo,
 };
@@ -701,7 +702,13 @@ fn transient_local_delivery_preserves_order() {
     });
 }
 
-/// Dropping the subscriber must shut the delivery thread down — no leak, no hang.
+/// `close(deadline)` must shut the delivery thread down — no leak, no hang.
+///
+/// `Drop` alone no longer does this. It guarantees that no *new* callback
+/// starts, not that a running one has finished, so the thread winds down
+/// asynchronously and this assertion would race. `close` is the barrier, and
+/// this test is the migration BC5 asks callers who relied on the old behaviour
+/// to make.
 ///
 /// The sentinel is owned by the user callback, which the delivery thread owns in
 /// turn, so its `Drop` firing proves the thread actually exited and released the
@@ -759,12 +766,18 @@ fn transient_local_subscriber_drop_shuts_down_delivery_thread() {
             "callback was dropped while the subscriber was still alive"
         );
 
-        // If `Drop` deadlocked or the join hung, the deadline guard fails the test.
-        drop(sub);
+        // `close` is the barrier; `Drop` is not. If it hung, the deadline guard
+        // fails the test.
+        let outcome = sub.close(Duration::from_secs(5));
+        assert_eq!(
+            outcome,
+            CloseOutcome::Joined,
+            "close() timed out: the drain thread did not exit within the deadline"
+        );
 
         assert!(
             callback_dropped.load(Ordering::SeqCst),
-            "subscriber dropped without shutting down its delivery thread — \
+            "close() reported Joined but the callback was never dropped — \
              the thread is leaked"
         );
     });
@@ -772,9 +785,12 @@ fn transient_local_subscriber_drop_shuts_down_delivery_thread() {
 
 /// Dropping the subscriber *from inside its own callback* must not deadlock.
 ///
-/// That drop runs on the delivery thread itself, so joining the thread would be
-/// a self-join. The dispatcher detects this and lets the thread wind itself down
-/// instead.
+/// That drop runs on the delivery thread itself. `Drop` detaches rather than
+/// joining, so there is no self-join to detect and no special case guarding it —
+/// the thread observes `closed` and winds itself down once the callback returns.
+///
+/// Calling `close` here instead would report `TimedOut` at once: a thread cannot
+/// wait for itself.
 #[test]
 #[serial]
 fn transient_local_subscriber_dropped_inside_its_own_callback_does_not_deadlock() {
@@ -804,7 +820,8 @@ fn transient_local_subscriber_dropped_inside_its_own_callback_does_not_deadlock(
             .create_sub::<Tick>("/reentrant_tl_self_drop")
             .with_qos(transient_local())
             .build_with_callback(move |_msg: Tick| {
-                // Runs on the delivery thread; this drop is the self-join case.
+                // Runs on the delivery thread. The drop detaches; the thread
+                // exits once this callback returns.
                 let taken = cb_slot.lock().unwrap().take();
                 drop(taken);
                 cb_dropped.store(true, Ordering::SeqCst);
