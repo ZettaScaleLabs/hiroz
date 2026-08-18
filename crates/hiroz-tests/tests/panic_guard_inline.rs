@@ -127,8 +127,14 @@ fn deliver_remote(endpoint: &str, topic: &str, panic_at: Option<u64>) -> Observe
     let sub_ctx = create_hiroz_context_with_endpoint(endpoint).expect("subscriber context");
     let pub_ctx = create_hiroz_context_with_endpoint(endpoint).expect("publisher context");
 
-    let sub_node = sub_ctx.create_node("panic_guard_sub").build().expect("sub node");
-    let pub_node = pub_ctx.create_node("panic_guard_pub").build().expect("pub node");
+    let sub_node = sub_ctx
+        .create_node("panic_guard_sub")
+        .build()
+        .expect("sub node");
+    let pub_node = pub_ctx
+        .create_node("panic_guard_pub")
+        .build()
+        .expect("pub node");
 
     let seen: Arc<Mutex<BTreeSet<u64>>> = Arc::new(Mutex::new(BTreeSet::new()));
     let threads: Arc<Mutex<BTreeSet<String>>> = Arc::new(Mutex::new(BTreeSet::new()));
@@ -142,12 +148,10 @@ fn deliver_remote(endpoint: &str, topic: &str, panic_at: Option<u64>) -> Observe
     let _sub = sub_node
         .create_sub::<Seq>(topic)
         .build_with_callback(move |msg: Seq| {
-            c_threads.lock().expect("threads poisoned").insert(
-                thread::current()
-                    .name()
-                    .unwrap_or("<unnamed>")
-                    .to_string(),
-            );
+            c_threads
+                .lock()
+                .expect("threads poisoned")
+                .insert(thread::current().name().unwrap_or("<unnamed>").to_string());
             c_seen.lock().expect("seen poisoned").insert(msg.counter);
             c_recv.fetch_add(1, Ordering::Relaxed);
             if panic_at == Some(msg.counter) {
