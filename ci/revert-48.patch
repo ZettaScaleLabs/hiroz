@@ -1,0 +1,62 @@
+commit 04d8cf65682be393abe391f747431f3a4d7f957a
+Author: yuanyuyuan <az6980522@gmail.com>
+Date:   Tue Aug 18 02:41:45 2026 +0800
+
+    fix(pubsub): guard the plain path's inline callback too
+    
+    The drain loop wraps the user callback in catch_unwind. The plain path
+    does not always use that loop: local_only_shim enqueues only the samples
+    the delivering thread published itself, and calls the handler inline for
+    every other one -- which is every sample that arrived over a transport.
+    
+    That inline branch is the DEFAULT profile. qos_needs_advanced is true
+    only for TransientLocal durability, and the ROS 2 default is Volatile, so
+    a default subscriber takes the plain path and its inter-process traffic
+    ran the callback with no guard at all. The guard protected the
+    non-default profile and the local case, and left the common one open.
+    
+    zenoh does not catch it either: there is no catch_unwind on its
+    subscriber-delivery path at 1.9.0, so the panic unwound out of hiroz and
+    into a receive worker.
+    
+    Part of #296 (tag G7).
+
+diff --git b/crates/hiroz/src/pubsub.rs a/crates/hiroz/src/pubsub.rs
+index 9b35e384..406db22d 100644
+--- b/crates/hiroz/src/pubsub.rs
++++ a/crates/hiroz/src/pubsub.rs
+@@ -532,33 +532,11 @@ impl CallbackDispatcher {
+         F: Fn(Sample) + Send + Sync + 'static,
+     {
+         let queue = self.queue.clone();
+-        let topic = self.queue.topic.clone();
+         move |sample: Sample| {
+             if local_publish_active() {
+                 queue.enqueue(sample);
+             } else {
+-                // The inline branch runs on a zenoh RX worker, so it needs the
+-                // same guard the drain loop has. Without one, a panicking
+-                // callback unwinds out of hiroz and into zenoh's receive path.
+-                //
+-                // This is the DEFAULT profile, which is what makes it matter:
+-                // `qos_needs_advanced` is true only for `TransientLocal`, and
+-                // the ROS 2 default is `Volatile`. Guarding only the drain
+-                // thread therefore left every remote sample on the common path
+-                // unguarded -- the half that carries inter-process traffic.
+-                //
+-                // The `panic = "abort"` caveat on the drain loop's guard
+-                // applies here identically: a build that opts into aborting on
+-                // a panic has opted out of surviving one.
+-                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(sample)))
+-                    .is_err()
+-                {
+-                    tracing::error!(
+-                        topic = %topic,
+-                        "subscriber callback panicked on the inline path; dropping the \
+-                         sample and continuing"
+-                    );
+-                }
++                handler(sample);
+             }
+         }
+     }
