@@ -2913,6 +2913,14 @@
 <td>both plugins, for offline install</td>
 </tr>
 <tr>
+<td><code>hu-plugins-&lt;ver&gt;.json</code></td>
+<td>release index — what <code>hu plugin install &lt;name&gt;</code> resolves a name against</td>
+</tr>
+<tr>
+<td><code>install-hu.sh</code></td>
+<td>the installer itself, so the documented one-liner fetches it from the release it installs</td>
+</tr>
+<tr>
 <td><code>SHA256SUMS</code></td>
 <td>verify every download against this</td>
 </tr>
@@ -3268,14 +3276,24 @@
 <tbody>
 <tr>
 <td><code>hu plugin list</code></td>
-<td>List all loaded <code>.wasm</code> plugins with name and path</td>
+<td>List discovered plugins as <code>PLUGIN VERSION SOURCE PATH</code>. <code>SOURCE</code> is <code>download</code>, <code>local</code>, <code>installed</code>, or <code>unmanaged</code> for a file <code>hu</code> did not install</td>
 </tr>
 <tr>
 <td><code>hu plugin validate &lt;path&gt;</code></td>
 <td>Validate that a <code>.wasm</code> file compiles as a WASM component</td>
 </tr>
+<tr>
+<td><code>hu plugin install &lt;file\|url\|name&gt;</code></td>
+<td>Install from a local path, a URL, or a name resolved against a release index (<code>--registry</code>, or <code>HU_PLUGIN_REGISTRY</code>). Validates before accepting</td>
+</tr>
+<tr>
+<td><code>hu plugin uninstall &lt;name&gt;</code></td>
+<td>Remove a plugin <code>hu</code> installed. Refuses one that lives on <code>$HU_PLUGIN_PATH</code>, since that is a build tree and not <code>hu</code>'s to delete</td>
+</tr>
 </tbody>
 </table>
+<p><code>list</code> reads filenames only — it never opens a component, so it cannot tell a
+valid plugin from a corrupt one. <code>validate</code> is the check that does.</p>
 <hr />
 <h2 id="multi-topic-rate-dashboard">Multi-topic rate dashboard<a class="headerlink" href="#multi-topic-rate-dashboard" title="Permanent link">&para;</a></h2>
 <p>For continuous monitoring of several topics at once, use the <code>hu</code> TUI. Select topics in the Topics panel and press <code>m</code> to add them to the Measure panel, which shows a live, per-second rate and bandwidth table for every topic you're tracking — all in one process, instead of one <code>ros2 topic hz</code> per topic:</p>
@@ -3519,7 +3537,7 @@
 <!-- repro: skip illustrative placeholder plugin my-debug-tool.wasm -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="c1"># Drop a .wasm file and it becomes available immediately</span>
 </span><span id="__span-30-2"><a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a>cp<span class="w"> </span>./my-debug-tool.wasm<span class="w"> </span>~/.local/share/hu/plugins/
-</span><span id="__span-30-3"><a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a>hu<span class="w"> </span>plugin<span class="w"> </span>list<span class="w">          </span><span class="c1"># shows all loaded plugins with name and path</span>
+</span><span id="__span-30-3"><a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a>hu<span class="w"> </span>plugin<span class="w"> </span>list<span class="w">          </span><span class="c1"># PLUGIN VERSION SOURCE PATH</span>
 </span><span id="__span-30-4"><a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a>hu<span class="w"> </span>my-debug-tool<span class="w"> </span>--help
 </span></code></pre></div>
 <p>Plugins are sandboxed: they declare the capabilities they need (subscriptions, raw CDR, additional Zenoh sessions) in a manifest, and the host refuses calls for anything undeclared. Plugins also never manage Zenoh connections directly — the host opens all sessions declared in the plugin's manifest before the first event fires. The same <code>.wasm</code> binary runs as a TUI panel and as a CLI subcommand.</p>
