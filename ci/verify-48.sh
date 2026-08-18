@@ -34,10 +34,13 @@ run_both() {
 echo "=== direction 1: as shipped ==="
 GREEN=$(run_both _tmp/g48.log)
 tail -20 _tmp/g48.log
-G_PANIC=$(grep -c "^test $PANIC_TEST ... ok" _tmp/g48.log)
-G_CTRL=$(grep -c "^test $CONTROL_TEST ... ok" _tmp/g48.log)
+# Count from the FAILURES block, not the per-test line: tracing output interleaves
+# into stdout and splits `test <name> ... ok` across two lines, so matching that
+# pattern silently reports 0 for a test that passed.
+G_PANIC_FAIL=$(grep -cE "^    $PANIC_TEST$" _tmp/g48.log)
+G_CTRL_FAIL=$(grep -cE "^    $CONTROL_TEST$" _tmp/g48.log)
 G_RAN=$(grep -cE "^test (a_panicking|delivery_continues)" _tmp/g48.log)
-echo "GREEN=$GREEN G_RAN=$G_RAN G_PANIC_OK=$G_PANIC G_CTRL_OK=$G_CTRL"
+echo "GREEN=$GREEN G_RAN=$G_RAN G_PANIC_FAIL=$G_PANIC_FAIL G_CTRL_FAIL=$G_CTRL_FAIL"
 
 if [ "$G_RAN" -eq 0 ]; then
     echo "RESULT48 VERDICT=SKIPPED reason=no_tests_ran_check_panic_strategy"
@@ -56,10 +59,10 @@ fi
 echo "=== direction 2: guard removed from the inline branch ==="
 RED=$(run_both _tmp/r48.log)
 tail -30 _tmp/r48.log
-R_PANIC_OK=$(grep -c "^test $PANIC_TEST ... ok" _tmp/r48.log)
-R_CTRL_OK=$(grep -c "^test $CONTROL_TEST ... ok" _tmp/r48.log)
+R_PANIC_FAIL=$(grep -cE "^    $PANIC_TEST$" _tmp/r48.log)
+R_CTRL_FAIL=$(grep -cE "^    $CONTROL_TEST$" _tmp/r48.log)
 R_RAN=$(grep -cE "^test (a_panicking|delivery_continues)" _tmp/r48.log)
-echo "RED=$RED R_RAN=$R_RAN R_PANIC_OK=$R_PANIC_OK R_CTRL_OK=$R_CTRL_OK"
+echo "RED=$RED R_RAN=$R_RAN R_PANIC_FAIL=$R_PANIC_FAIL R_CTRL_FAIL=$R_CTRL_FAIL"
 
 git apply -R ci/revert-48.patch
 echo "REVERT_REVERSED_DIRTY=$(git status --porcelain crates/ | wc -l)"
@@ -73,15 +76,15 @@ if [ "$R_RAN" -eq 0 ]; then
     exit 0
 fi
 
-if [ "$GREEN" -eq 0 ] && [ "$R_PANIC_OK" -eq 0 ] && [ "$R_CTRL_OK" -eq 1 ]; then
+if [ "$GREEN" -eq 0 ] && [ "$G_PANIC_FAIL" -eq 0 ] && [ "$R_PANIC_FAIL" -eq 1 ] && [ "$R_CTRL_FAIL" -eq 0 ]; then
     V=PROVEN
-elif [ "$GREEN" -eq 0 ] && [ "$R_PANIC_OK" -eq 1 ]; then
+elif [ "$GREEN" -eq 0 ] && [ "$R_PANIC_FAIL" -eq 0 ]; then
     V=DETECTOR_DEAD
 else
     V=INCONCLUSIVE
 fi
 
 echo "RESULT48 VERDICT=$V GREEN=$GREEN RED=$RED \
-G_PANIC_OK=$G_PANIC G_CTRL_OK=$G_CTRL R_PANIC_OK=$R_PANIC_OK R_CTRL_OK=$R_CTRL_OK \
+G_PANIC_FAIL=$G_PANIC_FAIL G_CTRL_FAIL=$G_CTRL_FAIL R_PANIC_FAIL=$R_PANIC_FAIL R_CTRL_FAIL=$R_CTRL_FAIL \
 HEAD=$(git rev-parse HEAD)"
 echo SCRIPT_DONE
