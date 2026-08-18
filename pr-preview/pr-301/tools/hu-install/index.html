@@ -2566,11 +2566,15 @@
 </ul>
 <p>Everything here works with no ROS 2 install. <code>hu</code> only needs to reach a Zenoh router.</p>
 <h2 id="quickest-path">Quickest path<a class="headerlink" href="#quickest-path" title="Permanent link">&para;</a></h2>
-<!-- repro: skip <release-base> is a placeholder; needs a published release and network access to it -->
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>&lt;release-base&gt;/install-hu.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="nv">HU_VERSION</span><span class="o">=</span><span class="m">0</span>.1.0<span class="w"> </span>sh
+<p>Set <code>HU_RELEASE_BASE</code> to the release you are installing from, and pass the same version twice — once so <code>curl</code> finds the installer, once so the installer finds the assets:</p>
+<!-- repro: skip needs a published release and network access to it -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nv">BASE</span><span class="o">=</span>https://github.com/ZettaScaleLabs/hiroz/releases/download/v0.1.0
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE</span><span class="s2">/install-hu.sh&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="nv">HU_RELEASE_BASE</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$BASE</span><span class="s2">&quot;</span><span class="w"> </span><span class="nv">HU_VERSION</span><span class="o">=</span><span class="m">0</span>.1.0<span class="w"> </span>sh
 </span></code></pre></div>
 <p>That downloads the binary and the plugins, verifies both against <code>SHA256SUMS</code>, installs <code>hu</code> to <code>~/.local/bin/</code> and the plugins to <code>~/.local/share/hu/plugins/</code>.</p>
-<p>Assets are read from the release attachments for the tag <code>hu-v&lt;version&gt;</code>. <code>HU_RELEASE_BASE</code> overrides the directory they are fetched from, which is how you point at a different host or at a pre-release tag.</p>
+<p><code>HU_RELEASE_BASE</code> is not optional here, and the reason is worth knowing: piping the script through <code>curl</code> sets nothing inside it. Without that variable the installer falls back to its own built-in host, so you would fetch the script from one place and its assets from another — and the download would fail against a host you may not even be able to reach.</p>
+<p><strong>The base is the release's download directory, and its shape differs per channel.</strong> GitHub publishes the whole workspace on <code>v&lt;version&gt;</code> tags, so the path ends <code>/releases/download/v&lt;version&gt;</code>. Releases cut on the <code>hu</code>-only <code>hu-v&lt;version&gt;</code> tags end <code>/releases/download/hu-v&lt;version&gt;</code> instead. Point <code>HU_RELEASE_BASE</code> at whichever one you were given; nothing below the base differs between them.</p>
+<p>Set <code>--prefix</code> (or <code>HU_PREFIX</code>) to install somewhere other than <code>~/.local</code>. <code>hu</code> looks for plugins next to its own binary — under <code>&lt;prefix&gt;/share/hu/plugins</code> — as well as in <code>~/.local/share/hu/plugins</code>, so a prefixed install finds its own plugins.</p>
 <p>Verify:</p>
 <!-- repro: timeout 10 -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>hu<span class="w"> </span>--version
@@ -2610,7 +2614,7 @@
 <!-- repro: skip needs a downloaded .wasm, a reachable URL, or a configured registry -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hu<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>./hu_meter-0.1.0.wasm
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>hu<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>https://example.invalid/hu_meter-0.1.0.wasm
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>hu<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>meter<span class="w"> </span>--registry<span class="w"> </span>&lt;release-base&gt;/hu-plugins-0.1.0.json
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>hu<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>meter<span class="w"> </span>--registry<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE</span><span class="s2">/hu-plugins-0.1.0.json&quot;</span><span class="w">   </span><span class="c1"># $BASE as above</span>
 </span></code></pre></div>
 <p>In every case the file is checked before it is accepted:</p>
 <ul>
