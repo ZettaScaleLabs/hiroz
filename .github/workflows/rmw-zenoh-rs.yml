@@ -45,42 +45,11 @@ jobs:
 
     steps:
       - name: Install system dependencies
-        run: |
-          # Ubuntu's archives fail to connect intermittently from GitHub-hosted
-          # runners — a long-reported, non-deterministic fault rather than an
-          # incident. Retry inside apt: a rerun discards the container pull that
-          # preceded the failure, and a job that is only sometimes green trains
-          # people to ignore red. The drop-in covers the ROS step below too.
-          #
-          # This workflow keeps the image's default mirror. test.yml repoints to
-          # Azure's for throughput and carries the same drop-in there.
-          printf 'Acquire::Retries "3";\n' > /etc/apt/apt.conf.d/99-retries
-
-          # Acquire::Retries re-attempts immediately, with no delay, so it
-          # covers a blip and not a window of tens of seconds. Wrap the command
-          # too. A file rather than a function, because each `run:` is its own
-          # shell and the repository is not checked out yet.
-          cat > /usr/local/bin/apt-retry <<'SH'
-          #!/bin/sh
-          n=0
-          until "$@"; do
-              n=$((n + 1))
-              if [ "$n" -ge 4 ]; then
-                  echo "apt-retry: '$*' failed after $n attempts" >&2
-                  exit 1
-              fi
-              echo "apt-retry: attempt $n failed; retrying in $((n * 15))s" >&2
-              sleep $((n * 15))
-          done
-          SH
-          chmod +x /usr/local/bin/apt-retry
-
-          apt-retry apt-get update
-          apt-retry apt-get install -y git curl nodejs
+        run: apt-get update && apt-get install -y git curl nodejs
 
       - name: Install ROS dependencies
         run: |
-          apt-retry apt-get install -y \
+          apt-get install -y \
             ros-jazzy-rmw \
             ros-jazzy-rcutils \
             ros-jazzy-rcpputils \
