@@ -61,10 +61,10 @@ jobs:
       # The ROS images ship git, so this needs nothing installed: checkout runs
       # `git init` rather than falling back to the API tarball.
       #
-      # It also makes `hashFiles` in the apt cache key below resolve. Before
-      # this move it ran against an empty workspace and returned nothing, so
-      # the key was constant and never tracked the workflow it names. Expect
-      # one cache miss as the key changes, then correct behaviour.
+      # The apt cache key below interpolates `hashFiles` over this file, and
+      # that only resolves once the workspace holds it. Keep checkout above
+      # that step, or the key silently becomes a constant and stops tracking
+      # the workflow it names.
       - uses: actions/checkout@v4
 
       - name: Compute weekly cache key
@@ -109,28 +109,16 @@ jobs:
               /etc/apt/sources.list.d/*.sources
           fi
 
-          # That mirror is fast and intermittently unreachable. `Unable to
-          # connect to azure.archive.ubuntu.com` is a long-standing,
-          # non-deterministic failure on GitHub-hosted runners, reported against
-          # actions/runner-images since 2019. It is not an incident that ends,
-          # so there is nothing to wait out: it has hit every distro here,
-          # passed unaided, and failed again through a rerun.
+          # That mirror is fast and intermittently unreachable, so every apt
+          # call below runs through `scripts/ci/apt-retry.sh`. That script
+          # carries the diagnosis and the measurement behind each layer. Keep
+          # them there rather than repeating them here.
           #
-          # Retry inside apt rather than rerunning the job. A rerun throws away
-          # the container pull and the cache restore that preceded the failure.
-          # It also teaches everyone to ignore red, because the job goes green
-          # often enough. That is how a real regression gets waved through.
-          #
-          # A drop-in rather than `-o` per command, so it also covers `Install
-          # ROS dependencies` below and anything added later. It lives in this
-          # step deliberately: whoever opts into the fast mirror should find,
-          # in the same place, the thing that makes it survivable.
+          # This drop-in is the one layer that belongs in this step, because it
+          # is apt configuration and not a wrapper. It retries a single file,
+          # with no delay, and covers a momentary blip. It applies to every apt
+          # call in the job, including any added later.
           printf 'Acquire::Retries "3";\n' > /etc/apt/apt.conf.d/99-retries
-
-          # Acquire::Retries has no backoff -- it re-attempts immediately, so it
-          # covers a momentary blip and not a window lasting tens of seconds.
-          # scripts/ci/apt-retry.sh adds the backoff and the mirror fallback,
-          # and carries the measurements that justify each layer.
 
       - name: Install system dependencies
         run: |
