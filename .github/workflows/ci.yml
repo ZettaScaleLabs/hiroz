@@ -69,9 +69,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # test.yml runs this wrapper on every interop leg, and test.yml is
-      # in this workflow's paths-ignore. Without a job here, a change to
-      # the wrapper reaches CI only by being used.
+      # A healthy run never exercises this wrapper's failure paths. The
+      # mirror is usually up, so test.yml's apt calls succeed first try.
+      # The backoff, the mirror switch and both guards never execute. The
+      # run that added this job measured that: zero apt-retry lines on
+      # every interop leg.
+      #
+      # Draft pull requests also skip interop, so a wrapper change gets no
+      # coverage there at all.
       - name: Test the apt retry wrapper
         run: ./scripts/ci/test-apt-retry.sh
 
