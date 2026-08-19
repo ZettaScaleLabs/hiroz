@@ -45,7 +45,17 @@ jobs:
 
     steps:
       - name: Install system dependencies
-        run: apt-get update && apt-get install -y git curl nodejs
+        run: |
+          # Ubuntu's archives fail to connect intermittently from GitHub-hosted
+          # runners — a long-reported, non-deterministic fault rather than an
+          # incident. Retry inside apt: a rerun discards the container pull that
+          # preceded the failure, and a job that is only sometimes green trains
+          # people to ignore red. The drop-in covers the ROS step below too.
+          #
+          # This workflow keeps the image's default mirror. test.yml repoints to
+          # Azure's for throughput and carries the same drop-in there.
+          printf 'Acquire::Retries "3";\n' > /etc/apt/apt.conf.d/99-retries
+          apt-get update && apt-get install -y git curl nodejs
 
       - name: Install ROS dependencies
         run: |

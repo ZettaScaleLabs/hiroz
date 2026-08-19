@@ -99,6 +99,24 @@ jobs:
               /etc/apt/sources.list.d/*.sources
           fi
 
+          # That mirror is fast and intermittently unreachable. `Unable to
+          # connect to azure.archive.ubuntu.com` is a long-standing,
+          # non-deterministic failure on GitHub-hosted runners, reported against
+          # actions/runner-images since 2019. It is not an incident that ends,
+          # so there is nothing to wait out: it has hit every distro here,
+          # passed unaided, and failed again through a rerun.
+          #
+          # Retry inside apt rather than rerunning the job. A rerun throws away
+          # the container pull and cache restore that preceded the failure, and
+          # a job that only sometimes goes green teaches everyone to ignore red
+          # — which is how a real regression gets waved through.
+          #
+          # A drop-in rather than `-o` per command, so it also covers `Install
+          # ROS dependencies` below and anything added later. It lives in this
+          # step deliberately: whoever opts into the fast mirror should find,
+          # in the same place, the thing that makes it survivable.
+          printf 'Acquire::Retries "3";\n' > /etc/apt/apt.conf.d/99-retries
+
       - name: Install system dependencies
         run: |
           # Install jq here so taiki-e/install-action's cargo-nextest step
