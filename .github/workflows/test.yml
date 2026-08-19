@@ -73,7 +73,7 @@ jobs:
           key: apt-${{ matrix.distro }}-v3-${{ hashFiles('.github/workflows/test.yml') }}
 
       # Cache the package index, not just the .debs. A weekly key stops it
-      # going permanently stale; a miss just re-fetches. The ~900 B/s that
+      # going permanently stale; a miss just re-fetches. The fetch rate that
       # justified this does not reproduce -- see hiroz#308.
       - name: Cache apt package lists
         uses: actions/cache@v4
@@ -88,9 +88,10 @@ jobs:
       # same-datacenter mirror. Handles both the legacy one-line sources.list
       # and the newer deb822 *.sources format.
       #
-      # The 75-900 B/s that justified this does not reproduce, and this mirror
-      # is the one that fails. Whether the repointing still earns its keep is
-      # open -- hiroz#308 carries the measurements and what would settle it.
+      # The throughput gap that justified this does not reproduce, and this
+      # mirror is the one that fails. Whether the repointing still earns its
+      # keep is open -- hiroz#308 carries the measurements and what would
+      # settle it.
       - name: Point apt at the Azure Ubuntu mirror
         run: |
           if [ -f /etc/apt/sources.list ]; then
