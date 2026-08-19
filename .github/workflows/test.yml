@@ -87,9 +87,10 @@ jobs:
       # same-datacenter mirror. Handles both the legacy one-line sources.list
       # and the newer deb822 *.sources format.
       #
-      # This mirror is the one that fails, and the throughput gap justifying
-      # it does not reproduce. Whether it still earns its keep is open --
-      # hiroz#308 has the measurements.
+      # This mirror is also the one that fails. Measured on all four runners
+      # (hiroz#308), it beats archive.ubuntu.com in every one of 12 pairs, by
+      # 2x to 13x. So it stays, and apt-retry.sh covers the windows when it is
+      # unreachable.
       - name: Point apt at the Azure Ubuntu mirror
         run: |
           if [ -f /etc/apt/sources.list ]; then
