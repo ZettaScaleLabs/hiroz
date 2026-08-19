@@ -14,19 +14,21 @@ set -u
 [ "$#" -gt 0 ] || { echo "apt-retry: usage: apt-retry.sh <command> [args...]" >&2; exit 2; }
 
 # One switch per job; without the flag a later apt call repeats it.
-FLAG=/var/tmp/.apt-fell-back
+# Both paths are overridable so test-apt-retry.sh drives a fixture tree.
+FLAG="${APT_RETRY_FLAG:-/var/tmp/.apt-fell-back}"
+ROOT="${APT_RETRY_ROOT:-}"
 
 # Undo the workflow mirror step. Same two file shapes it handles.
 fallback_mirror() {
     echo "apt-retry: switching to the generic Ubuntu mirror" >&2
-    if [ -f /etc/apt/sources.list ]; then
+    if [ -f "$ROOT/etc/apt/sources.list" ]; then
         sed -i 's|http://azure\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
-            /etc/apt/sources.list
+            "$ROOT/etc/apt/sources.list"
     fi
     # Guard with `ls`: a non-matching glob expands to the literal pattern.
-    if ls /etc/apt/sources.list.d/*.sources > /dev/null 2>&1; then
+    if ls "$ROOT"/etc/apt/sources.list.d/*.sources > /dev/null 2>&1; then
         sed -i 's|http://azure\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
-            /etc/apt/sources.list.d/*.sources
+            "$ROOT"/etc/apt/sources.list.d/*.sources
     fi
 }
 

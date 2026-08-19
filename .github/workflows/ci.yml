@@ -59,6 +59,22 @@ jobs:
       - name: Check formatting
         run: nix build .#checks.x86_64-linux.pre-commit-check -L
 
+  apt-retry:
+    name: CI apt wrapper
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # test.yml runs this wrapper on every interop leg, and test.yml is
+      # in this workflow's paths-ignore. Without a job here, a change to
+      # the wrapper reaches CI only by being used.
+      - name: Test the apt retry wrapper
+        run: ./scripts/ci/test-apt-retry.sh
+
   no-ros-test:
     name: ROS-independent Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
