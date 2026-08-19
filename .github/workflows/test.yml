@@ -117,11 +117,38 @@ jobs:
           # in the same place, the thing that makes it survivable.
           printf 'Acquire::Retries "3";\n' > /etc/apt/apt.conf.d/99-retries
 
+          # Acquire::Retries has no backoff -- it re-attempts immediately, so it
+          # covers a momentary blip and not a window lasting tens of seconds.
+          # Measured: with it in place, `Install ROS dependencies` still failed
+          # after 38s, because that step fetches hundreds of files and each one
+          # is another chance to hit the window.
+          #
+          # So wrap the whole command too, with a delay. Written to a file
+          # because every `run:` is a separate shell, and the repository is not
+          # checked out yet at this point in the job.
+          cat > /usr/local/bin/apt-retry <<'SH'
+          #!/bin/sh
+          # Run an apt command, retrying with backoff. The mirror is
+          # intermittently unreachable; see the step that selects it.
+          n=0
+          until "$@"; do
+              n=$((n + 1))
+              if [ "$n" -ge 4 ]; then
+                  echo "apt-retry: '$*' failed after $n attempts" >&2
+                  exit 1
+              fi
+              echo "apt-retry: attempt $n failed; retrying in $((n * 15))s" >&2
+              sleep $((n * 15))
+          done
+          SH
+          chmod +x /usr/local/bin/apt-retry
+
       - name: Install system dependencies
         run: |
           # Install jq here so taiki-e/install-action's cargo-nextest step
           # below doesn't trigger a second, redundant apt-get update for it.
-          apt-get update && apt-get install -y nodejs jq
+          apt-retry apt-get update
+          apt-retry apt-get install -y nodejs jq
 
       - name: Install Nushell
         run: |
@@ -155,7 +182,7 @@ jobs:
           # #303 carries the diagnosis: the version pair, the valgrind trace and
           # the hypotheses it ruled out. Keep them there. A version number in a
           # comment goes stale, and a stale comment is worse than none.
-          apt-get install -y \
+          apt-retry apt-get install -y \
             ros-${{ matrix.distro }}-rclcpp \
             ros-${{ matrix.distro }}-example-interfaces \
             ros-${{ matrix.distro }}-rmw-zenoh-cpp \
