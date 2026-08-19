@@ -126,20 +126,58 @@ jobs:
           # So wrap the whole command too, with a delay. Written to a file
           # because every `run:` is a separate shell, and the repository is not
           # checked out yet at this point in the job.
+          # Measured: backoff alone is not enough either. With 15s/30s/45s in
+          # place, `Install system dependencies` ran for 127 seconds -- four
+          # attempts and every sleep -- and still failed. The mirror can be
+          # unreachable for longer than any backoff worth waiting through.
+          #
+          # So fall back. The generic endpoints are slow, which is the whole
+          # reason for repointing above, but slow beats failed: a job that takes
+          # a few more minutes still tells you whether your code works, and one
+          # that dies on a package fetch tells you nothing.
+          cat > /usr/local/bin/apt-fallback-mirror <<'SH'
+          #!/bin/sh
+          # Undo the Azure repointing. Same file shapes as the step above.
+          echo "apt-retry: switching to the generic Ubuntu mirror" >&2
+          if [ -f /etc/apt/sources.list ]; then
+              sed -i 's|http://azure\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+                  /etc/apt/sources.list
+          fi
+          if ls /etc/apt/sources.list.d/*.sources > /dev/null 2>&1; then
+              sed -i 's|http://azure\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+                  /etc/apt/sources.list.d/*.sources
+          fi
+          SH
+          chmod +x /usr/local/bin/apt-fallback-mirror
+
           cat > /usr/local/bin/apt-retry <<'SH'
           #!/bin/sh
-          # Run an apt command, retrying with backoff. The mirror is
-          # intermittently unreachable; see the step that selects it.
-          n=0
-          until "$@"; do
-              n=$((n + 1))
-              if [ "$n" -ge 4 ]; then
-                  echo "apt-retry: '$*' failed after $n attempts" >&2
-                  exit 1
-              fi
-              echo "apt-retry: attempt $n failed; retrying in $((n * 15))s" >&2
-              sleep $((n * 15))
-          done
+          # Run an apt command with backoff, then once more against the generic
+          # mirror if the fast one never came back.
+          attempt() {
+              n=0
+              until "$@"; do
+                  n=$((n + 1))
+                  [ "$n" -ge 4 ] && return 1
+                  echo "apt-retry: attempt $n failed; retrying in $((n * 15))s" >&2
+                  sleep $((n * 15))
+              done
+              return 0
+          }
+
+          attempt "$@" && exit 0
+
+          # One fallback per job: the flag stops a later apt call repeating the
+          # switch and re-reporting it as news.
+          if [ ! -f /var/tmp/.apt-fell-back ]; then
+              apt-fallback-mirror
+              : > /var/tmp/.apt-fell-back
+              apt-get update >/dev/null 2>&1 || true
+          fi
+
+          attempt "$@" && exit 0
+          echo "apt-retry: '$*' failed on both mirrors" >&2
+          exit 1
           SH
           chmod +x /usr/local/bin/apt-retry
 
