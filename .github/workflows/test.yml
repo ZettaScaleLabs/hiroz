@@ -77,9 +77,14 @@ jobs:
           path: /var/cache/apt/archives
           key: apt-${{ matrix.distro }}-v3-${{ hashFiles('.github/workflows/test.yml') }}
 
-      # The apt package-index fetch (not the downloads) is the mirror bottleneck
-      # here (~900 B/s), costing minutes per job. Cache the index; keyed weekly
-      # so it can't go permanently stale — a miss just re-fetches.
+      # The apt package-index fetch, not the package downloads, dominated this
+      # job when someone added this cache. Cache the index; a weekly key stops
+      # it going permanently stale, and a miss just re-fetches.
+      #
+      # That rationale cites ~900 B/s. Runs on 2026-08-19 do not reproduce it:
+      # a runner pulled 14.6 MB from archive.ubuntu.com at 5099 kB/s, and
+      # 37.3 MB from the Azure mirror at 443 kB/s. Treat the figure as
+      # unreproduced rather than current.
       - name: Cache apt package lists
         uses: actions/cache@v4
         with:
@@ -88,10 +93,22 @@ jobs:
           restore-keys: |
             apt-lists-${{ matrix.distro }}-
 
-      # GitHub runners are on Azure, but the ROS base images point at the
-      # generic archive/security.ubuntu.com endpoints, which are slow from here
-      # (~75-900 B/s). Repoint to Azure's same-datacenter mirror. Handles both
-      # the legacy one-line sources.list and the newer deb822 *.sources format.
+      # GitHub runners are on Azure, and the ROS base images point at the
+      # generic archive/security.ubuntu.com endpoints. Repoint to Azure's
+      # same-datacenter mirror. Handles both the legacy one-line sources.list
+      # and the newer deb822 *.sources format.
+      #
+      # The original rationale claimed 75-900 B/s from the generic endpoints.
+      # They do not behave that way now. On 2026-08-19 one of them served
+      # 14.6 MB at 5099 kB/s to a runner, during the fallback below. The Azure
+      # mirror managed 443 kB/s on another leg that day, and refused
+      # connections outright on a third.
+      #
+      # So the repointing may no longer earn the flakiness it brings. Settling
+      # that needs both hosts measured under the same conditions. Nothing here
+      # does that yet: a datapoint taken while the fast mirror was failing
+      # proves little. Until someone measures it, the mirror stays and the
+      # fallback covers it.
       - name: Point apt at the Azure Ubuntu mirror
         run: |
           if [ -f /etc/apt/sources.list ]; then
