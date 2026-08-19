@@ -107,9 +107,9 @@ jobs:
           # passed unaided, and failed again through a rerun.
           #
           # Retry inside apt rather than rerunning the job. A rerun throws away
-          # the container pull and cache restore that preceded the failure, and
-          # a job that only sometimes goes green teaches everyone to ignore red
-          # — which is how a real regression gets waved through.
+          # the container pull and the cache restore that preceded the failure.
+          # It also teaches everyone to ignore red, because the job goes green
+          # often enough. That is how a real regression gets waved through.
           #
           # A drop-in rather than `-o` per command, so it also covers `Install
           # ROS dependencies` below and anything added later. It lives in this
@@ -120,8 +120,8 @@ jobs:
           # Acquire::Retries has no backoff -- it re-attempts immediately, so it
           # covers a momentary blip and not a window lasting tens of seconds.
           # Measured: with it in place, `Install ROS dependencies` still failed
-          # after 38s, because that step fetches hundreds of files and each one
-          # is another chance to hit the window.
+          # after 38s. That step fetches hundreds of files. Each one is another
+          # chance to hit the window.
           #
           # So wrap the whole command too, with a delay. Written to a file
           # because every `run:` is a separate shell, and the repository is not
@@ -132,8 +132,8 @@ jobs:
           # unreachable for longer than any backoff worth waiting through.
           #
           # So fall back. The generic endpoints are slow, which is the whole
-          # reason for repointing above, but slow beats failed: a job that takes
-          # a few more minutes still tells you whether your code works, and one
+          # reason for repointing above. Slow still beats failed. A job that
+          # takes a few more minutes tells you whether your code works. A job
           # that dies on a package fetch tells you nothing.
           cat > /usr/local/bin/apt-fallback-mirror <<'SH'
           #!/bin/sh
