@@ -57,14 +57,9 @@ jobs:
     container:
       image: ${{ matrix.image }}
     steps:
-      # First, so `scripts/ci/apt-retry.sh` exists before the apt steps below.
-      # The ROS images ship git, so this needs nothing installed: checkout runs
-      # `git init` rather than falling back to the API tarball.
-      #
-      # The apt cache key below interpolates `hashFiles` over this file, and
-      # that only resolves once the workspace holds it. Keep checkout above
-      # that step, or the key silently becomes a constant and stops tracking
-      # the workflow it names.
+      # Must stay first. Two things below break if it moves: the apt steps run
+      # `scripts/ci/apt-retry.sh`, and the cache key `hashFiles` over this file,
+      # which silently yields a constant against an empty workspace.
       - uses: actions/checkout@v4
 
       - name: Compute weekly cache key
@@ -77,14 +72,9 @@ jobs:
           path: /var/cache/apt/archives
           key: apt-${{ matrix.distro }}-v3-${{ hashFiles('.github/workflows/test.yml') }}
 
-      # The apt package-index fetch, not the package downloads, dominated this
-      # job when someone added this cache. Cache the index; a weekly key stops
-      # it going permanently stale, and a miss just re-fetches.
-      #
-      # That rationale cites ~900 B/s. Runs on 2026-08-19 do not reproduce it:
-      # a runner pulled 14.6 MB from archive.ubuntu.com at 5099 kB/s, and
-      # 37.3 MB from the Azure mirror at 443 kB/s. Treat the figure as
-      # unreproduced rather than current.
+      # Cache the package index, not just the .debs. A weekly key stops it
+      # going permanently stale; a miss just re-fetches. The ~900 B/s that
+      # justified this does not reproduce -- see hiroz#308.
       - name: Cache apt package lists
         uses: actions/cache@v4
         with:
@@ -98,17 +88,9 @@ jobs:
       # same-datacenter mirror. Handles both the legacy one-line sources.list
       # and the newer deb822 *.sources format.
       #
-      # The original rationale claimed 75-900 B/s from the generic endpoints.
-      # They do not behave that way now. On 2026-08-19 one of them served
-      # 14.6 MB at 5099 kB/s to a runner, during the fallback below. The Azure
-      # mirror managed 443 kB/s on another leg that day, and refused
-      # connections outright on a third.
-      #
-      # So the repointing may no longer earn the flakiness it brings. Settling
-      # that needs both hosts measured under the same conditions. Nothing here
-      # does that yet: a datapoint taken while the fast mirror was failing
-      # proves little. Until someone measures it, the mirror stays and the
-      # fallback covers it.
+      # The 75-900 B/s that justified this does not reproduce, and this mirror
+      # is the one that fails. Whether the repointing still earns its keep is
+      # open -- hiroz#308 carries the measurements and what would settle it.
       - name: Point apt at the Azure Ubuntu mirror
         run: |
           if [ -f /etc/apt/sources.list ]; then
@@ -126,15 +108,10 @@ jobs:
               /etc/apt/sources.list.d/*.sources
           fi
 
-          # That mirror is fast and intermittently unreachable, so every apt
-          # call below runs through `scripts/ci/apt-retry.sh`. That script
-          # carries the diagnosis and the measurement behind each layer. Keep
-          # them there rather than repeating them here.
-          #
-          # This drop-in is the one layer that belongs in this step, because it
-          # is apt configuration and not a wrapper. It retries a single file,
-          # with no delay, and covers a momentary blip. It applies to every apt
-          # call in the job, including any added later.
+          # This mirror is intermittently unreachable, so every apt call below
+          # goes through `scripts/ci/apt-retry.sh`. This drop-in is the layer
+          # that belongs here rather than in the wrapper: it is apt config, and
+          # it covers every apt call in the job, including any added later.
           printf 'Acquire::Retries "3";\n' > /etc/apt/apt.conf.d/99-retries
 
       - name: Install system dependencies

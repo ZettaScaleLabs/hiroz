@@ -4,30 +4,17 @@
 #   apt-retry.sh apt-get update
 #   apt-retry.sh apt-get install -y foo bar
 #
-# `Unable to connect to azure.archive.ubuntu.com` is a long-standing,
-# non-deterministic failure on GitHub-hosted runners. People have reported it
-# against actions/runner-images since 2019. It is not an incident that ends, so
-# there is nothing to wait out. In one day it hit every distro in the interop
-# matrix, let go for a whole run, then came back through a rerun.
+# `Unable to connect to azure.archive.ubuntu.com` fails GitHub-hosted runners
+# at random. It is a long-standing fault, not an incident that ends, so there
+# is nothing to wait out.
 #
-# Three layers. Each earned its place: a measurement showed the one before it
-# was not enough.
+# Three layers, each added because a measurement showed the previous one was
+# not enough. hiroz#308 carries those measurements and the runs behind them.
 #
-#   Acquire::Retries      set by the workflow. Retries a single file, with no
-#                         delay. Covers a momentary blip. With it alone,
-#                         `Install ROS dependencies` still failed after 38s.
-#   backoff, here         retries the whole command: 15s, 30s, 45s. With this
-#                         alone, `Install system dependencies` ran 127 seconds
-#                         -- every attempt and every sleep -- and still failed.
-#   generic mirror, here  the endpoints the workflow repoints away from. Slow,
-#                         and reachable when the fast one is not.
-#
-# Both later layers have since rescued a real job: the backoff on lyrical, the
-# mirror switch on jazzy after roughly four minutes of an unreachable host.
-#
-# Retrying here beats rerunning the job. A rerun throws away the container pull
-# and the cache restore that preceded the failure. It also teaches everyone to
-# ignore red, because the job goes green often enough.
+#   Acquire::Retries   set by the workflow. One file, no delay, covers a blip.
+#   backoff, here      the whole command: 15s, 30s, 45s.
+#   generic mirror     what the workflow repoints away from. Slower, and
+#                      reachable when the fast one is not.
 set -u
 
 # One switch per job. Without the flag a later apt call repeats it and reports
