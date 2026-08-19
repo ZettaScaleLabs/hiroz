@@ -57,6 +57,16 @@ jobs:
     container:
       image: ${{ matrix.image }}
     steps:
+      # First, so `scripts/ci/apt-retry.sh` exists before the apt steps below.
+      # The ROS images ship git, so this needs nothing installed: checkout runs
+      # `git init` rather than falling back to the API tarball.
+      #
+      # It also makes `hashFiles` in the apt cache key below resolve. Before
+      # this move it ran against an empty workspace and returned nothing, so
+      # the key was constant and never tracked the workflow it names. Expect
+      # one cache miss as the key changes, then correct behaviour.
+      - uses: actions/checkout@v4
+
       - name: Compute weekly cache key
         id: cache-week
         run: echo "week=$(date -u +%Y-W%V)" >> "$GITHUB_OUTPUT"
@@ -119,74 +129,15 @@ jobs:
 
           # Acquire::Retries has no backoff -- it re-attempts immediately, so it
           # covers a momentary blip and not a window lasting tens of seconds.
-          # Measured: with it in place, `Install ROS dependencies` still failed
-          # after 38s. That step fetches hundreds of files. Each one is another
-          # chance to hit the window.
-          #
-          # So wrap the whole command too, with a delay. Written to a file
-          # because every `run:` is a separate shell, and the repository is not
-          # checked out yet at this point in the job.
-          # Measured: backoff alone is not enough either. With 15s/30s/45s in
-          # place, `Install system dependencies` ran for 127 seconds -- four
-          # attempts and every sleep -- and still failed. The mirror can be
-          # unreachable for longer than any backoff worth waiting through.
-          #
-          # So fall back. The generic endpoints are slow, which is the whole
-          # reason for repointing above. Slow still beats failed. A job that
-          # takes a few more minutes tells you whether your code works. A job
-          # that dies on a package fetch tells you nothing.
-          cat > /usr/local/bin/apt-fallback-mirror <<'SH'
-          #!/bin/sh
-          # Undo the Azure repointing. Same file shapes as the step above.
-          echo "apt-retry: switching to the generic Ubuntu mirror" >&2
-          if [ -f /etc/apt/sources.list ]; then
-              sed -i 's|http://azure\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
-                  /etc/apt/sources.list
-          fi
-          if ls /etc/apt/sources.list.d/*.sources > /dev/null 2>&1; then
-              sed -i 's|http://azure\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
-                  /etc/apt/sources.list.d/*.sources
-          fi
-          SH
-          chmod +x /usr/local/bin/apt-fallback-mirror
-
-          cat > /usr/local/bin/apt-retry <<'SH'
-          #!/bin/sh
-          # Run an apt command with backoff, then once more against the generic
-          # mirror if the fast one never came back.
-          attempt() {
-              n=0
-              until "$@"; do
-                  n=$((n + 1))
-                  [ "$n" -ge 4 ] && return 1
-                  echo "apt-retry: attempt $n failed; retrying in $((n * 15))s" >&2
-                  sleep $((n * 15))
-              done
-              return 0
-          }
-
-          attempt "$@" && exit 0
-
-          # One fallback per job: the flag stops a later apt call repeating the
-          # switch and re-reporting it as news.
-          if [ ! -f /var/tmp/.apt-fell-back ]; then
-              apt-fallback-mirror
-              : > /var/tmp/.apt-fell-back
-              apt-get update >/dev/null 2>&1 || true
-          fi
-
-          attempt "$@" && exit 0
-          echo "apt-retry: '$*' failed on both mirrors" >&2
-          exit 1
-          SH
-          chmod +x /usr/local/bin/apt-retry
+          # scripts/ci/apt-retry.sh adds the backoff and the mirror fallback,
+          # and carries the measurements that justify each layer.
 
       - name: Install system dependencies
         run: |
           # Install jq here so taiki-e/install-action's cargo-nextest step
           # below doesn't trigger a second, redundant apt-get update for it.
-          apt-retry apt-get update
-          apt-retry apt-get install -y nodejs jq
+          scripts/ci/apt-retry.sh apt-get update
+          scripts/ci/apt-retry.sh apt-get install -y nodejs jq
 
       - name: Install Nushell
         run: |
@@ -220,7 +171,7 @@ jobs:
           # #303 carries the diagnosis: the version pair, the valgrind trace and
           # the hypotheses it ruled out. Keep them there. A version number in a
           # comment goes stale, and a stale comment is worse than none.
-          apt-retry apt-get install -y \
+          scripts/ci/apt-retry.sh apt-get install -y \
             ros-${{ matrix.distro }}-rclcpp \
             ros-${{ matrix.distro }}-example-interfaces \
             ros-${{ matrix.distro }}-rmw-zenoh-cpp \
@@ -282,8 +233,6 @@ jobs:
             sed -i '/transport_optimization:/,/},$/d' "$CONFIG_FILE"
             echo "Fixed rmw_zenoh_cpp config by removing invalid transport_optimization section"
           fi
-
-      - uses: actions/checkout@v4
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
 
