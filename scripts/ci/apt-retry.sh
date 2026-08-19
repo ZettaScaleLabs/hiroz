@@ -14,7 +14,7 @@ set -u
 [ "$#" -gt 0 ] || { echo "apt-retry: usage: apt-retry.sh <command> [args...]" >&2; exit 2; }
 
 # One switch per job; without the flag a later apt call repeats it.
-# Both paths are overridable so test-apt-retry.sh drives a fixture tree.
+# test-apt-retry.sh overrides both paths to drive a fixture tree.
 FLAG="${APT_RETRY_FLAG:-/var/tmp/.apt-fell-back}"
 ROOT="${APT_RETRY_ROOT:-}"
 

@@ -3,9 +3,9 @@
 #
 #   scripts/ci/test-apt-retry.sh
 #
-# No apt and no network. Stubs on PATH stand in for the apt command and for
-# `sleep`, so the backoff costs nothing here. A fixture tree stands in for
-# /etc/apt, so the mirror rewrite is checked rather than assumed.
+# It needs no apt and no network. Stubs on PATH replace the apt command and
+# sleep, so the backoff costs no time. A fixture tree replaces /etc/apt, so
+# the test checks the mirror rewrite.
 set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -18,14 +18,14 @@ BIN="$WORK/bin"
 PATH="$BIN:$PATH"
 export PATH
 
-# `sleep` is stubbed, so the 15s/30s/45s backoff does not slow the test. That
-# means the test proves the retry count, not the delays.
+# The sleep stub removes the 15s/30s/45s backoff. So the test proves the
+# retry count, not the delays.
 printf '#!/bin/sh\nexit 0\n' > "$BIN/sleep"
 # fallback_mirror runs `apt-get update`. Keep it out of the call count.
 printf '#!/bin/sh\nexit 0\n' > "$BIN/apt-get"
 printf '#!/bin/sh\necho x >> "$CALLS"\nexit 0\n' > "$BIN/stub-ok"
 printf '#!/bin/sh\necho x >> "$CALLS"\nexit 1\n' > "$BIN/stub-fail"
-# Succeeds only once the switch has happened, so it separates the two attempts.
+# It succeeds only after the switch, so it separates the two attempts.
 printf '#!/bin/sh\necho x >> "$CALLS"\n[ -f "$APT_RETRY_FLAG" ]\n' > "$BIN/stub-until-switch"
 chmod +x "$BIN"/*
 
@@ -53,8 +53,8 @@ setup() { # case name
 }
 
 calls() { wc -l < "$CALLS" | tr -d ' '; }
-# grep -c prints 0 and exits 1 when it matches nothing. An `|| echo 0`
-# here would append a second zero, so let the count stand on its own.
+# grep -c prints 0 and exits 1 on no match. An `|| echo 0` here would
+# add a second zero.
 switches() { grep -c 'switching to the generic' "$CASE/err" 2>/dev/null; }
 
 run() { # runs the SUT, capturing stderr and rc
