@@ -1009,20 +1009,40 @@ fn test_hu_meter_param_load() {
 
 // ─── echo --timeout ──────────────────────────────────────────────────────────
 
+/// `echo` on a topic nobody publishes: the contract is **terminate, and say
+/// why**. It used to exit 0 after the timeout having printed nothing, which is
+/// the exact ambiguity this branch removes — a silent success is
+/// indistinguishable from "the topic is idle". There is no schema to resolve
+/// (nothing advertises a type and `subscribe` carries only a topic name), so
+/// `subscribe` now fails, hu-meter reports it and exits non-zero.
+///
+/// The "does not hang" half of the original assertion is preserved by the fact
+/// that `run_hu_meter` returns at all.
+///
+/// This is also the end-to-end cover for the epoch budget: with no publisher,
+/// `subscribe` blocks for the *full* discovery timeout (5 s) inside a guest
+/// dispatch whose epoch deadline is ~3 s of wall clock. Without
+/// `HostBlockGuard` suspending the epoch ticker, the guest traps on return, the
+/// error branch below never runs, and `exit_code` stays `None` — the command
+/// would print nothing and hang in the tick loop instead of failing here.
 #[test]
 #[serial_test::serial]
-fn test_hu_meter_echo_timeout_exits() {
+fn test_hu_meter_echo_no_publisher_reports_and_exits() {
     let router = TestRouter::new();
-    // No publisher — echo should exit after the timeout rather than hang.
     let out = run_hu_meter(
         router.endpoint(),
         &["echo", "/no_publisher_topic", "--timeout", "1"],
     );
-    // Should exit cleanly (not hang indefinitely).
+    let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        out.status.success(),
-        "hu meter echo --timeout should exit cleanly when no messages arrive: {}",
-        String::from_utf8_lossy(&out.stderr)
+        !out.status.success(),
+        "hu meter echo on a topic with no publisher must report a failure, not exit \
+         0 having printed nothing (stdout: {}, stderr: {stderr})",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(
+        stderr.contains("/no_publisher_topic"),
+        "the failure must name the topic it could not resolve: {stderr}"
     );
 }
 

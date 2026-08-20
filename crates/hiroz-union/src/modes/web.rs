@@ -41,6 +41,18 @@ mod inner {
         plugins: Mutex<Vec<WasmPlugin>>,
     }
 
+    /// Split out from `run_web_mode` so a test can build it without a router,
+    /// a Zenoh session or a bound socket. `Router::route` validates path
+    /// syntax by **panicking at run time**, not at compile time — the axum 0.7
+    /// form `*path` compiles cleanly and then aborts `hu web` on startup. That
+    /// shipped unnoticed because `web-plugins` was never built in CI.
+    fn build_router(state: Arc<WebState>) -> Router {
+        Router::new()
+            .route("/plugins/{name}/{*path}", any(handle_plugin_request))
+            .route("/plugins/{name}", any(handle_plugin_request_root))
+            .with_state(state)
+    }
+
     pub async fn run_web_mode(
         core: Arc<CoreEngine>,
         port: u16,
@@ -59,10 +71,7 @@ mod inner {
             plugins: Mutex::new(plugins),
         });
 
-        let app = Router::new()
-            .route("/plugins/{name}/*path", any(handle_plugin_request))
-            .route("/plugins/{name}", any(handle_plugin_request_root))
-            .with_state(state);
+        let app = build_router(state);
 
         // Bind to loopback by default so the plugin HTTP surface is not exposed
         // on all interfaces. Set `HU_WEB_BIND` (e.g. `0.0.0.0`) to opt into
@@ -136,6 +145,24 @@ mod inner {
                         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
                 }
             },
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// Regression: the routes used axum 0.7 wildcard syntax (`*path`)
+        /// against axum 0.8. That compiles cleanly and panics the moment
+        /// `hu web` starts, so it shipped unnoticed while `web-plugins` was
+        /// never built in CI. Building the router IS the check — wrong path
+        /// syntax panics here.
+        #[test]
+        fn router_paths_are_valid_for_this_axum_version() {
+            let state = Arc::new(WebState {
+                plugins: Mutex::new(Vec::new()),
+            });
+            let _ = build_router(state);
         }
     }
 }
