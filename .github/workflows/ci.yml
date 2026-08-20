@@ -435,6 +435,30 @@ jobs:
           nu scripts/test-pure-rust.nu check-hu
         shell: bash
 
+      # docs/tools/hu.md publishes an aarch64-apple-darwin tarball, and the
+      # release workflow has a macOS leg — but no `v*` tag has been cut since
+      # that leg was written, so nothing has ever confirmed `hu` builds,
+      # packages and runs on macOS. This job is already on a macOS runner and
+      # already compiles the crate, so proving the rest costs a few minutes
+      # and turns a published artifact name into a tested claim.
+      #
+      # Release profile deliberately: the release leg builds --release with
+      # web-plugins, and a debug build proving nothing about that is how an
+      # untested promise survives looking tested.
+      - name: hu packages and runs on macOS
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          nu scripts/build-hu-release.nu --binary-only --no-sums --out mac-dist
+          ls -l mac-dist
+          HUHOME="$RUNNER_TEMP/huhome-mac"
+          mkdir -p "$HUHOME/.local/bin"
+          tar -xzf mac-dist/hu-*-aarch64-apple-darwin.tar.gz -C "$HUHOME/.local/bin" hu
+          got=$(HOME="$HUHOME" "$HUHOME/.local/bin/hu" --version)
+          echo "macOS build reports: $got"
+          case "$got" in "hu "*) ;; *) echo "FAIL: no version from the macOS binary"; exit 1 ;; esac
+        shell: bash
+
       - name: Check all examples
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
@@ -474,6 +498,161 @@ jobs:
           fi
           nu scripts/test-pure-rust.nu clippy-tests
         shell: bash
+
+  hu-aarch64-cross:
+    name: hu cross-compiles for aarch64 Linux
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # docs/tools/hu.md publishes an aarch64 Linux tarball. That it builds at
+    # all was established once, by hand on an aarch64 runner — hu pulls in
+    # wasmtime, rusqlite's bundled C, ring's assembly and axum, any of which
+    # could stop cross-compiling. Nothing guarded it afterwards, so the
+    # release leg would have found out at tag time.
+    #
+    # Deliberately build-and-package only, no execution: qemu-user is
+    # expensive to provision (it killed a whole job while still realizing)
+    # and running the binary is a separate question from whether the release
+    # artifact can be produced.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      - name: Install ziglang
+        run: pip install ziglang
+
+      - name: Install nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: "0.113.1"
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-latest-hu-aarch64-cross
+
+      - name: Cross-build and package
+        shell: bash
+        run: |
+          set -e
+          TGT=aarch64-unknown-linux-gnu
+          cargo zigbuild --release --bin hu -p hiroz-union \
+            --features web-plugins --no-default-features --target "$TGT"
+          BIN="target/$TGT/release/hu"
+          # A cross build that silently emitted x86_64 would otherwise look
+          # exactly like success.
+          file "$BIN"
+          file "$BIN" | grep -q "ARM aarch64" || {
+            echo "FAIL: not an aarch64 binary"; exit 1; }
+          nu scripts/build-hu-release.nu --binary-only --binary-from "$BIN" \
+            --target "$TGT" --no-sums --out a64-dist
+          test -s "a64-dist/$(ls a64-dist | head -1)" || {
+            echo "FAIL: nothing packaged"; exit 1; }
+          tar -tzf a64-dist/hu-*-$TGT.tar.gz
+
+  hu-docs-repro:
+    name: hu docs reproduce from a download (ubuntu-latest)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Enforces the contract that every `hu` command in docs/tools/ is
+    # runnable by someone who only downloaded a release: it packages the
+    # artifacts, installs them into a scratch HOME with HU_PLUGIN_PATH unset,
+    # and executes the documented commands against that install.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-wasip2
+
+      - name: Install nushell and jq
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+          cargo install nu --locked --version 0.113.1
+          # No `|| true`: a swallowed install failure resurfaces three steps
+          # later as `nu: command not found`, which names neither the cause
+          # nor the step that caused it.
+          nu --version
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-latest-hu-docs-repro
+
+      # release.yml only ever runs on a `v*` tag, so no pull request exercises
+      # it. This is the one check those steps get before a tag is pushed, and
+      # it is deliberately pure string arithmetic — no runner, no network, no
+      # build — so it can run here. It encodes the tag-vs-asset-name split that
+      # a pre-release tag depends on, which is the defect that broke the first
+      # pre-release ever cut on the other channel.
+      - name: Release workflow version semantics
+        run: bash scripts/test-release-version-semantics.sh
+
+      - name: Installer refusal paths
+        run: bash scripts/test-install-hu.sh
+
+      - name: Package the release artifacts
+        run: nu scripts/build-hu-release.nu --out dist
+
+      - name: Install exactly as a user would, offline
+        run: |
+          set -e
+          HUHOME="$RUNNER_TEMP/huhome"
+          mkdir -p "$HUHOME"
+          HOME="$HUHOME" HU_PREFIX="$HUHOME/.local" sh scripts/install-hu.sh --offline dist
+          echo "HUHOME=$HUHOME" >> "$GITHUB_ENV"
+
+      # The traffic source is built from the tree, NOT taken from the artifact.
+      # `hu` cannot generate its own traffic (`hu meter pub` needs message
+      # definitions no release ships), so without an external publisher the
+      # suite measures an empty graph and every `hu meter` command degrades to
+      # "did the process start". This example stands in for the deployment hu
+      # is documented to observe.
+      - name: Build the traffic fixture
+        run: cargo build --release --example z_pubsub -p hiroz
+
+      - name: Reproduce the documented commands
+        run: |
+          set -e
+          unset HU_PLUGIN_PATH
+          HOME="$HUHOME" "$HUHOME/.local/bin/hu" router > router.log 2>&1 &
+          ROUTER_PID=$!
+          sleep 5
+          # A router that failed to bind is otherwise silent, and surfaces as a
+          # dozen unrelated-looking measurement failures further down. Fail here
+          # instead, where the message names the cause.
+          kill -0 "$ROUTER_PID" 2>/dev/null || {
+            echo "FAIL: router died on startup"; tail -10 router.log; exit 1; }
+          # --require-traffic so this can never silently degrade back into an
+          # exit-status check if the publisher argument is dropped.
+          # Status must not pass through a pipe.
+          # `set +e` around the run is not optional: with `set -e` active the
+          # shell exits ON the failing command, so `cat repro.log` never runs
+          # and the failure is reported with no output at all. Captured rc is
+          # worthless if the capture is unreachable.
+          set +e
+          nu scripts/test-hu-docs-repro.nu \
+            --home "$HUHOME" \
+            --publisher "${CARGO_TARGET_DIR:-$PWD/target}/release/examples/z_pubsub" \
+            --require-traffic > repro.log 2>&1
+          rc=$?
+          set -e
+          cat repro.log
+          echo "--- router.log ---"; tail -20 router.log || true
+          exit $rc
 
   wasm-plugin-tests:
     name: WASM Plugin Tests (ubuntu-latest)

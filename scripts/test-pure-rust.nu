@@ -50,8 +50,17 @@ def check-bundled-msgs [] {
 
 def check-hu [] {
     log-step "Check hiroz-union"
-    run-cmd "cargo check -p hiroz-union"
-    run-cmd "cargo clippy -p hiroz-union -- -D warnings"
+    # `--features web-plugins` and `--all-targets` are both load-bearing.
+    # Without the feature, CI never compiles modes/web.rs at all — which is how
+    # `hu web` shipped with an axum 0.7 route string that panics at startup
+    # under axum 0.8. Without --all-targets, the crate's tests are not built.
+    run-cmd "cargo check -p hiroz-union --features web-plugins --all-targets"
+    run-cmd "cargo clippy -p hiroz-union --features web-plugins --all-targets -- -D warnings"
+    log-step "Test hiroz-union"
+    # `--bins`, not `--lib`: hiroz-union is a binary-only crate, so `--lib`
+    # fails with "no library targets found" and every #[cfg(test)] module in it
+    # silently goes unrun.
+    run-cmd "cargo test -p hiroz-union --features web-plugins --bins"
     log-step "Build WASM plugins (wasm32-wasip2)"
     # Needs the wasm32-wasip2 sysroot: CI uses `.#pureRust-ci`; locally enter
     # `.#pureRust-wasm` (the default `.#pureRust` shell omits it to stay lean).
