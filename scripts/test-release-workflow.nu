@@ -15,7 +15,21 @@
 use lib/common.nu *
 
 const REPO = "ZettaScaleLabs/hiroz"
-const DEFAULT_TAG = "v0.0.0-smoke-test"
+# The smoke tag must carry the CORE version the `hiroz-union` crate is at.
+# `build-hu-release.nu` cross-checks the tag against that crate and fails the
+# build on a mismatch, so the old hard-coded `v0.0.0-smoke-test` now kills four
+# jobs at their first packaging step -- it removed the only documented rehearsal
+# GitHub has. A `-smoke-test` suffix keeps it a pre-release, so it is published
+# as one and skips crates.io.
+def hu-core []: nothing -> string {
+    open --raw Cargo.toml
+    | lines
+    | skip until { |l| ($l | str trim) == "[workspace.package]" }
+    | where { |l| ($l | str trim | str starts-with "version") }
+    | first
+    | split row "\""
+    | get 1
+}
 
 def cleanup-tag [tag: string] {
     log-step $"Deleting remote tag ($tag)"
@@ -37,10 +51,13 @@ def cleanup-tag [tag: string] {
 
 # Smoke-test the release workflow by pushing a temporary prerelease tag.
 def main [
-    --tag: string = $DEFAULT_TAG   # Tag to push (deleted on cleanup)
+    --tag: string = ""             # Tag to push (default: v<crate-version>-smoke-test; deleted on cleanup)
     --no-wait                      # Push the tag but do not poll for CI result
     --cleanup                      # Delete the tag and GitHub Release, then exit
 ] {
+    let tag = if ($tag | is-empty) { $"v(hu-core)-smoke-test" } else { $tag }
+    print $"Smoke tag: ($tag)"
+
     if $cleanup {
         cleanup-tag $tag
         log-success "Cleanup done."

@@ -6,13 +6,19 @@ This document covers the full release process: local dry-run, CI smoke test, and
 
 Before releasing, bump the version in all three places consistently:
 
-| File | Field |
-|------|-------|
-| `Cargo.toml` | `[workspace.package] version` |
-| `crates/hiroz-msgs/python/pyproject.toml` | `version` |
-| `crates/hiroz-py/pyproject.toml` | `version` |
+| File | Field | Controls |
+|------|-------|----------|
+| `Cargo.toml` | `[workspace.package] version` | **every crate under `crates/`** — they all inherit it, so this one row governs the crates.io versions, every `hu` release asset name, and what `hu --version` prints |
+| `crates/hiroz-msgs/python/pyproject.toml` | `version` | the `hiroz-msgs-py` wheel |
+| `crates/hiroz-py/pyproject.toml` | `version` | the `hiroz-py` wheel |
 
 The `hiroz-py` wheel depends on `hiroz-msgs-py>=<version>` — update that lower bound too when bumping.
+
+**One version governs every Rust crate, and a check enforces it.** `hiroz`, `hiroz-protocol` and `hiroz-union` each used to carry a literal `version`, which meant `cargo publish --workspace` could leave a published crate behind at the old number while the tag said otherwise, and a `v0.2.0` tag could produce `hu` assets named `0.1.0`. They now inherit, and `scripts/test-release-version-semantics.sh` fails if any crate under `crates/` reintroduces a literal.
+
+`hu` keeps an independent release *cadence* through its own `hu-v*` tags — you can cut a `hu` release between workspace releases — but not an independent *number*.
+
+> **Do not bump the WIT world alongside the product version.** `hu:plugin@0.1.0` is the plugin **ABI contract**, not a product version, and the two move on different clocks. It lives in three places that must agree — `HOST_WIT_WORLD` in `crates/hiroz-union/src/plugin/install.rs`, the `WIT_WORLD` constant in `scripts/build-hu-release.nu`, and the `package` line of `crates/hiroz-union/wit/v0.1/hu-plugin.wit` — and `install.rs` compares it to a release index by **exact string equality**. Bump the string and `hu plugin install <name>` refuses every index still declaring the old world, with a message telling the user to upgrade `hu` — for a change that never happened. Rename the package in `hu-plugin.wit` as well and the breakage is real rather than cosmetic: plugins built against the old package no longer instantiate. Change it only when the interface in `hu-plugin.wit` changes incompatibly, and then change all three sites in the same commit.
 
 ## Step 1 — Local dry-run (optional)
 
@@ -39,7 +45,9 @@ Before tagging a real version, verify the entire CI release pipeline works end-t
 ./scripts/test-release-workflow.nu
 ```
 
-This pushes `v0.0.0-smoke-test`, waits for all CI jobs to pass (builds, smoke tests, release creation), then reports the result. The script requires `gh` CLI authenticated to the repo.
+This pushes `v<crate-version>-smoke-test` — e.g. `v0.1.0-smoke-test` — waits for all CI jobs to pass (builds, smoke tests, release creation), then reports the result. The script requires `gh` CLI authenticated to the repo.
+
+The tag carries the current workspace version deliberately. `build-hu-release.nu` cross-checks a tag's core version against it and fails the build on a mismatch, so a fixed tag like `v0.0.0-smoke-test` dies at the first packaging step. The `-smoke-test` suffix makes it a semver pre-release, so it publishes as a pre-release and skips the crates.io step.
 
 ```bash
 # Push only — skip the polling wait
@@ -52,10 +60,11 @@ This pushes `v0.0.0-smoke-test`, waits for all CI jobs to pass (builds, smoke te
 The CI pipeline exercises:
 
 - All wheel builds (jazzy + humble × x86_64 Linux, aarch64 Linux, aarch64 macOS)
-- The `hu` binary build, plus the `hu-meter` / `hu-monitor` WASM plugins (`hu_meter.wasm` / `hu_monitor.wasm`, `wasm32-wasip2` target)
+- The `hu` binary build (built with `--features web-plugins`, so the documented `hu web` subcommand works in the artifact users download)
+- The `hu-meter` / `hu-monitor` WASM plugins (`hu_meter.wasm` / `hu_monitor.wasm`, `wasm32-wasip2`), plus `hu-plugins-<ver>.tar.gz` and the `hu-plugins-<ver>.json` index, built once in the `build-hu-plugins` job — the output is platform-independent, so it is not part of the per-target matrix
 - All Go library builds (`libhiroz` static + shared)
 - Python smoke test: install into venv, `import hiroz_py`
-- Binary smoke test: `--help` + 3-second runtime check (no crash)
+- Binary smoke test: `--help`, plus a clean-install check that unpacks the plugins into `~/.local/share/hu/plugins` with `HU_PLUGIN_PATH` unset and asserts `hu plugin list` finds `meter` and `monitor`
 - Go smoke test: CGO compilation against the downloaded `.a`
 - Install-from-release-URL test: `pip install` from the actual GitHub Release artifacts
 

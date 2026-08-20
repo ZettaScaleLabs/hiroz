@@ -129,21 +129,30 @@ jobs:
       matrix:
         include:
           # hu (hiroz-union) — distro-agnostic, one binary per platform
+          # `web-plugins` is deliberate: docs/tools/hu.md documents `hu web`,
+          # and a default-feature build accepts the subcommand then refuses it
+          # at run time. It implies wasm-plugins, so nothing is lost.
           - bin: hu
             package: hiroz-union
-            features: ""
+            features: "web-plugins"
             artifact: bin-hu-x86_64-linux
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+          # `web-plugins` is deliberate: docs/tools/hu.md documents `hu web`,
+          # and a default-feature build accepts the subcommand then refuses it
+          # at run time. It implies wasm-plugins, so nothing is lost.
           - bin: hu
             package: hiroz-union
-            features: ""
+            features: "web-plugins"
             artifact: bin-hu-aarch64-linux
             target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
+          # `web-plugins` is deliberate: docs/tools/hu.md documents `hu web`,
+          # and a default-feature build accepts the subcommand then refuses it
+          # at run time. It implies wasm-plugins, so nothing is lost.
           - bin: hu
             package: hiroz-union
-            features: ""
+            features: "web-plugins"
             artifact: bin-hu-aarch64-macos
             target: aarch64-apple-darwin
             os: macos-latest
@@ -153,6 +162,10 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # wasm32-wasip2 builds the hu plugins. They are platform-independent,
+          # so only the primary leg (below) actually packages them.
+          targets: wasm32-wasip2
 
       - name: Install Rust target (Linux cross-compile only)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -187,18 +200,137 @@ jobs:
             ${{ matrix.features != '' && format('--features {0} --no-default-features', matrix.features) || '' }} \
             --target ${{ matrix.target }}
 
+      - name: Install nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: "0.113.1"
+
+      # HU_VERSION identifies the RELEASE (`0.2.0-rc1`); HU_CORE identifies the
+      # ASSETS (`0.2.0`). They differ only for a pre-release, because
+      # build-hu-release.nu names every file for the crate version — an rc ships
+      # the same crate as the release it rehearses. Using one string for both is
+      # what broke the first pre-release on the other channel.
+      - name: Derive version from tag
+        shell: bash
+        run: |
+          set -eu
+          V="${GITHUB_REF_NAME#v}"
+          echo "HU_VERSION=$V"      >> "$GITHUB_ENV"
+          echo "HU_CORE=${V%%-*}"   >> "$GITHUB_ENV"
+          echo ">>> tag=$GITHUB_REF_NAME version=$V core=${V%%-*}"
+
       - name: Package binary
         shell: bash
         run: |
-          mkdir -p bin-dist
-          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" \
-             "bin-dist/${{ matrix.artifact }}"
+          # Package through the shared script, NOT an ad-hoc `cp`. The tarball
+          # name and contents are the contract `install-hu.sh` reads, so if
+          # this channel rolls its own the two release channels drift and a
+          # GitHub release stops being installable — which is exactly what
+          # happened while this step was a bare `cp` of the ELF.
+          #
+          # --binary-from because the cross legs build with cargo zigbuild
+          # above; the script packages what they produced rather than
+          # rebuilding. --no-sums because SHA256SUMS is assembled once, in the
+          # release job, over every asset from every leg.
+          #
+          # --version arms the tag-vs-crate guard (build-hu-release.nu:69-77),
+          # so a tag that disagrees with the crate fails here instead of
+          # shipping a tarball whose name lies about its contents. The guard
+          # compares only the CORE version, so an `-rc<N>` suffix is legal.
+          nu scripts/build-hu-release.nu \
+            --binary-only \
+            --version "$HU_VERSION" \
+            --binary-from "target/${{ matrix.target }}/release/${{ matrix.bin }}" \
+            --target "${{ matrix.target }}" \
+            --no-sums \
+            --out bin-dist
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: bin-dist/*
+
+  build-hu-plugins:
+    name: Build hu WASM plugins
+    runs-on: ubuntu-latest
+    # `hu meter` and `hu monitor` are NOT in the hu binary — they are WASM
+    # components. Without this job the release ships a hu that cannot run any
+    # documented `hu meter`/`hu monitor` command.
+    #
+    # wasm32-wasip2 output is platform-independent, so this runs on exactly one
+    # leg. Building it in the per-target matrix would have three legs racing to
+    # upload the same asset name.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+
+      - name: Install nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: "0.113.1"
+
+      # HU_VERSION identifies the RELEASE (`0.2.0-rc1`); HU_CORE identifies the
+      # ASSETS (`0.2.0`). build-hu-release.nu names every file for the crate
+      # version, so a pre-release tag produces core-named assets by design.
+      # Deriving one string and using it for both is what made the first
+      # pre-release on the other channel build cleanly and then fail verifying
+      # filenames that by design never exist.
+      - name: Derive version from tag
+        shell: bash
+        run: |
+          set -eu
+          V="${GITHUB_REF_NAME#v}"
+          echo "HU_VERSION=$V"      >> "$GITHUB_ENV"
+          echo "HU_CORE=${V%%-*}"   >> "$GITHUB_ENV"
+          echo ">>> tag=$GITHUB_REF_NAME version=$V core=${V%%-*}"
+
+      # build-hu-release.nu validates each .wasm by loading it as a component
+      # through `hu plugin validate`, which needs a HOST-NATIVE hu. This leg is
+      # x86_64 Linux, so it can build one — and it must, because this is the
+      # only job that publishes the .wasm files. Without it the channel that
+      # ships the plugins never once compiles them as components.
+      #
+      # Default features are enough (`wasm-plugins` provides `plugin validate`)
+      # and this binary is never packaged: the released hu comes from the
+      # build-binaries matrix.
+      - name: Build a host-native hu for plugin validation
+        shell: bash
+        run: cargo build --release --bin hu --package hiroz-union
+
+      - name: Build plugins and index
+        shell: bash
+        run: |
+          # The single packaging script every release platform calls, so they
+          # cannot drift in what they ship.
+          # --version arms the tag-vs-crate guard (build-hu-release.nu:69-77);
+          # it compares only the CORE version, so `-rc<N>` is legal.
+          # --no-sums: SHA256SUMS is assembled once in the release job over
+          # every asset. A per-job file here would cover only the plugins and
+          # verify clean while saying nothing about the binary.
+          nu scripts/build-hu-release.nu --plugins-only --version "$HU_VERSION" --no-sums --out hu-dist
+
+      - name: Verify the plugin artifact set
+        shell: bash
+        run: |
+          set -e
+          # HU_CORE, not HU_VERSION: the assets are named for the crate.
+          for f in "hu_meter-$HU_CORE.wasm" \
+                   "hu_monitor-$HU_CORE.wasm" \
+                   "hu-plugins-$HU_CORE.tar.gz" \
+                   "hu-plugins-$HU_CORE.json"; do
+            test -s "hu-dist/$f" || { echo "missing or empty: hu-dist/$f"; exit 1; }
+          done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin-hu-plugins
+          path: hu-dist/*
 
   build-go-libs:
     name: Build libhiroz (${{ matrix.distro }}, ${{ matrix.target }})
@@ -322,7 +454,7 @@ jobs:
 
   smoke-test-binaries:
     name: Smoke test binaries
-    needs: [build-binaries]
+    needs: [build-binaries, build-hu-plugins]
     runs-on: ubuntu-latest
     steps:
       - name: Download hu binary (x86_64)
@@ -331,10 +463,63 @@ jobs:
           name: bin-hu-x86_64-linux
           path: dist/
 
-      - name: Run --help
+      - name: Download hu plugins
+        uses: actions/download-artifact@v4
+        with:
+          name: bin-hu-plugins
+          path: dist/
+
+      - uses: actions/checkout@v4
+
+      # Assemble the same SHA256SUMS the release job will, so this test
+      # installs from artifacts shaped exactly like the published ones.
+      - name: Assemble SHA256SUMS
+        shell: bash
         run: |
-          chmod +x dist/bin-hu-x86_64-linux
-          dist/bin-hu-x86_64-linux --help
+          set -e
+          cd dist
+          files=$(find . -maxdepth 1 -type f -printf '%f\n' | sort)
+          printf '%s\n' "$files" | xargs sha256sum > SHA256SUMS
+          cat SHA256SUMS
+          # Self-check: the file must verify cleanly, including not listing
+          # itself.
+          sha256sum -c SHA256SUMS
+
+      # The real question is not "does the binary start" but "can a user who
+      # downloaded this release install it the documented way and then run
+      # `hu meter`". So this uses the actual installer rather than hand-placing
+      # files: it is the only thing that exercises the artifact *shape*, which
+      # is where this channel was broken — it shipped a bare ELF while the
+      # installer expects a tarball.
+      - name: Install from the release artifacts, as a user would
+        shell: bash
+        run: |
+          set -e
+          HUHOME="$RUNNER_TEMP/huhome"
+          mkdir -p "$HUHOME"
+          HOME="$HUHOME" HU_PREFIX="$HUHOME/.local" sh scripts/install-hu.sh --offline dist
+          unset HU_PLUGIN_PATH
+          HOME="$HUHOME" "$HUHOME/.local/bin/hu" --version
+          out="$(HOME="$HUHOME" "$HUHOME/.local/bin/hu" plugin list)"
+          echo "$out"
+          echo "$out" | grep -q meter   || { echo "FAIL: meter not discovered"; exit 1; }
+          echo "$out" | grep -q monitor || { echo "FAIL: monitor not discovered"; exit 1; }
+
+      # Prove the refusal fires. A checksum check that has never rejected
+      # anything is unverified, not safe.
+      - name: A corrupted asset must be refused
+        shell: bash
+        run: |
+          set -e
+          printf 'X' | dd of=dist/hu-*-x86_64-unknown-linux-gnu.tar.gz \
+            bs=1 seek=100 conv=notrunc status=none
+          HUHOME="$RUNNER_TEMP/huhome-bad"
+          mkdir -p "$HUHOME"
+          if HOME="$HUHOME" HU_PREFIX="$HUHOME/.local" sh scripts/install-hu.sh --offline dist; then
+            echo "FAIL: installer accepted a corrupted tarball"; exit 1
+          fi
+          test ! -e "$HUHOME/.local/bin/hu" || { echo "FAIL: installed despite refusing"; exit 1; }
+          echo "ok — corrupted asset refused, nothing installed"
 
   smoke-test-go:
     name: Smoke test Go library
@@ -415,16 +600,119 @@ jobs:
           path: dist/
           merge-multiple: true
 
-      - name: Create GitHub Release
+      # docs/tools/hu-install.md's first instruction is
+      #   curl -fsSL <release-base>/install-hu.sh | HU_VERSION=… sh
+      # and until this step existed that URL 404'd on every release ever cut:
+      # build-hu-release.nu writes six assets and the installer is not one of
+      # them, so nothing ever put install-hu.sh where the docs point. The
+      # bootstrap script is an asset like any other and belongs in dist/.
+      #
+      # It is staged HERE, before SHA256SUMS is assembled, so the checksum file
+      # covers it without a special case — the assembling step lists whatever
+      # is in dist/ at the time it runs. Staging it afterwards would publish an
+      # unlisted asset, which is the F2 shape: `sha256sum -c` passes while
+      # saying nothing about the file a user actually pipes into a shell.
+      - name: Stage the installer as a release asset
+        shell: bash
+        run: |
+          set -e
+          test -f scripts/install-hu.sh || {
+            echo "FAIL: scripts/install-hu.sh missing from the checkout"; exit 1; }
+          # Parse-only. A syntactically broken installer is worse than an
+          # absent one: `curl … | sh` executes it up to the parse error, so a
+          # partial run can leave a half-installed prefix behind. This costs
+          # nothing and cannot pass a file that would not parse on the reader's
+          # machine.
+          sh -n scripts/install-hu.sh
+          mkdir -p dist
+          cp scripts/install-hu.sh dist/install-hu.sh
+          chmod 0755 dist/install-hu.sh
+          echo "staged dist/install-hu.sh ($(wc -c < dist/install-hu.sh) bytes)"
+
+      # One checksum file over every asset, generated here rather than per
+      # job. Per-job files were the bug: the plugins job emitted a SHA256SUMS
+      # covering only the plugins, so `sha256sum -c` passed while never
+      # checking the binary, and install-hu.sh refused the binary as unlisted.
+      - name: Assemble SHA256SUMS over the complete asset set
+        shell: bash
+        run: |
+          set -e
+          cd dist
+          rm -f SHA256SUMS
+          # Bare basenames, sorted: the format install-hu.sh and
+          # `sha256sum -c` both expect.
+          #
+          # Capture the file list BEFORE creating any output file. A shell
+          # redirect creates its target before the command on the left runs,
+          # so `find ... > SHA256SUMS` lists SHA256SUMS itself, with the hash
+          # of the empty file — and `sha256sum -c` then reports
+          # "SHA256SUMS: FAILED" on an otherwise perfect release. Redirecting
+          # to a temp name instead just moves the bug to the temp name.
+          files=$(find . -maxdepth 1 -type f -printf '%f\n' | sort)
+          printf '%s\n' "$files" | xargs sha256sum > SHA256SUMS
+          echo "covered $(wc -l < SHA256SUMS) assets:"
+          cat SHA256SUMS
+          # A release with no hu tarball listed is the defect this replaces —
+          # fail loudly rather than publishing it again.
+          grep -q 'hu-.*\.tar\.gz' SHA256SUMS
+          # Likewise for the installer: the docs tell readers to pipe it into a
+          # shell, so it must be published AND covered. An unlisted installer
+          # would still be downloadable and would still be unverifiable.
+          grep -q ' install-hu\.sh$' SHA256SUMS \
+            || { echo "FAIL: install-hu.sh is not covered by SHA256SUMS"; exit 1; }
+
+      # `prerelease` is derived from the tag shape, mirroring
+      # Without this an rc tag publishes as a
+      # full release and takes the "Latest" badge from the real one — and since
+      # `push: tags: v*` is this workflow's only trigger, an rc tag is the ONLY
+      # way to rehearse it, so the rehearsal would mislabel the product.
+      # Created as a DRAFT, then promoted by `publish-release` once the
+      # artifacts are on it, and withdrawn again by `withdraw-release` if the
+      # post-publish checks fail. Previously this published immediately and
+      # `smoke-test-release-install` ran afterwards, so a failed verification
+      # left a public release wearing the "Latest" badge with nothing to
+      # de-list it.
+      #
+      # The draft cannot be verified before promotion: GitHub does not serve
+      # draft assets from `browser_download_url` at all -- not anonymously and
+      # not with a token, only the metadata is readable. So "verify, then
+      # publish" is not available for a download test, and the honest shape is
+      # "publish, verify, withdraw on failure". That narrows the exposure from
+      # permanent to the length of the smoke test rather than removing it.
+      - name: Create GitHub Release (draft)
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
           name: ${{ github.ref_name }}
           body_path: CHANGELOG.md
           files: dist/**
+          # Semver: everything after the first `-` IS the pre-release
+          # identifier, so a hyphen is the whole test. Enumerating rc/alpha/beta
+          # is both longer and narrower -- it would publish `v0.2.0-smoke-test`
+          # as a full release and hand it the Latest badge.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+  # Promote the draft so the public download path exists. Everything below
+  # installs from that URL anonymously, which is the only way to exercise URL
+  # construction -- the offline path never builds one, which is how an
+  # installer that fetched a path the host did not serve reached a release.
+  publish-release:
+    name: Publish the draft release
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Promote
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          gh release edit "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" --draft=false
+          echo "published ${{ github.ref_name }}"
 
   smoke-test-release-install:
     name: Smoke test install from release URL
-    needs: [release]
+    needs: [publish-release]
     runs-on: ubuntu-latest
     steps:
       - name: Set up Python
@@ -450,9 +738,172 @@ jobs:
       - name: Import test
         run: .venv/bin/python -c "import hiroz_py; print('hiroz_py install-from-release ok')"
 
+      - uses: actions/checkout@v4
+
+      # Install `hu` from the live release URLs, the way a reader of
+      # docs/tools/hu-install.md does. This is the only test that exercises
+      # URL construction — the installer once built asset paths this host does
+      # not serve, and no offline test could catch that because the offline
+      # path never builds a URL.
+      #
+      # No credential: this repo is public, and requiring one here would hide
+      # a regression where the installer starts demanding a token it does not
+      # need.
+      - name: Install hu from the published release
+        run: |
+          set -e
+          TAG="${{ github.ref_name }}"
+          # VER is the RELEASE identity and belongs in the download path and in
+          # `--version`, which install-hu.sh itself splits into a core version
+          # for the filenames. CORE is what the BINARY reports, because it is
+          # built from the crate: an rc tag v0.2.0-rc1 produces a hu that prints
+          # `hu 0.2.0`. Asserting on VER here fails every pre-release.
+          VER="${TAG#v}"
+          CORE="${VER%%-*}"
+          HUHOME="$RUNNER_TEMP/hu-from-release"
+          mkdir -p "$HUHOME"
+          # GitHub serves release assets from a stable path shape,
+          # so only the base directory differs. That is exactly what
+          # HU_RELEASE_BASE overrides.
+          export HU_RELEASE_BASE="https://github.com/${{ github.repository }}/releases/download/$TAG"
+          # Run the command docs/tools/hu-install.md actually tells a reader to
+          # run -- the installer piped from the release into a shell -- not an
+          # equivalent-looking `sh scripts/install-hu.sh` against the repo copy.
+          # Two things only this form exercises: reading the script from stdin,
+          # and passing HU_RELEASE_BASE/HU_VERSION through the pipeline into it.
+          # The published-vs-source diff below proves the asset is right; it
+          # cannot prove the documented invocation works.
+          # Download-then-run, exactly as docs/tools/hu-install.md instructs.
+          # `&&` propagates curl's status, so a 404 stops here. Piping instead
+          # would not: a pipeline's status is its last command's, so `sh` would
+          # read empty stdin, exit 0, and pass this step having installed
+          # nothing. Measured both ways -- rc=22 with the `&&`, rc=0 with a pipe.
+          cd "$RUNNER_TEMP"
+          env -u HU_RELEASE_TOKEN HOME="$HUHOME" HU_PREFIX="$HUHOME/.local" \
+            bash -c "curl -fsSL '$HU_RELEASE_BASE/install-hu.sh' -o install-hu.sh \
+              && HU_RELEASE_BASE='$HU_RELEASE_BASE' HU_VERSION='$VER' sh install-hu.sh"
+          cd "$GITHUB_WORKSPACE"
+          unset HU_PLUGIN_PATH || true
+          got=$(HOME="$HUHOME" "$HUHOME/.local/bin/hu" --version)
+          echo "installed: $got"
+          test "$got" = "hu $CORE" || { echo "FAIL: expected 'hu $CORE', got '$got'"; exit 1; }
+          out=$(HOME="$HUHOME" "$HUHOME/.local/bin/hu" plugin list)
+          echo "$out"
+          echo "$out" | grep -q meter   || { echo "FAIL: meter missing"; exit 1; }
+          echo "$out" | grep -q monitor || { echo "FAIL: monitor missing"; exit 1; }
+          echo "HUHOME=$HUHOME" >> "$GITHUB_ENV"
+          echo "HU_RELEASE_BASE=$HU_RELEASE_BASE" >> "$GITHUB_ENV"
+
+      # The docs' first instruction is `curl -fsSL <base>/install-hu.sh | sh`.
+      # Publishing the file is one claim; the URL resolving is another, and
+      # only fetching it from the live release tests the second. Every release
+      # before this one served a 404 here.
+      - name: The documented installer URL must serve the installer
+        run: |
+          set -e
+          curl -fsSL "$HU_RELEASE_BASE/install-hu.sh" -o fetched-install-hu.sh
+          # Parse it as the reader's shell would. `curl … | sh` gives no
+          # opportunity to inspect first, so a broken asset runs partially.
+          sh -n fetched-install-hu.sh
+          # And it must be the file this tag was cut from, not a stale asset
+          # carried over from an earlier release.
+          diff -u scripts/install-hu.sh fetched-install-hu.sh \
+            || { echo "FAIL: published install-hu.sh differs from the tagged source"; exit 1; }
+          echo "ok — the documented one-liner URL serves this tag's installer"
+
+      - name: Install nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: "0.113.1"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # `hu plugin list` above is NOT sufficient on its own, and it is worth
+      # being explicit about why: discovery derives a plugin's name from its
+      # FILENAME and never opens the component
+      # (crates/hiroz-union/src/plugin/wasm/mod.rs), so an empty file named
+      # hu_meter.wasm satisfies every grep above. Until this step existed that
+      # was the only check this channel made against what it had just
+      # published — a release could ship an unloadable plugin and go green.
+      # The suite has already run against a published
+      # release; GitHub did not, so the two channels disagreed on what
+      # "released" proves.
+      #
+      # The publisher is built from the SOURCE CHECKOUT, deliberately, not
+      # taken from the artifact: `hu` cannot generate its own traffic (F12 —
+      # `hu meter pub` needs a schema no release ships), so a suite whose only
+      # fixture is `hu router` measures an empty graph and degenerates into an
+      # exit-status check. That is the exact hole a truncated plugin slips
+      # through.
+      - name: Build the traffic fixture from source
+        run: cargo build --release --example z_pubsub -p hiroz
+
+      - name: Reproduce the documented commands against the published release
+        run: |
+          set -eu
+          unset HU_PLUGIN_PATH || true
+          HOME="$HUHOME" "$HUHOME/.local/bin/hu" router > router.log 2>&1 &
+          ROUTER_PID=$!
+          sleep 5
+          # A router that died on startup shows up as a dozen unrelated
+          # measurement failures, so assert on it directly.
+          kill -0 "$ROUTER_PID" 2>/dev/null || {
+            echo "FAIL: router died on startup"; tail -20 router.log; exit 1; }
+          # Exit status must not pass through a pipe, and the log must be
+          # printed whichever way this goes.
+          set +e
+          nu scripts/test-hu-docs-repro.nu \
+            --home "$HUHOME" \
+            --publisher "$PWD/target/release/examples/z_pubsub" \
+            --require-traffic > repro.log 2>&1
+          rc=$?
+          set -e
+          cat repro.log
+          kill "$ROUTER_PID" 2>/dev/null || true
+          test "$rc" -eq 0 || {
+            echo "FAIL: the published release does not reproduce its own docs"; exit 1; }
+
+  # If the published release cannot install itself, or cannot reproduce its own
+  # documentation, put it back in the drawer. A draft is invisible to everyone
+  # without push access and keeps its assets, so the run can be diagnosed from
+  # exactly what shipped. The tag survives -- withdrawing a release does not
+  # delete it -- so the fix is a new tag rather than a rewritten one.
+  #
+  # This is the half of "draft first" that is actually reachable, given that
+  # GitHub will not serve draft assets for the download test above.
+  withdraw-release:
+    name: Withdraw the release if verification failed
+    needs: [publish-release, smoke-test-release-install]
+    # NOT `failure()`: that is true when ANY ancestor fails, and this job's
+    # ancestors reach back to build-binaries. A failed build skips release and
+    # publish-release, then this job would still run and try to withdraw a
+    # release that was never created -- going red with a caption implying a bad
+    # release is live. Withdraw only what publish-release actually published.
+    if: ${{ always()
+            && needs.publish-release.result == 'success'
+            && needs.smoke-test-release-install.result == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Return the release to draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          gh release edit "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" --draft=true
+          echo "WITHDRAWN: ${{ github.ref_name }} is a draft again — it did not verify."
+          echo "The tag still exists. Fix, then cut a new tag; do not move this one."
+
   publish-crates:
     name: Publish core crates to crates.io
     needs: [smoke-test-release-install]
+    # A pre-release tag rehearses the pipeline; it must not publish to
+    # crates.io. crates.io versions come from the crate manifests, not from the
+    # tag, so an rc tag would try to publish the SAME version the real release
+    # already published and end the run red on a rehearsal that otherwise
+    # passed. Skipping keeps the rc a clean rehearsal signal.
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
