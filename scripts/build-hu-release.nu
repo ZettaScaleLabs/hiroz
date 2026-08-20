@@ -1,9 +1,8 @@
 #!/usr/bin/env nu
 # Produce the `hu` release artifact set into a dist directory.
 #
-# This is the single source of truth for what a `hu` release contains. Both
-# every release platform calls it, so they cannot drift
-# cannot drift apart in what they ship.
+# The single source of truth for what a `hu` release contains. Every release
+# platform calls it, so they cannot drift apart in what they ship.
 #
 #   hu-<ver>-<target>.tar.gz    hu binary + LICENSE + install README
 #   hu_meter-<ver>.wasm         wasm32-wasip2 — platform-independent
@@ -13,13 +12,9 @@
 #   install-hu.sh               the installer the release notes tell users to curl
 #   SHA256SUMS                  covers every file above
 #
-# The plugins are the point: without them `hu meter` and `hu monitor` do not
-# exist, because they are not built into the binary.
-#
-# `install-hu.sh` ships for a duller but equally concrete reason: every set of
-# release notes opens with `curl -fsSL <base>/install-hu.sh | sh`, and until
-# the script was staged here it was in the repo and nowhere else — so the
-# documented first command of a release 404'd on both channels.
+# The plugins are the point: `hu meter` and `hu monitor` do not exist without
+# them, because they are not built into the binary. `install-hu.sh` ships
+# because the release notes tell users to curl it from the release.
 
 const PLUGIN_DIR = "crates/hiroz-union/plugins"
 const WIT_WORLD = "hu:plugin@0.1.0"

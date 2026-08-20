@@ -102,37 +102,18 @@ fn dyn_sub_from_local_msg(node: &ZNode, graph: &Graph, topic: &str) -> Result<Dy
         ));
     };
 
-    // A subscriber's key expression is exact -- `{domain}/{topic}/{type}/{hash}`
-    // with no wildcard -- so it must carry the *publisher's* hash, which
-    // `with_type_info` below assigns. That makes messages arrive even when the
-    // local .msg disagrees with the publisher, and CDR is positional: a skewed
-    // schema usually yields structurally valid, plausible, *wrong* field values
-    // rather than a decode error. Wrong values are as indistinguishable from
-    // right ones as silence was from an idle topic -- and worse, they are
-    // trusted. So refuse, exactly as the publish path refuses a disk-resolved
-    // type that conflicts with the live one.
-    // Compare TypeHash VALUES, never their rendered strings.
+    // The subscriber's key expression carries the *publisher's* hash, so messages
+    // arrive even when the local .msg disagrees. CDR is positional, so a skewed
+    // schema yields plausible, wrong field values rather than a decode error.
+    // Refuse instead.
     //
-    // `compute_type_hash` yields a `hiroz_schema::TypeHash`, a bare [u8; 32].
-    // `ti.hash` is a `hiroz_protocol::TypeHash`, a version plus a value. The
-    // original comparison bridged that gap with `to_rihs_string()` on both
-    // sides. That is what broke it. The protocol renderer is gated on
-    // `no-type-hash`, and it then returns one constant for every value, so both
-    // sides render identically and the guard passes on anything.
+    // Compare VALUES, never rendered strings: hiroz_protocol's renderer is gated
+    // on `no-type-hash` and then returns one constant for every value, so a
+    // string comparison passes on anything. Convert through the RIHS01 string --
+    // the schema-side renderer and protocol-side parser are both ungated.
     //
-    // No build enables that feature for this crate. hiroz-union always compiles
-    // against hiroz's default jazzy, its own `humble` feature was empty, and
-    // the humble CI legs build hiroz-tests, which does not depend on this crate.
-    // So the break was latent, not shipped. It is still the wrong comparison,
-    // and a cfg this crate does not control is a poor thing to rest on.
-    //
-    // Convert instead, as `hiroz::dynamic::type_info::schema_hash` does
-    // internally: through the RIHS01 string, whose schema-side renderer and
-    // protocol-side parser are both ungated. Then compare values.
-    //
-    // "No hash advertised" is a third state, not a mismatch. It cannot be
-    // verified either way, so say so and continue rather than refusing with
-    // advice no .msg on earth can satisfy.
+    // "No hash advertised" is a third state, not a mismatch: unverifiable either
+    // way, so warn and continue.
     let local_schema_hash = schema
         .compute_type_hash()
         .map_err(|e| format!("could not hash the local .msg for {canonical}: {e}"))?;
@@ -216,25 +197,16 @@ impl hu::plugin::ros::Host for PluginState {
     ) -> Result<Resource<hu::plugin::ros::Subscription>, PluginError> {
         self.require_perm(hu::plugin::types::Permission::SubscribeTopic)?;
 
-        // Resolve the schema *before* returning a Subscription. Doing it inside
-        // the spawned task instead made every failure structurally invisible:
-        // `subscribe` had already returned Ok, so the plugin's own "Failed to
-        // subscribe" branch could never fire, and the dropped channel sender
-        // read as a permanently idle topic (`try_recv` -> None forever). That is
-        // why `hu meter echo` printed nothing and `hu meter delay` never exited.
+        // Resolve the schema *before* returning a Subscription. Inside the spawned
+        // task every failure was invisible: `subscribe` had already returned Ok,
+        // so the plugin's error branch could never fire and a dropped sender read
+        // as a permanently idle topic.
         //
-        // Blocking here is the same trade `encode_yaml_to_cdr` and
-        // `HostServiceClient::call` already make: `block_in_place` hands the
-        // worker off to the blocking pool, so the zenoh I/O and graph liveliness
-        // traffic this discovery *depends on* keep progressing while we wait.
-        //
-        // The `HostBlockGuard` is what makes that trade safe here. The guest is
-        // dispatched under a ~3 s epoch budget measured in wall clock, so a
-        // multi-second wait would trap the guest on return -- before it could run
-        // the very error branch this function exists to give it. The guard stops
-        // the epoch ticker for the duration of the wait. Without it, the failure
-        // path below is unobservable: the plugin dies mid-dispatch, `exit_code`
-        // stays `None`, and the command hangs instead of reporting.
+        // `block_in_place` hands the worker to the blocking pool, so the zenoh
+        // I/O this discovery depends on keeps progressing. `HostBlockGuard` stops
+        // the epoch ticker: the guest runs under a ~3 s wall-clock budget, so
+        // without it a long wait traps the guest before it can run that error
+        // branch, and the command hangs instead of reporting.
         const SUB_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
         let node = self.engine.node.clone();
         let discovered = {

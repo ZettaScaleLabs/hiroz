@@ -21,23 +21,13 @@
 #      fence default for the single command that follows. This one IS visible,
 #      so use it only where the note earns its place.
 #
-# An unannotated command line defaults to `run` and MUST succeed. Nothing is
-# silently ignored — a docs command missing from the report fails the suite.
+# An unannotated command defaults to `run` and MUST succeed. Nothing is silently
+# ignored: a docs command missing from the report fails the suite.
 #
-# TWO command classes are extracted, and the second one is easy to forget:
-#
-#   1. `hu ...` — the promises about the tool.
-#   2. INSTALL commands (`curl`, `install-hu.sh`, `tar`, `sha256sum`, `cp`, …)
-#      — the promises about *getting* the tool.
-#
-# Class 2 was invisible until 2026-08-15, because extraction took only lines
-# starting with `hu`. docs/tools/hu-install.md was in DOC_FILES and carried
-# `repro:` directives, so it looked covered while every load-bearing line in it
-# — the `curl … | sh` one-liner, `install-hu.sh --offline`, `tar -xzf`,
-# `sha256sum -c` — was silently dropped. A one-liner pointing at a URL nothing
-# served shipped in the docs under that blind spot. A suite that cannot see a
-# command cannot report it missing, and absence of output is UNKNOWN, never
-# SUCCESS.
+# Two classes are extracted. `hu ...`, the promises about the tool, and INSTALL
+# commands (`curl`, `install-hu.sh`, `tar`, `sha256sum`, `cp`), the promises
+# about getting it. The second is easy to forget, and was missed once -- a suite
+# that cannot see a command cannot report it missing.
 
 const DOC_FILES = [
     "docs/tools/hu.md"
