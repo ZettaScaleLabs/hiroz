@@ -219,7 +219,10 @@ jobs:
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ matrix.distro }}-interop
+          # -v2 invalidates an entry holding a proc-macro built against a newer
+          # glibc. humble is the only 22.04 image, and the restored
+          # libstabby_macros.so required GLIBC_2.39. Bump again if it recurs.
+          shared-key: ${{ matrix.distro }}-interop-v2
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
