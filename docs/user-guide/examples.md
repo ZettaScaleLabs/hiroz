@@ -63,6 +63,12 @@ Leave the router running in a separate terminal, then run any example from the h
 | `z_parameter_yaml` | YAML parameter loading plus programmatic overrides | `cargo run --example z_parameter_yaml` |
 | `z_parameter_client` | Remote `ParameterClient` calls against a parameter server | `cargo run --example z_parameter_client` |
 
+The CDR **publishing** examples build their nodes with `.with_type_description_service()`, so runtime-typed tools such as `hu meter echo` can fetch the schema and decode their traffic. That call is opt-in on a hiroz node — copy it into your own nodes if you want them to be introspectable the same way. ROS 2 differs here: `rclcpp` and `rclpy` start that service by default, so a C++ or Python node is introspectable without asking.
+
+The **service** examples do not opt in. `z_srvcli` and `demo_nodes/add_two_ints_server` build plain nodes, so `hu meter service call` cannot resolve their request type and fails rather than decoding it. Add `.with_type_description_service()` to the server's node if you want to drive it from `hu`.
+
+The `protobuf_interop` and `encoding_demo` examples deliberately leave it off: they publish protobuf-encoded payloads, and advertising a CDR schema for those would invite a consumer to decode them as CDR and print plausible but wrong values.
+
 !!! tip
     For a detailed walkthrough of creating your own project with hiroz (not using the repository examples), see the [Quick Start](../getting-started/quick-start.md#option-2-create-your-own-project) guide.
 

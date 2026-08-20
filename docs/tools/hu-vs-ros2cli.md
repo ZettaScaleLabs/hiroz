@@ -33,6 +33,8 @@
 
 **`hu meter pub` resolves the message schema from `.msg` files on disk**, so — like `ros2 topic pub` — it can publish to an empty topic with no node present. The plugin host reads the type from a `.msg` under `HIROZ_MSG_PATH` (colon-separated package or prefix directories, e.g. an ament `.../share`); if the type isn't on disk it falls back to discovering it from a live publisher or subscriber on the topic. Only when neither is available does it report a clear "could not resolve a message schema" error rather than guessing.
 
+The subscribing side (`hu meter echo`, `hu meter delay`) consults the same two sources in the **opposite** order: live discovery first, `HIROZ_MSG_PATH` only as a fallback. The orders differ because `pub` is told its type by the caller — disk alone is sufficient, and a live node need not exist at all — whereas `subscribe` is given only a topic, so it must consult the graph regardless, both to learn which `.msg` to load and to reproduce the publisher's exact type hash in its key expression.
+
 ---
 
 ## Measurement accuracy: `hu meter hz` vs. `ros2 topic hz`
@@ -108,6 +110,7 @@ Most `hu` commands emit newline-delimited JSON with `--json`. This makes them co
 
 `ros2cli` outputs human-formatted text with no stable machine-readable format. Parsing `ros2 topic list` output requires string splitting on `/` and filtering out blank lines; parsing `ros2 topic info` requires column-counting. Both break across ROS 2 versions.
 
+<!-- repro: skip needs sensor_msgs publishers and writes to /var/log -->
 ```bash
 # Filter to sensor_msgs topics only
 hu meter list topics --json | jq '.[] | select(.type | contains("sensor_msgs"))'
@@ -132,6 +135,7 @@ hu stream --json >> /var/log/ros-graph-events.jsonl
 
 `hu monitor watch` subscribes to Zenoh liveliness tokens, which are the mechanism hiroz and `rmw_zenoh_cpp` use to announce entity existence. It prints a line the moment a node, topic, service, or action appears or disappears — with sub-millisecond latency after the transport propagates the change.
 
+<!-- repro: timeout-quiet 5 -->
 ```bash
 hu monitor watch
 ```
@@ -164,6 +168,7 @@ The standard way to read ROS 2 logs from the CLI is `ros2 topic echo /rosout`, w
 
 `hu monitor log` decodes `/rosout` at the CDR layer and presents a clean stream:
 
+<!-- repro: skip needs /rosout traffic from an rclcpp node -->
 ```bash
 # Tail all log messages
 hu monitor log
@@ -186,6 +191,7 @@ hu monitor log --count 50
 
 `hu monitor log-level` works on Humble nodes because it calls the `GetLoggerLevels` / `SetLoggerLevels` services directly via Zenoh, without relying on a ros2cli verb that was only added in Jazzy.
 
+<!-- repro: skip needs an rclcpp node exposing logger services -->
 ```bash
 # Set the planner's root logger to DEBUG
 hu monitor log-level /planner DEBUG
@@ -206,8 +212,10 @@ hu monitor log-level /planner
 | Zenoh session setup | N/A | N/A | Host opens sessions declared in plugin's manifest; plugin never handles connection setup |
 | Works in hermetic / offline envs | no — requires pip | no — requires Qt | yes — single binary copy |
 
+<!-- repro: run -->
 ```bash
 # Drop a .wasm file and it becomes a plugin
+# repro: skip my-debug-tool.wasm is a placeholder for a plugin the reader supplies
 cp ./my-debug-tool.wasm ~/.local/share/hu/plugins/
 hu plugin list           # shows all .wasm plugins found in search path
 ```
@@ -238,6 +246,7 @@ For existing rclcpp/rclpy codebases using DDS, ros2cli remains the right tool. F
 
 ### Rate and bandwidth
 
+<!-- repro: skip side-by-side reference using placeholder names (/scan, /lidar_driver, /enable); the runnable equivalents are exercised from hu.md -->
 ```bash
 # Publish rate
 ros2 topic hz /scan
@@ -253,6 +262,7 @@ hu meter delay /scan
 
 ### Message inspection
 
+<!-- repro: skip side-by-side syntax reference using placeholder names; `echo` is exercised against a live topic in hu.md, and `pub` cannot run from a download at all (it needs message definitions no release ships) -->
 ```bash
 # Echo messages
 ros2 topic echo /chatter
@@ -265,6 +275,7 @@ hu meter pub /enable --msg-type std_msgs/msg/Bool --yaml '{data: true}'
 
 ### Graph introspection
 
+<!-- repro: skip side-by-side reference using placeholder names (/scan, /lidar_driver, /enable); the runnable equivalents are exercised from hu.md -->
 ```bash
 # List topics
 ros2 topic list
@@ -287,6 +298,7 @@ hu monitor graph
 
 ### Services and parameters
 
+<!-- repro: skip needs a service server and a node exposing parameter services -->
 ```bash
 # Call a service
 ros2 service call /add_two_ints example_interfaces/srv/AddTwoInts '{a: 3, b: 7}'
@@ -307,6 +319,7 @@ hu meter param load /talker params.yaml
 
 ### Logging
 
+<!-- repro: skip needs /rosout traffic from an rclcpp node -->
 ```bash
 # Stream logs
 ros2 topic echo /rosout

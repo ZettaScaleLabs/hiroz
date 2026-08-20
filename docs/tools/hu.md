@@ -16,17 +16,22 @@ A few terms recur throughout this page:
 
 ### Pre-built binary
 
-**Forthcoming.** Pre-built `hu` binaries are not yet published by the release workflow — the current [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases) does not include a standalone `hu` artifact. Until they land, build from source (see below). Planned artifact names, once the release job builds them:
+Releases publish the `hu` binary **and** the reference plugins. See [Installing hu](hu-install.md) for the installer, the offline path, and how to verify a download.
 
-| Platform | File |
+| Artifact | What it is |
 |---|---|
-| Linux x86_64 | `bin-hu-x86_64-linux` |
-| Linux aarch64 | `bin-hu-aarch64-linux` |
-| macOS aarch64 | `bin-hu-aarch64-macos` |
+| `hu-<ver>-x86_64-unknown-linux-gnu.tar.gz` | `hu` binary, Linux x86_64 |
+| `hu-<ver>-aarch64-unknown-linux-gnu.tar.gz` | `hu` binary, Linux aarch64 |
+| `hu-<ver>-aarch64-apple-darwin.tar.gz` | `hu` binary, macOS aarch64 — built by the release job; CI checks on every PR that it packages and reports its version, but no macOS release has been cut yet |
+| `hu_meter-<ver>.wasm`, `hu_monitor-<ver>.wasm` | the reference plugins (`wasm32-wasip2`, platform-independent) |
+| `hu-plugins-<ver>.tar.gz` | both plugins, for offline install |
+| `hu-plugins-<ver>.json` | release index — what `hu plugin install <name>` resolves a name against |
+| `install-hu.sh` | the installer itself, so the documented one-liner fetches it from the release it installs |
+| `SHA256SUMS` | verify every download against this |
 
 `hu` has no ROS 2 dependency — it works with any [`rmw_zenoh_cpp`](https://github.com/ros2/rmw_zenoh) or hiroz deployment.
 
-**Note:** the `meter` and `monitor` subcommands are WASM plugins loaded from the plugin path, not part of the `hu` binary, and the reference plugins are **not yet bundled in the release artifacts**. To use them today you need the Rust toolchain with the `wasm32-wasip2` target, build the plugins from source (see below), and point `HU_PLUGIN_PATH` at them; verify with `hu plugin list`. The single-binary `hu` still gives you the TUI, `stream`, `router`, and `plugin` management commands with no ROS 2 install.
+**The plugins are separate on purpose.** `meter` and `monitor` are WASM components loaded from the plugin path, not code inside the `hu` binary, so they are versioned and installed independently. Install both and `hu plugin list` shows them; skip them and `hu meter` / `hu monitor` do not exist, while the TUI, `stream`, `router`, `web` and `plugin` commands still work.
 
 ### Build from source
 
@@ -60,6 +65,7 @@ That's shorthand for `cargo build --manifest-path crates/hiroz-union/plugins/Car
 
 **3. Put the plugins on the plugin path** — either point `HU_PLUGIN_PATH` at the build output, or copy the `.wasm` files into `~/.local/share/hu/plugins/` (the always-searched dir). The `hu_`/`hu-` prefix is stripped on discovery, so `hu_meter.wasm` becomes `meter`:
 
+<!-- repro: skip build-from-source path; this suite tests the downloaded install -->
 ```bash
 export HU_PLUGIN_PATH=$PWD/crates/hiroz-union/plugins/target/wasm32-wasip2/release
 # or, to install permanently:
@@ -75,11 +81,20 @@ If `hu plugin list` is empty, `hu meter`/`hu monitor` won't work — the plugins
 
 This walks through a real end-to-end session: a router, a talker/listener pair, and `hu` observing them. Run each step in its own terminal.
 
-!!! note "Prerequisite"
-    This uses `hu meter` and `hu monitor`, which are plugins — make sure `hu plugin list` shows `meter` and `monitor` first. If it's empty, build the plugins and set `HU_PLUGIN_PATH` as described under [Build from Source](#build-from-source).
+!!! note "Prerequisites"
+    This uses `hu meter` and `hu monitor`, which are plugins — make sure `hu plugin list` shows `meter` and `monitor` first. If it's empty, see [Installing hu](hu-install.md), or build them and set `HU_PLUGIN_PATH` as described under [Build from Source](#build-from-source). It also needs a **source checkout**: terminals 2 and 3 below use `cargo run --example`, and a downloaded `hu` cannot stand in for them — see below.
+
+**`hu` observes a deployment; it cannot create one.** That is worth stating before you start, because it shapes what a plain download can do. `hu meter pub` encodes a message by resolving its schema from a `.msg` file on `HIROZ_MSG_PATH`, or by discovering the type from a node already on the topic. A release ships neither message definitions nor nodes, so on an empty graph it reports:
+
+```text
+encode error: could not resolve a message schema for std_msgs/msg/String on /chatter
+```
+
+Subscribing does not help either: `hu meter echo` needs a schema too, though it gets one a different way — see the note on `echo` below. So a downloaded `hu` is for observing an existing ROS 2 or hiroz deployment, which is what it is for. To generate traffic as well, you need message definitions on `HIROZ_MSG_PATH` (a ROS 2 installation provides these) or a source checkout, which is what the walkthrough below assumes.
 
 **Terminal 1 — start the Zenoh router:**
 
+<!-- repro: skip this exact command is the suite's own router fixture; a second one would collide on :7447 -->
 ```bash
 hu router
 ```
@@ -100,30 +115,71 @@ Both examples connect to `tcp/127.0.0.1:7447` (never bare peer discovery — see
 
 **Terminal 4 — observe with `hu`:**
 
+<!-- repro: timeout 10 -->
 ```bash
 # List all topics
+# repro-expect: /chatter
 hu meter list topics
 # /chatter (std_msgs/msg/String)
 
 # Measure the talker's publish rate
+# repro-expect: [0-9]+\.[0-9]+ Hz
 hu meter hz /chatter
-# rate: 1.001 Hz
+# /chatter: 1.000 Hz  (1 samples)
 
 # Watch the live graph
+# repro: timeout-quiet 8
 hu monitor watch
 # node appeared:  /talker
 # node appeared:  /listener
 # topic appeared: /chatter
 ```
 
+The same graph supports the other measurement subcommands. These need the Quick Start running, since they observe the talker's traffic:
+
+<!-- repro: timeout 10 -->
+```bash
+# Bandwidth over a sampling window
+# repro-expect: (?i)(B/s|KB/s|bandwidth)
+hu meter bw /chatter
+
+# Full introspection of one topic
+# repro-expect: (?i)std_msgs.+String
+hu meter info topic /chatter
+```
+
+!!! warning "`echo` and `delay` need a schema for the topic's type"
+    `hu meter echo` and `hu meter delay` decode message **content**, so they need the type's schema. They resolve it in two steps: first by querying the publishing node's `~/get_type_description` service, then — if that fails — by loading the type named in the publisher's liveliness token from a `.msg` on `HIROZ_MSG_PATH`. Discovery stays authoritative; the disk is only a fallback, the reverse of `hu meter pub`, which reads disk first.
+
+Standard ROS 2 nodes expose the type description service; a hiroz node exposes it only when built with `.with_type_description_service()` — the publishing examples in this repo do. **Residual limitation:** if the publisher advertises no type at all, neither source can help, because `hu` has no way to be told the type — `subscribe` carries only a topic name and these commands have no `--type` flag. In that case both commands now report the failure and exit non-zero, rather than printing nothing and exiting 0.
+
+`hz`, `bw`, `list` and `info` still work on a topic whose type cannot be resolved. Their **numbers** never need a schema: `hz` and `bw` are backed by a wildcard subscriber in the plugin host that counts and sizes raw payloads, and `list`/`info` only read the graph. `hu meter echo <topic> --raw` also works regardless, since it hex-dumps the CDR bytes instead of decoding them.
+
+`hz` and `bw` do open one ordinary subscription alongside that, purely so they **announce themselves in the ROS graph** — a publisher that waits for a subscriber before it starts will otherwise never publish, and the measurement would read zero. That subscription resolves a schema like any other, so two things follow on a topic whose type cannot be resolved: the first sample can be delayed by up to the discovery timeout, and the announcement does not happen. The counting is unaffected either way.
+
+<!-- repro: timeout 10 -->
+```bash
+# repro-expect: (?i)hello hiroz
+hu meter echo /chatter
+
+# repro-expect: (?i)\[/chatter\] (delay:.*ms|no header\.stamp)
+hu meter delay /chatter --duration 5
+```
+
+`delay` takes `--duration <s>` exactly as `hz` and `bw` do; without it the command runs until interrupted.
+
+`delay` measures the gap between a message's `header.stamp` and its arrival, so it only produces a number on **stamped** messages. `/chatter` carries `std_msgs/String`, which has no header — against it `delay` decodes each message and says so per message (`no header.stamp — cannot measure delay`) rather than reporting a latency. Point it at a stamped topic (anything carrying a `std_msgs/Header`, e.g. `sensor_msgs/LaserScan` from the `laser_scan` example) to get `delay: <n> ms`.
+
 By default `hu` connects to `tcp/127.0.0.1:7447` and uses domain ID `0` — matching the talker/listener above. Override with flags or environment variables:
 
+<!-- repro: skip illustrative remote endpoint 192.168.1.10, not reachable in test -->
 ```bash
 hu --connect tcp/192.168.1.10:7447 --domain 5 meter list topics
 ```
 
 Or set them once for the session:
 
+<!-- repro: skip illustrative remote endpoint 192.168.1.10, not reachable in test -->
 ```bash
 export HU_CONNECT=tcp/192.168.1.10:7447
 export HU_DOMAIN=5
@@ -132,6 +188,7 @@ hu meter hz /chatter
 
 `HU_CONNECT` and `HU_DOMAIN` fully replace the `--connect` / `--domain` flags — once exported, every `hu meter` / `hu monitor` invocation reaches that router with no per-command flags, which is the recommended workflow for an interactive session:
 
+<!-- repro: timeout 10 -->
 ```bash
 export HU_CONNECT=tcp/127.0.0.1:7447
 hu meter list topics      # no --connect needed
@@ -144,6 +201,7 @@ The Quick Start covers `list`, `hz`, and `watch`. The subcommands below are the 
 
 **Call a service** (against an `AddTwoInts` server on `/add_two_ints`):
 
+<!-- repro: skip needs an AddTwoInts service server on /add_two_ints -->
 ```bash
 # --yaml takes the request as inline YAML; --msg-type names the request type.
 hu meter service call /add_two_ints \
@@ -155,6 +213,7 @@ hu meter service call /add_two_ints \
 
 The response prints as JSON, so it pipes straight into `jq`:
 
+<!-- repro: skip needs an AddTwoInts service server on /add_two_ints -->
 ```bash
 hu meter service call /add_two_ints --yaml '{a: 20, b: 22}' \
   --msg-type example_interfaces/srv/AddTwoInts_Request | jq '.sum'
@@ -163,6 +222,7 @@ hu meter service call /add_two_ints --yaml '{a: 20, b: 22}' \
 
 **Round-trip a parameter** (set then read it back):
 
+<!-- repro: skip needs a node exposing parameter services -->
 ```bash
 hu meter param set /talker publish_period_ms 500
 # OK
@@ -173,6 +233,7 @@ hu meter param get /talker publish_period_ms --json
 
 **Describe a parameter** as JSON (every meter subcommand supports `--json` for scripting):
 
+<!-- repro: skip needs a node exposing parameter services -->
 ```bash
 hu meter param describe /talker publish_period_ms --json
 # {"name":"publish_period_ms","value":500}
@@ -180,6 +241,7 @@ hu meter param describe /talker publish_period_ms --json
 
 **Stream action feedback** while a goal runs:
 
+<!-- repro: skip needs a Fibonacci action server on /fibonacci -->
 ```bash
 hu meter action echo /fibonacci \
   --msg-type example_interfaces/action/Fibonacci --count 3
@@ -190,6 +252,7 @@ hu meter action echo /fibonacci \
 
 **Get / set a node's log level** with `hu monitor`:
 
+<!-- repro: skip needs an rclcpp node with logger services and /rosout traffic -->
 ```bash
 # Read the current logger levels for /talker.
 hu monitor log-level /talker
@@ -249,7 +312,7 @@ Measurement and introspection:
 | `hu meter bw <topic>` | Bandwidth in KB/s |
 | `hu meter echo <topic>` | Print arriving messages |
 | `hu meter echo <topic> --raw` | Hex-dump raw CDR bytes, bypassing schema decode (requires the `access-raw-cdr` permission) |
-| `hu meter delay <topic>` | End-to-end latency |
+| `hu meter delay <topic>` | End-to-end latency, from `header.stamp` to arrival (stamped messages only) |
 | `hu meter pub <topic>` | Publish a message |
 | `hu meter list <kind> [--find <substr>] [--count <n>] [--all]` | Enumerate graph entities. `<kind>` is `topics` (the default when omitted), `nodes` or `services`. Hidden entities are excluded unless `--all` is given: for topics and services that means any name with a path segment starting with `_`, but for nodes only the bare node name is tested, so a node whose *namespace* has an `_`-prefixed segment stays visible. `--find` matches name or type for topics and services, name only for nodes; `--count` truncates the result. |
 | `hu meter list find-<kind> <substr>` | Shorthand for `list <kind> --find <substr>`, taking the filter as a positional argument: `find-topics`, `find-services`, `find-nodes`. |
@@ -281,8 +344,13 @@ Plugin management:
 
 | Command | Description |
 |---|---|
-| `hu plugin list` | List all loaded `.wasm` plugins with name and path |
+| `hu plugin list` | List discovered plugins as `PLUGIN VERSION SOURCE PATH`. `SOURCE` is `download`, `local`, `installed`, or `unmanaged` for a file `hu` did not install |
 | `hu plugin validate <path>` | Validate that a `.wasm` file compiles as a WASM component |
+| `hu plugin install <file\|url\|name>` | Install from a local path, a URL, or a name resolved against a release index (`--registry`, or `HU_PLUGIN_REGISTRY`). Validates before accepting |
+| `hu plugin uninstall <name>` | Remove a plugin `hu` installed. Refuses one that lives on `$HU_PLUGIN_PATH`, since that is a build tree and not `hu`'s to delete |
+
+`list` reads filenames only — it never opens a component, so it cannot tell a
+valid plugin from a corrupt one. `validate` is the check that does.
 
 ---
 
@@ -290,6 +358,7 @@ Plugin management:
 
 For continuous monitoring of several topics at once, use the `hu` TUI. Select topics in the Topics panel and press `m` to add them to the Measure panel, which shows a live, per-second rate and bandwidth table for every topic you're tracking — all in one process, instead of one `ros2 topic hz` per topic:
 
+<!-- repro: skip interactive TUI, needs a tty -->
 ```bash
 hu
 ```
@@ -323,9 +392,11 @@ When a TUI plugin's output pane is focused (select it on the Plugins panel and p
 
 Every `hu meter` subcommand accepts `--json` for scripting:
 
+<!-- repro: timeout 20 -->
 ```bash
 hu meter hz /scan --duration 5 --json | jq '.rate_hz'
 hu meter list topics --json | jq '.[].name'
+# repro-expect: /chatter
 hu meter info node /talker --json | jq '.publishers[].name'
 ```
 
@@ -337,6 +408,7 @@ hu meter info node /talker --json | jq '.publishers[].name'
 
 It first prints the current graph as a snapshot, then one line per change event, each prefixed with a UTC timestamp. Type names appear in their DDS-mangled form (`std_msgs::msg::dds_::String_`), not the ROS `std_msgs/msg/String` form:
 
+<!-- repro: timeout 5 -->
 ```bash
 hu stream
 # Discovered Topics:
@@ -354,6 +426,7 @@ hu stream
 
 Add `--json` for structured output. Every record is one of two shapes: an object with an `"event"` key naming it, or a `SystemEvent` in serde's externally-tagged form, where the variant name is the sole top-level key. The first line is always `"event":"initial_state"`; graph changes after it are the externally-tagged form. Adding `--echo` interleaves two further `"event"`-keyed shapes, `topic_subscribed` and `message_received`, so a filter must not assume every record after the first has a variant-name key:
 
+<!-- repro: timeout 5 -->
 ```bash
 hu stream --json
 # {"event":"initial_state","timestamp":{"secs_since_epoch":1785829316,"nanos_since_epoch":522800352},"domain_id":0,"topics":[{"name":"/chatter","type":"std_msgs::msg::dds_::String_","publishers":1,"subscribers":0}],"nodes":[{"name":"talker","namespace":"/"}],"services":[{"name":"/talker/get_parameters","type":"rcl_interfaces::srv::dds_::GetParameters_"}]}
@@ -365,6 +438,7 @@ The arrays are shown with one entry each for brevity; a real graph also carries 
 
 Because the variant name is the key rather than a `type` field, filtering with `jq` selects on key presence:
 
+<!-- repro: timeout-quiet 5 -->
 ```bash
 hu stream --json | jq -c 'select(has("TopicDiscovered")) | .TopicDiscovered.topic'
 ```
@@ -378,6 +452,7 @@ Two field-naming traps when writing filters:
 
 Add `--echo <TOPIC>` to also subscribe to a topic and interleave decoded messages. `--echo` can be repeated for multiple topics:
 
+<!-- repro: timeout-quiet 5 -->
 ```bash
 hu stream --json --echo /scan --echo /cmd_vel
 ```
@@ -389,14 +464,24 @@ hu stream --json --echo /scan --echo /cmd_vel
 
 ## Web mode
 
-`hu web` starts an HTTP server (default port 8080) that dispatches requests to `hu-web-plugin` WASM plugins. Requires `hu` built with the `web-plugins` feature:
+`hu web` starts an HTTP server (default port 8080) that dispatches requests to `hu-web-plugin` WASM plugins. It needs `hu` built with the `web-plugins` feature — the published release binaries are, so a downloaded `hu` has it:
 
+<!-- repro: timeout-quiet 5 -->
 ```bash
-hu web                # listen on 0.0.0.0:8080
-hu web --port 9090    # listen on 0.0.0.0:9090
+hu web                # listen on 127.0.0.1:8080
+hu web --port 9090    # listen on 127.0.0.1:9090
 ```
 
-Each web plugin is reachable at `/plugins/<name>/` and `/plugins/<name>/*path`. The plugin handles the full HTTP request/response cycle (see [hu Plugin Authoring Guide](hu-plugins.md)).
+It binds **loopback only** by default, so the plugin HTTP surface is not exposed on every interface. Set `HU_WEB_BIND` to widen it deliberately:
+
+<!-- repro: skip binding 0.0.0.0 in a test would expose the port on the runner -->
+```bash
+HU_WEB_BIND=0.0.0.0 hu web
+```
+
+Each web plugin is reachable at `/plugins/<name>/` and `/plugins/<name>/<path...>`. The plugin handles the full HTTP request/response cycle (see [hu Plugin Authoring Guide](hu-plugins.md)).
+
+There is no reference `hu-web-plugin` yet — the host is wired and the server runs, but until you write one there is nothing for it to serve.
 
 !!! note
     `hu web` replaces the deprecated `--web [PORT]` flag, which still works as a hidden alias for now.
@@ -407,9 +492,12 @@ Each web plugin is reachable at `/plugins/<name>/` and `/plugins/<name>/*path`. 
 
 `hu router` starts an embedded Zenoh router configured to match `rmw_zenoh_cpp`, so you don't need a separate `zenohd` install or the `cargo run --example zenoh_router` helper for local development. It listens on `tcp/[::]:7447` by default and runs until Ctrl-C:
 
+<!-- repro: timeout-quiet 5 -->
 ```bash
+# repro: skip the suite's router fixture already holds :7447
 hu router                              # listen on tcp/[::]:7447
 hu router --listen tcp/0.0.0.0:7448    # custom endpoint (repeatable)
+# repro: skip router.json5 is an illustrative filename, not a shipped file
 hu router --config router.json5        # full JSON5/YAML config, overrides --listen
 ```
 
@@ -458,10 +546,11 @@ flowchart TD
 
 Any team can ship a `hu-<name>.wasm` file and it becomes a `hu <name>` subcommand with no build-system changes, no Python packaging, and no shared runtime state:
 
+<!-- repro: skip illustrative placeholder plugin my-debug-tool.wasm -->
 ```bash
 # Drop a .wasm file and it becomes available immediately
 cp ./my-debug-tool.wasm ~/.local/share/hu/plugins/
-hu plugin list          # shows all loaded plugins with name and path
+hu plugin list          # PLUGIN VERSION SOURCE PATH
 hu my-debug-tool --help
 ```
 

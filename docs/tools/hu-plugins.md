@@ -122,11 +122,23 @@ Then `cargo build --release` builds the component with no flags (after a one-tim
 
 Name the file `<subcommand>.wasm` — `hu` strips any `hu-` prefix when discovering plugins, so `hu-meter.wasm` registers as `meter` and is invoked by `hu meter <args>`.
 
+Prefer `hu plugin install`. It checks the file compiles as a WASM component **before** accepting it, and does that in a temporary location so a broken plugin is never briefly discoverable:
+
+```sh
+# repro: skip my_hu_plugin.wasm is the plugin the reader has just written
+hu plugin install target/wasm32-wasip2/release/my_hu_plugin.wasm
+```
+
+Copying the file by hand works too, and is what you want when iterating — but nothing validates it, and `hu plugin list` reads filenames without opening them, so a corrupt plugin looks identical to a working one until you run it:
+
 ```sh
 mkdir -p ~/.local/share/hu/plugins
+# repro: skip my_hu_plugin.wasm is the plugin the reader has just written
 cp target/wasm32-wasip2/release/my_hu_plugin.wasm \
    ~/.local/share/hu/plugins/my-plugin.wasm
 ```
+
+`hu plugin uninstall <name>` removes one that `hu` installed. It refuses a plugin on `$HU_PLUGIN_PATH`, since that points at a build tree.
 
 Start `hu` and press `5` to open the Plugins panel (TUI plugins), or run `hu my-plugin <args>` from the terminal (CLI plugins). If `hu` is already running in the TUI, you don't need to restart it — copy the `.wasm` into a plugin directory and press `R` on the Plugins panel to rescan and load it live.
 
@@ -134,6 +146,7 @@ Start `hu` and press `5` to open the Plugins panel (TUI plugins), or run `hu my-
 
 The shipped template (`crates/hiroz-union/plugins/hu-plugin-template/`) is the crate above. Build it, point `HU_PLUGIN_PATH` at the output, and invoke it by its manifest name (`my-plugin`). Its `on_event` handler stores the `Startup` args and prints `hello from WASM!` on every `Tick` (`tick_ms = 1000`), so a running session emits one line per second until interrupted:
 
+<!-- repro: skip illustrative placeholder plugin my-plugin -->
 ```sh
 # CARGO_TARGET_DIR pins the output dir; a standalone --manifest-path build
 # otherwise writes under the plugin crate's own target/ directory.
