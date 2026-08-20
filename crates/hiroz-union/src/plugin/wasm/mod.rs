@@ -430,7 +430,7 @@ fn iter_wasm_files() -> impl Iterator<Item = PathBuf> {
 /// outside `[A-Za-z0-9_-]` — including `.` and path separators — to `_`, so the
 /// result is always a single safe segment (`..` becomes `__`); fall back to
 /// `"unknown"` only for an empty stem.
-fn sanitize_plugin_stem(plugin_stem: &str) -> String {
+pub(crate) fn sanitize_plugin_stem(plugin_stem: &str) -> String {
     let cleaned: String = plugin_stem
         .chars()
         .map(|c| {
@@ -656,16 +656,33 @@ pub fn validate_plugin_static(path: &std::path::Path) -> Result<String> {
     Ok(format!("OK: {} is a valid WASM component", path.display()))
 }
 
-fn plugin_search_dirs() -> Vec<PathBuf> {
+pub(crate) fn plugin_search_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Ok(paths) = std::env::var("HU_PLUGIN_PATH") {
         for p in std::env::split_paths(&paths) {
             dirs.push(p);
         }
     }
+    // Prefix-relative, derived from where THIS binary sits. `install-hu.sh
+    // --prefix /opt/hu` writes the binary to /opt/hu/bin/hu and the plugins to
+    // /opt/hu/share/hu/plugins; without this the install succeeds, reports
+    // "installed plugin hu_meter.wasm", and then `hu plugin list` -- which the
+    // installer's own closing message tells the user to run -- is empty,
+    // because discovery only ever looked under $HOME.
+    //
+    // Both CI callers set HU_PREFIX and HOME to the same scratch directory,
+    // which is the one configuration where that bug cannot appear.
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(prefix) = exe.parent().and_then(|bin| bin.parent())
+    {
+        dirs.push(prefix.join("share/hu/plugins"));
+    }
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join(".local/share/hu/plugins"));
     }
+    // A default-prefix install makes the two paths above identical, and a
+    // duplicated directory would list every plugin twice.
+    dirs.dedup();
     dirs
 }
 

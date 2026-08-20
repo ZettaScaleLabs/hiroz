@@ -107,6 +107,7 @@ nav:
   - hu Toolkit:
       - Overview: tools/why-hu.md
       - hu (Hiroz Union): tools/hu.md
+      - Installing hu: tools/hu-install.md
       - hu vs. ros2cli / rqt: tools/hu-vs-ros2cli.md
       - hu Plugin Authoring: tools/hu-plugins.md
   - Language Bindings:

@@ -39,6 +39,9 @@ impl From<Backend> for core::engine::Backend {
 #[derive(Parser)]
 #[command(
     name = "hu",
+    // Releases ship versioned artifacts and the install docs tell users to run
+    // `hu --version` to check what they got, so the binary has to answer.
+    version,
     about = "Plugin platform and TUI for the hiroz ROS 2 ecosystem",
     disable_help_subcommand = true
 )]
@@ -117,6 +120,20 @@ enum PluginAction {
         /// Path to the .wasm plugin file
         path: String,
     },
+    /// Install a plugin from a local file, a URL, or a name in the registry
+    Install {
+        /// Path to a .wasm file, a URL, or a plugin name (e.g. `meter`)
+        source: String,
+
+        /// Plugin index URL to resolve a name against (also HU_PLUGIN_REGISTRY)
+        #[arg(long, value_name = "URL")]
+        registry: Option<String>,
+    },
+    /// Remove an installed plugin
+    Uninstall {
+        /// Plugin name as shown by `hu plugin list` (e.g. `meter`)
+        name: String,
+    },
 }
 
 #[tokio::main]
@@ -140,6 +157,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Some(Commands::Plugin {
             action: PluginAction::Validate { path },
         }) => return run_plugin_validate(path, cli.json),
+        Some(Commands::Plugin {
+            action: PluginAction::Install { source, registry },
+        }) => return run_plugin_install(source, registry.as_deref(), cli.json),
+        Some(Commands::Plugin {
+            action: PluginAction::Uninstall { name },
+        }) => return run_plugin_uninstall(name, cli.json),
         Some(Commands::Router { listen, config }) => {
             return run_router(listen.clone(), config.clone()).await;
         }
@@ -318,14 +341,23 @@ fn run_plugin_list(json: bool) -> Result<(), Box<dyn std::error::Error + Send + 
     #[cfg(feature = "wasm-plugins")]
     {
         let plugins = plugin::wasm::discover_wasm_plugins();
+        // Installed plugins carry a version and provenance; ones dropped on
+        // the path by hand do not, and the listing should say so rather than
+        // present them as equivalent.
+        let db = plugin::install::load_db();
+        let meta = |name: &str| db.plugins.iter().find(|p| p.name == name);
+
         if json {
             let entries: Vec<_> = plugins
                 .iter()
                 .map(|(name, path)| {
+                    let m = meta(name);
                     serde_json::json!({
                         "name": name,
                         "path": path.to_string_lossy(),
                         "kind": "wasm",
+                        "version": m.map(|m| m.version.clone()),
+                        "source": m.map(|m| m.source.clone()).unwrap_or_else(|| "unmanaged".into()),
                     })
                 })
                 .collect();
@@ -333,15 +365,108 @@ fn run_plugin_list(json: bool) -> Result<(), Box<dyn std::error::Error + Send + 
         } else {
             if plugins.is_empty() {
                 println!("No WASM plugins found in $HU_PLUGIN_PATH or ~/.local/share/hu/plugins/.");
+                println!("Install one with:  hu plugin install <file|url|name>");
                 return Ok(());
             }
-            println!("{:<20} PATH", "PLUGIN");
-            println!("{}", "-".repeat(60));
+            println!("{:<16} {:<10} {:<10} PATH", "PLUGIN", "VERSION", "SOURCE");
+            println!("{}", "-".repeat(78));
             for (name, path) in &plugins {
-                println!("{:<20} {}", name, path.to_string_lossy());
+                let m = meta(name);
+                println!(
+                    "{:<16} {:<10} {:<10} {}",
+                    name,
+                    m.map(|m| m.version.as_str()).unwrap_or("-"),
+                    m.map(|m| source_label(&m.source)).unwrap_or("unmanaged"),
+                    path.to_string_lossy()
+                );
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(feature = "wasm-plugins")]
+fn source_label(source: &str) -> &'static str {
+    if source.starts_with("http://") || source.starts_with("https://") {
+        "download"
+    } else if source == "local" {
+        "local"
+    } else {
+        "installed"
+    }
+}
+
+fn run_plugin_install(
+    source: &str,
+    registry: Option<&str>,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    #[cfg(not(feature = "wasm-plugins"))]
+    {
+        let _ = (source, registry, json);
+        eprintln!("WASM plugin support not compiled in.");
+        std::process::exit(1);
+    }
+    #[cfg(feature = "wasm-plugins")]
+    {
+        match plugin::install::install(source, registry) {
+            Ok(path) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"status": "installed", "path": path.to_string_lossy()})
+                    );
+                } else {
+                    println!("installed {}", path.display());
+                    println!("verify with: hu plugin list");
+                }
+                Ok(())
+            }
+            Err(e) => {
+                if json {
+                    println!("{}", serde_json::json!({"error": e.to_string()}));
+                } else {
+                    eprintln!("error: {e}");
+                }
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+fn run_plugin_uninstall(
+    name: &str,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    #[cfg(not(feature = "wasm-plugins"))]
+    {
+        let _ = (name, json);
+        eprintln!("WASM plugin support not compiled in.");
+        std::process::exit(1);
+    }
+    #[cfg(feature = "wasm-plugins")]
+    {
+        match plugin::install::uninstall(name) {
+            Ok(path) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"status": "removed", "path": path.to_string_lossy()})
+                    );
+                } else {
+                    println!("removed {}", path.display());
+                }
+                Ok(())
+            }
+            Err(e) => {
+                if json {
+                    println!("{}", serde_json::json!({"error": e.to_string()}));
+                } else {
+                    eprintln!("error: {e}");
+                }
+                std::process::exit(1);
+            }
+        }
     }
 }
 

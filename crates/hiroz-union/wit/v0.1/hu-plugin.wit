@@ -64,7 +64,8 @@ interface types {
         denied,
         // The request was malformed (bad key expression, YAML/JSON, etc.).
         invalid(string),
-        // The underlying Zenoh transport failed.
+        // The underlying transport, or host-side setup such as schema
+        // discovery, failed. Carries a human-readable reason.
         transport(string),
     }
 
