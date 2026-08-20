@@ -1028,8 +1028,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # dtolnay/rust-toolchain, NOT actions-rust-lang/setup-rust-toolchain.
+      # release.yml uses this one, and only this one accepts `targets` (plural).
+      # The other takes `target`, so it drops `targets` with a WARNING rather
+      # than an error, and the wasm build then fails with "can't find crate for
+      # `core`" -- which reads as a toolchain problem, not a typo'd input.
       - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip2
 
