@@ -214,12 +214,20 @@ jobs:
             echo "Fixed rmw_zenoh_cpp config by removing invalid transport_optimization section"
           fi
 
+      # `cache: false` is load-bearing. This action runs its own rust-cache with
+      # a key derived from the JOB ID, which is `interop_test` for every distro
+      # in the matrix -- so the four legs shared one target/. humble is the only
+      # 22.04 image, so it restored proc-macros the 24.04 legs had built and
+      # failed with "GLIBC_2.39 not found". The cache below is per-distro.
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ matrix.distro }}-interop
+          # -v2 discards entries saved while the shared cache above was in use.
+          shared-key: ${{ matrix.distro }}-interop-v2
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2

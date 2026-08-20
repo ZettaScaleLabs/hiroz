@@ -505,6 +505,42 @@
             extraShellHook = '''';
           };
 
+          # Cross-compilation shell for the aarch64-unknown-linux-gnu leg of
+          # the hu release matrix, mirroring what
+          # .github/workflows/release.yml installs on its runner (rust target
+          # + ziglang + cargo-zigbuild).
+          #
+          # Kept rather than deleted after the G4 investigation, because it is
+          # what reproduces that result: `hu` DOES cross-compile for aarch64
+          # despite wasmtime, rusqlite's bundled C, ring's assembly and axum
+          # (verified on an aarch64 runner — `file` reports "ELF 64-bit ... ARM aarch64", and
+          # build-hu-release.nu packages it correctly). Without this shell the
+          # next person has to rediscover that.
+          pureRust-cross = mkDevShell {
+            name = "hiroz-ci-pure-rust-cross";
+            packages = [
+              (rustToolchain.override {
+                targets = [
+                  "wasm32-wasip2"
+                  "aarch64-unknown-linux-gnu"
+                ];
+              })
+              pkgs.cargo-zigbuild
+              pkgs.zig
+              # NO qemu here, deliberately. `qemu-user` was tried and, despite
+              # being the small variant, still builds from the qemu source
+              # tarball and pulls harfbuzz/graphene/gsm/hwdata — job 3803 was
+              # killed while still realizing it, before running a single line
+              # of the build it was meant to test. Whether the cross-built
+              # binary can be *executed* on an x86_64 worker is a separate
+              # question from whether it *compiles*; answer the compile one
+              # first, cheaply.
+            ]
+            ++ (builtins.filter (p: p != rustToolchain) commonBuildInputs)
+            ++ testTools;
+            extraShellHook = '''';
+          };
+
           # Bridge interop test environment (Jazzy + Humble side-by-side).
           # Used by `cargo test -p hiroz-tests --features bridge-interop-tests,jazzy`.
           ros-bridge-interop =

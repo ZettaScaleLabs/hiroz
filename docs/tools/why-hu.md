@@ -75,6 +75,7 @@ ROS 2 ships two standard toolsets: `ros2cli` for the terminal and `rqt` for the 
 
 **JSON output on most commands** makes it composable with `jq`, shell scripts, CI harnesses, and log pipelines without fragile text parsing. `--json` is a global flag, so it is *accepted* everywhere, but some commands ignore it. Of those, `hu monitor log` and `hu meter param set` still print bare JSON, while `hu monitor watch`/`log-level` and `hu meter echo`/`delay` do not — so check a command's output before depending on it:
 
+<!-- repro: skip needs a live graph and writes to /var/log -->
 ```bash
 # Check camera rate in CI
 rate=$(hu meter hz /camera/image_raw --duration 5 --json | jq '.rate_hz')

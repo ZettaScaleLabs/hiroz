@@ -81,6 +81,8 @@ The example you just ran does four things:
 3. **Publishes** — `node.create_pub::<RosString>("/chatter")` sends CDR-serialized ROS 2 messages on a topic.
 4. **Subscribes** — `node.create_sub::<RosString>("/chatter")` receives and deserializes them asynchronously.
 
+The talker also calls `.with_type_description_service()` when building its node. That is what lets consumers with no compiled knowledge of the message type — `hu meter echo /chatter`, dynamic subscribers, bridges — fetch the schema and decode what it publishes. ROS 2's own client libraries serve that service by default; a hiroz node must opt in, so a node of your own needs the same call.
+
 The full example source (with CLI flags and multi-backend support) is at [`examples/z_pubsub.rs`](https://github.com/ZettaScaleLabs/hiroz/blob/main/crates/hiroz/examples/z_pubsub.rs) in the repository.
 
 ---
