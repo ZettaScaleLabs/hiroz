@@ -2584,13 +2584,9 @@
 </span></code></pre></div>
 <p><code>hu plugin list</code> must show <code>meter</code> and <code>monitor</code>. If it is empty, the plugins did not install and every <code>hu meter</code> / <code>hu monitor</code> command will fail.</p>
 <h2 id="credentials">Credentials<a class="headerlink" href="#credentials" title="Permanent link">&para;</a></h2>
-<p>Whether you need a token depends on the release host, so the installer does not decide for you. It looks for one in this order and <strong>never</strong> carries one of its own:</p>
-<ol>
-<li><code>$FORGEJO_TOKEN</code></li>
-<li>the <code>token:</code> field of <code>~/.config/tea/config.yml</code></li>
-</ol>
+<p>Whether you need a token depends on the release host, so the installer does not decide for you. It reads <code>$HU_RELEASE_TOKEN</code> from the environment and <strong>never</strong> carries one of its own. It never reads a credential from a file.</p>
 <p>If it finds one it sends it with every download. If it finds none it proceeds without one — a public release host needs no credential, and refusing up front would block installing from, say, a public GitHub release that anyone can <code>curl</code>.</p>
-<p>A missing credential therefore surfaces as a failed download, not as an early refusal, because that is the first point at which the host's requirement is actually known. The failure message names both places to put a token. Nothing is ever installed from an error page: <code>curl --fail</code> makes an HTTP error an error, so a 401 or a 404 body is never written to disk and never unpacked.</p>
+<p>A missing credential therefore surfaces as a failed download, not as an early refusal, because that is the first point at which the host's requirement is actually known. The failure message names the variable to set. Nothing is ever installed from an error page: <code>curl --fail</code> makes an HTTP error an error, so a 401 or a 404 body is never written to disk and never unpacked.</p>
 <p>If you have no account, use the offline path below — it needs no network and no credential.</p>
 <h2 id="offline-install">Offline install<a class="headerlink" href="#offline-install" title="Permanent link">&para;</a></h2>
 <p>Someone hands you the release files; you install from a directory:</p>
@@ -2673,7 +2669,7 @@
 </tbody>
 </table>
 <p>The plugins are <code>wasm32-wasip2</code> and platform-independent: one <code>.wasm</code> runs everywhere <code>hu</code> does.</p>
-<p>Releases cut on the Forgejo runner cover Linux x86_64 only; the other tarballs are uploaded from wherever they were built. If a tarball is missing from a release, it was not produced for that version.</p>
+<p>A release covers only the platforms its build legs produced. If a tarball is missing from a release, it was not produced for that version.</p>
 
 
 
