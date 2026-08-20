@@ -1,6 +1,6 @@
 [package]
 name = "rmw-zenoh-rs"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 description = "ROS 2 RMW (ROS Middleware) implementation using Zenoh - Requires ROS 2 Iron or later"
 publish = false
