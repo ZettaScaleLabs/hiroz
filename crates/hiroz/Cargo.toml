@@ -1,6 +1,6 @@
 [package]
 name = "hiroz"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 description = "Native Rust ROS 2 implementation using Zenoh"
 license.workspace = true

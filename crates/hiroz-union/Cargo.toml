@@ -1,6 +1,6 @@
 [package]
 name = "hiroz-union"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 description = "hu — plugin platform and TUI for the hiroz ROS 2 ecosystem"
 homepage = "https://github.com/ZettaScaleLabs/hiroz"
@@ -47,4 +47,9 @@ default = ["wasm-plugins"]
 wasm-plugins = ["dep:wasmtime", "dep:wasmtime-wasi"]
 web-plugins = ["wasm-plugins", "dep:axum"]
 ros-interop = []
-humble = []
+# No `humble` feature. It existed here as `humble = []` -- empty, forwarding
+# nothing to hiroz, referenced by no code and no build. `--features humble`
+# therefore selected hiroz's default jazzy while reading as a distro switch.
+# Selecting Humble needs `default-features = false` on the hiroz dependency,
+# which changes this crate's build graph; do that deliberately, not by
+# reviving a no-op flag.
