@@ -15,7 +15,10 @@ use hiroz::{Builder, Result, context::ZContextBuilder};
 use hiroz_msgs::std_msgs::String as RosString;
 
 pub async fn run(ctx: hiroz::context::ZContext, topic: String, count: usize) -> Result<()> {
-    let node = ctx.create_node("cache_talker").build()?;
+    let node = ctx
+        .create_node("cache_talker")
+        .with_type_description_service()
+        .build()?;
     let publisher = node.create_pub::<RosString>(&topic).build()?;
 
     println!("[talker] publishing on '{}' every 100 ms", topic);

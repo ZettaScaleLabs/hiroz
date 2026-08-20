@@ -11,7 +11,7 @@ use hiroz_msgs::std_msgs::String as RosString;
 async fn run_subscriber(ctx: ZContext, topic: String) -> Result<()> {
     // Create a ROS 2 node - the fundamental unit of computation
     // Nodes are logical groupings of publishers, subscribers, services, etc.
-    let node = ctx.create_node("Sub").build()?;
+    let node = ctx.create_node("listener").build()?;
 
     // Create a subscriber for the specified topic
     // The type parameter RosString determines what message type we'll receive
@@ -33,7 +33,10 @@ async fn run_publisher(
     payload: String,
 ) -> Result<()> {
     // Create a ROS 2 node for publishing
-    let node = ctx.create_node("Pub").build()?;
+    let node = ctx
+        .create_node("talker")
+        .with_type_description_service()
+        .build()?;
 
     // Create a publisher for the specified topic
     // The type parameter RosString determines what message type we'll send

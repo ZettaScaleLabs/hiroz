@@ -136,6 +136,15 @@ impl ZNodeBuilder {
     /// // Static publishers also auto-register when their message type provides
     /// // MessageTypeInfo::message_schema() (e.g. generated hiroz messages).
     /// ```
+    ///
+    /// # Why this is opt-in, and why you probably want it
+    ///
+    /// ROS 2 (rclcpp/rclpy) serves the equivalent service by default, and
+    /// hiroz's own RMW layer forces it on for every node it creates. A plain
+    /// hiroz node does not: it must opt in here. Without it, runtime-typed
+    /// consumers that have no compiled knowledge of the message — `hu meter
+    /// echo`, dynamic subscribers, bridges — cannot obtain the schema and
+    /// therefore cannot decode this node's messages.
     pub fn with_type_description_service(mut self) -> Self {
         self.enable_type_desc_service = true;
         self

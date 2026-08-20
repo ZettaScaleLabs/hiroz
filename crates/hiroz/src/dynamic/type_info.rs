@@ -12,7 +12,13 @@ pub(crate) fn dds_type_name_from_schema(schema: &MessageSchema) -> String {
         + "_"
 }
 
-pub(crate) fn ros_type_name_from_dds(dds_name: &str) -> String {
+/// Convert a DDS-mangled type name as it appears in liveliness tokens and the
+/// graph (`std_msgs::msg::dds_::String_`) into the canonical ROS form the schema
+/// registry and `.msg` loader expect (`std_msgs/msg/String`). Public because
+/// out-of-crate consumers (e.g. `hu`'s WASM host) resolve graph-reported types
+/// against `load_schema` and must use this exact normalisation rather than
+/// re-deriving one -- see issue #172.
+pub fn ros_type_name_from_dds(dds_name: &str) -> String {
     dds_name
         .replace("::msg::dds_::", "/msg/")
         .replace("::srv::dds_::", "/srv/")

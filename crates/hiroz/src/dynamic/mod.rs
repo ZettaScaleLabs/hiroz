@@ -77,6 +77,8 @@ pub use message::{DynamicMessage, DynamicMessageBuilder};
 #[cfg(feature = "dynamic-schema-loader")]
 pub use registry::load_schema;
 pub use registry::{SchemaRegistry, get_schema, has_schema, register_schema};
+// Exported next to `load_schema`: the two are used as a pair -- demangle a
+// graph-reported type name, then load its schema.
 pub use schema::{FieldSchema, FieldType, MessageSchema, MessageSchemaBuilder};
 pub use serdes::DynamicSerdeCdrSerdes;
 pub use serialization::SerializationFormat;
@@ -88,6 +90,7 @@ pub use type_description_service::{
     WireKeyValue, WireTypeDescription, WireTypeSource, schema_to_wire_type_description,
     wire_to_schema_type_description,
 };
+pub use type_info::ros_type_name_from_dds;
 pub use value::{DynamicValue, FromDynamic, IntoDynamic};
 
 pub(crate) use discovery::{SchemaDiscovery, discovered_schema_type_info};

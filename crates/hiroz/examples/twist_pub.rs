@@ -5,7 +5,10 @@ use hiroz_msgs::geometry_msgs::{Twist, Vector3};
 
 fn main() -> Result<()> {
     let ctx = ZContextBuilder::default().build()?;
-    let node = ctx.create_node("twist_publisher").build()?;
+    let node = ctx
+        .create_node("twist_publisher")
+        .with_type_description_service()
+        .build()?;
     let zpub = node.create_pub::<Twist>("cmd_vel").build()?;
 
     println!("Publishing Twist messages on /cmd_vel...");

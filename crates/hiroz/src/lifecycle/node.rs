@@ -276,11 +276,22 @@ pub struct ZLifecycleNodeBuilder {
     pub(crate) name: String,
     pub(crate) namespace: Option<String>,
     pub enable_communication_interface: bool,
+    pub(crate) type_description_service: bool,
 }
 
 impl ZLifecycleNodeBuilder {
     pub fn with_namespace<S: AsRef<str>>(mut self, ns: S) -> Self {
         self.namespace = Some(crate::entity::normalize_node_namespace(ns.as_ref()));
+        self
+    }
+
+    /// Pass-through to [`ZNodeBuilder::with_type_description_service`] on the
+    /// inner node, so publishers created via [`ZLifecycleNode::create_publisher`]
+    /// register their schemas and runtime-typed consumers can decode them.
+    ///
+    /// [`ZNodeBuilder::with_type_description_service`]: crate::node::ZNodeBuilder::with_type_description_service
+    pub fn with_type_description_service(mut self) -> Self {
+        self.type_description_service = true;
         self
     }
 
@@ -297,6 +308,9 @@ impl Builder for ZLifecycleNodeBuilder {
         let mut node_builder = self.ctx.create_node(&self.name);
         if let Some(ns) = self.namespace {
             node_builder = node_builder.with_namespace(ns);
+        }
+        if self.type_description_service {
+            node_builder = node_builder.with_type_description_service();
         }
         let inner = node_builder.build()?;
 

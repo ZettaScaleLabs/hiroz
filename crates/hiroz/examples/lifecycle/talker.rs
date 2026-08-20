@@ -18,7 +18,10 @@ fn main() -> Result<()> {
     // Build a Zenoh context and create a lifecycle node.
     // The node starts in the Unconfigured state.
     let ctx = ZContextBuilder::default().build()?;
-    let mut node = ctx.create_lifecycle_node("lifecycle_talker").build()?;
+    let mut node = ctx
+        .create_lifecycle_node("lifecycle_talker")
+        .with_type_description_service()
+        .build()?;
 
     // Register callbacks for each lifecycle transition.
     // Each callback receives the previous state and must return
