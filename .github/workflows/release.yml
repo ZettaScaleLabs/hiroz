@@ -453,16 +453,35 @@ jobs:
         run: .venv/bin/python -c "import hiroz_py; print('hiroz_py import ok')"
 
   smoke-test-binaries:
-    name: Smoke test binaries
+    name: Smoke test binaries (${{ matrix.target }})
     needs: [build-binaries, build-hu-plugins]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    # One leg per platform whose tarball the release publishes and whose host
+    # this workflow can run on. Until this was a matrix the macOS tarball was
+    # built, packaged and published without ever being unpacked or executed by
+    # anything — a broken macOS artifact would have shipped green. The
+    # aarch64-linux tarball has no leg here because no GitHub-hosted runner can
+    # execute it; it stays unexercised by this workflow, deliberately and
+    # visibly.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: bin-hu-x86_64-linux
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            artifact: bin-hu-aarch64-macos
+            target: aarch64-apple-darwin
     steps:
-      - name: Download hu binary (x86_64)
+      - name: Download hu binary
         uses: actions/download-artifact@v4
         with:
-          name: bin-hu-x86_64-linux
+          name: ${{ matrix.artifact }}
           path: dist/
 
+      # The .wasm plugins are wasm32-wasip2 and platform-independent, so both
+      # legs consume the single artifact the one plugins job produced.
       - name: Download hu plugins
         uses: actions/download-artifact@v4
         with:
@@ -473,17 +492,33 @@ jobs:
 
       # Assemble the same SHA256SUMS the release job will, so this test
       # installs from artifacts shaped exactly like the published ones.
+      #
+      # Written for both hosts. macOS ships neither `sha256sum` nor GNU find's
+      # `-printf`, so the Linux-only spellings this step used to carry would
+      # have failed the macOS leg on its first line — before testing anything
+      # about the artifact. `basename` via `-exec` is POSIX; `shasum -a 256`
+      # emits and checks the same format as `sha256sum`, which matters because
+      # install-hu.sh reads this file with its own equivalent fallback.
       - name: Assemble SHA256SUMS
         shell: bash
         run: |
           set -e
+          if command -v sha256sum >/dev/null 2>&1; then
+            SUM="sha256sum"
+          else
+            SUM="shasum -a 256"
+          fi
+          echo "using: $SUM"
           cd dist
-          files=$(find . -maxdepth 1 -type f -printf '%f\n' | sort)
-          printf '%s\n' "$files" | xargs sha256sum > SHA256SUMS
+          # Capture the file list BEFORE the redirect creates SHA256SUMS, or
+          # the file lists itself with the hash of the empty file and `-c`
+          # reports FAILED on an otherwise perfect asset set.
+          files=$(find . -maxdepth 1 -type f -exec basename {} \; | sort)
+          printf '%s\n' "$files" | xargs $SUM > SHA256SUMS
           cat SHA256SUMS
           # Self-check: the file must verify cleanly, including not listing
           # itself.
-          sha256sum -c SHA256SUMS
+          $SUM -c SHA256SUMS
 
       # The real question is not "does the binary start" but "can a user who
       # downloaded this release install it the documented way and then run
@@ -491,6 +526,11 @@ jobs:
       # files: it is the only thing that exercises the artifact *shape*, which
       # is where this channel was broken — it shipped a bare ELF while the
       # installer expects a tarball.
+      #
+      # No target is passed: install-hu.sh's own detect_target must pick this
+      # host's tarball out of dist/. On the macOS leg that is the only thing
+      # that exercises the Darwin/arm64 arm of that function against a real
+      # release layout.
       - name: Install from the release artifacts, as a user would
         shell: bash
         run: |
@@ -511,8 +551,12 @@ jobs:
         shell: bash
         run: |
           set -e
-          printf 'X' | dd of=dist/hu-*-x86_64-unknown-linux-gnu.tar.gz \
-            bs=1 seek=100 conv=notrunc status=none
+          # Corrupt THIS leg's tarball. Corrupting a fixed target's would leave
+          # the macOS leg installing an intact tarball and passing a test that
+          # proved nothing.
+          tarball=$(echo dist/hu-*-${{ matrix.target }}.tar.gz)
+          test -f "$tarball" || { echo "FAIL: no tarball for ${{ matrix.target }}"; exit 1; }
+          printf 'X' | dd of="$tarball" bs=1 seek=100 conv=notrunc 2>/dev/null
           HUHOME="$RUNNER_TEMP/huhome-bad"
           mkdir -p "$HUHOME"
           if HOME="$HUHOME" HU_PREFIX="$HUHOME/.local" sh scripts/install-hu.sh --offline dist; then
