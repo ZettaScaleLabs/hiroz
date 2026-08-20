@@ -248,19 +248,34 @@ pub fn install(source: &str, registry: Option<&str>) -> Result<PathBuf> {
     install_from_registry(source, registry)
 }
 
+/// The index published alongside this `hu`'s own release.
+///
+/// Without a default, `hu plugin install meter` refused until the user found
+/// and exported a URL — for the plugins this very binary was released with.
+/// Pinned to `CARGO_PKG_VERSION` rather than "latest" so a plugin always
+/// matches the host that installs it; the WIT-world check below is the
+/// backstop, not the first line of defence.
+fn default_registry_url() -> String {
+    format!(
+        "https://github.com/ZettaScaleLabs/hiroz/releases/download/v{v}/hu-plugins-{v}.json",
+        v = env!("CARGO_PKG_VERSION")
+    )
+}
+
 fn install_from_registry(name: &str, registry: Option<&str>) -> Result<PathBuf> {
     let index_url = registry
         .map(str::to_string)
         .or_else(|| std::env::var(DEFAULT_REGISTRY_ENV).ok())
-        .ok_or_else(|| {
-            anyhow!(
-                "'{name}' is not an existing file or a URL, and no plugin registry is configured.\n\
-                 Set {DEFAULT_REGISTRY_ENV} to a release index URL, pass --registry, or install \
-                 from a downloaded file:\n  hu plugin install ./hu_{name}.wasm"
-            )
-        })?;
+        .unwrap_or_else(default_registry_url);
 
-    let raw = http_get(&index_url)?;
+    let raw = http_get(&index_url).with_context(|| {
+        format!(
+            "fetching the plugin index at {index_url}\n\
+             '{name}' is not an existing file or a URL, so it was looked up in the index \
+             published with this hu. Override with {DEFAULT_REGISTRY_ENV} or --registry, or \
+             install from a downloaded file:\n  hu plugin install ./hu_{name}.wasm"
+        )
+    })?;
     let index: RegistryIndex = serde_json::from_slice(&raw)
         .with_context(|| format!("parsing plugin index at {index_url}"))?;
 

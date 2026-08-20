@@ -116,6 +116,18 @@ resolve_token() {
     return 1
 }
 
+# Ask the release host which version is newest, so `curl ... | sh` works with
+# no arguments. The header promised this default long before anything
+# implemented it, and the installer died demanding HU_VERSION instead.
+#
+# /releases/latest excludes drafts and pre-releases, which is what we want: a
+# bare install should never land on a rehearsal tag.
+resolve_latest() {
+    curl -fsSL "https://api.github.com/repos/$DEFAULT_REPO_PATH/releases/latest" 2>/dev/null \
+        | grep -m1 '"tag_name"' \
+        | sed 's/.*"tag_name" *: *"//; s/".*//; s/^v//'
+}
+
 fetch() {
     _url="$1"; _dest="$2"
     # --fail so an HTTP error is an error: without it curl writes the 404 body
@@ -178,7 +190,11 @@ else
     TARGET="$(detect_target)"
 
     if [ -z "$VERSION" ]; then
-        die "HU_VERSION (or --version) is required until the release index is published"
+        VERSION="$(resolve_latest || true)"
+        [ -n "$VERSION" ] || die "could not determine the latest version from
+  $DEFAULT_HOST/$DEFAULT_REPO_PATH
+Pass one explicitly: --version X.Y.Z (or set HU_VERSION)."
+        info "latest release is $VERSION"
     fi
 
     # A pre-release tag and its asset filenames do NOT carry the same version.
@@ -190,7 +206,7 @@ else
     CORE="${VERSION%%-*}"
 
     if [ -z "$BASE" ]; then
-        BASE="$DEFAULT_HOST/$DEFAULT_REPO_PATH/releases/download/hu-v$VERSION"
+        BASE="$DEFAULT_HOST/$DEFAULT_REPO_PATH/releases/download/v$VERSION"
     fi
 
     info "downloading hu $VERSION for $TARGET"

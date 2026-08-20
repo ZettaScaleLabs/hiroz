@@ -185,6 +185,25 @@ left=$(find "$H6" -type f | head -5)
     && check "documented uninstall removes everything" 0 0 \
     || { echo "  (left: $left)"; check "documented uninstall removes everything" 0 1; }
 
+# 10. The documented entry point is `curl ... | sh`, and until now every test
+#     invoked the script as a file. Piping is not the same execution: the
+#     script arrives on stdin, so `$0` is not a path, and anything that reads
+#     stdin consumes the un-run remainder of itself. Feed it the way the docs
+#     tell a user to.
+H7="$WORK/h7"
+mkdir -p "$H7"
+make_dist "$WORK/d7"
+if cat "$INSTALLER" | env -u HU_RELEASE_TOKEN HOME="$H7" HU_PREFIX="$H7/.local" \
+        sh -s -- --offline "$WORK/d7" > "$WORK/pipe.txt" 2>&1; then
+    check "installs when piped into sh, as the docs instruct" 0 0
+else
+    echo "  (output: $(tail -3 "$WORK/pipe.txt" | tr '\n' '|'))"
+    check "installs when piped into sh, as the docs instruct" 0 1
+fi
+[ -x "$H7/.local/bin/hu" ] \
+    && check "the piped install produced an executable hu" 0 0 \
+    || check "the piped install produced an executable hu" 0 1
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

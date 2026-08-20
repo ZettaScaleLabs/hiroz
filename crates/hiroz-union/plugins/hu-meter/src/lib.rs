@@ -269,6 +269,13 @@ impl HuMeter {
                 return;
             }
         };
+        // Say that we are listening. A subscribe that succeeds and then prints
+        // nothing is indistinguishable from a broken one: the user cannot tell
+        // "no traffic on this topic" from "this tool is not working". stderr,
+        // not stdout, so `--json | jq` and friends stay clean.
+        render::eprintln(&format!(
+            "subscribed to {topic}; waiting for messages (Ctrl-C to stop)"
+        ));
         self.mode = Mode::Echo {
             topic,
             sub: Some(sub),

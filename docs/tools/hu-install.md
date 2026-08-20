@@ -9,22 +9,21 @@ Everything here works with no ROS 2 install. `hu` only needs to reach a Zenoh ro
 
 ## Quickest path
 
-Set `HU_RELEASE_BASE` to the release you are installing from, and pass the same version twice — once so `curl` finds the installer, once so the installer finds the assets:
+Download the installer and run it. With no arguments it asks GitHub which release is newest and installs that:
 
 <!-- repro: skip needs a published release and network access to it -->
 ```bash
-BASE=https://github.com/ZettaScaleLabs/hiroz/releases/download/v0.1.0
-curl -fsSL "$BASE/install-hu.sh" -o install-hu.sh
-HU_RELEASE_BASE="$BASE" HU_VERSION=0.1.0 sh install-hu.sh
+curl -fsSL https://github.com/ZettaScaleLabs/hiroz/releases/latest/download/install-hu.sh -o install-hu.sh
+sh install-hu.sh
 ```
 
 **Download the installer, then run it — do not pipe it into a shell.** Two failure modes look like success if you pipe. A wrong URL makes `curl -fsSL` fail silently, `sh` then reads empty input and exits 0, so you see nothing and no error. And a connection that drops mid-transfer still executes every complete line that arrived, which can leave `hu` installed with no plugins. Downloading first makes `curl`'s exit status stop the install, and gives `sh` a complete file.
 
 That downloads the binary and the plugins, verifies both against `SHA256SUMS`, installs `hu` to `~/.local/bin/` and the plugins to `~/.local/share/hu/plugins/`.
 
-`HU_RELEASE_BASE` is not optional here, and the reason is worth knowing: piping the script through `curl` sets nothing inside it. Without that variable the installer falls back to its own built-in host, so you would fetch the script from one place and its assets from another — and the download would fail against a host you may not even be able to reach.
+To install a specific version rather than the newest, pass `--version X.Y.Z`. To install from somewhere other than this project's GitHub releases, set `HU_RELEASE_BASE` to that release's download directory — then the installer looks nowhere else, which matters if you fetched the script from one place and its assets live in another.
 
-**The base is the release's download directory, and its shape differs per channel.** GitHub publishes the whole workspace on `v<version>` tags, so the path ends `/releases/download/v<version>`. Releases cut on the `hu`-only `hu-v<version>` tags end `/releases/download/hu-v<version>` instead. Point `HU_RELEASE_BASE` at whichever one you were given; nothing below the base differs between them.
+**`HU_RELEASE_BASE` is a release's download directory**, ending `/releases/download/v<version>`. Point it at the release you were given; the filenames below it are the same either way.
 
 Set `--prefix` (or `HU_PREFIX`) to install somewhere other than `~/.local`. `hu` looks for plugins next to its own binary — under `<prefix>/share/hu/plugins` — as well as in `~/.local/share/hu/plugins`, so a prefixed install finds its own plugins.
 
