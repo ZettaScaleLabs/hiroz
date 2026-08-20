@@ -222,16 +222,10 @@ jobs:
       - name: Package binary
         shell: bash
         run: |
-          # Package through the shared script, NOT an ad-hoc `cp`. The tarball
-          # name and contents are the contract `install-hu.sh` reads, so if
-          # this channel rolls its own the two release channels drift and a
-          # GitHub release stops being installable — which is exactly what
-          # happened while this step was a bare `cp` of the ELF.
-          #
-          # --binary-from because the cross legs build with cargo zigbuild
-          # above; the script packages what they produced rather than
-          # rebuilding. --no-sums because SHA256SUMS is assembled once, in the
-          # release job, over every asset from every leg.
+          # The shared script, never an ad-hoc `cp`: the tarball name and
+          # contents are the contract install-hu.sh reads. --binary-from packages
+          # what the cross legs already built; --no-sums because SHA256SUMS is
+          # assembled once, in the release job, over every leg's assets.
           #
           # --version arms the tag-vs-crate guard (build-hu-release.nu:69-77),
           # so a tag that disagrees with the crate fails here instead of
@@ -649,18 +643,10 @@ jobs:
           path: dist/
           merge-multiple: true
 
-      # docs/tools/hu-install.md's first instruction is
-      #   curl -fsSL <release-base>/install-hu.sh | HU_VERSION=… sh
-      # and until this step existed that URL 404'd on every release ever cut:
-      # build-hu-release.nu writes six assets and the installer is not one of
-      # them, so nothing ever put install-hu.sh where the docs point. The
-      # bootstrap script is an asset like any other and belongs in dist/.
-      #
-      # It is staged HERE, before SHA256SUMS is assembled, so the checksum file
-      # covers it without a special case — the assembling step lists whatever
-      # is in dist/ at the time it runs. Staging it afterwards would publish an
-      # unlisted asset, which is the F2 shape: `sha256sum -c` passes while
-      # saying nothing about the file a user actually pipes into a shell.
+      # docs/tools/hu-install.md points readers at this URL, and nothing put the
+      # installer there. Staged BEFORE SHA256SUMS is assembled, so the checksum
+      # file covers it -- that step lists whatever is in dist/ when it runs, and
+      # an unlisted asset verifies clean while saying nothing about itself.
       - name: Stage the installer as a release asset
         shell: bash
         run: |
@@ -710,24 +696,11 @@ jobs:
           grep -q ' install-hu\.sh$' SHA256SUMS \
             || { echo "FAIL: install-hu.sh is not covered by SHA256SUMS"; exit 1; }
 
-      # `prerelease` is derived from the tag shape, mirroring
-      # Without this an rc tag publishes as a
-      # full release and takes the "Latest" badge from the real one — and since
-      # `push: tags: v*` is this workflow's only trigger, an rc tag is the ONLY
-      # way to rehearse it, so the rehearsal would mislabel the product.
-      # Created as a DRAFT, then promoted by `publish-release` once the
-      # artifacts are on it, and withdrawn again by `withdraw-release` if the
-      # post-publish checks fail. Previously this published immediately and
-      # `smoke-test-release-install` ran afterwards, so a failed verification
-      # left a public release wearing the "Latest" badge with nothing to
-      # de-list it.
-      #
-      # The draft cannot be verified before promotion: GitHub does not serve
-      # draft assets from `browser_download_url` at all -- not anonymously and
-      # not with a token, only the metadata is readable. So "verify, then
-      # publish" is not available for a download test, and the honest shape is
-      # "publish, verify, withdraw on failure". That narrows the exposure from
-      # permanent to the length of the smoke test rather than removing it.
+      # Draft, then promoted by `publish-release`, then withdrawn by
+      # `withdraw-release` if the post-publish checks fail. Publish-then-verify
+      # rather than verify-then-publish because GitHub does not serve draft
+      # assets for a download test. `prerelease` comes from the tag shape, so a
+      # rehearsal tag never takes the "Latest" badge.
       - name: Create GitHub Release (draft)
         uses: softprops/action-gh-release@v2
         with:
@@ -815,14 +788,8 @@ jobs:
           # so only the base directory differs. That is exactly what
           # HU_RELEASE_BASE overrides.
           export HU_RELEASE_BASE="https://github.com/${{ github.repository }}/releases/download/$TAG"
-          # Run the command docs/tools/hu-install.md actually tells a reader to
-          # run -- the installer piped from the release into a shell -- not an
-          # equivalent-looking `sh scripts/install-hu.sh` against the repo copy.
-          # Two things only this form exercises: reading the script from stdin,
-          # and passing HU_RELEASE_BASE/HU_VERSION through the pipeline into it.
-          # The published-vs-source diff below proves the asset is right; it
-          # cannot prove the documented invocation works.
-          # Download-then-run, exactly as docs/tools/hu-install.md instructs.
+          # Download-then-run, exactly as docs/tools/hu-install.md instructs,
+          # against the published asset rather than the repo copy.
           # `&&` propagates curl's status, so a 404 stops here. Piping instead
           # would not: a pipeline's status is its last command's, so `sh` would
           # read empty stdin, exit 0, and pass this step having installed
@@ -868,23 +835,10 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      # `hu plugin list` above is NOT sufficient on its own, and it is worth
-      # being explicit about why: discovery derives a plugin's name from its
-      # FILENAME and never opens the component
-      # (crates/hiroz-union/src/plugin/wasm/mod.rs), so an empty file named
-      # hu_meter.wasm satisfies every grep above. Until this step existed that
-      # was the only check this channel made against what it had just
-      # published — a release could ship an unloadable plugin and go green.
-      # The suite has already run against a published
-      # release; GitHub did not, so the two channels disagreed on what
-      # "released" proves.
-      #
-      # The publisher is built from the SOURCE CHECKOUT, deliberately, not
-      # taken from the artifact: `hu` cannot generate its own traffic (F12 —
-      # `hu meter pub` needs a schema no release ships), so a suite whose only
-      # fixture is `hu router` measures an empty graph and degenerates into an
-      # exit-status check. That is the exact hole a truncated plugin slips
-      # through.
+      # From the source checkout, not the artifact: `hu` cannot generate its own
+      # traffic, because no release ships message definitions (#309, G2). With
+      # only `hu router` the suite measures an empty graph and decays into an
+      # exit-status check -- which a truncated plugin passes.
       - name: Build the traffic fixture from source
         run: cargo build --release --example z_pubsub -p hiroz
 
