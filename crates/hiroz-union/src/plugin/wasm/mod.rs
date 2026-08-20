@@ -15,6 +15,7 @@ pub use host::web_bindgen::hu::plugin::web_types::{HttpRequest, HttpResponse};
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -200,6 +201,51 @@ fn configured_wasm_engine() -> Result<Engine> {
     Engine::new(&engine_config).context("creating WASM engine")
 }
 
+// ─── Epoch budget vs. blocking host calls ────────────────────────────────────
+
+/// Number of host calls currently blocked on I/O on behalf of a guest.
+///
+/// Every guest dispatch runs under `set_epoch_deadline(30)` and the ticker below
+/// increments the epoch every 100 ms, so a guest gets ~3 s of *wall clock* — and
+/// wall clock is what the ticker measures, so time a host call spends waiting on
+/// the network counts against the guest's budget even though the guest is not
+/// running. A host call that blocks longer than the remaining budget therefore
+/// traps the guest the moment it returns, and the guest never runs the error
+/// branch it was just handed. That is not a theoretical bound: schema discovery
+/// waits for a live publisher and then queries it, which legitimately takes
+/// seconds on a cold graph.
+static HOST_BLOCKING_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+/// Suspends the epoch ticker for as long as it is alive. Hold one around any
+/// host call that blocks on I/O, so the wait is not charged to the guest's
+/// compute budget.
+///
+/// The suspension is process-wide (there is one engine and one ticker), so a
+/// *different* runaway guest is not preempted while a blocking call is in
+/// flight. That window is bounded by the host call's own timeout, and the
+/// alternative — trapping a well-behaved guest for waiting on the network — is
+/// strictly worse.
+pub(crate) struct HostBlockGuard(());
+
+impl HostBlockGuard {
+    pub(crate) fn enter() -> Self {
+        HOST_BLOCKING_CALLS.fetch_add(1, Ordering::SeqCst);
+        Self(())
+    }
+}
+
+impl Drop for HostBlockGuard {
+    fn drop(&mut self) {
+        HOST_BLOCKING_CALLS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Whether the epoch ticker should advance right now. Split out so the rule is
+/// testable without an engine.
+fn epoch_should_tick() -> bool {
+    HOST_BLOCKING_CALLS.load(Ordering::SeqCst) == 0
+}
+
 /// Process-wide shared WASM engine (and its single epoch-ticker task). Building
 /// a fresh engine per `load_plugins` call would spawn a new ticker each time —
 /// the TUI's `reload_plugins` loops, so tickers (each holding an engine clone)
@@ -220,7 +266,9 @@ fn shared_wasm_engine() -> Result<Engine> {
             handle.spawn(async move {
                 loop {
                     tokio::time::sleep(Duration::from_millis(100)).await;
-                    ticker_engine.increment_epoch();
+                    if epoch_should_tick() {
+                        ticker_engine.increment_epoch();
+                    }
                 }
             });
         } else {
@@ -232,7 +280,9 @@ fn shared_wasm_engine() -> Result<Engine> {
                 .spawn(move || {
                     loop {
                         std::thread::sleep(Duration::from_millis(100));
-                        ticker_engine.increment_epoch();
+                        if epoch_should_tick() {
+                            ticker_engine.increment_epoch();
+                        }
                     }
                 })
             {
@@ -357,7 +407,7 @@ fn iter_wasm_files() -> impl Iterator<Item = PathBuf> {
 /// outside `[A-Za-z0-9_-]` — including `.` and path separators — to `_`, so the
 /// result is always a single safe segment (`..` becomes `__`); fall back to
 /// `"unknown"` only for an empty stem.
-fn sanitize_plugin_stem(plugin_stem: &str) -> String {
+pub(crate) fn sanitize_plugin_stem(plugin_stem: &str) -> String {
     let cleaned: String = plugin_stem
         .chars()
         .map(|c| {
@@ -583,15 +633,59 @@ pub fn validate_plugin_static(path: &std::path::Path) -> Result<String> {
     Ok(format!("OK: {} is a valid WASM component", path.display()))
 }
 
-fn plugin_search_dirs() -> Vec<PathBuf> {
+pub(crate) fn plugin_search_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Ok(paths) = std::env::var("HU_PLUGIN_PATH") {
         for p in std::env::split_paths(&paths) {
             dirs.push(p);
         }
     }
+    // Prefix-relative, derived from where THIS binary sits. `install-hu.sh
+    // --prefix /opt/hu` writes the binary to /opt/hu/bin/hu and the plugins to
+    // /opt/hu/share/hu/plugins; without this the install succeeds, reports
+    // "installed plugin hu_meter.wasm", and then `hu plugin list` -- which the
+    // installer's own closing message tells the user to run -- is empty,
+    // because discovery only ever looked under $HOME.
+    //
+    // Both CI callers set HU_PREFIX and HOME to the same scratch directory,
+    // which is the one configuration where that bug cannot appear.
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(prefix) = exe.parent().and_then(|bin| bin.parent())
+    {
+        dirs.push(prefix.join("share/hu/plugins"));
+    }
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join(".local/share/hu/plugins"));
     }
+    // A default-prefix install makes the two paths above identical, and a
+    // duplicated directory would list every plugin twice.
+    dirs.dedup();
     dirs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HostBlockGuard, epoch_should_tick};
+
+    // The ticker's only guard against charging network waits to the guest's
+    // compute budget is this counter, and it is one `fetch_add` away from being
+    // silently dropped by a later edit. (Serial by construction: nothing else in
+    // this crate's unit tests takes the guard, since host calls need a store.)
+    #[test]
+    fn host_block_guard_suspends_the_epoch_ticker() {
+        assert!(epoch_should_tick(), "ticker suspended before any guard");
+        {
+            let _outer = HostBlockGuard::enter();
+            assert!(!epoch_should_tick(), "guard did not suspend the ticker");
+            {
+                let _inner = HostBlockGuard::enter();
+                assert!(!epoch_should_tick(), "nested guard un-suspended it");
+            }
+            assert!(
+                !epoch_should_tick(),
+                "dropping the inner guard resumed ticking while the outer is held"
+            );
+        }
+        assert!(epoch_should_tick(), "ticker never resumed");
+    }
 }
