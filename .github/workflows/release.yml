@@ -495,29 +495,10 @@ jobs:
       # Written for both hosts. macOS ships neither `sha256sum` nor GNU find's
       # `-printf`, so the Linux-only spellings this step used to carry would
       # have failed the macOS leg on its first line — before testing anything
-      # about the artifact. `basename` via `-exec` is POSIX; `shasum -a 256`
-      # emits and checks the same format as `sha256sum`, which matters because
-      # install-hu.sh reads this file with its own equivalent fallback.
+      # about the artifact.
       - name: Assemble SHA256SUMS
         shell: bash
-        run: |
-          set -e
-          if command -v sha256sum >/dev/null 2>&1; then
-            SUM="sha256sum"
-          else
-            SUM="shasum -a 256"
-          fi
-          echo "using: $SUM"
-          cd dist
-          # Capture the file list BEFORE the redirect creates SHA256SUMS, or
-          # the file lists itself with the hash of the empty file and `-c`
-          # reports FAILED on an otherwise perfect asset set.
-          files=$(find . -maxdepth 1 -type f -exec basename {} \; | sort)
-          printf '%s\n' "$files" | xargs $SUM > SHA256SUMS
-          cat SHA256SUMS
-          # Self-check: the file must verify cleanly, including not listing
-          # itself.
-          $SUM -c SHA256SUMS
+        run: scripts/ci/write-sha256sums.sh dist
 
       # The real question is not "does the binary start" but "can a user who
       # downloaded this release install it the documented way and then run
@@ -672,27 +653,13 @@ jobs:
         shell: bash
         run: |
           set -e
+          scripts/ci/write-sha256sums.sh dist
           cd dist
-          rm -f SHA256SUMS
-          # Bare basenames, sorted: the format install-hu.sh and
-          # `sha256sum -c` both expect.
-          #
-          # Capture the file list BEFORE creating any output file. A shell
-          # redirect creates its target before the command on the left runs,
-          # so `find ... > SHA256SUMS` lists SHA256SUMS itself, with the hash
-          # of the empty file — and `sha256sum -c` then reports
-          # "SHA256SUMS: FAILED" on an otherwise perfect release. Redirecting
-          # to a temp name instead just moves the bug to the temp name.
-          files=$(find . -maxdepth 1 -type f -printf '%f\n' | sort)
-          printf '%s\n' "$files" | xargs sha256sum > SHA256SUMS
-          echo "covered $(wc -l < SHA256SUMS) assets:"
-          cat SHA256SUMS
-          # A release with no hu tarball listed is the defect this replaces —
-          # fail loudly rather than publishing it again.
-          grep -q 'hu-.*\.tar\.gz' SHA256SUMS
-          # Likewise for the installer: the docs tell readers to pipe it into a
-          # shell, so it must be published AND covered. An unlisted installer
-          # would still be downloadable and would still be unverifiable.
+          # The assembly is shared; these two assertions are not. A release with
+          # no hu tarball, or with the installer the docs point at left
+          # uncovered, is the defect this step replaces.
+          grep -q 'hu-.*\.tar\.gz' SHA256SUMS \
+            || { echo "FAIL: no hu tarball covered by SHA256SUMS"; exit 1; }
           grep -q ' install-hu\.sh$' SHA256SUMS \
             || { echo "FAIL: install-hu.sh is not covered by SHA256SUMS"; exit 1; }
 

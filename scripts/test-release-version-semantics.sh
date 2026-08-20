@@ -303,6 +303,14 @@ echo "== the release is not public until it verifies =="
 # afterwards, so a failed check left a public release with nothing to de-list
 # it. GitHub will not serve draft assets for a download test, so the reachable
 # shape is publish -> verify -> withdraw on failure.
+# Both the smoke test and the release job must checksum through the shared
+# script. They were two inline copies until they drifted: the release job's used
+# GNU-only `find -printf` and a bare `sha256sum`, so it would have failed on any
+# host without coreutils. Nothing asserted the assembly existed at all.
+SUMS_CALLS=$(grep -c 'write-sha256sums\.sh' "$GH")
+check "both jobs checksum through the shared script" 2 "$SUMS_CALLS"
+grep_must_not "$GH" "no inline checksum assembly remains" 'xargs sha256sum'
+
 grep_must     "$GH" "the release is created as a draft" 'draft: true'
 grep_must     "$GH" "a job promotes the draft" '\-\-draft=false'
 grep_must     "$GH" "a job withdraws it again" '\-\-draft=true'
