@@ -474,6 +474,13 @@ jobs:
             artifact: bin-hu-aarch64-macos
             target: aarch64-apple-darwin
     steps:
+      # MUST be first. `actions/checkout` cleans the working directory, so a
+      # checkout after the downloads deletes the `dist/` they just populated
+      # and the next step dies on `cd: dist: No such file or directory`. This
+      # job had never run -- release.yml triggers only on a `v*` tag -- so the
+      # ordering was wrong from the day it was written and nothing could say so.
+      - uses: actions/checkout@v4
+
       - name: Download hu binary
         uses: actions/download-artifact@v4
         with:
@@ -487,8 +494,6 @@ jobs:
         with:
           name: bin-hu-plugins
           path: dist/
-
-      - uses: actions/checkout@v4
 
       # Assemble the same SHA256SUMS the release job will, so this test
       # installs from artifacts shaped exactly like the published ones.
