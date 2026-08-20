@@ -913,25 +913,6 @@ jobs:
           test "$rc" -eq 0 || {
             echo "FAIL: the published release does not reproduce its own docs"; exit 1; }
 
-      # ---------------------------------------------------------------------
-      # TEMPORARY — rc16 ONLY. REVERT IMMEDIATELY AFTER THE RUN.
-      #
-      # withdraw-release has never been seen firing. rc15 proved it correctly
-      # does NOT fire when verification passes, which is only half the claim: a
-      # job that never runs also never fires. Forcing a failure here is the only
-      # way to observe the other half, because the condition depends on this
-      # job's result.
-      #
-      # Deliberately last, so every real assertion above still runs and this
-      # only changes the job's exit status.
-      # ---------------------------------------------------------------------
-      - name: DELIBERATE FAILURE — prove withdraw-release fires
-        run: |
-          echo "Everything above passed. Failing on purpose so the withdrawal"
-          echo "path is exercised. If this text is in a released run, the"
-          echo "temporary step was not reverted."
-          exit 1
-
   # If the published release cannot install itself, or cannot reproduce its own
   # documentation, put it back in the drawer. A draft is invisible to everyone
   # without push access and keeps its assets, so the run can be diagnosed from
