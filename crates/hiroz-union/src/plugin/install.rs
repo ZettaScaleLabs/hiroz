@@ -122,6 +122,25 @@ fn is_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://")
 }
 
+/// Build curl's argument list.
+///
+/// Split out from `http_get` so a test can assert the ORDER without a network
+/// or an environment variable. Every option must precede `--`: curl reads
+/// everything after `--` as a URL, so a header appended afterwards becomes two
+/// extra URL operands. curl then fails with `Could not resolve host: -H` and,
+/// over http(s), performs a DNS lookup for a name derived from the token.
+/// Measured with curl 8.21.0: `-H` after `--` exits 3, before `--` exits 0.
+fn curl_args(url: &str, token: Option<&str>) -> Vec<String> {
+    let mut args = vec!["-fsSL".to_string()];
+    if let Some(token) = token {
+        args.push("-H".to_string());
+        args.push(format!("Authorization: token {token}"));
+    }
+    args.push("--".to_string());
+    args.push(url.to_string());
+    args
+}
+
 /// Download over `curl`. `hu` deliberately carries no HTTP client — pulling in
 /// a TLS stack for an occasional convenience command is a poor trade, and
 /// `curl` is present anywhere a user could have downloaded `hu` in the first
@@ -130,10 +149,10 @@ fn http_get(url: &str) -> Result<Vec<u8>> {
     let mut cmd = std::process::Command::new("curl");
     // `--fail` matters: without it an HTTP error page is written to stdout and
     // we would cheerfully install a 404 as a plugin.
-    cmd.args(["-fsSL", "--", url]);
-    if let Ok(token) = std::env::var("HU_RELEASE_TOKEN") {
-        cmd.arg("-H").arg(format!("Authorization: token {token}"));
-    }
+    cmd.args(curl_args(
+        url,
+        std::env::var("HU_RELEASE_TOKEN").ok().as_deref(),
+    ));
     let out = cmd
         .output()
         .with_context(|| "running curl (is it installed?)")?;
@@ -417,5 +436,41 @@ mod tests {
         assert!(!is_url("./hu_meter.wasm"));
         assert!(!is_url("meter"));
         assert!(!is_url("/home/u/hu_meter.wasm"));
+    }
+}
+
+#[cfg(test)]
+mod curl_arg_tests {
+    use super::curl_args;
+
+    // A header placed after `--` becomes a URL operand, so every authenticated
+    // download fails and curl resolves a host derived from the token. Nothing
+    // else catches this: no other test sets `HU_RELEASE_TOKEN`, and without
+    // one the argument list is correct either way.
+    #[test]
+    fn the_auth_header_precedes_the_url_terminator() {
+        let args = curl_args("https://example.invalid/p.wasm", Some("SECRET"));
+        let dashdash = args.iter().position(|a| a == "--").expect("no `--`");
+        let header = args.iter().position(|a| a == "-H").expect("no `-H`");
+        assert!(header < dashdash, "-H must precede `--`, got {args:?}");
+    }
+
+    #[test]
+    fn the_url_is_the_only_operand_after_the_terminator() {
+        for token in [None, Some("SECRET")] {
+            let args = curl_args("https://example.invalid/p.wasm", token);
+            let after: Vec<_> = args.iter().skip_while(|a| *a != "--").skip(1).collect();
+            assert_eq!(
+                after,
+                vec!["https://example.invalid/p.wasm"],
+                "token={token:?} left extra operands: {args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_token_means_no_header() {
+        let args = curl_args("https://example.invalid/p.wasm", None);
+        assert!(!args.iter().any(|a| a == "-H"), "{args:?}");
     }
 }

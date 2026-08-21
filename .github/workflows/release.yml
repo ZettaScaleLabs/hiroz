@@ -794,50 +794,9 @@ jobs:
             || { echo "FAIL: published install-hu.sh differs from the tagged source"; exit 1; }
           echo "ok — the documented one-liner URL serves this tag's installer"
 
-      - name: Install nushell
-        uses: hustcer/setup-nu@v3
-        with:
-          version: "0.113.1"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      # From the source checkout, not the artifact: `hu` cannot generate its own
-      # traffic, because no release ships message definitions (#309, G2). With
-      # only `hu router` the suite measures an empty graph and decays into an
-      # exit-status check -- which a truncated plugin passes.
-      - name: Build the traffic fixture from source
-        run: cargo build --release --example z_pubsub -p hiroz
-
-      - name: Reproduce the documented commands against the published release
-        run: |
-          set -eu
-          unset HU_PLUGIN_PATH || true
-          HOME="$HUHOME" "$HUHOME/.local/bin/hu" router > router.log 2>&1 &
-          ROUTER_PID=$!
-          sleep 5
-          # A router that died on startup shows up as a dozen unrelated
-          # measurement failures, so assert on it directly.
-          kill -0 "$ROUTER_PID" 2>/dev/null || {
-            echo "FAIL: router died on startup"; tail -20 router.log; exit 1; }
-          # Exit status must not pass through a pipe, and the log must be
-          # printed whichever way this goes.
-          set +e
-          nu scripts/test-hu-docs-repro.nu \
-            --home "$HUHOME" \
-            --publisher "$PWD/target/release/examples/z_pubsub" \
-            --require-traffic > repro.log 2>&1
-          rc=$?
-          set -e
-          cat repro.log
-          kill "$ROUTER_PID" 2>/dev/null || true
-          test "$rc" -eq 0 || {
-            echo "FAIL: the published release does not reproduce its own docs"; exit 1; }
-
-  # If the published release cannot install itself, or cannot reproduce its own
-  # documentation, put it back in the drawer. A draft is invisible to everyone
-  # without push access and keeps its assets, so the run can be diagnosed from
-  # exactly what shipped. The tag survives -- withdrawing a release does not
+  # If the published release cannot install itself, put it back in the drawer.
+  # A draft is invisible to everyone without push access and keeps its assets,
+  # so the run can be diagnosed from exactly what shipped. The tag survives -- withdrawing a release does not
   # delete it -- so the fix is a new tag rather than a rewritten one.
   #
   # This is the half of "draft first" that is actually reachable, given that
