@@ -389,8 +389,15 @@ impl hu::plugin::ros::Host for PluginState {
                 // bytes onto that endpoint's key — reject instead (same guard as
                 // the discovery branch below). An empty topic has no live type,
                 // so publishing to it still works, like `ros2 topic pub`.
+                // The graph reports a DDS-mangled name
+                // (`std_msgs::msg::dds_::String_`) while `--msg-type` is the ROS
+                // form (`std_msgs/msg/String`). Comparing them raw rejects a
+                // correct publish. This branch only became reachable once a
+                // schema could resolve without a live node, so nothing exercised
+                // it before: the one test that resolves from disk publishes to an
+                // *empty* topic, where there is no live type to compare against.
                 if let Some(live) = self.live_topic_type_info(&topic)
-                    && live.name != type_name
+                    && hiroz::dynamic::ros_type_name_from_dds(&live.name) != type_name
                 {
                     return Err(PluginError::Invalid(format!(
                         "topic {topic} carries {}, not the requested {type_name}",
