@@ -547,3 +547,83 @@ mod curl_arg_tests {
         assert!(!args.iter().any(|a| a == "-H"), "{args:?}");
     }
 }
+
+/// The WIT world is written out three times — in the `.wit` package
+/// declaration, here, and in the packaging script — and nothing else
+/// reconciles them.
+///
+/// The `.wit` is the contract. If it moves and the other two do not, the host
+/// keeps accepting an index that advertises a world it no longer hosts, and
+/// wasmtime fails later at instantiation with exactly the link error
+/// [`HOST_WIT_WORLD`] exists to prevent. The guard goes decorative at the one
+/// moment it is load-bearing.
+///
+/// The refusal tests elsewhere in this crate cannot see that: they hand-write a
+/// fixture world, so they prove the *comparison* works against a literal, never
+/// that the literal still describes the contract.
+#[cfg(test)]
+mod wit_world_agreement {
+    use super::HOST_WIT_WORLD;
+
+    /// `include_str!` rather than reading at run time: the bytes are the ones
+    /// in the tree this binary was built from, so the test cannot pass against
+    /// a file that is no longer there.
+    const WIT: &str = include_str!("../../wit/v0.1/hu-plugin.wit");
+    const PACKAGING_SCRIPT: &str = include_str!("../../../../scripts/build-hu-release.nu");
+
+    /// The `package …;` line of the WIT file — the actual contract.
+    fn contract_world() -> String {
+        WIT.lines()
+            .find_map(|l| l.trim().strip_prefix("package "))
+            .map(|rest| rest.trim().trim_end_matches(';').to_string())
+            .expect("the WIT file must declare a package")
+    }
+
+    /// The world the packaging script stamps into a published index.
+    fn packaged_world() -> String {
+        PACKAGING_SCRIPT
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("const WIT_WORLD"))
+            .and_then(|rest| {
+                let start = rest.find('"')? + 1;
+                let end = rest[start..].find('"')? + start;
+                Some(rest[start..end].to_string())
+            })
+            .expect("build-hu-release.nu must define const WIT_WORLD")
+    }
+
+    #[test]
+    fn the_host_constant_matches_the_wit_contract() {
+        assert_eq!(
+            contract_world(),
+            HOST_WIT_WORLD,
+            "the WIT package and HOST_WIT_WORLD disagree. The .wit is the \
+             contract: update HOST_WIT_WORLD to match it, or the host will \
+             accept plugins built against a world it no longer hosts."
+        );
+    }
+
+    #[test]
+    fn the_packaging_script_matches_the_wit_contract() {
+        assert_eq!(
+            contract_world(),
+            packaged_world(),
+            "the WIT package and build-hu-release.nu's WIT_WORLD disagree. \
+             Every index this script publishes would advertise the wrong \
+             world, and `hu plugin install` would refuse its own release."
+        );
+    }
+
+    /// Both parsers must actually find something. A silent `None` turned into
+    /// an empty string would make the two assertions above compare "" to "" and
+    /// pass while checking nothing.
+    #[test]
+    fn both_sources_parse_to_something_world_shaped() {
+        for (what, got) in [("wit", contract_world()), ("script", packaged_world())] {
+            assert!(
+                got.starts_with("hu:plugin@") && got.len() > "hu:plugin@".len(),
+                "{what} parsed to {got:?}, which is not a world identifier"
+            );
+        }
+    }
+}
