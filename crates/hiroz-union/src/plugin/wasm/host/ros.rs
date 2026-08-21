@@ -16,18 +16,21 @@ use super::super::state::{PluginState, ServiceClientData, SubscriptionData};
 use super::hu;
 use hu::plugin::types::PluginError;
 
-/// Longest a guest-supplied service timeout may suspend the epoch ticker.
+/// The longest time that a guest-supplied service timeout may suspend the
+/// epoch ticker.
 ///
-/// `timeout-ms` crosses the WIT boundary as a `u32` chosen by the guest, and
-/// the host holds a `HostBlockGuard` across the reply wait -- so without a clamp
-/// a plugin picks how long the host stops preempting plugins, up to ~49 days.
-/// The watchdog exists to preempt a guest that will not yield; it must not be a
-/// guest-operated switch. 60 s is far above any real service call and far below
-/// "the ticker is off".
+/// `timeout-ms` crosses the WIT boundary as a `u32`, and the guest chooses its
+/// value. The host holds a `HostBlockGuard` across the reply wait. Without a
+/// clamp, a plugin picks how long the host stops preempting plugins. An
+/// unclamped `u32` allows about 49 days.
+///
+/// The watchdog exists to preempt a guest that does not yield. The guest must
+/// not control it. 60 s is far above any real service call. It is also far
+/// below a disabled ticker.
 const MAX_GUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Clamp a guest-supplied timeout, warning once it is actually reduced so a
-/// plugin author is not left wondering why their timeout did not take.
+/// Caps a guest-supplied timeout. The host writes a warning when it reduces the
+/// value, so that the plugin author sees why the timeout changed.
 fn clamp_guest_timeout(timeout_ms: u32) -> Duration {
     let requested = Duration::from_millis(timeout_ms as u64);
     if requested > MAX_GUEST_TIMEOUT {
@@ -588,9 +591,9 @@ mod guest_timeout_tests {
     use super::{MAX_GUEST_TIMEOUT, clamp_guest_timeout};
     use std::time::Duration;
 
-    // The clamp is what stops a guest-supplied `timeout-ms` from deciding how
-    // long the host suspends the epoch ticker for every plugin in the process.
-    // It is one `min` away from being dropped by a later edit.
+    // This clamp stops a guest-supplied `timeout-ms` from deciding how long the
+    // host suspends the epoch ticker. That suspension covers every plugin in
+    // the process. A later edit can delete the clamp in one line.
     #[test]
     fn a_reasonable_timeout_passes_through() {
         assert_eq!(clamp_guest_timeout(2_000), Duration::from_millis(2_000));

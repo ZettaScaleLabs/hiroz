@@ -203,47 +203,51 @@ fn configured_wasm_engine() -> Result<Engine> {
 
 // ─── Epoch budget vs. blocking host calls ────────────────────────────────────
 
-/// Number of host calls currently blocked on I/O on behalf of a guest.
+/// Number of host calls that block on I/O for a guest at this moment.
 ///
-/// Every guest dispatch runs under `set_epoch_deadline(30)` and the ticker below
-/// increments the epoch every 100 ms, so a guest gets ~3 s of *wall clock* — and
-/// wall clock is what the ticker measures, so time a host call spends waiting on
-/// the network counts against the guest's budget even though the guest is not
-/// running. A host call that blocks longer than the remaining budget therefore
-/// traps the guest the moment it returns, and the guest never runs the error
-/// branch it was just handed. That is not a theoretical bound: schema discovery
-/// waits for a live publisher and then queries it, which legitimately takes
-/// seconds on a cold graph.
+/// Every guest dispatch calls `set_epoch_deadline(30)`. The ticker below
+/// increments the epoch every 100 ms. A guest therefore gets about 3 s of
+/// *wall clock*.
+///
+/// The ticker measures wall clock. It does not measure guest execution. A host
+/// call that waits on the network spends the guest's budget while the guest
+/// does not run. wasmtime then traps the guest as soon as that call returns.
+/// The guest never runs the code that the call gave it.
+///
+/// This bound is not theoretical. Schema discovery waits for a live publisher
+/// and then queries it. On a cold graph that takes seconds.
 static HOST_BLOCKING_CALLS: AtomicUsize = AtomicUsize::new(0);
 
-/// Suspends the epoch ticker for as long as it is alive. Hold one around any
-/// host call that blocks on I/O, so the wait is not charged to the guest's
-/// compute budget.
+/// Suspends the epoch ticker while this guard is alive. Hold one around any
+/// host call that blocks on I/O. The host then does not charge the wait to the
+/// guest's compute budget.
 ///
-/// The suspension is process-wide: there is one engine and one ticker, so while
-/// a blocking call is in flight no guest is preempted, not only the one that
-/// made the call.
+/// The host runs one engine and one ticker. The suspension therefore applies to
+/// every guest. It does not apply only to the guest that called the host.
 ///
-/// What makes that acceptable today is that **dispatch is serialised** — the CLI
-/// runs one plugin in a sequential loop, the TUI iterates plugins in order, and
-/// `hu web` holds a single mutex over the whole plugin vector — so two guests
-/// cannot run at once and there is no other guest to preempt. It is the
-/// serialisation, not the length of the wait, that bounds the cost. Give web
-/// mode per-plugin locks or a plugin pool and this becomes a real gap; the
-/// per-store shape below is the fix at that point.
+/// Serialised dispatch makes this acceptable today. The CLI runs one plugin in
+/// a sequential loop. The TUI iterates the plugins in order. `hu web` holds one
+/// mutex over the plugin vector. Two guests cannot run at once, so no second
+/// guest exists to preempt.
 ///
-/// The waits themselves are bounded, but check where each bound comes from: the
-/// two discovery calls use a fixed 2 s constant, while the service reply waits
-/// use `timeout-ms`, which the guest chooses. `clamp_guest_timeout` in
-/// `host/ros.rs` caps that, because an unclamped `u32` would let a plugin decide
-/// how long the host stops preempting plugins.
+/// The serialisation bounds the cost. The length of the wait does not bound it.
+/// A reader can easily confuse these two reasons, and only the first one holds.
+/// Per-plugin locks or a plugin pool would remove the serialisation. The gap
+/// then becomes real, and the per-store shape below is the fix.
 ///
-/// The per-store alternative, for whoever needs it: wasmtime exposes
+/// The waits themselves are bounded. Check where each bound comes from. The two
+/// discovery calls use a fixed 2 s constant. The service reply waits use
+/// `timeout-ms`, and the guest chooses that value. `clamp_guest_timeout` in
+/// `host/ros.rs` caps it. An unclamped `u32` would let a plugin choose how long
+/// the host stops preempting plugins.
+///
+/// The per-store alternative, for whoever needs it: wasmtime supplies
 /// `Store::epoch_deadline_callback`, and host functions already hold
-/// `&mut PluginState`, which is the store data. A flag there plus a callback
-/// returning `UpdateDeadline::Continue` would extend only the blocking guest's
-/// deadline and leave every other guest preemptible. That is strictly better and
-/// strictly more work; this counter is equivalent while dispatch is serialised.
+/// `&mut PluginState`, which is the store data. A flag there and a callback that
+/// returns `UpdateDeadline::Continue` extend the deadline of the blocked guest
+/// alone. Every other guest stays preemptible. That design is better, and it
+/// costs more work. This counter behaves the same way while dispatch stays
+/// serialised.
 pub(crate) struct HostBlockGuard(());
 
 impl HostBlockGuard {
@@ -259,8 +263,8 @@ impl Drop for HostBlockGuard {
     }
 }
 
-/// Whether the epoch ticker should advance right now. Split out so the rule is
-/// testable without an engine.
+/// Reports whether the epoch ticker may advance now. This function is separate
+/// so that a test can check the rule without an engine.
 fn epoch_should_tick() -> bool {
     HOST_BLOCKING_CALLS.load(Ordering::SeqCst) == 0
 }
@@ -669,10 +673,12 @@ fn plugin_search_dirs() -> Vec<PathBuf> {
 mod tests {
     use super::{HostBlockGuard, epoch_should_tick};
 
-    // The ticker's only guard against charging network waits to the guest's
-    // compute budget is this counter, and it is one `fetch_add` away from being
-    // silently dropped by a later edit. (Serial by construction: nothing else in
-    // this crate's unit tests takes the guard, since host calls need a store.)
+    // This counter is the only thing that stops the ticker from charging
+    // network waits to the guest's compute budget. A later edit can delete one
+    // `fetch_add` and remove that protection. No other test finds it.
+    //
+    // This test is serial by construction. No other unit test in this crate
+    // takes the guard, because a host call needs a store.
     #[test]
     fn host_block_guard_suspends_the_epoch_ticker() {
         assert!(epoch_should_tick(), "ticker suspended before any guard");
