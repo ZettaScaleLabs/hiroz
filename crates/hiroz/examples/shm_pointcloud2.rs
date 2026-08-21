@@ -68,7 +68,10 @@ fn demo_user_managed_shm() -> zenoh::Result<()> {
 
     // Step 3: Create node and publisher
     let ctx = ZContextBuilder::default().build()?;
-    let node = ctx.create_node("pointcloud_publisher").build()?;
+    let node = ctx
+        .create_node("pointcloud_publisher")
+        .with_type_description_service()
+        .build()?;
     let publisher = node
         .create_pub::<PointCloud2>("cloud/user_managed")
         .build()?;
@@ -95,7 +98,10 @@ fn demo_automatic_shm() -> zenoh::Result<()> {
         .build()?;
     println!("  ✓ Context configured with automatic SHM (threshold: 10KB)");
 
-    let node = ctx.create_node("pointcloud_publisher").build()?;
+    let node = ctx
+        .create_node("pointcloud_publisher")
+        .with_type_description_service()
+        .build()?;
     let publisher = node.create_pub::<PointCloud2>("cloud/automatic").build()?;
 
     // Generate point cloud normally (using Vec<u8>)
@@ -126,7 +132,10 @@ fn demo_automatic_shm() -> zenoh::Result<()> {
 fn demo_publisher_shm_override() -> zenoh::Result<()> {
     // Context has no SHM, but publisher has its own config
     let ctx = ZContextBuilder::default().build()?;
-    let node = ctx.create_node("pointcloud_publisher").build()?;
+    let node = ctx
+        .create_node("pointcloud_publisher")
+        .with_type_description_service()
+        .build()?;
 
     // Create SHM provider for this publisher only
     let provider = Arc::new(ShmProviderBuilder::new(30 * 1024 * 1024).build()?);

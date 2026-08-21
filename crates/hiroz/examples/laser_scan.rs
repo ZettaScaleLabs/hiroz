@@ -25,7 +25,10 @@ fn main() -> Result<()> {
 
 fn run_publisher() -> Result<()> {
     let ctx = ZContextBuilder::default().build()?;
-    let node = ctx.create_node("laser_scan_publisher").build()?;
+    let node = ctx
+        .create_node("laser_scan_publisher")
+        .with_type_description_service()
+        .build()?;
     let zpub = node.create_pub::<LaserScan>("scan").build()?;
 
     println!("Publishing LaserScan messages on /scan...");

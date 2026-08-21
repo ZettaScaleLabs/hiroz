@@ -27,7 +27,10 @@ pub async fn run_talker(
 ) -> Result<()> {
     // --8<-- [start:node_setup]
     // Create a node named "talker"
-    let node = ctx.create_node("talker").build()?;
+    let node = ctx
+        .create_node("talker")
+        .with_type_description_service()
+        .build()?;
     // --8<-- [end:node_setup]
 
     // --8<-- [start:publisher_setup]

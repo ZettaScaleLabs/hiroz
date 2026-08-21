@@ -200,7 +200,10 @@ async fn run_status_subscriber() -> Result<()> {
 pub fn run_navigation_server(ctx: hiroz::context::ZContext) -> Result<()> {
     println!("Starting navigation service server...");
 
-    let node = ctx.create_node("navigation_server").build()?;
+    let node = ctx
+        .create_node("navigation_server")
+        .with_type_description_service()
+        .build()?;
     let mut zsrv = node.create_service::<NavigateTo>("/navigate_to").build()?;
 
     println!("Navigation server ready, waiting for requests...");
