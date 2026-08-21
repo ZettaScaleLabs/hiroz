@@ -411,7 +411,11 @@ mod embedded_tests {
         std::fs::create_dir_all(&msg_dir).unwrap();
         // Deliberately NOT the real definition, so resolving it proves the disk
         // copy was used rather than the embedded one.
-        std::fs::write(msg_dir.join("String.msg"), "string data\nint32 sentinel_field\n").unwrap();
+        std::fs::write(
+            msg_dir.join("String.msg"),
+            "string data\nint32 sentinel_field\n",
+        )
+        .unwrap();
 
         let found = find_msg_file("std_msgs", "String");
         let restore = std::env::var("HIROZ_MSG_PATH").ok();
