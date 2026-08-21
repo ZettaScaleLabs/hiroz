@@ -220,15 +220,30 @@ fn load_schema_inner(
     // File not on disk is a legitimate "try the next source" (live discovery),
     // so return None quietly. Errors *after* a file is found are logged below,
     // since a broken `.msg` masquerading as "not found" would be misleading.
-    let path = find_msg_file(&package, &name)?;
+    // Disk first, so a user pointing HIROZ_MSG_PATH at their own definitions
+    // always wins over what this binary happens to have been built with.
+    let source = match find_msg_file(&package, &name) {
+        Some(path) => MsgSource::File(path),
+        None => MsgSource::Embedded(embedded_msg_source(&package, &name)?),
+    };
     if !in_progress.borrow_mut().insert(type_name.to_string()) {
         tracing::warn!("cyclic .msg definition for {type_name}; skipping schema load");
         return None;
     }
-    let mut parsed = match hiroz_codegen::parser::msg::parse_msg_file(&path, &package) {
+    let parse_result = match &source {
+        MsgSource::File(path) => hiroz_codegen::parser::msg::parse_msg_file(path, &package),
+        // The path argument is only used for diagnostics; the bytes come from
+        // the embedded table.
+        MsgSource::Embedded(text) => hiroz_codegen::parser::msg::parse_msg_string(
+            text,
+            &package,
+            std::path::Path::new(&format!("<embedded>/{package}/msg/{name}.msg")),
+        ),
+    };
+    let mut parsed = match parse_result {
         Ok(parsed) => parsed,
         Err(e) => {
-            tracing::warn!("failed to parse .msg file {}: {e}", path.display());
+            tracing::warn!("failed to parse .msg for {type_name} from {source}: {e}");
             in_progress.borrow_mut().remove(type_name);
             return None;
         }
@@ -259,6 +274,49 @@ fn load_schema_inner(
     };
     in_progress.borrow_mut().remove(type_name);
     Some(register_schema(schema))
+}
+
+/// Where a `.msg` definition came from, for diagnostics.
+#[cfg(feature = "dynamic-schema-loader")]
+enum MsgSource {
+    File(std::path::PathBuf),
+    Embedded(&'static str),
+}
+
+#[cfg(feature = "dynamic-schema-loader")]
+impl std::fmt::Display for MsgSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MsgSource::File(p) => write!(f, "{}", p.display()),
+            MsgSource::Embedded(_) => write!(f, "the definitions built into this binary"),
+        }
+    }
+}
+
+/// The bundled `.msg` definitions, embedded as source text at build time.
+///
+/// Sorted by `pkg/msg/Name`, so the lookup below can binary-search.
+#[cfg(feature = "dynamic-schema-loader")]
+mod embedded {
+    include!(concat!(env!("OUT_DIR"), "/embedded_msgs.rs"));
+}
+
+/// Look up `<pkg>/msg/<Name>` among the definitions built into this binary.
+///
+/// This is what lets a downloaded `hu` decode a topic with no `HIROZ_MSG_PATH`
+/// set and no reachable type-description service — the case where discovery
+/// yields a type name and the disk has nothing to resolve it with.
+///
+/// Consulted **after** `HIROZ_MSG_PATH`, never before: a user who points that
+/// variable at their own definitions means it, and a stale embedded copy must
+/// not silently win over the messages their publisher was actually built from.
+#[cfg(feature = "dynamic-schema-loader")]
+fn embedded_msg_source(package: &str, name: &str) -> Option<&'static str> {
+    let key = format!("{package}/msg/{name}");
+    embedded::EMBEDDED_MSGS
+        .binary_search_by(|(k, _)| (*k).cmp(key.as_str()))
+        .ok()
+        .map(|i| embedded::EMBEDDED_MSGS[i].1)
 }
 
 /// Split `pkg/msg/Name` (or the shorthand `pkg/Name`) into `(package, name)`.
@@ -303,4 +361,78 @@ fn find_msg_file(package: &str, name: &str) -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+#[cfg(all(test, feature = "dynamic-schema-loader"))]
+mod embedded_tests {
+    use super::*;
+
+    /// The table is what makes a downloaded `hu` able to decode anything, so an
+    /// empty one is a silent regression: every lookup would simply miss and the
+    /// behaviour would fall back to today's "no .msg found".
+    #[test]
+    fn the_embedded_table_is_not_empty_and_is_sorted() {
+        assert!(
+            !embedded::EMBEDDED_MSGS.is_empty(),
+            "no bundled .msg definitions were embedded; \
+             the build script found no assets directory"
+        );
+        assert!(
+            embedded::EMBEDDED_MSGS.windows(2).all(|w| w[0].0 < w[1].0),
+            "the embedded table must be sorted and duplicate-free: binary_search relies on it"
+        );
+    }
+
+    /// std_msgs/msg/String is the type the documented quick start echoes, and
+    /// the one the G2 measurement showed failing on a default install.
+    #[test]
+    fn a_common_type_resolves_from_the_embedded_definitions() {
+        let src = embedded_msg_source("std_msgs", "String")
+            .expect("std_msgs/msg/String must be embedded");
+        assert!(
+            src.contains("string data"),
+            "embedded source does not look like the real definition: {src:?}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_type_is_a_miss_not_a_panic() {
+        assert!(embedded_msg_source("no_such_pkg", "Nope").is_none());
+    }
+
+    /// Disk must win over the embedded copy. A user who sets HIROZ_MSG_PATH
+    /// means it, and their publisher may have been built from definitions that
+    /// differ from the ones this binary was compiled with.
+    #[test]
+    #[serial_test::serial]
+    fn a_definition_on_disk_wins_over_the_embedded_one() {
+        let dir = std::env::temp_dir().join(format!("hiroz-embed-{}", std::process::id()));
+        let msg_dir = dir.join("std_msgs").join("msg");
+        std::fs::create_dir_all(&msg_dir).unwrap();
+        // Deliberately NOT the real definition, so resolving it proves the disk
+        // copy was used rather than the embedded one.
+        std::fs::write(msg_dir.join("String.msg"), "string data\nint32 sentinel_field\n").unwrap();
+
+        let found = find_msg_file("std_msgs", "String");
+        let restore = std::env::var("HIROZ_MSG_PATH").ok();
+        assert!(
+            found.is_none() || restore.is_some(),
+            "test environment already has HIROZ_MSG_PATH pointing somewhere"
+        );
+
+        unsafe { std::env::set_var("HIROZ_MSG_PATH", &dir) };
+        let path = find_msg_file("std_msgs", "String")
+            .expect("the on-disk definition must be found first");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("sentinel_field"),
+            "HIROZ_MSG_PATH did not take precedence over the embedded table"
+        );
+
+        match restore {
+            Some(v) => unsafe { std::env::set_var("HIROZ_MSG_PATH", v) },
+            None => unsafe { std::env::remove_var("HIROZ_MSG_PATH") },
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
