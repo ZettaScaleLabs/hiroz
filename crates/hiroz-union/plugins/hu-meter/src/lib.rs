@@ -16,21 +16,34 @@ struct HuMeter {
     // Ticks elapsed (used for duration tracking at tick_ms = 1000 ms)
     ticks: u32,
     duration_ticks: u32,
+    /// Keeps `hz`/`bw` visible in the ROS graph. The rate tracker behind
+    /// `measure_hz` is a raw zenoh wildcard subscriber with no liveliness
+    /// token, so it announces nothing -- and a publisher that gates on
+    /// `wait_for_subscription` then waits forever and never publishes, which
+    /// reads back as a topic with no traffic. Holding a real subscription
+    /// restores the announcement. Its messages are unused; dropping it would
+    /// undeclare the token, so it must live as long as the measurement.
+    ///
+    /// Best-effort on purpose: `None` when the topic advertises no type, where
+    /// `hz` and `bw` must still work.
+    graph_presence: Option<ros::Subscription>,
 }
 
 enum Mode {
     /// Waiting for startup event (initial state)
     Init,
-    /// Measure publish rate on a topic
-    Hz {
-        topic: String,
-        sub: Option<ros::Subscription>,
-    },
-    /// Measure bandwidth on a topic
-    Bw {
-        topic: String,
-        sub: Option<ros::Subscription>,
-    },
+    /// Measure publish rate on a topic. The numbers come from
+    /// `ros::measure_hz`, backed by a raw wildcard subscriber in the host that
+    /// counts and sizes bytes without decoding them -- so `hz` needs no schema
+    /// and keeps working on a topic whose type cannot be resolved.
+    ///
+    /// A best-effort subscription is still taken, in `HuMeter::graph_presence`
+    /// rather than here, purely so `hz` announces itself in the ROS graph. It
+    /// is deliberately not part of this variant: the measurement does not
+    /// depend on it, and a failure to acquire it must not fail the command.
+    Hz { topic: String },
+    /// Measure bandwidth on a topic. See `Hz`; `bw` works the same way.
+    Bw { topic: String },
     /// Echo messages
     Echo {
         topic: String,
@@ -78,6 +91,7 @@ impl HuMeter {
             json: false,
             ticks: 0,
             duration_ticks: 0,
+            graph_presence: None,
         }
     }
 
@@ -163,19 +177,13 @@ impl HuMeter {
             return;
         };
         self.duration_ticks = duration_ticks;
-        let sub = match ros::subscribe(&topic) {
-            Ok(s) => s,
-            Err(e) => {
-                render::eprintln(&format!("Failed to subscribe to {topic}: {e}"));
-                render::exit(1);
-                self.mode = Mode::Done;
-                return;
-            }
-        };
-        self.mode = Mode::Hz {
-            topic,
-            sub: Some(sub),
-        };
+        // The numbers come from `measure_hz`, not from this subscription -- see
+        // `Mode::Hz`. It exists so `hz` still ANNOUNCES itself in the graph, as
+        // it did when this took a typed subscription for its data. Errors are
+        // ignored: on a topic with no advertised type there is nothing to
+        // announce, and `hz` must keep working there.
+        self.graph_presence = ros::subscribe(&topic).ok();
+        self.mode = Mode::Hz { topic };
     }
 
     fn cmd_bw(&mut self, args: &[String]) {
@@ -187,19 +195,10 @@ impl HuMeter {
             return;
         };
         self.duration_ticks = duration_ticks;
-        let sub = match ros::subscribe(&topic) {
-            Ok(s) => s,
-            Err(e) => {
-                render::eprintln(&format!("Failed to subscribe to {topic}: {e}"));
-                render::exit(1);
-                self.mode = Mode::Done;
-                return;
-            }
-        };
-        self.mode = Mode::Bw {
-            topic,
-            sub: Some(sub),
-        };
+        // Graph presence only, exactly as in `cmd_hz`; `measure_bw` supplies
+        // the numbers.
+        self.graph_presence = ros::subscribe(&topic).ok();
+        self.mode = Mode::Bw { topic };
     }
 
     fn cmd_echo(&mut self, args: &[String]) {
@@ -270,6 +269,13 @@ impl HuMeter {
                 return;
             }
         };
+        // Say that we are listening. A subscribe that succeeds and then prints
+        // nothing is indistinguishable from a broken one: the user cannot tell
+        // "no traffic on this topic" from "this tool is not working". stderr,
+        // not stdout, so `--json | jq` and friends stay clean.
+        render::eprintln(&format!(
+            "subscribed to {topic}; waiting for messages (Ctrl-C to stop)"
+        ));
         self.mode = Mode::Echo {
             topic,
             sub: Some(sub),
@@ -1265,7 +1271,7 @@ impl HuMeter {
         let done = self.duration_ticks > 0 && self.ticks >= self.duration_ticks;
 
         match &mut self.mode {
-            Mode::Hz { topic, sub } => {
+            Mode::Hz { topic } => {
                 let window_ms = 1000u32;
                 match ros::measure_hz(topic, window_ms) {
                     Ok(m) => {
@@ -1283,13 +1289,12 @@ impl HuMeter {
                     }
                     Err(e) => render::println(&format!("measure-hz error: {e}")),
                 }
-                let _ = sub; // keep subscription alive
                 if done {
                     render::exit(0);
                     self.mode = Mode::Done;
                 }
             }
-            Mode::Bw { topic, sub } => {
+            Mode::Bw { topic } => {
                 let window_ms = 1000u32;
                 match ros::measure_bw(topic, window_ms) {
                     Ok(m) => {
@@ -1307,7 +1312,6 @@ impl HuMeter {
                     }
                     Err(e) => render::println(&format!("measure-bw error: {e}")),
                 }
-                let _ = sub;
                 if done {
                     render::exit(0);
                     self.mode = Mode::Done;
