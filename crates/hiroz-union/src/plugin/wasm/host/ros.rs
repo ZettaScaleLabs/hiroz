@@ -190,11 +190,19 @@ impl hu::plugin::ros::Host for PluginState {
                 // Budget discovery independently; a slow/failed round-trip
                 // shouldn't look like a generic encode failure.
                 const DISCOVERY_TIMEOUT: Duration = Duration::from_millis(2000);
-                let discovered = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(
-                        node.discover_topic_schema_including_subscribers(&topic, DISCOVERY_TIMEOUT),
-                    )
-                })
+                let discovered = {
+                    // See `subscribe`: wall-clock waits are charged to the
+                    // guest's epoch budget unless the ticker is suspended.
+                    let _epoch = super::super::HostBlockGuard::enter();
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(
+                            node.discover_topic_schema_including_subscribers(
+                                &topic,
+                                DISCOVERY_TIMEOUT,
+                            ),
+                        )
+                    })
+                }
                 .map_err(|_| PluginError::NotFound)?;
                 if discovered.schema.type_name != type_name {
                     return Err(PluginError::Invalid(format!(
@@ -277,14 +285,18 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         // slow/failed discovery round-trip (two get_type_description queries)
         // can't consume the entire per-call timeout budget.
         const DISCOVERY_TIMEOUT: Duration = Duration::from_millis(2000);
-        let (req_schema, resp_schema) = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(node.discover_service_schema(
-                &service_name,
-                &req_type,
-                &resp_type,
-                DISCOVERY_TIMEOUT,
-            ))
-        })
+        let (req_schema, resp_schema) = {
+            // See `subscribe`: suspend the epoch ticker across the wait.
+            let _epoch = super::super::HostBlockGuard::enter();
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(node.discover_service_schema(
+                    &service_name,
+                    &req_type,
+                    &resp_type,
+                    DISCOVERY_TIMEOUT,
+                ))
+            })
+        }
         .map_err(|_| PluginError::NotFound)?;
 
         let req_value = parse_yaml_or_json(&request_json).map_err(PluginError::Invalid)?;
@@ -309,7 +321,13 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
             .wait()
             .map_err(|e| e.to_string())?;
 
-        let reply = replies.recv().map_err(|_| PluginError::Timeout)?;
+        let reply = {
+            // The caller's own --timeout can exceed the guest's epoch budget, so
+            // suspend the ticker across the wait (see `subscribe`).
+            let _epoch = super::super::HostBlockGuard::enter();
+            replies.recv()
+        }
+        .map_err(|_| PluginError::Timeout)?;
         let sample = reply.result().map_err(|e| e.to_string())?;
         let resp_cdr = sample.payload().to_bytes().into_owned();
 
@@ -356,7 +374,13 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
             .wait()
             .map_err(|e| e.to_string())?;
 
-        let reply = replies.recv().map_err(|_| PluginError::Timeout)?;
+        let reply = {
+            // The caller's own --timeout can exceed the guest's epoch budget, so
+            // suspend the ticker across the wait (see `subscribe`).
+            let _epoch = super::super::HostBlockGuard::enter();
+            replies.recv()
+        }
+        .map_err(|_| PluginError::Timeout)?;
         let sample = reply.result().map_err(|e| e.to_string())?;
         Ok(sample.payload().to_bytes().into_owned())
     }
