@@ -220,11 +220,30 @@ static HOST_BLOCKING_CALLS: AtomicUsize = AtomicUsize::new(0);
 /// host call that blocks on I/O, so the wait is not charged to the guest's
 /// compute budget.
 ///
-/// The suspension is process-wide (there is one engine and one ticker), so a
-/// *different* runaway guest is not preempted while a blocking call is in
-/// flight. That window is bounded by the host call's own timeout, and the
-/// alternative — trapping a well-behaved guest for waiting on the network — is
-/// strictly worse.
+/// The suspension is process-wide: there is one engine and one ticker, so while
+/// a blocking call is in flight no guest is preempted, not only the one that
+/// made the call.
+///
+/// What makes that acceptable today is that **dispatch is serialised** — the CLI
+/// runs one plugin in a sequential loop, the TUI iterates plugins in order, and
+/// `hu web` holds a single mutex over the whole plugin vector — so two guests
+/// cannot run at once and there is no other guest to preempt. It is the
+/// serialisation, not the length of the wait, that bounds the cost. Give web
+/// mode per-plugin locks or a plugin pool and this becomes a real gap; the
+/// per-store shape below is the fix at that point.
+///
+/// The waits themselves are bounded, but check where each bound comes from: the
+/// two discovery calls use a fixed 2 s constant, while the service reply waits
+/// use `timeout-ms`, which the guest chooses. `clamp_guest_timeout` in
+/// `host/ros.rs` caps that, because an unclamped `u32` would let a plugin decide
+/// how long the host stops preempting plugins.
+///
+/// The per-store alternative, for whoever needs it: wasmtime exposes
+/// `Store::epoch_deadline_callback`, and host functions already hold
+/// `&mut PluginState`, which is the store data. A flag there plus a callback
+/// returning `UpdateDeadline::Continue` would extend only the blocking guest's
+/// deadline and leave every other guest preemptible. That is strictly better and
+/// strictly more work; this counter is equivalent while dispatch is serialised.
 pub(crate) struct HostBlockGuard(());
 
 impl HostBlockGuard {

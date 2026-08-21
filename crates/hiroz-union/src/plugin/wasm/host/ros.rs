@@ -16,6 +16,32 @@ use super::super::state::{PluginState, ServiceClientData, SubscriptionData};
 use super::hu;
 use hu::plugin::types::PluginError;
 
+/// Longest a guest-supplied service timeout may suspend the epoch ticker.
+///
+/// `timeout-ms` crosses the WIT boundary as a `u32` chosen by the guest, and
+/// the host holds a `HostBlockGuard` across the reply wait -- so without a clamp
+/// a plugin picks how long the host stops preempting plugins, up to ~49 days.
+/// The watchdog exists to preempt a guest that will not yield; it must not be a
+/// guest-operated switch. 60 s is far above any real service call and far below
+/// "the ticker is off".
+const MAX_GUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Clamp a guest-supplied timeout, warning once it is actually reduced so a
+/// plugin author is not left wondering why their timeout did not take.
+fn clamp_guest_timeout(timeout_ms: u32) -> Duration {
+    let requested = Duration::from_millis(timeout_ms as u64);
+    if requested > MAX_GUEST_TIMEOUT {
+        tracing::warn!(
+            "plugin asked for a {}ms service timeout; clamping to {}ms",
+            timeout_ms,
+            MAX_GUEST_TIMEOUT.as_millis()
+        );
+        MAX_GUEST_TIMEOUT
+    } else {
+        requested
+    }
+}
+
 impl PluginState {
     /// The message type advertised by a live publisher or subscriber on `topic`,
     /// if any. Used both to build the concrete publish key (`resolve_topic_ke`)
@@ -312,7 +338,7 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         let sn = self.alloc_rep() as i64;
         let attachment = hiroz::attachment::Attachment::new(sn, gid);
 
-        let timeout = Duration::from_millis(timeout_ms as u64);
+        let timeout = clamp_guest_timeout(timeout_ms);
         let replies = session
             .get(&ke)
             .payload(zenoh::bytes::ZBytes::from(req_cdr))
@@ -365,7 +391,7 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
         let sn = self.alloc_rep() as i64;
         let attachment = hiroz::attachment::Attachment::new(sn, gid);
 
-        let timeout = Duration::from_millis(timeout_ms as u64);
+        let timeout = clamp_guest_timeout(timeout_ms);
         let replies = session
             .get(&ke)
             .payload(zenoh::bytes::ZBytes::from(payload))
@@ -554,5 +580,33 @@ mod service_type_name_tests {
                 "example_interfaces/msg/AddTwoIntsResponse".to_string(),
             )
         );
+    }
+}
+
+#[cfg(test)]
+mod guest_timeout_tests {
+    use super::{MAX_GUEST_TIMEOUT, clamp_guest_timeout};
+    use std::time::Duration;
+
+    // The clamp is what stops a guest-supplied `timeout-ms` from deciding how
+    // long the host suspends the epoch ticker for every plugin in the process.
+    // It is one `min` away from being dropped by a later edit.
+    #[test]
+    fn a_reasonable_timeout_passes_through() {
+        assert_eq!(clamp_guest_timeout(2_000), Duration::from_millis(2_000));
+    }
+
+    #[test]
+    fn the_maximum_itself_is_not_clamped() {
+        assert_eq!(
+            clamp_guest_timeout(MAX_GUEST_TIMEOUT.as_millis() as u32),
+            MAX_GUEST_TIMEOUT
+        );
+    }
+
+    #[test]
+    fn an_absurd_timeout_is_clamped() {
+        // ~49 days, the worst a u32 can ask for.
+        assert_eq!(clamp_guest_timeout(u32::MAX), MAX_GUEST_TIMEOUT);
     }
 }
