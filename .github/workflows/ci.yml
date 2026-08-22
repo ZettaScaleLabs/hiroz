@@ -807,6 +807,11 @@ jobs:
       - name: Go pure tests (codegen + testdata)
         run: nu scripts/test-go.nu --codegen-only
 
+      # Without this the FFI tests have nothing to link against. The step below
+      # then fails, because `--require-ffi` refuses to skip -- #270.
+      - name: Build hiroz with the ffi feature (required by the FFI tests)
+        run: cargo build -j4 -p hiroz --features ffi --release
+
       - name: Go FFI tests (hiroz unit tests)
         run: nu scripts/test-go.nu --ffi-only
 
