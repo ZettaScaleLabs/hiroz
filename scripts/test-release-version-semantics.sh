@@ -322,7 +322,13 @@ grep_must     "$GH" "a job withdraws it again" '\-\-draft=true'
 grep_must_not "$GH" "the withdraw job does not use a bare failure()" 'if: \${{ failure() }}'
 grep_must     "$GH" "the withdraw job requires a successful publish" \
     "needs.publish-release.result == 'success'"
-grep_must     "$GH" "the withdraw job fires on a failed download test" \
+# `!= 'success'`, not `== 'failure'`. GitHub reports a cancelled job as
+# `cancelled` and a skipped one as `skipped`, and promotion has already happened
+# by then -- so equality on 'failure' leaves an unverified release public with
+# the *Latest* badge, which is the answer install-hu.sh's resolve_latest gives.
+grep_must     "$GH" "the withdraw job fires on any non-success download test" \
+    "needs.smoke-test-release-install.result != 'success'"
+grep_must_not "$GH" "the withdraw job does not test equality with failure" \
     "needs.smoke-test-release-install.result == 'failure'"
 grep_must     "$GH" "the download test waits for the promotion" 'needs: \[publish-release\]'
 grep_must     "$GH" "crates.io is gated behind the download test" 'needs: \[smoke-test-release-install\]'

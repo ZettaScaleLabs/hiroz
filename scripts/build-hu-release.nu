@@ -333,7 +333,7 @@ failures. Check the files you actually downloaded:
 
 Older coreutils has no `--ignore-missing`. Check one file instead:
 
-    grep hu-($ver)-($target).tar.gz SHA256SUMS | sha256sum -c -
+    grep <the-file-you-downloaded> SHA256SUMS | sha256sum -c -
 
 ## Documentation
 
