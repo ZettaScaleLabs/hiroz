@@ -10,10 +10,10 @@
 //! executed — including the WIT world-mismatch check, which is the kind of
 //! guard that looks correct forever and is never proven to fire.
 //!
-//! The success paths are here too, and they were not before. The obstacle was
-//! real — `hiroz-union` cannot build a plugin, because the plugins are a
-//! separate, `exclude`d, `wasm32-wasip2` workspace — but it did not need a
-//! plugin. `validate_plugin_static` compiles the file as a component and does
+//! The success paths are here too. They were absent for a reason that was real
+//! but did not apply. `hiroz-union` cannot build a plugin, because the plugins
+//! are a separate, `exclude`d, `wasm32-wasip2` workspace. These tests do not
+//! need one. `validate_plugin_static` compiles the file as a component and does
 //! not instantiate it, so the 8-byte empty component below is enough to drive
 //! install, list and uninstall end to end. It cannot dispatch, and no test here
 //! claims it can.
@@ -109,8 +109,8 @@ impl Outcome {
 /// version (0x0d) and layer (0x01). `Component::from_file` compiles it, which
 /// is all `validate_plugin_static` asks of a plugin, so it exercises every step
 /// of installation without needing the `wasm32-wasip2` toolchain. It exports
-/// nothing, so it can never be dispatched — that is a separate concern and no
-/// test here pretends otherwise.
+/// nothing, so nothing can dispatch it. That is a separate concern, and no test
+/// here claims otherwise.
 const EMPTY_COMPONENT: &[u8] = &[0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00];
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -397,9 +397,9 @@ fn uninstall_explains_when_the_plugin_lives_on_hu_plugin_path() {
 // --------------------------------------------------------------- success
 //
 // Every test above is a refusal. These are the paths a user actually takes,
-// and until now not one of them had ever run: the metadata defects this file
-// was extended to cover were found by review, not by a test, because no test
-// ever completed an install and looked at the result.
+// and until now not one of them had ever run. Review found the metadata
+// defects this file now covers, because no test ever completed an install and
+// then looked at the result.
 
 #[test]
 fn local_install_places_the_file_and_records_its_provenance() {
@@ -553,8 +553,8 @@ fn uninstall_removes_both_the_file_and_the_record() {
     assert!(r.ok, "uninstall should succeed, got:\n{}", r.output);
     assert!(!installed.exists(), "the file survived:\n{}", r.output);
 
-    // The record must go with it. A surviving entry would later be attached to
-    // whatever is installed next under the same name.
+    // The record must go with it. hu would otherwise attach a surviving entry
+    // to the next plugin installed under the same name.
     let list = hu(&home, &["list", "--json"]);
     assert!(
         !list.output.contains("hu_meter.wasm"),

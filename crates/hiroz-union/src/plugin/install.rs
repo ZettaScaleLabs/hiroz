@@ -61,24 +61,25 @@ pub struct InstalledDb {
 pub struct InstalledEntry {
     pub name: String,
     pub file: String,
-    /// `None` when the source does not state one. A local file and a bare URL
-    /// carry no version; only the registry index does. Recording the *kind* of
-    /// source here (the previous behaviour) made `hu plugin list` print
+    /// `None` when the source states no version. A local file and a bare URL
+    /// state none. Only the registry index states one. The previous code put
+    /// the source KIND in this field, so `hu plugin list` printed
     /// `VERSION local`.
     #[serde(default)]
     pub version: Option<String>,
-    /// How it was installed: `local`, `url` or `registry`.
+    /// The kind of source this came from: `local`, `url` or `registry`.
     pub source: String,
-    /// Where it came from, with any credential removed. A signed asset URL can
-    /// carry a token in its query string or userinfo, and `hu plugin list
-    /// --json` prints this verbatim.
+    /// Where it came from. The host removes any credential first: a signed
+    /// asset URL carries a token in its query string or its userinfo, and
+    /// `hu plugin list --json` prints this field verbatim.
     #[serde(default)]
     pub origin: Option<String>,
 }
 
-/// Strip anything credential-bearing from a URL before it is persisted: the
-/// userinfo (`https://user:token@host/...`) and the query string, which is
-/// where a signed-URL token lives. A non-URL is returned unchanged.
+/// Remove the credential-bearing parts of a URL before the host stores it.
+/// Those parts are the userinfo (`https://user:token@host/...`) and the query
+/// string, where a signed URL carries its token. This returns a non-URL
+/// unchanged.
 fn sanitize_origin(source: &str) -> String {
     if !is_url(source) {
         return source.to_string();

@@ -325,7 +325,15 @@ If that list is empty, `hu meter` and `hu monitor` will not work.
 
 ## Verify this download
 
-    sha256sum -c SHA256SUMS
+`SHA256SUMS` covers every asset in the release, and this archive holds only
+some of them. A bare `sha256sum -c` therefore reports the absent ones as
+failures. Check the files you actually downloaded:
+
+    sha256sum --ignore-missing -c SHA256SUMS
+
+Older coreutils has no `--ignore-missing`. Check one file instead:
+
+    grep hu-($ver)-($target).tar.gz SHA256SUMS | sha256sum -c -
 
 ## Documentation
 
