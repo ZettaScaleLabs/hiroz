@@ -114,6 +114,7 @@ nav:
       - Python:
           - Quick Start: bindings/python-quick-start.md
           - Bindings: bindings/python.md
+          - Migrating from rclpy: bindings/python-migration.md
           - Codegen Internals: bindings/python-codegen.md
       - Go:
           - Quick Start: bindings/go-quick-start.md
