@@ -1793,7 +1793,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hiroz"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "byteorder",
  "clap",
@@ -1832,7 +1832,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-cdr"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -1844,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-codegen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "hex",
@@ -1865,7 +1865,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-derive"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1874,7 +1874,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-msgs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -1897,14 +1897,14 @@ dependencies = [
 
 [[package]]
 name = "hiroz-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "zenoh",
 ]
 
 [[package]]
 name = "hiroz-py"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "flume",
@@ -1921,7 +1921,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-schema"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "hex",
@@ -1932,7 +1932,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hiroz",
  "hiroz-cdr",
@@ -1953,7 +1953,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-union"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3710,7 +3710,7 @@ dependencies = [
 
 [[package]]
 name = "rmw-zenoh-rs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bindgen",
  "cxx",

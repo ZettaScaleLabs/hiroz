@@ -46,7 +46,7 @@ pyo3 = { workspace = true, optional = true }
 hiroz-cdr = { workspace = true }
 hiroz-codegen = { workspace = true, optional = true }
 hiroz-derive = { workspace = true }
-hiroz-protocol = { path = "../hiroz-protocol", version = "0.1.0", default-features = false, features = [
+hiroz-protocol = { path = "../hiroz-protocol", version = "0.2.0", default-features = false, features = [
   "std",
 ] }
 hiroz-schema = { workspace = true }
