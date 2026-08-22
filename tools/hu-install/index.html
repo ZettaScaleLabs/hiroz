@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://zettascalelabs.github.io/hiroz/reference/feature-comparison/">
+        <link rel="canonical" href="https://zettascalelabs.github.io/hiroz/tools/hu-install/">
       
       
-        <link rel="prev" href="../../experimental/shm/">
+        <link rel="prev" href="../hu/">
       
       
-        <link rel="next" href="../ros2-to-hiroz/">
+        <link rel="next" href="../hu-vs-ros2cli/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Feature Comparison - HIROZ</title>
+        <title>Installing hu - HIROZ</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#feature-comparison" class="md-skip">
+        <a href="#installing-hu" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Feature Comparison
+              Installing hu
             
           </span>
         </div>
@@ -302,11 +302,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../tools/why-hu/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../why-hu/" class="md-tabs__link">
           
   
   
@@ -372,13 +374,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="./" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../reference/feature-comparison/" class="md-tabs__link">
           
   
   
@@ -1361,26 +1361,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -1398,7 +1403,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1416,7 +1421,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../tools/why-hu/" class="md-nav__link">
+      <a href="../why-hu/" class="md-nav__link">
         
   
   
@@ -1444,7 +1449,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../tools/hu/" class="md-nav__link">
+      <a href="../hu/" class="md-nav__link">
         
   
   
@@ -1469,10 +1474,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../tools/hu-install/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installing hu
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1488,6 +1520,131 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quickest-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quickest path
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#credentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credentials
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#offline-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Offline install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manual-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installing-plugins-individually" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installing plugins individually
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Installing plugins individually">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-checksums-do-and-do-not-buy-you" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the checksums do and do not buy you
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development-builds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development builds
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#uninstalling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uninstalling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#platform-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Platform coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1500,7 +1657,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../tools/hu-vs-ros2cli/" class="md-nav__link">
+      <a href="../hu-vs-ros2cli/" class="md-nav__link">
         
   
   
@@ -1528,7 +1685,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../tools/hu-plugins/" class="md-nav__link">
+      <a href="../hu-plugins/" class="md-nav__link">
         
   
   
@@ -1994,31 +2151,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
         
           
-          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
             
   
   
@@ -2036,7 +2188,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_8">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2051,37 +2203,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Feature Comparison
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../reference/feature-comparison/" class="md-nav__link">
         
   
   
@@ -2097,114 +2222,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#communication" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Communication
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#node-features" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Node Features
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#quality-of-service" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quality of Service
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#messages-serialization" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Messages &amp; Serialization
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#parameters" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Parameters
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#interoperability-distribution" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Interoperability &amp; Distribution
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#which-to-choose" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Which to choose?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#resources" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Resources
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2217,7 +2234,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ros2-to-hiroz/" class="md-nav__link">
+      <a href="../../reference/ros2-to-hiroz/" class="md-nav__link">
         
   
   
@@ -2301,7 +2318,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../feature-flags/" class="md-nav__link">
+      <a href="../../reference/feature-flags/" class="md-nav__link">
         
   
   
@@ -2357,7 +2374,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../troubleshooting/" class="md-nav__link">
+      <a href="../../reference/troubleshooting/" class="md-nav__link">
         
   
   
@@ -2412,10 +2429,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#communication" class="md-nav__link">
+  <a href="#quickest-path" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Communication
+        Quickest path
       
     </span>
   </a>
@@ -2423,10 +2440,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#node-features" class="md-nav__link">
+  <a href="#credentials" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Node Features
+        Credentials
       
     </span>
   </a>
@@ -2434,10 +2451,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#quality-of-service" class="md-nav__link">
+  <a href="#offline-install" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Quality of Service
+        Offline install
       
     </span>
   </a>
@@ -2445,10 +2462,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#messages-serialization" class="md-nav__link">
+  <a href="#manual-install" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Messages &amp; Serialization
+        Manual install
       
     </span>
   </a>
@@ -2456,10 +2473,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#parameters" class="md-nav__link">
+  <a href="#installing-plugins-individually" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Parameters
+        Installing plugins individually
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Installing plugins individually">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-checksums-do-and-do-not-buy-you" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the checksums do and do not buy you
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development-builds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development builds
       
     </span>
   </a>
@@ -2467,10 +2512,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#interoperability-distribution" class="md-nav__link">
+  <a href="#uninstalling" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Interoperability &amp; Distribution
+        Uninstalling
       
     </span>
   </a>
@@ -2478,21 +2523,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#which-to-choose" class="md-nav__link">
+  <a href="#platform-coverage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Which to choose?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#resources" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Resources
+        Platform coverage
       
     </span>
   </a>
@@ -2516,7 +2550,7 @@
 
 
   
-    <a href="https://github.com/ZettaScaleLabs/hiroz/edit/main/docs/reference/feature-comparison.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/ZettaScaleLabs/hiroz/edit/main/docs/tools/hu-install.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -2524,397 +2558,117 @@
   
 
 
-<h1 id="feature-comparison">Feature Comparison<a class="headerlink" href="#feature-comparison" title="Permanent link">&para;</a></h1>
-<p>Three options for ROS 2 communication, from standard DDS to pure-Rust Zenoh.</p>
-<table>
-<thead>
-<tr>
-<th></th>
-<th>ROS 2 (DDS)</th>
-<th>ROS 2 (Zenoh)</th>
-<th>hiroz</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>API</strong></td>
-<td>rclcpp / rclpy</td>
-<td>rclcpp / rclpy</td>
-<td>Rust</td>
-</tr>
-<tr>
-<td><strong>Transport</strong></td>
-<td>DDS (FastDDS, Cyclone)</td>
-<td>Eclipse Zenoh</td>
-<td>Eclipse Zenoh</td>
-</tr>
-<tr>
-<td><strong>RMW plugin</strong></td>
-<td>rmw_fastrtps_cpp / rmw_cyclonedds_cpp</td>
-<td><code>rmw_zenoh_cpp</code></td>
-<td>No RMW — direct Zenoh API</td>
-</tr>
-<tr>
-<td><strong>ROS 2 install required</strong></td>
-<td>Yes</td>
-<td>Yes</td>
-<td>No</td>
-</tr>
-</tbody>
-</table>
-<p>ROS 2 (Zenoh) means <code>rmw_zenoh_cpp</code>: a drop-in RMW plugin that gives existing rclcpp/rclpy nodes a Zenoh transport without changing any application code. hiroz is an independent Rust API built directly on Zenoh — no ROS 2 installation needed.</p>
-<h2 id="communication">Communication<a class="headerlink" href="#communication" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th style="text-align: center;">ROS 2 (DDS)</th>
-<th style="text-align: center;">ROS 2 (Zenoh)</th>
-<th style="text-align: center;">hiroz</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Publishers</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Subscribers</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Callback subscribers</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Pull-model subscribers (<code>recv()</code>)</td>
-<td style="text-align: center;">❌</td>
-<td style="text-align: center;">❌</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Services (request / response)</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Service clients</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Actions (goal / feedback / result)</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Action cancellation</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-</tbody>
-</table>
-<h2 id="node-features">Node Features<a class="headerlink" href="#node-features" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th style="text-align: center;">ROS 2 (DDS)</th>
-<th style="text-align: center;">ROS 2 (Zenoh)</th>
-<th style="text-align: center;">hiroz</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Named nodes</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Namespaces</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Name remapping</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Lifecycle nodes</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Graph introspection</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Executors / spin loop</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">pull model (in rmw-zenoh-rs)</td>
-</tr>
-<tr>
-<td>Waitsets / guard conditions</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">in rmw-zenoh-rs</td>
-</tr>
-<tr>
-<td>Composable / component nodes</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">in rmw-zenoh-rs</td>
-</tr>
-<tr>
-<td>Intra-process communication</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">in rmw-zenoh-rs</td>
-</tr>
-<tr>
-<td>Clock API (<code>ZClock</code>, system + simulated)</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Timers (<code>ZInterval</code>)</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>ROS 2 <code>/clock</code> topic (external sim time)</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">❌ planned</td>
-</tr>
-<tr>
-<td><code>/rosout</code> logging</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">❌ uses <code>tracing</code> only</td>
-</tr>
-</tbody>
-</table>
-<h2 id="quality-of-service">Quality of Service<a class="headerlink" href="#quality-of-service" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th style="text-align: center;">ROS 2 (DDS)</th>
-<th style="text-align: center;">ROS 2 (Zenoh)</th>
-<th style="text-align: center;">hiroz</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Reliability (reliable / best-effort)</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>History (keep-last / keep-all)</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Durability (volatile / transient-local)</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Deadline QoS events</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">⚠️ Zenoh limitation</td>
-<td style="text-align: center;">⚠️ Zenoh limitation</td>
-</tr>
-<tr>
-<td>Liveliness lease events</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">⚠️ Zenoh limitation</td>
-<td style="text-align: center;">⚠️ Zenoh limitation</td>
-</tr>
-</tbody>
-</table>
-<h2 id="messages-serialization">Messages &amp; Serialization<a class="headerlink" href="#messages-serialization" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th style="text-align: center;">ROS 2 (DDS)</th>
-<th style="text-align: center;">ROS 2 (Zenoh)</th>
-<th style="text-align: center;">hiroz</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Typed CDR messages</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Custom <code>.msg</code> / <code>.srv</code> / <code>.action</code> types</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Dynamic (schema-driven) messages</td>
-<td style="text-align: center;">❌</td>
-<td style="text-align: center;">❌</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Type description service</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Protobuf encoding</td>
-<td style="text-align: center;">❌</td>
-<td style="text-align: center;">❌</td>
-<td style="text-align: center;">✅ (feature flag)</td>
-</tr>
-<tr>
-<td>Shared memory (SHM)</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-</tbody>
-</table>
-<h2 id="parameters">Parameters<a class="headerlink" href="#parameters" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th style="text-align: center;">ROS 2 (DDS)</th>
-<th style="text-align: center;">ROS 2 (Zenoh)</th>
-<th style="text-align: center;">hiroz</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Declare / get / set parameters</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Parameter event callbacks</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>YAML parameter files</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Remote <code>ParameterClient</code></td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Parameter descriptor / constraints</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">⚠️ partial</td>
-</tr>
-</tbody>
-</table>
-<h2 id="interoperability-distribution">Interoperability &amp; Distribution<a class="headerlink" href="#interoperability-distribution" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th style="text-align: center;">ROS 2 (DDS)</th>
-<th style="text-align: center;">ROS 2 (Zenoh)</th>
-<th style="text-align: center;">hiroz</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>ROS 2 CLI (<code>ros2 topic</code>, <code>ros2 service</code>, …)</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅ via <code>rmw_zenoh_cpp</code></td>
-</tr>
-<tr>
-<td>Jazzy / Kilted / Lyrical support</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Humble support</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-<td style="text-align: center;">✅</td>
-</tr>
-<tr>
-<td>Cross-distro bridge (Humble ↔ Jazzy)</td>
-<td style="text-align: center;">❌</td>
-<td style="text-align: center;">❌</td>
-<td style="text-align: center;">✅ via <a href="https://github.com/ZettaScaleLabs/hiroz-toolkit">hiroz-toolkit</a></td>
-</tr>
-<tr>
-<td>Python bindings</td>
-<td style="text-align: center;">native</td>
-<td style="text-align: center;">native</td>
-<td style="text-align: center;">✅ (<code>hiroz-py</code>)</td>
-</tr>
-<tr>
-<td>Go bindings</td>
-<td style="text-align: center;">❌</td>
-<td style="text-align: center;">❌</td>
-<td style="text-align: center;">✅ (<code>hiroz-go</code>)</td>
-</tr>
-<tr>
-<td>No ROS 2 install needed</td>
-<td style="text-align: center;">❌</td>
-<td style="text-align: center;">❌</td>
-<td style="text-align: center;">✅</td>
-</tr>
-</tbody>
-</table>
-<h2 id="which-to-choose">Which to choose?<a class="headerlink" href="#which-to-choose" title="Permanent link">&para;</a></h2>
-<p><strong>Use <code>rmw_zenoh_cpp</code></strong> when you have an existing rclcpp/rclpy codebase and want Zenoh transport without rewriting anything. You get the full ROS 2 feature set — executors, composable nodes, lifecycle — with Zenoh's routing and cross-network capabilities replacing DDS.</p>
-<p><strong>Use hiroz</strong> when you are writing new code in Rust and want a minimal, dependency-light library. No ROS 2 installation, no DDS, no executor overhead. hiroz nodes interoperate transparently with <code>rmw_zenoh_cpp</code> nodes over the same Zenoh router.</p>
-<h2 id="resources">Resources<a class="headerlink" href="#resources" title="Permanent link">&para;</a></h2>
+<h1 id="installing-hu">Installing hu<a class="headerlink" href="#installing-hu" title="Permanent link">&para;</a></h1>
+<p><code>hu</code> ships as two separate things, and you need both:</p>
 <ul>
-<li><strong><a href="../ros2-to-hiroz/">ROS 2 → hiroz API Mapping</a></strong> — method-by-method translation table</li>
-<li><strong><a href="../../experimental/rmw-zenoh-rs/">rmw-zenoh-rs</a></strong> — the RMW plugin powering <code>rmw_zenoh_cpp</code></li>
-<li><strong><a href="../../user-guide/interop/">ROS 2 Interoperability</a></strong> — running hiroz alongside rclcpp/rclpy nodes</li>
-<li><strong><a href="../../user-guide/bridge/">Cross-Distro Bridge</a></strong> — Humble ↔ Jazzy bridging via hiroz-toolkit</li>
+<li>the <strong><code>hu</code> binary</strong> — the plugin host, the TUI, <code>stream</code>, <code>router</code>, <code>web</code> and <code>plugin</code> management;</li>
+<li>the <strong>plugins</strong> — <code>hu_meter.wasm</code> and <code>hu_monitor.wasm</code>. <code>hu meter</code> and <code>hu monitor</code> are not built into the binary. Without the plugins those subcommands do not exist.</li>
 </ul>
+<p>Everything here works with no ROS 2 install. <code>hu</code> only needs to reach a Zenoh router.</p>
+<h2 id="quickest-path">Quickest path<a class="headerlink" href="#quickest-path" title="Permanent link">&para;</a></h2>
+<p>Download the installer and run it. With no arguments it asks GitHub which release is newest and installs that:</p>
+<!-- repro: skip needs a published release and network access to it -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://github.com/ZettaScaleLabs/hiroz/releases/latest/download/install-hu.sh<span class="w"> </span>-o<span class="w"> </span>install-hu.sh
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>sh<span class="w"> </span>install-hu.sh
+</span></code></pre></div>
+<p><strong>Download the installer, then run it — do not pipe it into a shell.</strong> Two failure modes look like success if you pipe. A wrong URL makes <code>curl -fsSL</code> fail silently, <code>sh</code> then reads empty input and exits 0, so you see nothing and no error. And a connection that drops mid-transfer still executes every complete line that arrived, which can leave <code>hu</code> installed with no plugins. Downloading first makes <code>curl</code>'s exit status stop the install, and gives <code>sh</code> a complete file.</p>
+<p>That downloads the binary and the plugins, verifies both against <code>SHA256SUMS</code>, installs <code>hu</code> to <code>~/.local/bin/</code> and the plugins to <code>~/.local/share/hu/plugins/</code>.</p>
+<p>To install a specific version rather than the newest, pass <code>--version X.Y.Z</code>. To install from somewhere other than this project's GitHub releases, set <code>HU_RELEASE_BASE</code> to that release's download directory. <strong>Pass <code>--version</code> with it.</strong> The newest-release lookup speaks only for this project's own releases. The installer therefore refuses a redirected base without a version, rather than naming files after an unrelated release.</p>
+<p><strong><code>HU_RELEASE_BASE</code> is a release's download directory</strong>, ending <code>/releases/download/v&lt;version&gt;</code>. Point it at the release you were given; the filenames below it are the same either way.</p>
+<p>Set <code>--prefix</code> (or <code>HU_PREFIX</code>) to install somewhere other than <code>~/.local</code>. <code>hu</code> looks for plugins next to its own binary — under <code>&lt;prefix&gt;/share/hu/plugins</code> — as well as in <code>~/.local/share/hu/plugins</code>, so a prefixed install finds its own plugins.</p>
+<p>Verify:</p>
+<!-- repro: timeout 10 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>hu<span class="w"> </span>--version
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>hu<span class="w"> </span>plugin<span class="w"> </span>list
+</span></code></pre></div>
+<p><code>hu plugin list</code> must show <code>meter</code> and <code>monitor</code>. If it is empty, the plugins did not install and every <code>hu meter</code> / <code>hu monitor</code> command will fail.</p>
+<h2 id="credentials">Credentials<a class="headerlink" href="#credentials" title="Permanent link">&para;</a></h2>
+<p>Whether you need a token depends on the release host, so the installer does not decide for you. It reads <code>$HU_RELEASE_TOKEN</code> from the environment and <strong>never</strong> carries one of its own. It never reads a credential from a file.</p>
+<p>If it finds one it sends it with every download. If it finds none it proceeds without one — a public release host needs no credential, and refusing up front would block installing from, say, a public GitHub release that anyone can <code>curl</code>.</p>
+<p>A missing credential therefore surfaces as a failed download, not as an early refusal, because that is the first point at which the host's requirement is actually known. The failure message names the variable to set. Nothing is ever installed from an error page: <code>curl --fail</code> makes an HTTP error an error, so a 401 or a 404 body is never written to disk and never unpacked.</p>
+<p>If you have no account, use the offline path below — it needs no network and no credential.</p>
+<h2 id="offline-install">Offline install<a class="headerlink" href="#offline-install" title="Permanent link">&para;</a></h2>
+<p>Someone hands you the release files; you install from a directory:</p>
+<!-- repro: skip needs ./hu-release, a directory of release files the reader supplies -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>install-hu.sh<span class="w"> </span>--offline<span class="w"> </span>./hu-release
+</span></code></pre></div>
+<p>The directory needs at least <code>SHA256SUMS</code> and the binary tarball for your platform. Include <code>hu-plugins-&lt;ver&gt;.tar.gz</code> to get <code>meter</code> and <code>monitor</code> too. Checksums are still enforced — a file with no entry in <code>SHA256SUMS</code> is refused, because an unlisted file is exactly what a substituted file looks like.</p>
+<h2 id="manual-install">Manual install<a class="headerlink" href="#manual-install" title="Permanent link">&para;</a></h2>
+<p>Verify the download first. <code>sha256sum -c</code> exits non-zero on a mismatch, so stop here if it does — do not extract a file that failed this check:</p>
+<!-- repro: skip needs the release tarballs and their SHA256SUMS already downloaded -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sha256sum<span class="w"> </span>-c<span class="w"> </span>SHA256SUMS
+</span></code></pre></div>
+<p>Then extract and install:</p>
+<!-- repro: skip needs the release tarballs already downloaded and verified -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>hu-0.1.0-x86_64-unknown-linux-gnu.tar.gz
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>install<span class="w"> </span>-Dm755<span class="w"> </span>hu<span class="w"> </span>~/.local/bin/hu
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>~/.local/share/hu/plugins
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>hu-plugins-0.1.0.tar.gz<span class="w"> </span>-C<span class="w"> </span>~/.local/share/hu/plugins
+</span></code></pre></div>
+<h2 id="installing-plugins-individually">Installing plugins individually<a class="headerlink" href="#installing-plugins-individually" title="Permanent link">&para;</a></h2>
+<p><code>hu plugin install</code> accepts a local file, a URL, or a name from a release index:</p>
+<!-- repro: skip needs a downloaded .wasm, a reachable URL, or a configured registry -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hu<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>./hu_meter-0.1.0.wasm
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>hu<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>https://example.invalid/hu_meter-0.1.0.wasm
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>hu<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>meter<span class="w"> </span>--registry<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE</span><span class="s2">/hu-plugins-0.1.0.json&quot;</span><span class="w">   </span><span class="c1"># $BASE as above</span>
+</span></code></pre></div>
+<p>In every case the file is checked before it is accepted:</p>
+<ul>
+<li>if a checksum is available — from the index, or from a <code>.sha256</code> sitting next to the file — it must match;</li>
+<li>the file must compile as a WASM component, checked in a temporary location so a broken plugin is never briefly discoverable;</li>
+<li>when installing by name, the index's WIT world must match the one this <code>hu</code> hosts, so a plugin built for a different <code>hu</code> is refused with a readable message instead of a link error later.</li>
+</ul>
+<p>Remove one with:</p>
+<!-- repro: skip requires a plugin to be installed first -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>hu<span class="w"> </span>plugin<span class="w"> </span>uninstall<span class="w"> </span>meter
+</span></code></pre></div>
+<p><code>hu plugin install</code> writes only to <code>~/.local/share/hu/plugins/</code>. Directories on <code>$HU_PLUGIN_PATH</code> are left alone — those point at build trees during development and are not the installer's to manage.</p>
+<h3 id="what-the-checksums-do-and-do-not-buy-you">What the checksums do and do not buy you<a class="headerlink" href="#what-the-checksums-do-and-do-not-buy-you" title="Permanent link">&para;</a></h3>
+<p>They protect against a corrupted or accidentally substituted download. They are <strong>not</strong> authenticity: nothing is signed, there is no registry that vouches for a publisher, and a plugin's declared permissions are self-reported by the plugin itself rather than enforced against it. Installing a plugin means trusting whoever wrote it.</p>
+<h2 id="development-builds">Development builds<a class="headerlink" href="#development-builds" title="Permanent link">&para;</a></h2>
+<p>To run plugins you are building from source, point <code>$HU_PLUGIN_PATH</code> at the build output instead of installing:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_PLUGIN_PATH</span><span class="o">=</span><span class="nv">$PWD</span>/crates/hiroz-union/plugins/target/wasm32-wasip2/release
+</span></code></pre></div>
+<p><code>$HU_PLUGIN_PATH</code> is searched before <code>~/.local/share/hu/plugins/</code>, so a development build shadows an installed one of the same name. <code>hu plugin list</code> shows the path each plugin was loaded from, plus a <code>SOURCE</code> column — <code>unmanaged</code> means it was not installed by <code>hu plugin install</code>.</p>
+<h2 id="uninstalling">Uninstalling<a class="headerlink" href="#uninstalling" title="Permanent link">&para;</a></h2>
+<!-- repro: skip removes the installed hu the rest of this suite runs against -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>rm<span class="w"> </span>~/.local/bin/hu
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>rm<span class="w"> </span>-rf<span class="w"> </span>~/.local/share/hu
+</span></code></pre></div>
+<h2 id="platform-coverage">Platform coverage<a class="headerlink" href="#platform-coverage" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Published</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Linux x86_64</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>Linux aarch64</td>
+<td>yes, when built</td>
+</tr>
+<tr>
+<td>macOS aarch64</td>
+<td>yes, when built</td>
+</tr>
+<tr>
+<td>macOS x86_64</td>
+<td>no — build from source</td>
+</tr>
+<tr>
+<td>Windows</td>
+<td>no</td>
+</tr>
+</tbody>
+</table>
+<p>The plugins are <code>wasm32-wasip2</code> and platform-independent: one <code>.wasm</code> runs everywhere <code>hu</code> does.</p>
+<p>A release covers only the platforms its build legs produced. If a tarball is missing from a release, it was not produced for that version.</p>
 
 
 
@@ -2950,7 +2704,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../../experimental/shm/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Shared Memory (SHM)">
+          <a href="../hu/" class="md-footer__link md-footer__link--prev" aria-label="Previous: hu (Hiroz Union)">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -2960,20 +2714,20 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                Shared Memory (SHM)
+                hu (Hiroz Union)
               </div>
             </div>
           </a>
         
         
           
-          <a href="../ros2-to-hiroz/" class="md-footer__link md-footer__link--next" aria-label="Next: ROS 2 → hiroz API Mapping">
+          <a href="../hu-vs-ros2cli/" class="md-footer__link md-footer__link--next" aria-label="Next: hu vs. ros2cli / rqt">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                ROS 2 → hiroz API Mapping
+                hu vs. ros2cli / rqt
               </div>
             </div>
             <div class="md-footer__button md-icon">
