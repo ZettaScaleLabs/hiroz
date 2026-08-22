@@ -504,6 +504,25 @@ fn url_install_does_not_persist_a_credential_from_the_source_url() {
     let r = install(&[&format!("{base}/hu_meter.wasm?token=SUPERSECRET")]);
     assert!(r.ok, "install should succeed, got:\n{}", r.output);
 
+    // The file name is derived from the URL. With the query string left on, the
+    // credential lands in a path on disk -- which is worse than the record,
+    // because nothing ever redacts a filename.
+    let installed: Vec<String> = std::fs::read_dir(managed_dir(&r.home))
+        .map(|d| {
+            d.filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        installed.iter().any(|f| f == "hu_meter.wasm"),
+        "expected hu_meter.wasm, found {installed:?}"
+    );
+    assert!(
+        !installed.iter().any(|f| f.contains("SUPERSECRET")),
+        "the credential reached a filename: {installed:?}"
+    );
+
     let list = hu(&r.home, &["list", "--json"]);
     assert!(
         !list.output.contains("SUPERSECRET"),

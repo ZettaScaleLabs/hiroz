@@ -292,8 +292,18 @@ pub fn install(source: &str, registry: Option<&str>) -> Result<PathBuf> {
 
     if is_url(source) {
         let bytes = http_get(source)?;
-        let name = source.rsplit('/').next().unwrap_or("plugin.wasm");
-        let expected = http_get(&format!("{source}.sha256"))
+        // Split the query and fragment off before deriving anything from the
+        // URL. A signed asset URL carries its token there, and both uses below
+        // are wrong if it is left on: the file name becomes
+        // `hu_meter.wasm?token=...`, which puts the credential in a path on
+        // disk, and the sidecar URL becomes `....wasm?token=....sha256`, which
+        // asks the host for the asset rather than its checksum.
+        let (path_part, query) = match source.find(['?', '#']) {
+            Some(i) => (&source[..i], &source[i..]),
+            None => (source, ""),
+        };
+        let name = path_part.rsplit('/').next().unwrap_or("plugin.wasm");
+        let expected = http_get(&format!("{path_part}.sha256{query}"))
             .ok()
             .and_then(|b| String::from_utf8(b).ok())
             .and_then(|s| s.split_whitespace().next().map(str::to_string));
