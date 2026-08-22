@@ -2823,6 +2823,7 @@
 <li><strong>Publishes</strong> — <code>node.create_pub::&lt;RosString&gt;("/chatter")</code> sends CDR-serialized ROS 2 messages on a topic.</li>
 <li><strong>Subscribes</strong> — <code>node.create_sub::&lt;RosString&gt;("/chatter")</code> receives and deserializes them asynchronously.</li>
 </ol>
+<p>The talker also calls <code>.with_type_description_service()</code> when building its node. That is what lets consumers with no compiled knowledge of the message type — <code>hu meter echo /chatter</code>, dynamic subscribers, bridges — fetch the schema and decode what it publishes. ROS 2's own client libraries serve that service by default; a hiroz node must opt in, so a node of your own needs the same call.</p>
 <p>The full example source (with CLI flags and multi-backend support) is at <a href="https://github.com/ZettaScaleLabs/hiroz/blob/main/crates/hiroz/examples/z_pubsub.rs"><code>examples/z_pubsub.rs</code></a> in the repository.</p>
 <hr />
 <h2 id="option-2-create-your-own-project">Option 2: Create Your Own Project<a class="headerlink" href="#option-2-create-your-own-project" title="Permanent link">&para;</a></h2>

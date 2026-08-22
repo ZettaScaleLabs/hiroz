@@ -2883,31 +2883,51 @@
 </ul>
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
 <h3 id="pre-built-binary">Pre-built binary<a class="headerlink" href="#pre-built-binary" title="Permanent link">&para;</a></h3>
-<p><strong>Forthcoming.</strong> Pre-built <code>hu</code> binaries are not yet published by the release workflow — the current <a href="https://github.com/ZettaScaleLabs/hiroz/releases">Releases page</a> does not include a standalone <code>hu</code> artifact. Until they land, build from source (see below). Planned artifact names, once the release job builds them:</p>
+<p>Releases publish the <code>hu</code> binary <strong>and</strong> the reference plugins. See <a href="../hu-install/">Installing hu</a> for the installer, the offline path, and how to verify a download.</p>
 <table>
 <thead>
 <tr>
-<th>Platform</th>
-<th>File</th>
+<th>Artifact</th>
+<th>What it is</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Linux x86_64</td>
-<td><code>bin-hu-x86_64-linux</code></td>
+<td><code>hu-&lt;ver&gt;-x86_64-unknown-linux-gnu.tar.gz</code></td>
+<td><code>hu</code> binary, Linux x86_64</td>
 </tr>
 <tr>
-<td>Linux aarch64</td>
-<td><code>bin-hu-aarch64-linux</code></td>
+<td><code>hu-&lt;ver&gt;-aarch64-unknown-linux-gnu.tar.gz</code></td>
+<td><code>hu</code> binary, Linux aarch64</td>
 </tr>
 <tr>
-<td>macOS aarch64</td>
-<td><code>bin-hu-aarch64-macos</code></td>
+<td><code>hu-&lt;ver&gt;-aarch64-apple-darwin.tar.gz</code></td>
+<td><code>hu</code> binary, macOS aarch64 — built by the release job; CI checks on every PR that it packages and reports its version, but no macOS release has been cut yet</td>
+</tr>
+<tr>
+<td><code>hu_meter-&lt;ver&gt;.wasm</code>, <code>hu_monitor-&lt;ver&gt;.wasm</code></td>
+<td>the reference plugins (<code>wasm32-wasip2</code>, platform-independent)</td>
+</tr>
+<tr>
+<td><code>hu-plugins-&lt;ver&gt;.tar.gz</code></td>
+<td>both plugins, for offline install</td>
+</tr>
+<tr>
+<td><code>hu-plugins-&lt;ver&gt;.json</code></td>
+<td>release index — what <code>hu plugin install &lt;name&gt;</code> resolves a name against</td>
+</tr>
+<tr>
+<td><code>install-hu.sh</code></td>
+<td>the installer itself, so the documented one-liner fetches it from the release it installs</td>
+</tr>
+<tr>
+<td><code>SHA256SUMS</code></td>
+<td>verify every download against this</td>
 </tr>
 </tbody>
 </table>
 <p><code>hu</code> has no ROS 2 dependency — it works with any <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a> or hiroz deployment.</p>
-<p><strong>Note:</strong> the <code>meter</code> and <code>monitor</code> subcommands are WASM plugins loaded from the plugin path, not part of the <code>hu</code> binary, and the reference plugins are <strong>not yet bundled in the release artifacts</strong>. To use them today you need the Rust toolchain with the <code>wasm32-wasip2</code> target, build the plugins from source (see below), and point <code>HU_PLUGIN_PATH</code> at them; verify with <code>hu plugin list</code>. The single-binary <code>hu</code> still gives you the TUI, <code>stream</code>, <code>router</code>, and <code>plugin</code> management commands with no ROS 2 install.</p>
+<p><strong>The plugins are separate on purpose.</strong> <code>meter</code> and <code>monitor</code> are WASM components loaded from the plugin path, not code inside the <code>hu</code> binary, so they are versioned and installed independently. Install both and <code>hu plugin list</code> shows them; skip them and <code>hu meter</code> / <code>hu monitor</code> do not exist, while the TUI, <code>stream</code>, <code>router</code>, <code>web</code> and <code>plugin</code> commands still work.</p>
 <h3 id="build-from-source">Build from source<a class="headerlink" href="#build-from-source" title="Permanent link">&para;</a></h3>
 <p>Requires Rust 1.85+ and the <code>wasm32-wasip2</code> target (used to build the plugins). With the Nix dev environment, enter the wasm-capable shell — it already has the target:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>nix<span class="w"> </span>develop<span class="w"> </span>.#pureRust-wasm
@@ -2925,6 +2945,7 @@
 </span></code></pre></div>
 <p>That's shorthand for <code>cargo build --manifest-path crates/hiroz-union/plugins/Cargo.toml --target wasm32-wasip2 --workspace</code>. The plugins are a separate wasm workspace, so you can also <code>cd crates/hiroz-union/plugins &amp;&amp; cargo build --release</code> (the target defaults to <code>wasm32-wasip2</code> there).</p>
 <p><strong>3. Put the plugins on the plugin path</strong> — either point <code>HU_PLUGIN_PATH</code> at the build output, or copy the <code>.wasm</code> files into <code>~/.local/share/hu/plugins/</code> (the always-searched dir). The <code>hu_</code>/<code>hu-</code> prefix is stripped on discovery, so <code>hu_meter.wasm</code> becomes <code>meter</code>:</p>
+<!-- repro: skip build-from-source path; this suite tests the downloaded install -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_PLUGIN_PATH</span><span class="o">=</span><span class="nv">$PWD</span>/crates/hiroz-union/plugins/target/wasm32-wasip2/release
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="c1"># or, to install permanently:</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1">#   mkdir -p ~/.local/share/hu/plugins</span>
@@ -2936,99 +2957,143 @@
 <h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
 <p>This walks through a real end-to-end session: a router, a talker/listener pair, and <code>hu</code> observing them. Run each step in its own terminal.</p>
 <div class="admonition note">
-<p class="admonition-title">Prerequisite</p>
-<p>This uses <code>hu meter</code> and <code>hu monitor</code>, which are plugins — make sure <code>hu plugin list</code> shows <code>meter</code> and <code>monitor</code> first. If it's empty, build the plugins and set <code>HU_PLUGIN_PATH</code> as described under <a href="#build-from-source">Build from Source</a>.</p>
+<p class="admonition-title">Prerequisites</p>
+<p>This uses <code>hu meter</code> and <code>hu monitor</code>, which are plugins — make sure <code>hu plugin list</code> shows <code>meter</code> and <code>monitor</code> first. If it's empty, see <a href="../hu-install/">Installing hu</a>, or build them and set <code>HU_PLUGIN_PATH</code> as described under <a href="#build-from-source">Build from Source</a>. It also needs a <strong>source checkout</strong>: terminals 2 and 3 below use <code>cargo run --example</code>, and a downloaded <code>hu</code> cannot stand in for them — see below.</p>
 </div>
+<p><strong><code>hu</code> observes a deployment; it cannot create one.</strong> That is worth stating before you start, because it shapes what a plain download can do. <code>hu meter pub</code> encodes a message by resolving its schema from a <code>.msg</code> file on <code>HIROZ_MSG_PATH</code>, or by discovering the type from a node already on the topic. A release ships neither message definitions nor nodes, so on an empty graph it reports:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>encode error: could not resolve a message schema for std_msgs/msg/String on /chatter
+</span></code></pre></div>
+<p>Subscribing does not help either: <code>hu meter echo</code> needs a schema too, though it gets one a different way — see the note on <code>echo</code> below. So a downloaded <code>hu</code> is for observing an existing ROS 2 or hiroz deployment, which is what it is for. To generate traffic as well, you need message definitions on <code>HIROZ_MSG_PATH</code> (a ROS 2 installation provides these) or a source checkout, which is what the walkthrough below assumes.</p>
 <p><strong>Terminal 1 — start the Zenoh router:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hu<span class="w"> </span>router
+<!-- repro: skip this exact command is the suite's own router fixture; a second one would collide on :7447 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>hu<span class="w"> </span>router
 </span></code></pre></div>
 <p><strong>Terminal 2 — start a hiroz listener:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>z_pubsub<span class="w"> </span>--<span class="w"> </span>--role<span class="w"> </span>listener
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>z_pubsub<span class="w"> </span>--<span class="w"> </span>--role<span class="w"> </span>listener
 </span></code></pre></div>
 <p><strong>Terminal 3 — start a hiroz talker:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>z_pubsub<span class="w"> </span>--<span class="w"> </span>--role<span class="w"> </span>talker
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>z_pubsub<span class="w"> </span>--<span class="w"> </span>--role<span class="w"> </span>talker
 </span></code></pre></div>
 <p>Both examples connect to <code>tcp/127.0.0.1:7447</code> (never bare peer discovery — see <a href="https://github.com/ZettaScaleLabs/hiroz/blob/main/crates/hiroz/examples/z_pubsub.rs"><code>examples/z_pubsub.rs</code></a>), and publish/subscribe on <code>/chatter</code>.</p>
 <p><strong>Terminal 4 — observe with <code>hu</code>:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># List all topics</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>hu<span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="c1"># /chatter (std_msgs/msg/String)</span>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1"># Measure the talker&#39;s publish rate</span>
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>hu<span class="w"> </span>meter<span class="w"> </span>hz<span class="w"> </span>/chatter
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1"># rate: 1.001 Hz</span>
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="c1"># Watch the live graph</span>
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>hu<span class="w"> </span>monitor<span class="w"> </span>watch
-</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="c1"># node appeared:  /talker</span>
-</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="c1"># node appeared:  /listener</span>
-</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="c1"># topic appeared: /chatter</span>
+<!-- repro: timeout 10 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># List all topics</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="c1"># repro-expect: /chatter</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>hu<span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># /chatter (std_msgs/msg/String)</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="c1"># Measure the talker&#39;s publish rate</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># repro-expect: [0-9]+\.[0-9]+ Hz</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>hu<span class="w"> </span>meter<span class="w"> </span>hz<span class="w"> </span>/chatter
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="c1"># /chatter: 1.000 Hz  (1 samples)</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="c1"># Watch the live graph</span>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="c1"># repro: timeout-quiet 8</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>hu<span class="w"> </span>monitor<span class="w"> </span>watch
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="c1"># node appeared:  /talker</span>
+</span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="c1"># node appeared:  /listener</span>
+</span><span id="__span-9-16"><a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="c1"># topic appeared: /chatter</span>
 </span></code></pre></div>
+<p>The same graph supports the other measurement subcommands. These need the Quick Start running, since they observe the talker's traffic:</p>
+<!-- repro: timeout 10 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Bandwidth over a sampling window</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="c1"># repro-expect: (?i)(B/s|KB/s|bandwidth)</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>hu<span class="w"> </span>meter<span class="w"> </span>bw<span class="w"> </span>/chatter
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="c1"># Full introspection of one topic</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="c1"># repro-expect: (?i)std_msgs.+String</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>hu<span class="w"> </span>meter<span class="w"> </span>info<span class="w"> </span>topic<span class="w"> </span>/chatter
+</span></code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title"><code>echo</code> and <code>delay</code> need a schema for the topic's type</p>
+<p><code>hu meter echo</code> and <code>hu meter delay</code> decode message <strong>content</strong>, so they need the type's schema. They resolve it in two steps: first by querying the publishing node's <code>~/get_type_description</code> service, then — if that fails — by loading the type named in the publisher's liveliness token from a <code>.msg</code> on <code>HIROZ_MSG_PATH</code>. Discovery stays authoritative; the disk is only a fallback, the reverse of <code>hu meter pub</code>, which reads disk first.</p>
+</div>
+<p>Standard ROS 2 nodes expose the type description service; a hiroz node exposes it only when built with <code>.with_type_description_service()</code> — the publishing examples in this repo do. <strong>Residual limitation:</strong> if the publisher advertises no type at all, neither source can help, because <code>hu</code> has no way to be told the type — <code>subscribe</code> carries only a topic name and these commands have no <code>--type</code> flag. In that case both commands now report the failure and exit non-zero, rather than printing nothing and exiting 0.</p>
+<p><code>hz</code>, <code>bw</code>, <code>list</code> and <code>info</code> still work on a topic whose type cannot be resolved. Their <strong>numbers</strong> never need a schema: <code>hz</code> and <code>bw</code> are backed by a wildcard subscriber in the plugin host that counts and sizes raw payloads, and <code>list</code>/<code>info</code> only read the graph. <code>hu meter echo &lt;topic&gt; --raw</code> also works regardless, since it hex-dumps the CDR bytes instead of decoding them.</p>
+<p><code>hz</code> and <code>bw</code> do open one ordinary subscription alongside that, purely so they <strong>announce themselves in the ROS graph</strong> — a publisher that waits for a subscriber before it starts will otherwise never publish, and the measurement would read zero. That subscription resolves a schema like any other, so two things follow on a topic whose type cannot be resolved: the first sample can be delayed by up to the discovery timeout, and the announcement does not happen. The counting is unaffected either way.</p>
+<!-- repro: timeout 10 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># repro-expect: (?i)hello hiroz</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>hu<span class="w"> </span>meter<span class="w"> </span><span class="nb">echo</span><span class="w"> </span>/chatter
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># repro-expect: (?i)\[/chatter\] (delay:.*ms|no header\.stamp)</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>hu<span class="w"> </span>meter<span class="w"> </span>delay<span class="w"> </span>/chatter<span class="w"> </span>--duration<span class="w"> </span><span class="m">5</span>
+</span></code></pre></div>
+<p><code>delay</code> takes <code>--duration &lt;s&gt;</code> exactly as <code>hz</code> and <code>bw</code> do; without it the command runs until interrupted.</p>
+<p><code>delay</code> measures the gap between a message's <code>header.stamp</code> and its arrival, so it only produces a number on <strong>stamped</strong> messages. <code>/chatter</code> carries <code>std_msgs/String</code>, which has no header — against it <code>delay</code> decodes each message and says so per message (<code>no header.stamp — cannot measure delay</code>) rather than reporting a latency. Point it at a stamped topic (anything carrying a <code>std_msgs/Header</code>, e.g. <code>sensor_msgs/LaserScan</code> from the <code>laser_scan</code> example) to get <code>delay: &lt;n&gt; ms</code>.</p>
 <p>By default <code>hu</code> connects to <code>tcp/127.0.0.1:7447</code> and uses domain ID <code>0</code> — matching the talker/listener above. Override with flags or environment variables:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>hu<span class="w"> </span>--connect<span class="w"> </span>tcp/192.168.1.10:7447<span class="w"> </span>--domain<span class="w"> </span><span class="m">5</span><span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics
+<!-- repro: skip illustrative remote endpoint 192.168.1.10, not reachable in test -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>hu<span class="w"> </span>--connect<span class="w"> </span>tcp/192.168.1.10:7447<span class="w"> </span>--domain<span class="w"> </span><span class="m">5</span><span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics
 </span></code></pre></div>
 <p>Or set them once for the session:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_CONNECT</span><span class="o">=</span>tcp/192.168.1.10:7447
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_DOMAIN</span><span class="o">=</span><span class="m">5</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>hu<span class="w"> </span>meter<span class="w"> </span>hz<span class="w"> </span>/chatter
+<!-- repro: skip illustrative remote endpoint 192.168.1.10, not reachable in test -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_CONNECT</span><span class="o">=</span>tcp/192.168.1.10:7447
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_DOMAIN</span><span class="o">=</span><span class="m">5</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>hu<span class="w"> </span>meter<span class="w"> </span>hz<span class="w"> </span>/chatter
 </span></code></pre></div>
 <p><code>HU_CONNECT</code> and <code>HU_DOMAIN</code> fully replace the <code>--connect</code> / <code>--domain</code> flags — once exported, every <code>hu meter</code> / <code>hu monitor</code> invocation reaches that router with no per-command flags, which is the recommended workflow for an interactive session:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_CONNECT</span><span class="o">=</span>tcp/127.0.0.1:7447
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>hu<span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics<span class="w">      </span><span class="c1"># no --connect needed</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>hu<span class="w"> </span>monitor<span class="w"> </span>graph<span class="w">          </span><span class="c1"># same session, same router</span>
+<!-- repro: timeout 10 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HU_CONNECT</span><span class="o">=</span>tcp/127.0.0.1:7447
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>hu<span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics<span class="w">      </span><span class="c1"># no --connect needed</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>hu<span class="w"> </span>monitor<span class="w"> </span>graph<span class="w">          </span><span class="c1"># same session, same router</span>
 </span></code></pre></div>
 <h3 id="more-examples">More examples<a class="headerlink" href="#more-examples" title="Permanent link">&para;</a></h3>
 <p>The Quick Start covers <code>list</code>, <code>hz</code>, and <code>watch</code>. The subcommands below are the least self-explanatory ones — each transcript shows the exact command and the output line to expect. These paths are exercised by the integration suite (<code>crates/hiroz-tests/tests/hu_meter.rs</code>, <code>hu_monitor.rs</code>).</p>
 <p><strong>Call a service</strong> (against an <code>AddTwoInts</code> server on <code>/add_two_ints</code>):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># --yaml takes the request as inline YAML; --msg-type names the request type.</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>hu<span class="w"> </span>meter<span class="w"> </span>service<span class="w"> </span>call<span class="w"> </span>/add_two_ints<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span>--yaml<span class="w"> </span><span class="s1">&#39;{a: 20, b: 22}&#39;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span>--msg-type<span class="w"> </span>example_interfaces/srv/AddTwoInts_Request<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span>--timeout<span class="w"> </span><span class="m">10</span>
-</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="c1"># {&quot;sum&quot;: 42}</span>
+<!-- repro: skip needs an AddTwoInts service server on /add_two_ints -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># --yaml takes the request as inline YAML; --msg-type names the request type.</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>hu<span class="w"> </span>meter<span class="w"> </span>service<span class="w"> </span>call<span class="w"> </span>/add_two_ints<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">  </span>--yaml<span class="w"> </span><span class="s1">&#39;{a: 20, b: 22}&#39;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span>--msg-type<span class="w"> </span>example_interfaces/srv/AddTwoInts_Request<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">  </span>--timeout<span class="w"> </span><span class="m">10</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="c1"># {&quot;sum&quot;: 42}</span>
 </span></code></pre></div>
 <p>The response prints as JSON, so it pipes straight into <code>jq</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>hu<span class="w"> </span>meter<span class="w"> </span>service<span class="w"> </span>call<span class="w"> </span>/add_two_ints<span class="w"> </span>--yaml<span class="w"> </span><span class="s1">&#39;{a: 20, b: 22}&#39;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>--msg-type<span class="w"> </span>example_interfaces/srv/AddTwoInts_Request<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.sum&#39;</span>
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="c1"># 42</span>
+<!-- repro: skip needs an AddTwoInts service server on /add_two_ints -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>hu<span class="w"> </span>meter<span class="w"> </span>service<span class="w"> </span>call<span class="w"> </span>/add_two_ints<span class="w"> </span>--yaml<span class="w"> </span><span class="s1">&#39;{a: 20, b: 22}&#39;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span>--msg-type<span class="w"> </span>example_interfaces/srv/AddTwoInts_Request<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.sum&#39;</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="c1"># 42</span>
 </span></code></pre></div>
 <p><strong>Round-trip a parameter</strong> (set then read it back):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>hu<span class="w"> </span>meter<span class="w"> </span>param<span class="w"> </span><span class="nb">set</span><span class="w"> </span>/talker<span class="w"> </span>publish_period_ms<span class="w"> </span><span class="m">500</span>
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="c1"># OK</span>
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>hu<span class="w"> </span>meter<span class="w"> </span>param<span class="w"> </span>get<span class="w"> </span>/talker<span class="w"> </span>publish_period_ms<span class="w"> </span>--json
-</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="c1"># {&quot;publish_period_ms&quot;: 500}</span>
+<!-- repro: skip needs a node exposing parameter services -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>hu<span class="w"> </span>meter<span class="w"> </span>param<span class="w"> </span><span class="nb">set</span><span class="w"> </span>/talker<span class="w"> </span>publish_period_ms<span class="w"> </span><span class="m">500</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="c1"># OK</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>hu<span class="w"> </span>meter<span class="w"> </span>param<span class="w"> </span>get<span class="w"> </span>/talker<span class="w"> </span>publish_period_ms<span class="w"> </span>--json
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="c1"># {&quot;publish_period_ms&quot;: 500}</span>
 </span></code></pre></div>
 <p><strong>Describe a parameter</strong> as JSON (every meter subcommand supports <code>--json</code> for scripting):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>hu<span class="w"> </span>meter<span class="w"> </span>param<span class="w"> </span>describe<span class="w"> </span>/talker<span class="w"> </span>publish_period_ms<span class="w"> </span>--json
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="c1"># {&quot;name&quot;:&quot;publish_period_ms&quot;,&quot;value&quot;:500}</span>
+<!-- repro: skip needs a node exposing parameter services -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>hu<span class="w"> </span>meter<span class="w"> </span>param<span class="w"> </span>describe<span class="w"> </span>/talker<span class="w"> </span>publish_period_ms<span class="w"> </span>--json
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="c1"># {&quot;name&quot;:&quot;publish_period_ms&quot;,&quot;value&quot;:500}</span>
 </span></code></pre></div>
 <p><strong>Stream action feedback</strong> while a goal runs:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>hu<span class="w"> </span>meter<span class="w"> </span>action<span class="w"> </span><span class="nb">echo</span><span class="w"> </span>/fibonacci<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span>--msg-type<span class="w"> </span>example_interfaces/action/Fibonacci<span class="w"> </span>--count<span class="w"> </span><span class="m">3</span>
-</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="c1"># [/fibonacci/_action/feedback] {&quot;partial_sequence&quot;: [0, 1, 1]}</span>
-</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="c1"># [/fibonacci/_action/feedback] {&quot;partial_sequence&quot;: [0, 1, 1, 2]}</span>
-</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="c1"># [/fibonacci/_action/feedback] {&quot;partial_sequence&quot;: [0, 1, 1, 2, 3]}</span>
+<!-- repro: skip needs a Fibonacci action server on /fibonacci -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>hu<span class="w"> </span>meter<span class="w"> </span>action<span class="w"> </span><span class="nb">echo</span><span class="w"> </span>/fibonacci<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span>--msg-type<span class="w"> </span>example_interfaces/action/Fibonacci<span class="w"> </span>--count<span class="w"> </span><span class="m">3</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="c1"># [/fibonacci/_action/feedback] {&quot;partial_sequence&quot;: [0, 1, 1]}</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="c1"># [/fibonacci/_action/feedback] {&quot;partial_sequence&quot;: [0, 1, 1, 2]}</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="c1"># [/fibonacci/_action/feedback] {&quot;partial_sequence&quot;: [0, 1, 1, 2, 3]}</span>
 </span></code></pre></div>
 <p><strong>Get / set a node's log level</strong> with <code>hu monitor</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Read the current logger levels for /talker.</span>
-</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>hu<span class="w"> </span>monitor<span class="w"> </span>log-level<span class="w"> </span>/talker
-</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="c1"># log levels: {&quot;levels&quot;: [{&quot;name&quot;: &quot;talker&quot;, &quot;level&quot;: 20}]}</span>
-</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>
-</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="c1"># Set it to DEBUG (subsequent /rosout traffic reflects the new level).</span>
-</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>hu<span class="w"> </span>monitor<span class="w"> </span>log-level<span class="w"> </span>/talker<span class="w"> </span>DEBUG
-</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="c1"># set log level to DEBUG</span>
-</span><span id="__span-17-8"><a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>
-</span><span id="__span-17-9"><a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="c1"># Follow /rosout, stopping after 2 messages.</span>
-</span><span id="__span-17-10"><a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a>hu<span class="w"> </span>monitor<span class="w"> </span>log<span class="w"> </span>--count<span class="w"> </span><span class="m">2</span>
-</span><span id="__span-17-11"><a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="c1"># [rosout] ...</span>
-</span><span id="__span-17-12"><a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a><span class="c1"># [rosout] ...</span>
-</span><span id="__span-17-13"><a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a>
-</span><span id="__span-17-14"><a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a><span class="c1"># Omit --count to stream every /rosout message indefinitely (Ctrl-C to stop).</span>
-</span><span id="__span-17-15"><a id="__codelineno-17-15" name="__codelineno-17-15" href="#__codelineno-17-15"></a>hu<span class="w"> </span>monitor<span class="w"> </span>log
-</span><span id="__span-17-16"><a id="__codelineno-17-16" name="__codelineno-17-16" href="#__codelineno-17-16"></a><span class="c1"># [rosout] ...</span>
-</span><span id="__span-17-17"><a id="__codelineno-17-17" name="__codelineno-17-17" href="#__codelineno-17-17"></a><span class="c1"># [rosout] ...</span>
-</span><span id="__span-17-18"><a id="__codelineno-17-18" name="__codelineno-17-18" href="#__codelineno-17-18"></a><span class="c1"># ...</span>
+<!-- repro: skip needs an rclcpp node with logger services and /rosout traffic -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># Read the current logger levels for /talker.</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>hu<span class="w"> </span>monitor<span class="w"> </span>log-level<span class="w"> </span>/talker
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="c1"># log levels: {&quot;levels&quot;: [{&quot;name&quot;: &quot;talker&quot;, &quot;level&quot;: 20}]}</span>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="c1"># Set it to DEBUG (subsequent /rosout traffic reflects the new level).</span>
+</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>hu<span class="w"> </span>monitor<span class="w"> </span>log-level<span class="w"> </span>/talker<span class="w"> </span>DEBUG
+</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="c1"># set log level to DEBUG</span>
+</span><span id="__span-20-8"><a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a>
+</span><span id="__span-20-9"><a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a><span class="c1"># Follow /rosout, stopping after 2 messages.</span>
+</span><span id="__span-20-10"><a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a>hu<span class="w"> </span>monitor<span class="w"> </span>log<span class="w"> </span>--count<span class="w"> </span><span class="m">2</span>
+</span><span id="__span-20-11"><a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a><span class="c1"># [rosout] ...</span>
+</span><span id="__span-20-12"><a id="__codelineno-20-12" name="__codelineno-20-12" href="#__codelineno-20-12"></a><span class="c1"># [rosout] ...</span>
+</span><span id="__span-20-13"><a id="__codelineno-20-13" name="__codelineno-20-13" href="#__codelineno-20-13"></a>
+</span><span id="__span-20-14"><a id="__codelineno-20-14" name="__codelineno-20-14" href="#__codelineno-20-14"></a><span class="c1"># Omit --count to stream every /rosout message indefinitely (Ctrl-C to stop).</span>
+</span><span id="__span-20-15"><a id="__codelineno-20-15" name="__codelineno-20-15" href="#__codelineno-20-15"></a>hu<span class="w"> </span>monitor<span class="w"> </span>log
+</span><span id="__span-20-16"><a id="__codelineno-20-16" name="__codelineno-20-16" href="#__codelineno-20-16"></a><span class="c1"># [rosout] ...</span>
+</span><span id="__span-20-17"><a id="__codelineno-20-17" name="__codelineno-20-17" href="#__codelineno-20-17"></a><span class="c1"># [rosout] ...</span>
+</span><span id="__span-20-18"><a id="__codelineno-20-18" name="__codelineno-20-18" href="#__codelineno-20-18"></a><span class="c1"># ...</span>
 </span></code></pre></div>
 <blockquote>
 <p><code>hu monitor log-level</code> talks to the target node's <code>get_logger_levels</code> / <code>set_logger_levels</code> services (<code>rcl_interfaces</code>), so the node must expose them — standard <code>rclcpp</code>/<code>rclpy</code> nodes do; the pure-hiroz demo nodes do not yet.</p>
@@ -3115,7 +3180,7 @@
 </tr>
 <tr>
 <td><code>hu meter delay &lt;topic&gt;</code></td>
-<td>End-to-end latency</td>
+<td>End-to-end latency, from <code>header.stamp</code> to arrival (stamped messages only)</td>
 </tr>
 <tr>
 <td><code>hu meter pub &lt;topic&gt;</code></td>
@@ -3211,18 +3276,29 @@
 <tbody>
 <tr>
 <td><code>hu plugin list</code></td>
-<td>List all loaded <code>.wasm</code> plugins with name and path</td>
+<td>List discovered plugins as <code>PLUGIN VERSION SOURCE PATH</code>. <code>SOURCE</code> is <code>download</code>, <code>local</code>, <code>installed</code>, or <code>unmanaged</code> for a file <code>hu</code> did not install</td>
 </tr>
 <tr>
 <td><code>hu plugin validate &lt;path&gt;</code></td>
 <td>Validate that a <code>.wasm</code> file compiles as a WASM component</td>
 </tr>
+<tr>
+<td><code>hu plugin install &lt;file\|url\|name&gt;</code></td>
+<td>Install from a local path, a URL, or a name resolved against a release index (<code>--registry</code>, or <code>HU_PLUGIN_REGISTRY</code>). Validates before accepting</td>
+</tr>
+<tr>
+<td><code>hu plugin uninstall &lt;name&gt;</code></td>
+<td>Remove a plugin <code>hu</code> installed. Refuses one that lives on <code>$HU_PLUGIN_PATH</code>, since that is a build tree and not <code>hu</code>'s to delete</td>
+</tr>
 </tbody>
 </table>
+<p><code>list</code> reads filenames only — it never opens a component, so it cannot tell a
+valid plugin from a corrupt one. <code>validate</code> is the check that does.</p>
 <hr />
 <h2 id="multi-topic-rate-dashboard">Multi-topic rate dashboard<a class="headerlink" href="#multi-topic-rate-dashboard" title="Permanent link">&para;</a></h2>
 <p>For continuous monitoring of several topics at once, use the <code>hu</code> TUI. Select topics in the Topics panel and press <code>m</code> to add them to the Measure panel, which shows a live, per-second rate and bandwidth table for every topic you're tracking — all in one process, instead of one <code>ros2 topic hz</code> per topic:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>hu
+<!-- repro: skip interactive TUI, needs a tty -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>hu
 </span></code></pre></div>
 <p>Bare <code>hu</code> launches the TUI; use <code>Tab</code>/<code>1</code>–<code>5</code> to reach the Measure panel. This is the primary advantage over <code>ros2 topic hz</code>, which needs a separate terminal per topic and no combined view.</p>
 <h3 id="tui-keybindings">TUI keybindings<a class="headerlink" href="#tui-keybindings" title="Permanent link">&para;</a></h3>
@@ -3296,37 +3372,42 @@
 <hr />
 <h2 id="json-output">JSON output<a class="headerlink" href="#json-output" title="Permanent link">&para;</a></h2>
 <p>Every <code>hu meter</code> subcommand accepts <code>--json</code> for scripting:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>hu<span class="w"> </span>meter<span class="w"> </span>hz<span class="w"> </span>/scan<span class="w"> </span>--duration<span class="w"> </span><span class="m">5</span><span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.rate_hz&#39;</span>
-</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>hu<span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics<span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.[].name&#39;</span>
-</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>hu<span class="w"> </span>meter<span class="w"> </span>info<span class="w"> </span>node<span class="w"> </span>/talker<span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.publishers[].name&#39;</span>
+<!-- repro: timeout 20 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>hu<span class="w"> </span>meter<span class="w"> </span>hz<span class="w"> </span>/scan<span class="w"> </span>--duration<span class="w"> </span><span class="m">5</span><span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.rate_hz&#39;</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>hu<span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics<span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.[].name&#39;</span>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="c1"># repro-expect: /chatter</span>
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>hu<span class="w"> </span>meter<span class="w"> </span>info<span class="w"> </span>node<span class="w"> </span>/talker<span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.publishers[].name&#39;</span>
 </span></code></pre></div>
 <hr />
 <h2 id="stream-mode">Stream mode<a class="headerlink" href="#stream-mode" title="Permanent link">&para;</a></h2>
 <p><code>hu stream</code> streams graph change events to stdout without opening a TUI. Useful for piping into log aggregators, CI scripts, or dashboards that can't host a terminal.</p>
 <p>It first prints the current graph as a snapshot, then one line per change event, each prefixed with a UTC timestamp. Type names appear in their DDS-mangled form (<code>std_msgs::msg::dds_::String_</code>), not the ROS <code>std_msgs/msg/String</code> form:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>hu<span class="w"> </span>stream
-</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="c1"># Discovered Topics:</span>
-</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="c1">#   topic: /chatter (std_msgs::msg::dds_::String_)</span>
-</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="c1"># Discovered Services:</span>
-</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="c1">#   service: /talker/get_parameters (rcl_interfaces::srv::dds_::GetParameters_)</span>
-</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="c1"># Discovered Nodes:</span>
-</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="c1">#   node: //talker</span>
-</span><span id="__span-20-8"><a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="c1"># [2026-08-04 07:42:06] Node discovered: /talker</span>
-</span><span id="__span-20-9"><a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a><span class="c1"># [2026-08-04 07:42:06] Topic discovered: /chatter (std_msgs::msg::dds_::String_)</span>
+<!-- repro: timeout 5 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>hu<span class="w"> </span>stream
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="c1"># Discovered Topics:</span>
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="c1">#   topic: /chatter (std_msgs::msg::dds_::String_)</span>
+</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="c1"># Discovered Services:</span>
+</span><span id="__span-23-5"><a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a><span class="c1">#   service: /talker/get_parameters (rcl_interfaces::srv::dds_::GetParameters_)</span>
+</span><span id="__span-23-6"><a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a><span class="c1"># Discovered Nodes:</span>
+</span><span id="__span-23-7"><a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="c1">#   node: //talker</span>
+</span><span id="__span-23-8"><a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a><span class="c1"># [2026-08-04 07:42:06] Node discovered: /talker</span>
+</span><span id="__span-23-9"><a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a><span class="c1"># [2026-08-04 07:42:06] Topic discovered: /chatter (std_msgs::msg::dds_::String_)</span>
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">The doubled slash in the snapshot's node lines</p>
 <p>Snapshot node lines are printed as <code>&lt;namespace&gt;/&lt;name&gt;</code>, and a node in the root namespace has the namespace <code>/</code> — so it renders as <code>//talker</code>, not <code>/talker</code>. The event lines below use the raw namespace instead and print <code>/talker</code>. <code>hu</code> itself joins the graph while streaming, so it appears alongside your nodes.</p>
 </div>
 <p>Add <code>--json</code> for structured output. Every record is one of two shapes: an object with an <code>"event"</code> key naming it, or a <code>SystemEvent</code> in serde's externally-tagged form, where the variant name is the sole top-level key. The first line is always <code>"event":"initial_state"</code>; graph changes after it are the externally-tagged form. Adding <code>--echo</code> interleaves two further <code>"event"</code>-keyed shapes, <code>topic_subscribed</code> and <code>message_received</code>, so a filter must not assume every record after the first has a variant-name key:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json
-</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="c1"># {&quot;event&quot;:&quot;initial_state&quot;,&quot;timestamp&quot;:{&quot;secs_since_epoch&quot;:1785829316,&quot;nanos_since_epoch&quot;:522800352},&quot;domain_id&quot;:0,&quot;topics&quot;:[{&quot;name&quot;:&quot;/chatter&quot;,&quot;type&quot;:&quot;std_msgs::msg::dds_::String_&quot;,&quot;publishers&quot;:1,&quot;subscribers&quot;:0}],&quot;nodes&quot;:[{&quot;name&quot;:&quot;talker&quot;,&quot;namespace&quot;:&quot;/&quot;}],&quot;services&quot;:[{&quot;name&quot;:&quot;/talker/get_parameters&quot;,&quot;type&quot;:&quot;rcl_interfaces::srv::dds_::GetParameters_&quot;}]}</span>
-</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="c1"># {&quot;NodeDiscovered&quot;:{&quot;namespace&quot;:&quot;&quot;,&quot;name&quot;:&quot;talker&quot;,&quot;timestamp&quot;:{&quot;secs_since_epoch&quot;:1785829316,&quot;nanos_since_epoch&quot;:522703282}}}</span>
-</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="c1"># {&quot;TopicDiscovered&quot;:{&quot;topic&quot;:&quot;/chatter&quot;,&quot;type_name&quot;:&quot;std_msgs::msg::dds_::String_&quot;,&quot;timestamp&quot;:{&quot;secs_since_epoch&quot;:1785829316,&quot;nanos_since_epoch&quot;:522693292}}}</span>
+<!-- repro: timeout 5 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="c1"># {&quot;event&quot;:&quot;initial_state&quot;,&quot;timestamp&quot;:{&quot;secs_since_epoch&quot;:1785829316,&quot;nanos_since_epoch&quot;:522800352},&quot;domain_id&quot;:0,&quot;topics&quot;:[{&quot;name&quot;:&quot;/chatter&quot;,&quot;type&quot;:&quot;std_msgs::msg::dds_::String_&quot;,&quot;publishers&quot;:1,&quot;subscribers&quot;:0}],&quot;nodes&quot;:[{&quot;name&quot;:&quot;talker&quot;,&quot;namespace&quot;:&quot;/&quot;}],&quot;services&quot;:[{&quot;name&quot;:&quot;/talker/get_parameters&quot;,&quot;type&quot;:&quot;rcl_interfaces::srv::dds_::GetParameters_&quot;}]}</span>
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="c1"># {&quot;NodeDiscovered&quot;:{&quot;namespace&quot;:&quot;&quot;,&quot;name&quot;:&quot;talker&quot;,&quot;timestamp&quot;:{&quot;secs_since_epoch&quot;:1785829316,&quot;nanos_since_epoch&quot;:522703282}}}</span>
+</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="c1"># {&quot;TopicDiscovered&quot;:{&quot;topic&quot;:&quot;/chatter&quot;,&quot;type_name&quot;:&quot;std_msgs::msg::dds_::String_&quot;,&quot;timestamp&quot;:{&quot;secs_since_epoch&quot;:1785829316,&quot;nanos_since_epoch&quot;:522693292}}}</span>
 </span></code></pre></div>
 <p>The arrays are shown with one entry each for brevity; a real graph also carries <code>/parameter_events</code> and each node's parameter services.</p>
 <p>Because the variant name is the key rather than a <code>type</code> field, filtering with <code>jq</code> selects on key presence:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;select(has(&quot;TopicDiscovered&quot;)) | .TopicDiscovered.topic&#39;</span>
+<!-- repro: timeout-quiet 5 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;select(has(&quot;TopicDiscovered&quot;)) | .TopicDiscovered.topic&#39;</span>
 </span></code></pre></div>
 <p>The event variants are <code>TopicDiscovered</code>, <code>TopicRemoved</code>, <code>RateMeasured</code>, <code>NodeDiscovered</code>, <code>NodeRemoved</code>, <code>ServiceDiscovered</code> and <code>MetricsSnapshot</code>.</p>
 <p>Two field-naming traps when writing filters:</p>
@@ -3335,7 +3416,8 @@
 <li>A root-namespace node is reported as <code>"namespace":"/"</code> in the snapshot but <code>"namespace":""</code> in <code>NodeDiscovered</code>/<code>NodeRemoved</code> — the snapshot normalises the empty namespace, the events do not. Joining namespace and name naively will produce <code>//talker</code> from the snapshot.</li>
 </ul>
 <p>Add <code>--echo &lt;TOPIC&gt;</code> to also subscribe to a topic and interleave decoded messages. <code>--echo</code> can be repeated for multiple topics:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json<span class="w"> </span>--echo<span class="w"> </span>/scan<span class="w"> </span>--echo<span class="w"> </span>/cmd_vel
+<!-- repro: timeout-quiet 5 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>hu<span class="w"> </span>stream<span class="w"> </span>--json<span class="w"> </span>--echo<span class="w"> </span>/scan<span class="w"> </span>--echo<span class="w"> </span>/cmd_vel
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -3343,11 +3425,17 @@
 </div>
 <hr />
 <h2 id="web-mode">Web mode<a class="headerlink" href="#web-mode" title="Permanent link">&para;</a></h2>
-<p><code>hu web</code> starts an HTTP server (default port 8080) that dispatches requests to <code>hu-web-plugin</code> WASM plugins. Requires <code>hu</code> built with the <code>web-plugins</code> feature:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>hu<span class="w"> </span>web<span class="w">                </span><span class="c1"># listen on 0.0.0.0:8080</span>
-</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>hu<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9090</span><span class="w">    </span><span class="c1"># listen on 0.0.0.0:9090</span>
+<p><code>hu web</code> starts an HTTP server (default port 8080) that dispatches requests to <code>hu-web-plugin</code> WASM plugins. It needs <code>hu</code> built with the <code>web-plugins</code> feature — the published release binaries are, so a downloaded <code>hu</code> has it:</p>
+<!-- repro: timeout-quiet 5 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>hu<span class="w"> </span>web<span class="w">                </span><span class="c1"># listen on 127.0.0.1:8080</span>
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>hu<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9090</span><span class="w">    </span><span class="c1"># listen on 127.0.0.1:9090</span>
 </span></code></pre></div>
-<p>Each web plugin is reachable at <code>/plugins/&lt;name&gt;/</code> and <code>/plugins/&lt;name&gt;/*path</code>. The plugin handles the full HTTP request/response cycle (see <a href="../hu-plugins/">hu Plugin Authoring Guide</a>).</p>
+<p>It binds <strong>loopback only</strong> by default, so the plugin HTTP surface is not exposed on every interface. Set <code>HU_WEB_BIND</code> to widen it deliberately:</p>
+<!-- repro: skip binding 0.0.0.0 in a test would expose the port on the runner -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="nv">HU_WEB_BIND</span><span class="o">=</span><span class="m">0</span>.0.0.0<span class="w"> </span>hu<span class="w"> </span>web
+</span></code></pre></div>
+<p>Each web plugin is reachable at <code>/plugins/&lt;name&gt;/</code> and <code>/plugins/&lt;name&gt;/&lt;path...&gt;</code>. The plugin handles the full HTTP request/response cycle (see <a href="../hu-plugins/">hu Plugin Authoring Guide</a>).</p>
+<p>There is no reference <code>hu-web-plugin</code> yet — the host is wired and the server runs, but until you write one there is nothing for it to serve.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><code>hu web</code> replaces the deprecated <code>--web [PORT]</code> flag, which still works as a hidden alias for now.</p>
@@ -3355,9 +3443,12 @@
 <hr />
 <h2 id="running-a-router">Running a router<a class="headerlink" href="#running-a-router" title="Permanent link">&para;</a></h2>
 <p><code>hu router</code> starts an embedded Zenoh router configured to match <code>rmw_zenoh_cpp</code>, so you don't need a separate <code>zenohd</code> install or the <code>cargo run --example zenoh_router</code> helper for local development. It listens on <code>tcp/[::]:7447</code> by default and runs until Ctrl-C:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>hu<span class="w"> </span>router<span class="w">                              </span><span class="c1"># listen on tcp/[::]:7447</span>
-</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>hu<span class="w"> </span>router<span class="w"> </span>--listen<span class="w"> </span>tcp/0.0.0.0:7448<span class="w">    </span><span class="c1"># custom endpoint (repeatable)</span>
-</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>hu<span class="w"> </span>router<span class="w"> </span>--config<span class="w"> </span>router.json5<span class="w">        </span><span class="c1"># full JSON5/YAML config, overrides --listen</span>
+<!-- repro: timeout-quiet 5 -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="c1"># repro: skip the suite&#39;s router fixture already holds :7447</span>
+</span><span id="__span-29-2"><a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a>hu<span class="w"> </span>router<span class="w">                              </span><span class="c1"># listen on tcp/[::]:7447</span>
+</span><span id="__span-29-3"><a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a>hu<span class="w"> </span>router<span class="w"> </span>--listen<span class="w"> </span>tcp/0.0.0.0:7448<span class="w">    </span><span class="c1"># custom endpoint (repeatable)</span>
+</span><span id="__span-29-4"><a id="__codelineno-29-4" name="__codelineno-29-4" href="#__codelineno-29-4"></a><span class="c1"># repro: skip router.json5 is an illustrative filename, not a shipped file</span>
+</span><span id="__span-29-5"><a id="__codelineno-29-5" name="__codelineno-29-5" href="#__codelineno-29-5"></a>hu<span class="w"> </span>router<span class="w"> </span>--config<span class="w"> </span>router.json5<span class="w">        </span><span class="c1"># full JSON5/YAML config, overrides --listen</span>
 </span></code></pre></div>
 <p>Point every other <code>hu</code> command (and your ROS 2 / hiroz nodes) at it with <code>--connect</code> / <code>HU_CONNECT</code>. For production deployments, prefer the bundled <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenohd</code></a> or a standalone <code>zenohd</code>.</p>
 <h2 id="additional-flags">Additional flags<a class="headerlink" href="#additional-flags" title="Permanent link">&para;</a></h2>
@@ -3443,10 +3534,11 @@
     H --&gt; C["custom.wasm&lt;br&gt;hu &amp;lt;name&amp;gt; &amp;lt;args&amp;gt;"]
     HU_PLUGIN_PATH["$HU_PLUGIN_PATH&lt;br&gt;~/.local/share/hu/plugins/"] --&gt; H</code></pre>
 <p>Any team can ship a <code>hu-&lt;name&gt;.wasm</code> file and it becomes a <code>hu &lt;name&gt;</code> subcommand with no build-system changes, no Python packaging, and no shared runtime state:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="c1"># Drop a .wasm file and it becomes available immediately</span>
-</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>cp<span class="w"> </span>./my-debug-tool.wasm<span class="w"> </span>~/.local/share/hu/plugins/
-</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a>hu<span class="w"> </span>plugin<span class="w"> </span>list<span class="w">          </span><span class="c1"># shows all loaded plugins with name and path</span>
-</span><span id="__span-26-4"><a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a>hu<span class="w"> </span>my-debug-tool<span class="w"> </span>--help
+<!-- repro: skip illustrative placeholder plugin my-debug-tool.wasm -->
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="c1"># Drop a .wasm file and it becomes available immediately</span>
+</span><span id="__span-30-2"><a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a>cp<span class="w"> </span>./my-debug-tool.wasm<span class="w"> </span>~/.local/share/hu/plugins/
+</span><span id="__span-30-3"><a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a>hu<span class="w"> </span>plugin<span class="w"> </span>list<span class="w">          </span><span class="c1"># PLUGIN VERSION SOURCE PATH</span>
+</span><span id="__span-30-4"><a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a>hu<span class="w"> </span>my-debug-tool<span class="w"> </span>--help
 </span></code></pre></div>
 <p>Plugins are sandboxed: they declare the capabilities they need (subscriptions, raw CDR, additional Zenoh sessions) in a manifest, and the host refuses calls for anything undeclared. Plugins also never manage Zenoh connections directly — the host opens all sessions declared in the plugin's manifest before the first event fires. The same <code>.wasm</code> binary runs as a TUI panel and as a CLI subcommand.</p>
 <p>See <a href="../hu-plugins/">hu Plugin Authoring Guide</a> for the WIT interface reference and a worked example.</p>

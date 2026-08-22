@@ -2872,6 +2872,7 @@
 </tbody>
 </table>
 <p><strong><code>hu meter pub</code> resolves the message schema from <code>.msg</code> files on disk</strong>, so — like <code>ros2 topic pub</code> — it can publish to an empty topic with no node present. The plugin host reads the type from a <code>.msg</code> under <code>HIROZ_MSG_PATH</code> (colon-separated package or prefix directories, e.g. an ament <code>.../share</code>); if the type isn't on disk it falls back to discovering it from a live publisher or subscriber on the topic. Only when neither is available does it report a clear "could not resolve a message schema" error rather than guessing.</p>
+<p>The subscribing side (<code>hu meter echo</code>, <code>hu meter delay</code>) consults the same two sources in the <strong>opposite</strong> order: live discovery first, <code>HIROZ_MSG_PATH</code> only as a fallback. The orders differ because <code>pub</code> is told its type by the caller — disk alone is sufficient, and a live node need not exist at all — whereas <code>subscribe</code> is given only a topic, so it must consult the graph regardless, both to learn which <code>.msg</code> to load and to reproduce the publisher's exact type hash in its key expression.</p>
 <hr />
 <h2 id="measurement-accuracy-hu-meter-hz-vs-ros2-topic-hz">Measurement accuracy: <code>hu meter hz</code> vs. <code>ros2 topic hz</code><a class="headerlink" href="#measurement-accuracy-hu-meter-hz-vs-ros2-topic-hz" title="Permanent link">&para;</a></h2>
 <p><code>ros2 topic hz</code> deserializes every message in Python before counting it. This is a known bottleneck: see ros2cli <a href="https://github.com/ros2/ros2cli/issues/871">#871</a>, <a href="https://github.com/ros2/ros2cli/issues/1043">#1043</a>, <a href="https://github.com/ros2/ros2cli/issues/843">#843</a>.</p>
@@ -2966,6 +2967,7 @@
 <p><code>--json</code> is a global flag, so the argument parser accepts it on <em>every</em> command — including ones where it has no effect. Those are <code>hu monitor watch</code>, <code>log</code> and <code>log-level</code> (only <code>graph</code> honours it), <code>hu meter echo</code>, <code>delay</code>, <code>param set</code>, <code>service find</code> and <code>service type</code>. Ignoring the flag does not always mean the output is unparseable: <code>hu monitor log</code> and <code>hu meter param set</code> already print one bare JSON object per line, because the plugin host hands plugins their messages and service responses pre-serialised as JSON. The rest are not JSON — <code>hu monitor watch</code> and <code>hu meter delay</code> print prose, <code>hu monitor log-level</code> prefixes its JSON with <code>log levels:</code>, <code>hu meter echo</code> prefixes each message with its topic (<code>[/chatter] {"data":"hello"}</code>), and <code>service find</code>/<code>service type</code> print bare unquoted values. Treat this as a non-exhaustive list and check a command's output before depending on it in a pipeline. For a machine-readable stream of graph change events, use <a href="../hu/#stream-mode"><code>hu stream --json</code></a> instead of <code>hu monitor watch --json</code>.</p>
 </div>
 <p><code>ros2cli</code> outputs human-formatted text with no stable machine-readable format. Parsing <code>ros2 topic list</code> output requires string splitting on <code>/</code> and filtering out blank lines; parsing <code>ros2 topic info</code> requires column-counting. Both break across ROS 2 versions.</p>
+<!-- repro: skip needs sensor_msgs publishers and writes to /var/log -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Filter to sensor_msgs topics only</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>hu<span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics<span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.[] | select(.type | contains(&quot;sensor_msgs&quot;))&#39;</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
@@ -2984,6 +2986,7 @@
 <h2 id="live-graph-events-hu-monitor-watch">Live graph events: <code>hu monitor watch</code><a class="headerlink" href="#live-graph-events-hu-monitor-watch" title="Permanent link">&para;</a></h2>
 <p><code>ros2cli</code> has no command that streams graph change events. To detect when a node appears or disappears you must poll <code>ros2 node list</code> in a loop, introducing latency proportional to your polling interval and burning CPU during quiet periods.</p>
 <p><code>hu monitor watch</code> subscribes to Zenoh liveliness tokens, which are the mechanism hiroz and <code>rmw_zenoh_cpp</code> use to announce entity existence. It prints a line the moment a node, topic, service, or action appears or disappears — with sub-millisecond latency after the transport propagates the change.</p>
+<!-- repro: timeout-quiet 5 -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>hu<span class="w"> </span>monitor<span class="w"> </span>watch
 </span></code></pre></div>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>node appeared:    /camera_driver
@@ -3008,6 +3011,7 @@
 <li>The output is not structured — timestamps are split across <code>sec</code> and <code>nanosec</code> fields.</li>
 </ul>
 <p><code>hu monitor log</code> decodes <code>/rosout</code> at the CDR layer and presents a clean stream:</p>
+<!-- repro: skip needs /rosout traffic from an rclcpp node -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Tail all log messages</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>hu<span class="w"> </span>monitor<span class="w"> </span>log
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
@@ -3048,6 +3052,7 @@
 </tbody>
 </table>
 <p><code>hu monitor log-level</code> works on Humble nodes because it calls the <code>GetLoggerLevels</code> / <code>SetLoggerLevels</code> services directly via Zenoh, without relying on a ros2cli verb that was only added in Jazzy.</p>
+<!-- repro: skip needs an rclcpp node exposing logger services -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Set the planner&#39;s root logger to DEBUG</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>hu<span class="w"> </span>monitor<span class="w"> </span>log-level<span class="w"> </span>/planner<span class="w"> </span>DEBUG
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
@@ -3098,9 +3103,11 @@
 </tr>
 </tbody>
 </table>
+<!-- repro: run -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Drop a .wasm file and it becomes a plugin</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>cp<span class="w"> </span>./my-debug-tool.wasm<span class="w"> </span>~/.local/share/hu/plugins/
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>hu<span class="w"> </span>plugin<span class="w"> </span>list<span class="w">           </span><span class="c1"># shows all .wasm plugins found in search path</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="c1"># repro: skip my-debug-tool.wasm is a placeholder for a plugin the reader supplies</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>cp<span class="w"> </span>./my-debug-tool.wasm<span class="w"> </span>~/.local/share/hu/plugins/
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>hu<span class="w"> </span>plugin<span class="w"> </span>list<span class="w">           </span><span class="c1"># shows all .wasm plugins found in search path</span>
 </span></code></pre></div>
 <p>Plugins have access to the live ROS graph, raw CDR subscriptions, publishers, liveliness tokens, queryables, and named Zenoh sessions — all proxied through the host. A bridge plugin that needs two independent sessions (e.g. Humble and Jazzy) declares both in its manifest and the host opens them before the first event fires.</p>
 <hr />
@@ -3141,6 +3148,7 @@
 <hr />
 <h2 id="command-reference-side-by-side">Command reference: side by side<a class="headerlink" href="#command-reference-side-by-side" title="Permanent link">&para;</a></h2>
 <h3 id="rate-and-bandwidth">Rate and bandwidth<a class="headerlink" href="#rate-and-bandwidth" title="Permanent link">&para;</a></h3>
+<!-- repro: skip side-by-side reference using placeholder names (/scan, /lidar_driver, /enable); the runnable equivalents are exercised from hu.md -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Publish rate</span>
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>ros2<span class="w"> </span>topic<span class="w"> </span>hz<span class="w"> </span>/scan
 </span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>hu<span class="w"> </span>meter<span class="w"> </span>hz<span class="w"> </span>/scan
@@ -3153,6 +3161,7 @@
 </span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>hu<span class="w"> </span>meter<span class="w"> </span>delay<span class="w"> </span>/scan
 </span></code></pre></div>
 <h3 id="message-inspection">Message inspection<a class="headerlink" href="#message-inspection" title="Permanent link">&para;</a></h3>
+<!-- repro: skip side-by-side syntax reference using placeholder names; `echo` is exercised against a live topic in hu.md, and `pub` cannot run from a download at all (it needs message definitions no release ships) -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Echo messages</span>
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>ros2<span class="w"> </span>topic<span class="w"> </span><span class="nb">echo</span><span class="w"> </span>/chatter
 </span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>hu<span class="w"> </span>meter<span class="w"> </span><span class="nb">echo</span><span class="w"> </span>/chatter
@@ -3162,6 +3171,7 @@
 </span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>hu<span class="w"> </span>meter<span class="w"> </span>pub<span class="w"> </span>/enable<span class="w"> </span>--msg-type<span class="w"> </span>std_msgs/msg/Bool<span class="w"> </span>--yaml<span class="w"> </span><span class="s1">&#39;{data: true}&#39;</span>
 </span></code></pre></div>
 <h3 id="graph-introspection">Graph introspection<a class="headerlink" href="#graph-introspection" title="Permanent link">&para;</a></h3>
+<!-- repro: skip side-by-side reference using placeholder names (/scan, /lidar_driver, /enable); the runnable equivalents are exercised from hu.md -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># List topics</span>
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>ros2<span class="w"> </span>topic<span class="w"> </span>list
 </span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>hu<span class="w"> </span>meter<span class="w"> </span>list<span class="w"> </span>topics
@@ -3181,6 +3191,7 @@
 </span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>hu<span class="w"> </span>monitor<span class="w"> </span>graph
 </span></code></pre></div>
 <h3 id="services-and-parameters">Services and parameters<a class="headerlink" href="#services-and-parameters" title="Permanent link">&para;</a></h3>
+<!-- repro: skip needs a service server and a node exposing parameter services -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Call a service</span>
 </span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>ros2<span class="w"> </span>service<span class="w"> </span>call<span class="w"> </span>/add_two_ints<span class="w"> </span>example_interfaces/srv/AddTwoInts<span class="w"> </span><span class="s1">&#39;{a: 3, b: 7}&#39;</span>
 </span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>hu<span class="w"> </span>meter<span class="w"> </span>service<span class="w"> </span>call<span class="w"> </span>/add_two_ints<span class="w"> </span>--yaml<span class="w"> </span><span class="s1">&#39;{a: 3, b: 7}&#39;</span><span class="w"> </span>--msg-type<span class="w"> </span>example_interfaces/srv/AddTwoInts_Request
@@ -3198,6 +3209,7 @@
 </span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>hu<span class="w"> </span>meter<span class="w"> </span>param<span class="w"> </span>load<span class="w"> </span>/talker<span class="w"> </span>params.yaml
 </span></code></pre></div>
 <h3 id="logging">Logging<a class="headerlink" href="#logging" title="Permanent link">&para;</a></h3>
+<!-- repro: skip needs /rosout traffic from an rclcpp node -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Stream logs</span>
 </span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>ros2<span class="w"> </span>topic<span class="w"> </span><span class="nb">echo</span><span class="w"> </span>/rosout
 </span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>hu<span class="w"> </span>monitor<span class="w"> </span>log

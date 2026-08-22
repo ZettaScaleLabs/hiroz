@@ -2716,6 +2716,9 @@
 </tr>
 </tbody>
 </table>
+<p>The CDR <strong>publishing</strong> examples build their nodes with <code>.with_type_description_service()</code>, so runtime-typed tools such as <code>hu meter echo</code> can fetch the schema and decode their traffic. That call is opt-in on a hiroz node — copy it into your own nodes if you want them to be introspectable the same way. ROS 2 differs here: <code>rclcpp</code> and <code>rclpy</code> start that service by default, so a C++ or Python node is introspectable without asking.</p>
+<p>The <strong>service</strong> examples do not opt in. <code>z_srvcli</code> and <code>demo_nodes/add_two_ints_server</code> build plain nodes, so <code>hu meter service call</code> cannot resolve their request type and fails rather than decoding it. Add <code>.with_type_description_service()</code> to the server's node if you want to drive it from <code>hu</code>.</p>
+<p>The <code>protobuf_interop</code> and <code>encoding_demo</code> examples deliberately leave it off: they publish protobuf-encoded payloads, and advertising a CDR schema for those would invite a consumer to decode them as CDR and print plausible but wrong values.</p>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
 <p>For a detailed walkthrough of creating your own project with hiroz (not using the repository examples), see the <a href="../../getting-started/quick-start/#option-2-create-your-own-project">Quick Start</a> guide.</p>
