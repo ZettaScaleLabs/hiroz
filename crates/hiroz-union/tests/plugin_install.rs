@@ -66,8 +66,11 @@ fn handle(mut stream: TcpStream, routes: &HashMap<String, Route>) {
     if reader.read_line(&mut request_line).is_err() {
         return;
     }
-    // "GET /path HTTP/1.1"
-    let path = request_line.split_whitespace().nth(1).unwrap_or("/");
+    // "GET /path?query HTTP/1.1". Route on the path alone: a real asset host
+    // ignores a query string it does not know, and the credential test sends
+    // `?token=...` to prove that hu does not persist it.
+    let target = request_line.split_whitespace().nth(1).unwrap_or("/");
+    let path = target.split('?').next().unwrap_or(target);
 
     let (status, body) = routes
         .get(path)
@@ -385,9 +388,18 @@ fn uninstall_explains_when_the_plugin_lives_on_hu_plugin_path() {
 
     let r = uninstall("meter", Some(&dir));
     assert!(!r.ok, "must not claim success:\n{}", r.output);
+    // The message must NAME the directory that holds the file. It used to say
+    // `$HU_PLUGIN_PATH` unconditionally, which is wrong when the plugin sits in
+    // the executable-relative prefix and that variable is unset -- advice the
+    // user cannot act on.
     assert!(
-        r.output.contains("HU_PLUGIN_PATH"),
-        "should point at the real location, not say 'not installed', got:\n{}",
+        r.output.contains(&dir.display().to_string()),
+        "should name the directory that actually holds it, got:\n{}",
+        r.output
+    );
+    assert!(
+        !r.output.contains("no installed plugin named"),
+        "must not claim it is not installed, got:\n{}",
         r.output
     );
 
