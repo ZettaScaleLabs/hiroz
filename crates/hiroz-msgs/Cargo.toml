@@ -28,7 +28,7 @@ once_cell = { workspace = true, optional = true }
 byteorder = { workspace = true }
 
 [build-dependencies]
-hiroz-codegen = { version = "0.1", path = "../hiroz-codegen" }
+hiroz-codegen = { version = "0.2", path = "../hiroz-codegen" }
 anyhow = { workspace = true }
 glob = { workspace = true }
 
