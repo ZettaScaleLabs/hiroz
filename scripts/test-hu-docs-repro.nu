@@ -89,6 +89,42 @@ def cmd-head [cmd: string] {
 # Pull every `hu ...` invocation out of the shell fences of one markdown file,
 # carrying its classification and any `export` lines that precede it in the
 # same fence.
+
+# Reduce a documented line to the command it runs, so the `hu` test below sees
+# through the shell forms the docs use.
+#
+# Handled, because the docs contain each of them:
+#   VAR=value hu ...        leading environment assignments
+#   name=$(hu ...)          a command substitution assigning the result
+#   $(hu ...) / `hu ...`    a bare substitution
+#
+# Anything else is returned unchanged, so an unrecognised form still reaches the
+# `hu` test and is either matched or reported -- never dropped for being odd.
+def strip-shell-wrappers [line: string] {
+    mut c = ($line | str trim)
+
+    # `name=$(...)` or a bare `$(...)`: take what is inside.
+    let sub = ($c | parse -r '^(?:[A-Za-z_][A-Za-z0-9_]*=)?\$\((?<inner>.+)\)$')
+    if ($sub | is-not-empty) {
+        $c = ($sub | get 0.inner | str trim)
+    } else {
+        let bt = ($c | parse -r '^(?:[A-Za-z_][A-Za-z0-9_]*=)?`(?<inner>.+)`$')
+        if ($bt | is-not-empty) { $c = ($bt | get 0.inner | str trim) }
+    }
+
+    # Leading `VAR=value` assignments, however many.
+    mut guard = 0
+    while $guard < 8 {
+        let m = ($c | parse -r '^[A-Za-z_][A-Za-z0-9_]*=[^\s]* +(?<rest>.+)$')
+        if ($m | is-empty) { break }
+        $c = ($m | get 0.rest | str trim)
+        $guard = $guard + 1
+    }
+
+    # A pipeline's first stage is the command being documented.
+    ($c | split row "|" | get 0 | str trim)
+}
+
 def extract-file [file: string] {
     mut out = []
     mut in_fence = false
@@ -191,7 +227,13 @@ def extract-file [file: string] {
         # The `hu` test is unchanged, and is asked FIRST: an install-class head
         # can never also be an `hu` line, so nothing is counted twice and the
         # set of extracted `hu` commands is byte-for-byte what it was before.
-        let is_hu = (($cmd | str starts-with "hu ") or ($cmd == "hu"))
+        # Strip the shell forms the docs actually use before asking whether this
+        # is an `hu` line. `starts-with "hu "` alone drops
+        # `HU_WEB_BIND=0.0.0.0 hu web` and `rate=$(hu meter hz ... )`, which are
+        # both in the docs today -- so their `repro:` directives never reach the
+        # report either, and the suite silently covers less than it claims.
+        let bare = (strip-shell-wrappers $cmd)
+        let is_hu = (($bare | str starts-with "hu ") or ($bare == "hu"))
         # An install line is classified by exactly the same `repro:` directives
         # as an `hu` line, and — deliberately — defaults to `run` in exactly
         # the same way. A command the fixture cannot satisfy must be declared

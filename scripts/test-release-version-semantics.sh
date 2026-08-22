@@ -241,20 +241,45 @@ grep_must "$GH" "the suite exit status is captured, not piped away" \
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-derive() { # file, ref-var-name, ref-value, assignment-pattern
-    _f="$1"; _var="$2"; _ref="$3"; _assign="$4"
+# Evaluate the Nth derivation block, 1-based. `release.yml` carries one per
+# release producer -- `build-binaries` and `build-hu-plugins` today -- and they
+# are independent copies. A `grep -m1` here validated only the first, so the
+# second could regress to `HU_CORE=$V` and this test would stay green.
+derive_nth() { # file, ref-var-name, ref-value, assignment-pattern, n
+    _f="$1"; _var="$2"; _ref="$3"; _assign="$4"; _n="$5"
     {
-        grep -m1 -- "$_assign" "$_f"
-        grep -m1 'echo "HU_VERSION=' "$_f"
-        grep -m1 'echo "HU_CORE=' "$_f"
+        grep -- "$_assign" "$_f"          | sed -n "${_n}p"
+        grep 'echo "HU_VERSION=' "$_f"    | sed -n "${_n}p"
+        grep 'echo "HU_CORE=' "$_f"       | sed -n "${_n}p"
     } | sed 's/^[[:space:]]*//' > "$WORK/derive.sh"
     : > "$WORK/env"
     env "$_var=$_ref" GITHUB_ENV="$WORK/env" sh "$WORK/derive.sh" >/dev/null 2>&1 || true
     cat "$WORK/env"
 }
 
+# How many derivation blocks the file has. Asserted below, so a producer added
+# without a matching check is a failure rather than a silent gap.
+derivation_count() { # file, assignment-pattern
+    grep -c -- "$2" "$1"
+}
+
+# Every derivation block must agree. A release whose binary leg and plugin leg
+# disagree about the core version publishes assets that cannot install together.
 check_derivation() { # label, file, ref-var, ref, assign-pattern, want_version, want_core
-    _out="$(derive "$2" "$3" "$4" "$5")"
+    _total="$(derivation_count "$2" "$5")"
+    if [ "$_total" -lt 1 ]; then
+        bad "$1 (no derivation block matched $5)"
+        return
+    fi
+    _i=1
+    while [ "$_i" -le "$_total" ]; do
+        check_one_derivation "$1 [block $_i/$_total]" "$2" "$3" "$4" "$5" "$6" "$7" "$_i"
+        _i=$((_i + 1))
+    done
+}
+
+check_one_derivation() { # label, file, ref-var, ref, assign-pattern, want_version, want_core, n
+    _out="$(derive_nth "$2" "$3" "$4" "$5" "$8")"
     _v="$(printf '%s\n' "$_out" | sed -n 's/^HU_VERSION=//p' | head -n1)"
     _c="$(printf '%s\n' "$_out" | sed -n 's/^HU_CORE=//p' | head -n1)"
     if [ "$_v" = "$6" ] && [ "$_c" = "$7" ]; then
