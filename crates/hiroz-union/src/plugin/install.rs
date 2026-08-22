@@ -29,11 +29,13 @@ use super::wasm::{plugin_search_dirs, sanitize_plugin_stem, validate_plugin_stat
 /// message instead of letting wasmtime fail later with a link error.
 pub const HOST_WIT_WORLD: &str = "hu:plugin@0.1.0";
 
+/// The `schema` value in `hu-plugins-<ver>.json` that this hu can read.
+const SUPPORTED_INDEX_SCHEMA: u32 = 1;
+
 const DEFAULT_REGISTRY_ENV: &str = "HU_PLUGIN_REGISTRY";
 
 #[derive(Debug, Deserialize)]
 struct RegistryIndex {
-    #[allow(dead_code)]
     schema: u32,
     wit_world: String,
     plugins: Vec<RegistryEntry>,
@@ -59,8 +61,36 @@ pub struct InstalledDb {
 pub struct InstalledEntry {
     pub name: String,
     pub file: String,
-    pub version: String,
+    /// `None` when the source does not state one. A local file and a bare URL
+    /// carry no version; only the registry index does. Recording the *kind* of
+    /// source here (the previous behaviour) made `hu plugin list` print
+    /// `VERSION local`.
+    #[serde(default)]
+    pub version: Option<String>,
+    /// How it was installed: `local`, `url` or `registry`.
     pub source: String,
+    /// Where it came from, with any credential removed. A signed asset URL can
+    /// carry a token in its query string or userinfo, and `hu plugin list
+    /// --json` prints this verbatim.
+    #[serde(default)]
+    pub origin: Option<String>,
+}
+
+/// Strip anything credential-bearing from a URL before it is persisted: the
+/// userinfo (`https://user:token@host/...`) and the query string, which is
+/// where a signed-URL token lives. A non-URL is returned unchanged.
+fn sanitize_origin(source: &str) -> String {
+    if !is_url(source) {
+        return source.to_string();
+    }
+    let no_query = source.split(['?', '#']).next().unwrap_or(source);
+    match no_query.split_once("://") {
+        Some((scheme, rest)) => match rest.split_once('@') {
+            Some((_userinfo, host_and_path)) => format!("{scheme}://{host_and_path}"),
+            None => no_query.to_string(),
+        },
+        None => no_query.to_string(),
+    }
 }
 
 /// The directory installs write to: always the last search dir, which is the
@@ -149,10 +179,13 @@ fn http_get(url: &str) -> Result<Vec<u8>> {
     let mut cmd = std::process::Command::new("curl");
     // `--fail` matters: without it an HTTP error page is written to stdout and
     // we would cheerfully install a 404 as a plugin.
-    cmd.args(curl_args(
-        url,
-        std::env::var("HU_RELEASE_TOKEN").ok().as_deref(),
-    ));
+    // An empty value is not a credential. Sending `Authorization: token `
+    // turns an anonymous public download into a 401, and `install-hu.sh`
+    // already treats an empty variable as absent.
+    let token = std::env::var("HU_RELEASE_TOKEN")
+        .ok()
+        .filter(|t| !t.trim().is_empty());
+    cmd.args(curl_args(url, token.as_deref()));
     let out = cmd
         .output()
         .with_context(|| "running curl (is it installed?)")?;
@@ -171,8 +204,9 @@ fn accept(
     bytes: &[u8],
     file_name: &str,
     expected_sha: Option<&str>,
-    source: &str,
-    version: &str,
+    source_kind: &str,
+    origin: &str,
+    version: Option<&str>,
 ) -> Result<PathBuf> {
     if let Some(want) = expected_sha {
         let got = sha256_hex(bytes);
@@ -228,8 +262,9 @@ fn accept(
     db.plugins.push(InstalledEntry {
         name: display_name,
         file: format!("{safe}.wasm"),
-        version: version.to_string(),
-        source: source.to_string(),
+        version: version.map(str::to_string),
+        source: source_kind.to_string(),
+        origin: Some(sanitize_origin(origin)),
     });
     save_db(&db)?;
 
@@ -251,7 +286,7 @@ pub fn install(source: &str, registry: Option<&str>) -> Result<PathBuf> {
         let expected = std::fs::read_to_string(&sidecar)
             .ok()
             .and_then(|s| s.split_whitespace().next().map(str::to_string));
-        return accept(&bytes, name, expected.as_deref(), source, "local");
+        return accept(&bytes, name, expected.as_deref(), "local", source, None);
     }
 
     if is_url(source) {
@@ -261,7 +296,7 @@ pub fn install(source: &str, registry: Option<&str>) -> Result<PathBuf> {
             .ok()
             .and_then(|b| String::from_utf8(b).ok())
             .and_then(|s| s.split_whitespace().next().map(str::to_string));
-        return accept(&bytes, name, expected.as_deref(), source, "url");
+        return accept(&bytes, name, expected.as_deref(), "url", source, None);
     }
 
     install_from_registry(source, registry)
@@ -297,6 +332,18 @@ fn install_from_registry(name: &str, registry: Option<&str>) -> Result<PathBuf> 
     })?;
     let index: RegistryIndex = serde_json::from_slice(&raw)
         .with_context(|| format!("parsing plugin index at {index_url}"))?;
+
+    // Check the schema before reading any entry. serde accepts `schema: 2` as
+    // long as the rest of the JSON still deserialises, so an index written to a
+    // later shape would otherwise be silently read as if it were this one.
+    if index.schema != SUPPORTED_INDEX_SCHEMA {
+        bail!(
+            "plugin index at {index_url} declares schema {} but this hu implements {}.\n\
+             Install a release matching this hu, or upgrade hu.",
+            index.schema,
+            SUPPORTED_INDEX_SCHEMA
+        );
+    }
 
     if index.wit_world != HOST_WIT_WORLD {
         bail!(
@@ -335,8 +382,9 @@ fn install_from_registry(name: &str, registry: Option<&str>) -> Result<PathBuf> 
         &bytes,
         &entry.file,
         Some(&entry.sha256),
+        "registry",
         &asset_url,
-        &entry.version,
+        Some(&entry.version),
     )
 }
 
@@ -354,15 +402,20 @@ pub fn uninstall(name: &str) -> Result<PathBuf> {
         let elsewhere = plugin_search_dirs()
             .into_iter()
             .filter(|d| *d != dir)
-            .any(|d| {
+            .find(|d| {
                 ["hu_", "hu-", ""]
                     .iter()
                     .any(|p| d.join(format!("{p}{name}.wasm")).exists())
             });
-        if elsewhere {
+        if let Some(other) = elsewhere {
+            // Name the directory that actually holds it. `plugin_search_dirs`
+            // also returns an executable-relative prefix dir, so this fires
+            // with `$HU_PLUGIN_PATH` unset -- an earlier message blamed that
+            // variable and gave advice the user could not act on.
             anyhow!(
-                "'{name}' is loaded from a directory on $HU_PLUGIN_PATH, not from {}. \
-                 Remove it there, or unset $HU_PLUGIN_PATH.",
+                "'{name}' is loaded from {}, not from the managed directory {}. \
+                 Remove it there.",
+                other.display(),
                 dir.display()
             )
         } else {
@@ -372,9 +425,18 @@ pub fn uninstall(name: &str) -> Result<PathBuf> {
 
     std::fs::remove_file(found).with_context(|| format!("removing {}", found.display()))?;
 
+    // The file is gone by now, so a discarded write leaves an entry claiming a
+    // plugin that is not there -- which the next install of the same name would
+    // inherit. Report it instead, and say what state the caller is in.
     let mut db = load_db();
     db.plugins.retain(|p| p.name != name);
-    let _ = save_db(&db);
+    save_db(&db).with_context(|| {
+        format!(
+            "removed {} but could not update the install record; \
+             `hu plugin list` may still show '{name}'",
+            found.display()
+        )
+    })?;
 
     Ok(found.clone())
 }

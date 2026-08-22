@@ -19,7 +19,7 @@ set -eu
 
 # Release attachments are served from
 #   <host>/<owner>/<repo>/releases/download/<tag>/<file>
-# and the tag for version X is hu-vX. HU_RELEASE_BASE overrides the whole
+# and the tag for version X is vX. HU_RELEASE_BASE overrides the whole
 # directory, which is what makes it possible to point at a smoke-test tag whose
 # filenames carry a different version than its tag.
 DEFAULT_HOST="https://github.com"
@@ -123,7 +123,16 @@ resolve_token() {
 # /releases/latest excludes drafts and pre-releases, which is what we want: a
 # bare install should never land on a rehearsal tag.
 resolve_latest() {
-    curl -fsSL "https://api.github.com/repos/$DEFAULT_REPO_PATH/releases/latest" 2>/dev/null \
+    # Send the same credential as every other request. A private repository
+    # answers /releases/latest with 401, so without this a no-argument install
+    # fails here rather than at the asset it is authorised to fetch.
+    if [ -n "${TOKEN:-}" ]; then
+        set -- -H "Authorization: token $TOKEN"
+    else
+        set --
+    fi
+    curl -fsSL --connect-timeout 10 --max-time 60 "$@" \
+        "https://api.github.com/repos/$DEFAULT_REPO_PATH/releases/latest" 2>/dev/null \
         | grep -m1 '"tag_name"' \
         | sed 's/.*"tag_name" *: *"//; s/".*//; s/^v//'
 }
@@ -172,7 +181,14 @@ cleanup() {
     [ -n "$STAGE" ] && rm -rf "$STAGE"
     return 0
 }
-trap cleanup EXIT INT TERM
+# EXIT only. A trap that returns 0 CONSUMES the signal, so sharing this handler
+# with INT/TERM let a Ctrl-C between two commands delete the staging directories
+# and leave the installer running against them. The signal traps therefore clean
+# up and then exit, which re-runs cleanup through EXIT -- harmless, both removals
+# are idempotent.
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 
 if [ -n "$OFFLINE_DIR" ]; then
     [ -d "$OFFLINE_DIR" ] || die "$OFFLINE_DIR is not a directory"
@@ -190,6 +206,12 @@ else
     TARGET="$(detect_target)"
 
     if [ -z "$VERSION" ]; then
+        # A caller who redirected the base has not told us WHICH release lives
+        # there, and this project's API cannot answer for someone else's host.
+        # Asking it anyway builds filenames from an unrelated version number
+        # and 404s against a directory that was perfectly correct.
+        [ -z "$BASE" ] || die "HU_RELEASE_BASE needs an explicit --version (or HU_VERSION):
+  the newest-release lookup only speaks for this project's own releases."
         VERSION="$(resolve_latest || true)"
         [ -n "$VERSION" ] || die "could not determine the latest version from
   $DEFAULT_HOST/$DEFAULT_REPO_PATH
@@ -198,7 +220,7 @@ Pass one explicitly: --version X.Y.Z (or set HU_VERSION)."
     fi
 
     # A pre-release tag and its asset filenames do NOT carry the same version.
-    # The tag is the full `hu-v0.1.0-rc1`, but build-hu-release.nu names every
+    # The tag is the full `v0.1.0-rc1`, but build-hu-release.nu names every
     # asset for the CORE version (`hu-0.1.0-...`), because an rc ships the same
     # crate as the release it rehearses. For a normal release the two strings
     # are identical, which is exactly why conflating them survived until the

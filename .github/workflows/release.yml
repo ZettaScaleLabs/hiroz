@@ -804,14 +804,20 @@ jobs:
   withdraw-release:
     name: Withdraw the release if verification failed
     needs: [publish-release, smoke-test-release-install]
-    # NOT `failure()`: that is true when ANY ancestor fails, and this job's
+    # `!= 'success'`, NOT `== 'failure'`: GitHub reports a cancelled job as
+    # `cancelled` and a skipped one as `skipped`. Promotion has already
+    # happened by then, so equality on 'failure' leaves an unverified release
+    # public and carrying the *Latest* badge -- which is the answer
+    # install-hu.sh's resolve_latest gives.
+    #
+    # NOT `failure()` either: that is true when ANY ancestor fails, and this job's
     # ancestors reach back to build-binaries. A failed build skips release and
     # publish-release, then this job would still run and try to withdraw a
     # release that was never created -- going red with a caption implying a bad
     # release is live. Withdraw only what publish-release actually published.
     if: ${{ always()
             && needs.publish-release.result == 'success'
-            && needs.smoke-test-release-install.result == 'failure' }}
+            && needs.smoke-test-release-install.result != 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Return the release to draft

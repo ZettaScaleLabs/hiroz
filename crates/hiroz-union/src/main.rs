@@ -345,18 +345,31 @@ fn run_plugin_list(json: bool) -> Result<(), Box<dyn std::error::Error + Send + 
         // the path by hand do not, and the listing should say so rather than
         // present them as equivalent.
         let db = plugin::install::load_db();
-        let meta = |name: &str| db.plugins.iter().find(|p| p.name == name);
+        // Match the managed FILE, not just the name. Discovery can return the
+        // same plugin name from `$HU_PLUGIN_PATH`, the executable-relative
+        // prefix and the managed directory; matching on the name alone labels a
+        // development build with the installed plugin's version and source.
+        let managed_dir = plugin::install::install_dir().ok();
+        let meta = |name: &str, path: &std::path::Path| {
+            db.plugins.iter().find(|p| {
+                p.name == name
+                    && managed_dir
+                        .as_ref()
+                        .is_some_and(|d| d.join(&p.file) == *path)
+            })
+        };
 
         if json {
             let entries: Vec<_> = plugins
                 .iter()
                 .map(|(name, path)| {
-                    let m = meta(name);
+                    let m = meta(name, path);
                     serde_json::json!({
                         "name": name,
                         "path": path.to_string_lossy(),
                         "kind": "wasm",
-                        "version": m.map(|m| m.version.clone()),
+                        "version": m.and_then(|m| m.version.clone()),
+                        "origin": m.and_then(|m| m.origin.clone()),
                         "source": m.map(|m| m.source.clone()).unwrap_or_else(|| "unmanaged".into()),
                     })
                 })
@@ -371,11 +384,11 @@ fn run_plugin_list(json: bool) -> Result<(), Box<dyn std::error::Error + Send + 
             println!("{:<16} {:<10} {:<10} PATH", "PLUGIN", "VERSION", "SOURCE");
             println!("{}", "-".repeat(78));
             for (name, path) in &plugins {
-                let m = meta(name);
+                let m = meta(name, path);
                 println!(
                     "{:<16} {:<10} {:<10} {}",
                     name,
-                    m.map(|m| m.version.as_str()).unwrap_or("-"),
+                    m.and_then(|m| m.version.as_deref()).unwrap_or("-"),
                     m.map(|m| source_label(&m.source)).unwrap_or("unmanaged"),
                     path.to_string_lossy()
                 );
@@ -386,13 +399,13 @@ fn run_plugin_list(json: bool) -> Result<(), Box<dyn std::error::Error + Send + 
 }
 
 #[cfg(feature = "wasm-plugins")]
-fn source_label(source: &str) -> &'static str {
-    if source.starts_with("http://") || source.starts_with("https://") {
-        "download"
-    } else if source == "local" {
-        "local"
-    } else {
-        "installed"
+/// Render the recorded source kind. `InstalledEntry::source` holds one of
+/// `local`, `url` or `registry`; anything else comes from a record written by
+/// an older hu, and is shown verbatim rather than guessed at.
+fn source_label(source: &str) -> &str {
+    match source {
+        "url" => "download",
+        other => other,
     }
 }
 

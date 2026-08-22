@@ -14,9 +14,9 @@ Before releasing, bump the version in all three places consistently:
 
 The `hiroz-py` wheel depends on `hiroz-msgs-py>=<version>` — update that lower bound too when bumping.
 
-**One version governs every Rust crate, and a check enforces it.** `hiroz`, `hiroz-protocol` and `hiroz-union` each used to carry a literal `version`, which meant `cargo publish --workspace` could leave a published crate behind at the old number while the tag said otherwise, and a `v0.2.0` tag could produce `hu` assets named `0.1.0`. They now inherit, and `scripts/test-release-version-semantics.sh` fails if any crate under `crates/` reintroduces a literal.
+**One version governs every Rust crate, and a check enforces it.** `hiroz`, `hiroz-protocol` and `hiroz-union` each used to carry a literal `version`, which meant `cargo publish --workspace` could leave a published crate behind at the old number while the tag said otherwise, and a `v0.2.0` tag could produce `hu` assets named `0.1.0`. They now inherit. Nothing yet enforces that automatically, so a reintroduced literal is caught by review, not by CI.
 
-`hu` keeps an independent release *cadence* through its own `hu-v*` tags — you can cut a `hu` release between workspace releases — but not an independent *number*.
+`hu` ships from the workspace's own `v*` tags. It has neither an independent number nor, at present, an independent tag namespace.
 
 > **Do not bump the WIT world alongside the product version.** `hu:plugin@0.1.0` is the plugin **ABI contract**, not a product version, and the two move on different clocks. It lives in three places that must agree — `HOST_WIT_WORLD` in `crates/hiroz-union/src/plugin/install.rs`, the `WIT_WORLD` constant in `scripts/build-hu-release.nu`, and the `package` line of `crates/hiroz-union/wit/v0.1/hu-plugin.wit` — and `install.rs` compares it to a release index by **exact string equality**. Bump the string and `hu plugin install <name>` refuses every index still declaring the old world, with a message telling the user to upgrade `hu` — for a change that never happened. Rename the package in `hu-plugin.wit` as well and the breakage is real rather than cosmetic: plugins built against the old package no longer instantiate. Change it only when the interface in `hu-plugin.wit` changes incompatibly, and then change all three sites in the same commit.
 

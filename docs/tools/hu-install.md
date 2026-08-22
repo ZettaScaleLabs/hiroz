@@ -21,7 +21,7 @@ sh install-hu.sh
 
 That downloads the binary and the plugins, verifies both against `SHA256SUMS`, installs `hu` to `~/.local/bin/` and the plugins to `~/.local/share/hu/plugins/`.
 
-To install a specific version rather than the newest, pass `--version X.Y.Z`. To install from somewhere other than this project's GitHub releases, set `HU_RELEASE_BASE` to that release's download directory — then the installer looks nowhere else, which matters if you fetched the script from one place and its assets live in another.
+To install a specific version rather than the newest, pass `--version X.Y.Z`. To install from somewhere other than this project's GitHub releases, set `HU_RELEASE_BASE` to that release's download directory. **Pass `--version` with it.** The newest-release lookup speaks only for this project's own releases. The installer therefore refuses a redirected base without a version, rather than naming files after an unrelated release.
 
 **`HU_RELEASE_BASE` is a release's download directory**, ending `/releases/download/v<version>`. Point it at the release you were given; the filenames below it are the same either way.
 
