@@ -14,7 +14,7 @@ Before releasing, bump the version in all three places consistently:
 
 The `hiroz-py` wheel depends on `hiroz-msgs-py>=<version>` — update that lower bound too when bumping.
 
-**One version governs every Rust crate, and a check enforces it.** `hiroz`, `hiroz-protocol` and `hiroz-union` each used to carry a literal `version`, which meant `cargo publish --workspace` could leave a published crate behind at the old number while the tag said otherwise, and a `v0.2.0` tag could produce `hu` assets named `0.1.0`. They now inherit. Nothing yet enforces that automatically, so a reintroduced literal is caught by review, not by CI.
+**One version governs every Rust crate, and a check enforces it.** `hiroz`, `hiroz-protocol` and `hiroz-union` each used to carry a literal `version`, which meant `cargo publish --workspace` could leave a published crate behind at the old number while the tag said otherwise, and a `v0.2.0` tag could produce `hu` assets named `0.1.0`. They now inherit, and `scripts/test-release-version-semantics.sh` fails if any crate under `crates/` reintroduces a literal. `ci.yml` runs it on every pull request.
 
 `hu` ships from the workspace's own `v*` tags. It has neither an independent number nor, at present, an independent tag namespace.
 
