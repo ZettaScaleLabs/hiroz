@@ -299,7 +299,7 @@ impl ZNode {
     /// automatically registered for `GetTypeDescription` discovery.
     ///
     /// The topic name will be qualified according to ROS 2 rules:
-    /// - Absolute topics (starting with '/') are used as-is
+    /// - Absolute topics (starting with '/') are validated and used as given
     /// - Private topics (starting with '~') are expanded to /<namespace>/<node_name>/<topic>
     /// - Relative topics are expanded to /<namespace>/<topic>
     pub fn create_pub<T>(&self, topic: &str) -> ZPubBuilder<T, T::Serdes>
@@ -364,7 +364,7 @@ impl ZNode {
     /// If T implements WithTypeInfo, type information will be automatically populated
     ///
     /// The topic name will be qualified according to ROS 2 rules:
-    /// - Absolute topics (starting with '/') are used as-is
+    /// - Absolute topics (starting with '/') are validated and used as given
     /// - Private topics (starting with '~') are expanded to /<namespace>/<node_name>/<topic>
     /// - Relative topics are expanded to /<namespace>/<topic>
     pub fn create_sub<T>(&self, topic: &str) -> ZSubBuilder<T, T::Serdes>
@@ -461,7 +461,7 @@ impl ZNode {
     /// discovery for this service won't resolve.
     ///
     /// The service name will be qualified according to ROS 2 rules:
-    /// - Absolute service names (starting with '/') are used as-is
+    /// - Absolute service names (starting with '/') are validated and used as given
     /// - Private service names (starting with '~') are expanded to /<namespace>/<node_name>/<service>
     /// - Relative service names are expanded to /<namespace>/<service>
     pub fn create_service<T>(&self, name: &str) -> ZServerBuilder<T>
@@ -512,7 +512,7 @@ impl ZNode {
     /// If T is a tuple (Req, Resp) where both implement WithTypeInfo, type information will be automatically populated
     ///
     /// The service name will be qualified according to ROS 2 rules:
-    /// - Absolute service names (starting with '/') are used as-is
+    /// - Absolute service names (starting with '/') are validated and used as given
     /// - Private service names (starting with '~') are expanded to /<namespace>/<node_name>/<service>
     /// - Relative service names are expanded to /<namespace>/<service>
     pub fn create_client<T>(&self, name: &str) -> ZClientBuilder<T>
@@ -1243,7 +1243,7 @@ impl ZNode {
     /// combined with [`create_dyn_sub`] instead.
     ///
     /// The topic name will be qualified according to ROS 2 rules:
-    /// - Absolute topics (starting with '/') are used as-is
+    /// - Absolute topics (starting with '/') are validated and used as given
     /// - Private topics (starting with '~') are expanded to /<namespace>/<node_name>/<topic>
     /// - Relative topics are expanded to /<namespace>/<topic>
     ///
@@ -1300,7 +1300,7 @@ impl ZNode {
     /// * `schema` - The message schema for deserialization
     ///
     /// The topic name will be qualified according to ROS 2 rules:
-    /// - Absolute topics (starting with '/') are used as-is
+    /// - Absolute topics (starting with '/') are validated and used as given
     /// - Private topics (starting with '~') are expanded to /<namespace>/<node_name>/<topic>
     /// - Relative topics are expanded to /<namespace>/<topic>
     ///
