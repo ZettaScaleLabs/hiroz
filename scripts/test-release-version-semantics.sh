@@ -357,6 +357,16 @@ grep_must_not "$GH" "the withdraw job does not test equality with failure" \
     "needs.smoke-test-release-install.result == 'failure'"
 grep_must     "$GH" "the download test waits for the promotion" 'needs: \[publish-release\]'
 grep_must     "$GH" "crates.io is gated behind the download test" 'needs: \[smoke-test-release-install\]'
+
+# The rehearsal script must give its tag a message. A bare `git tag` produces a
+# SIGNED tag for anyone with `tag.gpgsign = true`, and a signed tag needs a
+# message -- so the script died with `fatal: no tag message?` before pushing
+# anything, on exactly the machines that cut releases. RELEASING.md names this
+# script as the documented rehearsal, so that failure removed the only
+# documented way to test a release without cutting one.
+RW="scripts/test-release-workflow.nu"
+grep_must     "$RW" "the rehearsal tag carries a message" '\^git tag -a -m'
+grep_must_not "$RW" "the rehearsal does not create a bare tag" '\^git tag \$tag$'
 echo
 echo "-- $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -73,7 +73,13 @@ def main [
     log-header "Release workflow smoke test" $tag
 
     log-step $"Creating tag ($tag)"
-    ^git tag $tag
+    # `-a -m`, not a bare `git tag`. A user with `tag.gpgsign = true` in their
+    # git config gets a SIGNED tag from the bare form, and a signed tag needs a
+    # message -- so the script died with `fatal: no tag message?` before pushing
+    # anything, on the very machine that cuts releases. This form works either
+    # way: with signing configured the tag is signed and carries a message, and
+    # without it the tag is annotated.
+    ^git tag -a -m $"Release workflow rehearsal for ($tag). Temporary; deleted on cleanup." $tag
 
     log-step $"Pushing tag ($tag) → ($REPO)"
     ^git push origin $tag
