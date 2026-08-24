@@ -18,6 +18,7 @@ no-type-hash = []              # ROS 2 Humble doesn't support type hashing
 
 [dependencies]
 zenoh = { version = "1.9.0", default-features = false }
+hiroz-schema = { workspace = true }
 
 [dev-dependencies]
 zenoh = { version = "1.9.0", default-features = false }

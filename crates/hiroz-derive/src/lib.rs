@@ -410,8 +410,13 @@ fn parse_canonical_type_name(type_name: &str) -> syn::Result<(String, String, St
 }
 
 fn canonical_to_dds_name(type_name: &str) -> syn::Result<String> {
+    // Validate first, so that the caller gets this crate's own error message.
+    // Then mangle through the shared rule, rather than a second copy of it.
     let (package, kind, name) = parse_canonical_type_name(type_name)?;
-    Ok(format!("{package}::{kind}::dds_::{name}_"))
+    Ok(hiroz_schema::type_name::dds_from_namespace(
+        &format!("{package}::{kind}"),
+        &name,
+    ))
 }
 
 /// Generate extraction code for a single field.

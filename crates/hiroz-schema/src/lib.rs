@@ -13,12 +13,17 @@
 mod hash;
 mod type_description;
 mod type_id;
+pub mod type_name;
 
 pub use hash::{calculate_hash, to_ros2_json};
 pub use type_description::{
     FieldDescription, FieldTypeDescription, TypeDescription, TypeDescriptionMsg, to_hash_version,
 };
 pub use type_id::TypeId;
+pub use type_name::{
+    KINDS, dds_from_canonical, dds_from_namespace, ros_from_dds, ros_from_dds_strict,
+    service_from_response, split_canonical,
+};
 
 /// RIHS01 type hash (32 bytes)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -4,12 +4,10 @@ use crate::dynamic::{MessageSchema, MessageSchemaTypeDescription};
 use crate::entity::{TypeHash, TypeInfo};
 
 pub(crate) fn dds_type_name_from_schema(schema: &MessageSchema) -> String {
-    schema
-        .type_name
-        .replace("/msg/", "::msg::dds_::")
-        .replace("/srv/", "::srv::dds_::")
-        .replace("/action/", "::action::dds_::")
-        + "_"
+    // A schema whose type_name is not canonical has nothing to mangle. Pass it
+    // through. The old string replacement half-mangled it instead.
+    hiroz_schema::type_name::dds_from_canonical(&schema.type_name)
+        .unwrap_or_else(|| schema.type_name.clone())
 }
 
 /// Convert a DDS-mangled type name as it appears in liveliness tokens and the
@@ -18,16 +16,15 @@ pub(crate) fn dds_type_name_from_schema(schema: &MessageSchema) -> String {
 /// out-of-crate consumers (e.g. `hu`'s WASM host) resolve graph-reported types
 /// against `load_schema` and must use this exact normalisation rather than
 /// re-deriving one -- see issue #172.
+///
+/// This is the **lenient** inverse. It tolerates a name that has no `dds_::`
+/// segment, because such a name must still resolve against the schema registry.
+/// An RMW graph boundary needs the strict inverse instead, which is
+/// [`hiroz_schema::ros_from_dds_strict`]. That one matches `rmw_zenoh_cpp`.
+/// Both live in `hiroz_schema::type_name`, the one place that states the
+/// rule.
 pub fn ros_type_name_from_dds(dds_name: &str) -> String {
-    dds_name
-        .replace("::msg::dds_::", "/msg/")
-        .replace("::srv::dds_::", "/srv/")
-        .replace("::action::dds_::", "/action/")
-        .replace("::msg::", "/msg/")
-        .replace("::srv::", "/srv/")
-        .replace("::action::", "/action/")
-        .trim_end_matches('_')
-        .to_string()
+    hiroz_schema::type_name::ros_from_dds(dds_name)
 }
 
 pub(crate) fn schema_hash(schema: &MessageSchema) -> TypeHash {

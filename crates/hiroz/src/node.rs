@@ -3,6 +3,11 @@ use std::{sync::Arc, time::Duration};
 use tracing::{debug, info, warn};
 use zenoh::{Result, Session, Wait, liveliness::LivelinessToken};
 
+// Only the FFI action paths below mangle a type name. This import therefore
+// carries the same gate as the code that uses it.
+#[cfg(feature = "ffi")]
+use hiroz_schema::type_name::dds_from_namespace;
+
 #[cfg(feature = "ffi")]
 use crate::ffi::publisher::RawPublisher;
 use crate::{
@@ -834,17 +839,19 @@ impl ZNode {
         // Compute DDS-style type names required by rmw_zenoh_cpp's graph discovery.
         // action_type is e.g. "example_interfaces/action/Fibonacci" → package="example_interfaces", name="Fibonacci"
         let (pkg, aname) = split_action_type(action_type);
-        let send_goal_type = format!("{}::action::dds_::{}_SendGoal_", pkg, aname);
-        let get_result_type = format!("{}::action::dds_::{}_GetResult_", pkg, aname);
-        let cancel_goal_type = "action_msgs::srv::dds_::CancelGoal_";
-        let feedback_type_dds = format!("{}::action::dds_::{}_FeedbackMessage_", pkg, aname);
+        let action_ns = format!("{pkg}::action");
+        let send_goal_type = dds_from_namespace(&action_ns, &format!("{aname}_SendGoal"));
+        let get_result_type = dds_from_namespace(&action_ns, &format!("{aname}_GetResult"));
+        let cancel_goal_type = dds_from_namespace("action_msgs::srv", "CancelGoal");
+        let feedback_type_dds =
+            dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
 
         let send_goal_client =
             self.create_raw_service_client(&send_goal_service, &send_goal_type, goal_hash)?;
         let get_result_client =
             self.create_raw_service_client(&get_result_service, &get_result_type, result_hash)?;
         let cancel_goal_client =
-            self.create_raw_service_client(&cancel_goal_service, cancel_goal_type, "")?;
+            self.create_raw_service_client(&cancel_goal_service, &cancel_goal_type, "")?;
 
         // Feedback subscriber (no-op callback for now; Go handles via polling or separate mechanism)
         let feedback_sub =
@@ -882,22 +889,24 @@ impl ZNode {
         // Compute DDS-style type names required by rmw_zenoh_cpp's graph discovery.
         // action_type is e.g. "example_interfaces/action/Fibonacci" → package="example_interfaces", name="Fibonacci"
         let (pkg, aname) = split_action_type(action_type);
-        let send_goal_type = format!("{}::action::dds_::{}_SendGoal_", pkg, aname);
-        let get_result_type = format!("{}::action::dds_::{}_GetResult_", pkg, aname);
-        let cancel_goal_type = "action_msgs::srv::dds_::CancelGoal_";
-        let feedback_type_dds = format!("{}::action::dds_::{}_FeedbackMessage_", pkg, aname);
-        let status_type_dds = "action_msgs::msg::dds_::GoalStatusArray_";
+        let action_ns = format!("{pkg}::action");
+        let send_goal_type = dds_from_namespace(&action_ns, &format!("{aname}_SendGoal"));
+        let get_result_type = dds_from_namespace(&action_ns, &format!("{aname}_GetResult"));
+        let cancel_goal_type = dds_from_namespace("action_msgs::srv", "CancelGoal");
+        let feedback_type_dds =
+            dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
+        let status_type_dds = dds_from_namespace("action_msgs::msg", "GoalStatusArray");
 
         let send_goal_server =
             self.create_raw_service_server(&send_goal_service, &send_goal_type, goal_hash)?;
         let get_result_server =
             self.create_raw_service_server(&get_result_service, &get_result_type, result_hash)?;
         let cancel_goal_server =
-            self.create_raw_service_server(&cancel_goal_service, cancel_goal_type, "")?;
+            self.create_raw_service_server(&cancel_goal_service, &cancel_goal_type, "")?;
 
         let feedback_pub =
             self.create_raw_publisher(&feedback_topic, &feedback_type_dds, feedback_hash)?;
-        let status_pub = self.create_raw_publisher(&status_topic, status_type_dds, "")?;
+        let status_pub = self.create_raw_publisher(&status_topic, &status_type_dds, "")?;
 
         Ok(crate::ffi::action::RawActionServer {
             send_goal_server,

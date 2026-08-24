@@ -80,6 +80,8 @@ mod ffi {
 
 use ffi::*;
 use hiroz::entity::{TypeHash, TypeInfo};
+use hiroz_protocol::format::rmw_zenoh::dds_type_name;
+use hiroz_schema::type_name::service_from_response;
 
 use crate::ros::rosidl_type_hash_t;
 
@@ -162,42 +164,21 @@ impl MessageTypeSupport {
         res
     }
 
+    /// The type name as it appears in an rmw_zenoh key expression, e.g.
+    /// `std_msgs::msg::dds_::String_`.
+    ///
+    /// This calls the one shared helper. It therefore cannot drift away from
+    /// the name that `hiroz-codegen` bakes into generated messages.
     pub fn get_type_prefix(&self) -> String {
         let (name, namespace) = unsafe {
             let ts = self.as_ref();
             (get_message_name(ts), get_message_namespace(ts))
         };
-
-        let ns = if namespace.is_empty() {
-            ""
-        } else {
-            &(namespace + "::")
-        };
-        format!("{ns}dds_::{name}_")
-    }
-
-    /// Get the ROS type name in the format "namespace/msg/Name" (without DDS mangling)
-    pub fn get_ros_type_name(&self) -> String {
-        let (name, namespace) = unsafe {
-            let ts = self.as_ref();
-            (get_message_name(ts), get_message_namespace(ts))
-        };
-
-        // Remove trailing underscore from name (DDS mangling)
-        let clean_name = name.strip_suffix('_').unwrap_or(&name);
-
-        // Format as ROS type name: replace :: with / in namespace
-        if namespace.is_empty() {
-            clean_name.to_string()
-        } else {
-            // Replace C++ namespace separators (::) with ROS separators (/)
-            let ros_namespace = namespace.replace("::", "/");
-            format!("{}/{}", ros_namespace, clean_name)
-        }
+        dds_type_name(&namespace, &name)
     }
 
     pub fn get_type_info(&self) -> TypeInfo {
-        TypeInfo::new(&self.get_ros_type_name(), self.get_type_hash())
+        TypeInfo::new(&self.get_type_prefix(), self.get_type_hash())
     }
 }
 
@@ -258,10 +239,9 @@ impl ServiceTypeSupport {
     }
 
     pub fn get_type_info(&self) -> TypeInfo {
-        let name_with_suffix = self.response.get_ros_type_name();
-        let name = name_with_suffix
-            .strip_suffix("_Response")
-            .expect("Invalid Response type - must end with _Response");
-        TypeInfo::new(name, self.get_type_hash())
+        let response = self.response.get_type_prefix();
+        let name = service_from_response(&response)
+            .expect("Invalid Response type - must end with _Response_");
+        TypeInfo::new(&name, self.get_type_hash())
     }
 }

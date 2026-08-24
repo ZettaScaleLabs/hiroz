@@ -107,6 +107,22 @@ jobs:
             --include-filter "$TEST_FILTER" \
             --exclude-filter "test_count_matched|test_events"
 
+      # The RMW graph APIs must report the ROS type name, not the wire form.
+      # The graph stores the wire form, so every RMW query demangles on the way
+      # out, as rmw_zenoh_cpp does. Only this workflow builds rmw_zenoh_rs, so
+      # only this workflow can catch a regression here.
+      - name: Graph queries report the ROS type name
+        shell: bash
+        run: |
+          set -o pipefail
+          source /opt/ros/jazzy/setup.bash
+          # The workspace overlay is what puts rmw_zenoh_rs on the RMW search
+          # path. Without it the talker cannot load the RMW at all.
+          source $GITHUB_WORKSPACE/ws/install/setup.bash
+          set -u
+          cd hiroz
+          nu scripts/test-ros.nu --distro jazzy graph-type-names
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

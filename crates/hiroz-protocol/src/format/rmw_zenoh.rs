@@ -25,6 +25,22 @@ pub const EMPTY_TOPIC_TYPE: &str = "EMPTY_TOPIC_TYPE";
 /// Placeholder for empty topic hash.
 pub const EMPTY_TOPIC_HASH: &str = "EMPTY_TOPIC_HASH";
 
+/// The DDS type name for an rmw_zenoh key expression, e.g.
+/// `std_msgs::msg::dds_::String_`.
+///
+/// [`hiroz_schema::type_name`] owns this rule for the whole workspace.
+/// `hiroz-codegen`, `hiroz-derive` and the dynamic-schema path all call the
+/// same function, so they cannot drift apart.
+pub use hiroz_schema::type_name::dds_from_namespace as dds_type_name;
+
+/// Recover the ROS type name from the wire form, for an RMW graph query.
+///
+/// This is the **strict** inverse. It matches `_demangle_if_ros_type` in
+/// `rmw_zenoh_cpp`'s `graph_cache.cpp` byte for byte, which an RMW boundary
+/// requires. Use [`hiroz_schema::ros_from_dds`] instead when the caller looks
+/// the result up in the schema registry.
+pub use hiroz_schema::type_name::ros_from_dds_strict as ros_type_name;
+
 /// rmw_zenoh compatible backend.
 pub struct RmwZenohFormatter;
 

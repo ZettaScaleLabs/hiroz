@@ -124,10 +124,72 @@ def run-ros-interop [] {
 # Test Suite Configuration
 # ============================================================================
 
+# Assert that the RMW graph APIs report the ROS type name, not the DDS wire form.
+#
+# The graph stores the wire form, because liveliness tokens carry it. Every RMW
+# query must demangle on the way out, as rmw_zenoh_cpp does in graph_cache.cpp.
+# A regression makes `ros2 topic list -t` print `std_msgs::msg::dds_::String_`
+# instead of `std_msgs/msg/String`.
+#
+# Not in the default pipeline: it needs rmw_zenoh_rs built and on the RMW search
+# path, which only the rmw_zenoh_rs workflow sets up. Run it by name there.
+def graph-type-names [] {
+    log-step "Graph queries report the ROS type name"
+
+    let topic = "/chatter"
+    let expected = "std_msgs/msg/String"
+
+    # Unset, the RMW emits 18446744073709551615 as the domain. That builds a
+    # different key expression, which looks exactly like the defect under test.
+    $env.ROS_DOMAIN_ID = ($env.ROS_DOMAIN_ID? | default "0")
+    $env.RMW_IMPLEMENTATION = ($env.RMW_IMPLEMENTATION? | default "rmw_zenoh_rs")
+    print $"  RMW_IMPLEMENTATION=($env.RMW_IMPLEMENTATION) ROS_DOMAIN_ID=($env.ROS_DOMAIN_ID)"
+
+    # rmw_zenoh peers need a router. Nothing else in this process starts one,
+    # and without it the talker cannot open a session and exits at once.
+    ^pkill -9 zenohd | ignore
+    sleep 500ms
+    let router = job spawn { ^ros2 run rmw_zenoh_cpp rmw_zenohd }
+    sleep 2sec
+
+    let talker = job spawn { ^ros2 run demo_nodes_cpp talker }
+
+    mut listing = ""
+    for _ in 1..30 {
+        $listing = (^ros2 topic list -t | complete | get stdout)
+        if ($listing | str contains $topic) { break }
+        sleep 1sec
+    }
+
+    # A job that already exited is gone, and `job kill` on it throws. Guard both,
+    # or a dead talker reports "Job N not found" and hides the real diagnosis.
+    try { job kill $talker }
+    try { job kill $router }
+    ^pkill -9 zenohd | ignore
+
+    print "  --- ros2 topic list -t ---"
+    print $listing
+
+    # Prove the probe saw something before trusting any assertion about it. An
+    # empty listing would satisfy "no wire form" while proving nothing.
+    if not ($listing | str contains $topic) {
+        error make { msg: $"($topic) never appeared, so this run proves nothing. Check that the router started and that ($env.RMW_IMPLEMENTATION) is on the RMW search path." }
+    }
+    if not ($listing | str contains $expected) {
+        error make { msg: $"the graph did not report ($expected)" }
+    }
+    if ($listing | str contains "dds_::") {
+        error make { msg: "the graph leaked the DDS wire form" }
+    }
+
+    log-success $"the graph reports ($expected) and no wire form"
+}
+
 def get-test-map [] {
     {
         clippy-rmw: { clippy-rmw }
         run-ros-interop: { run-ros-interop }
+        graph-type-names: { graph-type-names }
     }
 }
 
@@ -162,8 +224,12 @@ def main [
     ...tests: string             # Specific test functions to run (optional)
 ] {
     if $list {
+        let pipeline = get-test-pipeline
         print "Available test functions:"
-        get-test-pipeline | each { |name| print $"  - ($name)" }
+        get-test-map | columns | each { |name|
+            let mark = if $name in $pipeline { "" } else { "  (not in the default run)" }
+            print $"  - ($name)($mark)"
+        }
         return
     }
 
@@ -175,9 +241,11 @@ def main [
 
     let tests_to_run = if ($tests | is-empty) { $pipeline } else { $tests }
 
-    # Validate test names
+    # Validate against the map, not the pipeline. The map is every runnable
+    # test; the pipeline is only the default order. A test registered in the
+    # map but left out of the pipeline must still be runnable by name.
     for test_name in $tests_to_run {
-        if $test_name not-in $pipeline {
+        if $test_name not-in ($test_map | columns) {
             error make {
                 msg: $"Test function '($test_name)' not found"
                 label: {

@@ -422,14 +422,7 @@ impl RegisteredSchema {
 /// `pkg::msg::Foo` → `pkg/msg/Foo`
 /// `pkg/msg/Foo` → `pkg/msg/Foo` (unchanged)
 fn normalize_type_name_for_lookup(name: &str) -> String {
-    name.replace("::msg::dds_::", "/msg/")
-        .replace("::srv::dds_::", "/srv/")
-        .replace("::action::dds_::", "/action/")
-        .replace("::msg::", "/msg/")
-        .replace("::srv::", "/srv/")
-        .replace("::action::", "/action/")
-        .trim_end_matches('_')
-        .to_string()
+    hiroz_schema::type_name::ros_from_dds(name)
 }
 
 /// a background task that would block on queue.recv().

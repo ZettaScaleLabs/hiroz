@@ -622,12 +622,13 @@ impl hu::plugin::ros::HostServiceClient for PluginState {
 /// (`pkg::srv::dds_::Name_Request_` / `pkg::srv::dds_::Name_`). All normalize to
 /// bare `pkg/srv/Name` first, so suffixes are never double-appended.
 fn service_request_response_type_names(service_type: &str) -> (String, String) {
-    let normalized = service_type.replace("dds_::", "").replace("::", "/");
-    let normalized = normalized.strip_suffix('_').unwrap_or(&normalized);
-    let normalized = normalized
+    // Use the lenient rule, because service_type may already be canonical. The
+    // shared rule returns such a name unchanged.
+    let canonical = hiroz::dynamic::ros_type_name_from_dds(service_type);
+    let normalized = canonical
         .strip_suffix("_Request")
-        .or_else(|| normalized.strip_suffix("_Response"))
-        .unwrap_or(normalized);
+        .or_else(|| canonical.strip_suffix("_Response"))
+        .unwrap_or(&canonical);
     match normalized.split_once("/srv/") {
         Some((pkg, name)) => (
             format!("{pkg}/msg/{name}Request"),

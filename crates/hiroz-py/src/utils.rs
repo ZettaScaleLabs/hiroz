@@ -23,5 +23,5 @@ pub(crate) fn python_type_to_rust_type(python_type: &str) -> String {
     let msg_name = parts[2];
 
     // Convert to Rust format: package::category::dds_::MessageName_
-    format!("{}::{}::dds_::{}_", package, category, msg_name)
+    hiroz_schema::type_name::dds_from_namespace(&format!("{package}::{category}"), msg_name)
 }

@@ -1,3 +1,4 @@
+use hiroz_schema::type_name::dds_from_namespace;
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -292,7 +293,8 @@ impl ProtobufMessageGenerator {
             );
 
             // ROS2 type name
-            let ros2_type_name = format!("{}::msg::dds_::{}_", package, msg_name);
+            let ros2_type_name =
+                dds_from_namespace(&format!("{package}::msg"), msg_name);
 
             // Get hash
             let hash = msg.type_hash.to_rihs_string();

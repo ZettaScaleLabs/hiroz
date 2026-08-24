@@ -34,6 +34,7 @@ hiroz-cdr = { workspace = true }
 serde = { workspace = true, features = ["serde_derive"] }
 hiroz = { workspace = true, features = ["rmw"] }
 hiroz-protocol = { workspace = true }
+hiroz-schema = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 
 [lib]

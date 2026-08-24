@@ -1,3 +1,4 @@
+use hiroz_schema::type_name::dds_from_namespace;
 use std::collections::HashSet;
 
 use anyhow::Result;
@@ -933,7 +934,7 @@ fn generate_message_type_info(
     ctx: &GenerationContext,
 ) -> TokenStream {
     let name_ident = format_ident!("{}", name);
-    let type_name = format!("{}::msg::dds_::{}_", package, name);
+    let type_name = dds_from_namespace(&format!("{package}::msg"), name);
     let schema_type_name = format!("{}/msg/{}", package, name);
     let hash_str = type_hash.to_rihs_string();
     let schema_field_tokens: Vec<TokenStream> = fields
@@ -1233,7 +1234,8 @@ pub fn generate_service_impl(srv: &ResolvedService) -> Result<TokenStream> {
     let name = format_ident!("{}", srv.parsed.name);
     let request_type = format_ident!("{}Request", srv.parsed.name);
     let response_type = format_ident!("{}Response", srv.parsed.name);
-    let service_type_name = format!("{}::srv::dds_::{}_", srv.parsed.package, srv.parsed.name);
+    let service_type_name =
+        dds_from_namespace(&format!("{}::srv", srv.parsed.package), &srv.parsed.name);
     let hash_str = srv.type_hash.to_rihs_string();
 
     Ok(quote! {
@@ -1264,25 +1266,25 @@ pub fn generate_action_impl(action: &crate::types::ResolvedAction) -> Result<Tok
     let goal_type = format_ident!("{}Goal", action.parsed.name);
     let result_type = format_ident!("{}Result", action.parsed.name);
     let feedback_type = format_ident!("{}Feedback", action.parsed.name);
-    let action_type_name = format!(
-        "{}::action::dds_::{}_",
-        action.parsed.package, action.parsed.name
-    );
+    let action_ns = format!("{}::action", action.parsed.package);
+    let action_type_name = dds_from_namespace(&action_ns, &action.parsed.name);
     let hash_str = action.type_hash.to_rihs_string();
 
-    // Type names for action-related services and messages (ROS2 format with underscore)
-    let send_goal_type_name = format!(
-        "{}::action::dds_::{}_SendGoal_",
-        action.parsed.package, action.parsed.name
+    // The three action-related interfaces decorate the action's own name. They
+    // therefore use the same mangling rule, with a decorated name.
+    let send_goal_type_name =
+        dds_from_namespace(&action_ns, &format!("{}_SendGoal", action.parsed.name));
+    let get_result_type_name =
+        dds_from_namespace(&action_ns, &format!("{}_GetResult", action.parsed.name));
+    let feedback_msg_type_name = dds_from_namespace(
+        &action_ns,
+        &format!("{}_FeedbackMessage", action.parsed.name),
     );
-    let get_result_type_name = format!(
-        "{}::action::dds_::{}_GetResult_",
-        action.parsed.package, action.parsed.name
-    );
-    let feedback_msg_type_name = format!(
-        "{}::action::dds_::{}_FeedbackMessage_",
-        action.parsed.package, action.parsed.name
-    );
+
+    // Every action uses these two fixed interfaces. Mangle them through the
+    // same rule, rather than writing them out as literals.
+    let cancel_goal_type_name = dds_from_namespace("action_msgs::srv", "CancelGoal");
+    let status_type_name = dds_from_namespace("action_msgs::msg", "GoalStatusArray");
 
     // Get type hashes from resolved action service hashes (not the Goal/Result/Feedback hashes)
     let send_goal_hash_str = action.send_goal_hash.to_rihs_string();
@@ -1321,7 +1323,7 @@ pub fn generate_action_impl(action: &crate::types::ResolvedAction) -> Result<Tok
 
             fn cancel_goal_type_info() -> ::hiroz::entity::TypeInfo {
                 ::hiroz::entity::TypeInfo::new(
-                    "action_msgs::srv::dds_::CancelGoal_",
+                    #cancel_goal_type_name,
                     ::hiroz::entity::TypeHash::from_rihs_string(#cancel_goal_hash_str)
                         .expect("Invalid RIHS hash")
                 )
@@ -1337,7 +1339,7 @@ pub fn generate_action_impl(action: &crate::types::ResolvedAction) -> Result<Tok
 
             fn status_type_info() -> ::hiroz::entity::TypeInfo {
                 ::hiroz::entity::TypeInfo::new(
-                    "action_msgs::msg::dds_::GoalStatusArray_",
+                    #status_type_name,
                     ::hiroz::entity::TypeHash::from_rihs_string(#status_hash_str)
                         .expect("Invalid RIHS hash")
                 )

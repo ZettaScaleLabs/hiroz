@@ -19,6 +19,7 @@ lyrical = ["hiroz/lyrical"]
 [dependencies]
 pyo3 = { workspace = true }
 hiroz = { path = "../hiroz", default-features = false }
+hiroz-schema = { workspace = true }
 hiroz-cdr = { workspace = true }
 hiroz-msgs = { path = "../hiroz-msgs", features = [
   "python_registry",
