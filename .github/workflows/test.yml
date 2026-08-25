@@ -8,10 +8,19 @@ on:
       # new configuration file, and the ones it misses run the whole matrix.
       # `.lychee.toml` missed it and ran 4 ROS distros for a link-checker
       # comment (see #323).
+      #
+      # A path filter and a required status check cannot be combined: a
+      # workflow the filter skips reports nothing, and a required check that
+      # never reports blocks the pull request forever. `main` requires no
+      # checks today. If it ever does, move the gating to a job-level `if:`
+      # -- a job skipped that way reports success -- rather than adding the
+      # required check on top of this filter.
       - 'crates/**'
       - '!crates/**/*.md'
       - 'scripts/**'
       - 'nix/**'
+      - '.config/nextest.toml'
+      - '.cargo/config.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'flake.nix'
@@ -25,10 +34,19 @@ on:
       # new configuration file, and the ones it misses run the whole matrix.
       # `.lychee.toml` missed it and ran 4 ROS distros for a link-checker
       # comment (see #323).
+      #
+      # A path filter and a required status check cannot be combined: a
+      # workflow the filter skips reports nothing, and a required check that
+      # never reports blocks the pull request forever. `main` requires no
+      # checks today. If it ever does, move the gating to a job-level `if:`
+      # -- a job skipped that way reports success -- rather than adding the
+      # required check on top of this filter.
       - 'crates/**'
       - '!crates/**/*.md'
       - 'scripts/**'
       - 'nix/**'
+      - '.config/nextest.toml'
+      - '.cargo/config.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'flake.nix'
