@@ -86,7 +86,7 @@ accDescr: The client sends a request to the Zenoh router, which waits for a serv
 **A hiroz service call times out after 10 seconds.** The client sets that timeout on its own Zenoh querier, so it is the value that applies — not the session's `queries_default_timeout`.
 
 !!! warning "`queries_default_timeout` does not change this"
-    That setting governs queries made on the raw Zenoh session. A `ZClient` overrides it, and the 10 s figure is not configurable today: hiroz sets it in `create_client` and exposes no builder method for it. Earlier revisions of this page said the call times out after `queries_default_timeout` (10 minutes) and suggested lowering that setting for faster failure detection; neither was true of a `ZClient`. Action clients go the other way — they set no deadline at all, so a goal may wait indefinitely.
+    That setting governs queries on the raw Zenoh session. A `ZClient` overrides it. The 10 s figure is not configurable today. hiroz sets it in `create_client` and exposes no builder method for it. An action client is the one exception, and only in part: it waits without a deadline for a **goal result**, but it sends and cancels goals through ordinary clients that time out after 10 s.
 
 ### QoS note
 

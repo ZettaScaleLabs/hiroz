@@ -1,45 +1,39 @@
 //! Pin every hiroz zenoh override against `rmw_zenoh_cpp`'s own configuration.
 //!
-//! # Why this exists
+//! `crates/hiroz/src/config.rs` says it generates "rmw_zenoh_cpp compatible
+//! configs". This test holds it to that.
 //!
-//! `crates/hiroz/src/config.rs` opens with "Generates rmw_zenoh_cpp compatible
-//! configs programmatically". Nothing checked that claim. An audit of all 31
-//! overrides found one place where it did not hold — `queries_default_timeout`
-//! was `60000` where upstream is `600000` — which the same change realigns.
-//! With that fixed, every override matches, and `DIVERGENCES` is empty.
+//! # This is not an equality check
 //!
-//! # Why this is not an equality check
+//! Matching upstream is not the same as being correct. hiroz's session
+//! `listen/endpoints` matched `rmw_zenoh_cpp` exactly. Two nodes on two hosts
+//! still delivered nothing to each other. Upstream's loopback locator depends
+//! on zenoh 1.8 router relaying, and zenoh 1.9 removed it. hiroz runs 1.9.
 //!
-//! Because matching upstream is not the same as being right. hiroz's session
-//! `listen/endpoints` *matched* `rmw_zenoh_cpp` exactly, and two nodes on two
-//! hosts still delivered nothing to each other: upstream's loopback locator
-//! leans on zenoh 1.8 router relaying, which zenoh 1.9 withdrew. hiroz is on
-//! 1.9 and upstream is not.
-//!
-//! So what this asserts is not "identical to upstream" but "every difference
-//! is listed with a reason, and every listed reason still describes a real
-//! difference". Drift becomes a decision somebody wrote down, rather than a
-//! silent edit.
-//!
-//! `DIVERGENCES` is empty today, and that is a statement about this branch,
-//! not about the future. The `listen/endpoints` fix is a separate change; when
-//! it lands it must add its own entry here, and this test fails until it does.
-//! That ordering is deliberate — the change that creates a divergence is the
-//! change that should have to justify it.
+//! So this test asserts something weaker and more useful: every difference
+//! appears in `DIVERGENCES` with a reason, and every listed reason still
+//! describes a real difference. A divergence becomes a written decision
+//! instead of a silent edit.
 //!
 //! # What it reads
 //!
-//! By default, the vendored copies under `tests/data/rmw_zenoh_cpp/`. Where
-//! `AMENT_PREFIX_PATH` names an installed `rmw_zenoh_cpp` — the four ROS
-//! interop legs — it reads the installed files instead, so the same assertions
-//! also catch the vendored copies going stale against a newer upstream. No
-//! workflow change was needed for that: those legs already run this crate
-//! after sourcing `setup.bash`.
+//! It reads the vendored copies under `tests/data/rmw_zenoh_cpp/`. Where
+//! `AMENT_PREFIX_PATH` names an installed `rmw_zenoh_cpp`, it reads that
+//! instead. The four ROS interop legs take the second path, so they also
+//! catch the vendored copies going stale.
 //!
-//! The vendored copies are byte-identical across all five `rmw_zenoh`
-//! branches (`humble`, `jazzy`, `kilted`, `lyrical`, `rolling`) at
-//! `e95c62df287143f78bdb41c452b6bf1e257b0c0d`, which is why one copy serves
-//! every distro.
+//! The vendored copies are byte-identical across all five `rmw_zenoh` branches
+//! at `e95c62d`. One copy therefore serves every distro.
+//!
+//! # What it does not cover
+//!
+//! It compares only the keys hiroz overrides. A key that `rmw_zenoh_cpp` sets
+//! and hiroz leaves at zenoh's default is invisible here. One such key exists:
+//! `rmw_zenoh_cpp` sets `queries_default_timeout` to 10 minutes on the router,
+//! and hiroz keeps zenoh's 10 seconds there. Covering that direction needs a
+//! second allow-list, because most of upstream's remaining settings are moot
+//! for hiroz — multicast keys under disabled multicast, and keys zenoh 1.9
+//! deprecated.
 
 use hiroz::config::{ConfigOverride, router_overrides, session_overrides};
 use serde_json::Value;
@@ -161,6 +155,10 @@ fn divergence_reason(role: Role, key: &str) -> Option<&'static str> {
         .iter()
         .find(|(r, k, _)| *r == role && *k == key)
         .map(|(_, _, reason)| *reason)
+        // A blank reason exempts the key while explaining nothing. The reason
+        // is the whole value of an entry, so an entry without one does not
+        // count as an entry.
+        .filter(|reason| !reason.trim().is_empty())
 }
 
 /// One override compared against upstream.
@@ -239,7 +237,16 @@ fn every_override_matches_rmw_zenoh_cpp_or_is_a_documented_divergence() {
     // A DIVERGENCES entry that no longer describes a real difference is worse
     // than no entry: it reads as a considered decision while exempting a key
     // that now matches, and it would go on exempting it after a future edit.
-    for (role, key, _) in DIVERGENCES {
+    for (role, key, reason) in DIVERGENCES {
+        if reason.trim().is_empty() {
+            problems.push(format!(
+                "{} config: DIVERGENCES lists `{}` with a blank reason. The reason is what \
+                 makes the entry a decision rather than an exemption. Write it.",
+                role.as_str(),
+                key,
+            ));
+            continue;
+        }
         if !observed.iter().any(|(r, k)| r == role && k == key) {
             problems.push(format!(
                 "{} config: DIVERGENCES lists `{}`, but hiroz and rmw_zenoh_cpp now agree on \
@@ -255,11 +262,10 @@ fn every_override_matches_rmw_zenoh_cpp_or_is_a_documented_divergence() {
         observed.len()
     );
 
-    // Guard against the comparison silently doing nothing. An empty
-    // router_overrides()/session_overrides() would otherwise sail through with
-    // no problems to report -- zero comparisons and zero failures look alike.
-    // 31 at the time of writing; the bound is loose so that legitimately
-    // dropping an override does not need this number edited.
+    // Guard against the comparison doing nothing. Zero comparisons and zero
+    // failures look alike, so an empty router_overrides()/session_overrides()
+    // would pass. The count is 31 today. The bound stays loose so that a
+    // legitimate removal does not require an edit here.
     assert!(
         compared >= 25,
         "expected at least 25 overrides to compare, got {compared} -- \
@@ -275,15 +281,14 @@ fn every_override_matches_rmw_zenoh_cpp_or_is_a_documented_divergence() {
     );
 }
 
-/// Where `rmw_zenoh_cpp` is installed, the alignment test must read *its*
+/// Where `rmw_zenoh_cpp` is installed, the alignment test must read its
 /// configuration and not the vendored copy.
 ///
 /// Checking the vendored copy against upstream is the only reason to run the
-/// alignment test on a ROS leg. A wrong path, a renamed upstream directory or
-/// a packaging change would silently fall back to the vendored copy; the
-/// alignment test would still pass, and that check would be dead with nothing
-/// saying so. This turns the silent degrade into a red test on exactly the
-/// legs that should have it.
+/// alignment test on a ROS leg. Three things can break that path: a wrong
+/// path, a renamed upstream directory, and a packaging change. Each one makes
+/// the alignment test fall back to the vendored copy and still pass. This test
+/// turns that silent fallback into a red result.
 #[test]
 fn an_installed_rmw_zenoh_cpp_is_preferred_over_the_vendored_copy() {
     if !rmw_zenoh_cpp_is_installed() {
