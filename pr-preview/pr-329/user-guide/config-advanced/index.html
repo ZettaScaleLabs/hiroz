@@ -2753,7 +2753,7 @@
 </tr>
 <tr>
 <td><strong>Query Timeout</strong></td>
-<td>10min</td>
+<td>10s (Zenoh default)</td>
 <td>10min</td>
 <td>Queries on the raw session. A <code>ZClient</code> sets its own 10s</td>
 </tr>
@@ -2773,7 +2773,7 @@
 </table>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>These defaults target ROS 2 deployments and match <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a> exactly. Only modify them if you have specific performance requirements.</p>
+<p>These defaults target ROS 2 deployments. Every setting hiroz overrides matches <a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh_cpp</code></a>, and a test pins that. One row above is an exception: hiroz sets the router's query timeout nowhere, so the router keeps Zenoh's 10 s where <code>rmw_zenoh_cpp</code> sets 10 min. Only modify these if you have specific performance requirements.</p>
 </div>
 <h2 id="example-full-session-config">Example: Full Session Config<a class="headerlink" href="#example-full-session-config" title="Permanent link">&para;</a></h2>
 <p>A typical generated <code>DEFAULT_HIROZ_SESSION_CONFIG.json5</code> looks like this. Copy it, edit

@@ -3004,7 +3004,7 @@ accDescr: The client sends a request to the Zenoh router, which waits for a serv
 <p><strong>A hiroz service call times out after 10 seconds.</strong> The client sets that timeout on its own Zenoh querier, so it is the value that applies — not the session's <code>queries_default_timeout</code>.</p>
 <div class="admonition warning">
 <p class="admonition-title"><code>queries_default_timeout</code> does not change this</p>
-<p>That setting governs queries made on the raw Zenoh session. A <code>ZClient</code> overrides it, and the 10 s figure is not configurable today: hiroz sets it in <code>create_client</code> and exposes no builder method for it. Earlier revisions of this page said the call times out after <code>queries_default_timeout</code> (10 minutes) and suggested lowering that setting for faster failure detection; neither was true of a <code>ZClient</code>. Action clients go the other way — they set no deadline at all, so a goal may wait indefinitely.</p>
+<p>That setting governs queries on the raw Zenoh session. A <code>ZClient</code> overrides it. The 10 s figure is not configurable today. hiroz sets it in <code>create_client</code> and exposes no builder method for it. An action client is the one exception, and only in part: it waits without a deadline for a <strong>goal result</strong>, but it sends and cancels goals through ordinary clients that time out after 10 s.</p>
 </div>
 <h3 id="qos-note">QoS note<a class="headerlink" href="#qos-note" title="Permanent link">&para;</a></h3>
 <p>Services use <strong>reliable + volatile</strong> durability. Volatile means: if a server restarts, old in-flight requests are discarded — no stale requests reach the new server.</p>
