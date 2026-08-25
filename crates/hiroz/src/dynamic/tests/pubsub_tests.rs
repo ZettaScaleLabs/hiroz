@@ -185,6 +185,7 @@ fn test_zpub_builder_with_dyn_schema() {
         dyn_schema: None,
         encoding: None,
         locality: None,
+        intra_process_only: false,
         _phantom_data: PhantomData,
     };
 
@@ -228,6 +229,7 @@ fn test_zpub_builder_with_serdes_preserves_schema() {
         dyn_schema: Some(schema.clone()),
         encoding: None,
         locality: None,
+        intra_process_only: false,
         _phantom_data: PhantomData,
     };
 

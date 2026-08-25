@@ -71,6 +71,8 @@ pub mod msg;
 pub mod node;
 /// Convenience re-exports for common hiroz types.
 pub mod prelude;
+/// Intra-process message bus (prototype) — `Arc<T>` delivery without serialization.
+pub mod local_bus;
 /// Publishers and subscribers.
 pub mod pubsub;
 /// Python FFI bridge types.

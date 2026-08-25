@@ -123,6 +123,13 @@ pub struct ZPub<T: ZMessage, S: ZSerializer> {
     /// If set, this encoding will be used for all published messages.
     encoding: Option<Arc<zenoh::bytes::Encoding>>,
     graph: Arc<Graph>,
+    /// Session id + resolved topic key, the intra-process bus key. See
+    /// [`crate::local_bus`].
+    local_key: (zenoh::session::ZenohId, String),
+    /// When set, `publish_shared` delivers only to same-session subscribers and
+    /// never touches zenoh. Prototype stand-in for asking the graph whether any
+    /// remote subscriber exists.
+    intra_process_only: bool,
     _phantom_data: PhantomData<(T, S)>,
 }
 
@@ -152,6 +159,9 @@ pub struct ZPubBuilder<T, S = SerdeCdrSerdes<T>> {
     /// Locality restriction for published samples.
     /// `None` leaves zenoh's default (`Locality::Any`) in place.
     pub(crate) locality: Option<zenoh::sample::Locality>,
+    /// Restrict `publish_shared` to the intra-process bus. See
+    /// [`ZPubBuilder::with_intra_process_only`].
+    pub(crate) intra_process_only: bool,
     pub(crate) _phantom_data: PhantomData<(T, S)>,
 }
 
@@ -270,6 +280,27 @@ impl<T, S> ZPubBuilder<T, S> {
         self
     }
 
+    /// **Prototype.** Restrict [`ZPub::publish_shared`] to the intra-process
+    /// bus: the message is handed to same-session subscribers as an `Arc<T>`
+    /// and never goes near zenoh, so it is neither serialized nor transmitted.
+    ///
+    /// This affects `publish_shared` only. [`ZPub::publish`] keeps its normal
+    /// wire behaviour whatever this is set to.
+    ///
+    /// # Why the flag exists, and why it should not
+    ///
+    /// The real rule is "use the wire only while a remote subscriber exists",
+    /// which a production version reads off the graph per message. This
+    /// prototype is *told* instead. A publisher with this set is invisible to
+    /// every other process, including `ros2 topic echo`, and to any local
+    /// subscriber that did not register on the bus with
+    /// [`ZSubBuilder::build_with_shared_callback`]. Set it only where both ends
+    /// are known. See issue #36.
+    pub fn with_intra_process_only(mut self) -> Self {
+        self.intra_process_only = true;
+        self
+    }
+
     pub fn with_serdes<S2>(self) -> ZPubBuilder<T, S2> {
         ZPubBuilder {
             entity: self.entity,
@@ -282,6 +313,7 @@ impl<T, S> ZPubBuilder<T, S> {
             dyn_schema: self.dyn_schema,
             encoding: self.encoding,
             locality: self.locality,
+            intra_process_only: self.intra_process_only,
             _phantom_data: PhantomData,
         }
     }
@@ -424,6 +456,8 @@ where
             debug!("[PUB] Using encoding: {}", enc);
         }
 
+        let local_key = (self.session.zid(), qualified_topic.clone());
+
         Ok(ZPub {
             entity: self.entity,
             sn: AtomicUsize::new(0),
@@ -437,6 +471,8 @@ where
             dyn_schema: self.dyn_schema,
             encoding,
             graph: self.graph,
+            local_key,
+            intra_process_only: self.intra_process_only,
             _phantom_data: Default::default(),
         })
     }
@@ -619,6 +655,55 @@ where
             put_builder = put_builder.attachment(self.new_attachment());
         }
         put_builder.await
+    }
+
+    /// **Prototype.** Publish an already-shared message without serializing it.
+    ///
+    /// Every subscriber in the same zenoh session that registered through
+    /// [`ZSubBuilder::build_with_shared_callback`] for this exact `T` receives a
+    /// clone of the `Arc` — a refcount bump. The payload is not encoded and its
+    /// bytes are not copied.
+    ///
+    /// Returns how many local subscribers were delivered to.
+    ///
+    /// # Which path a message takes
+    ///
+    /// | `with_intra_process_only()` | local subscribers | what happens |
+    /// |---|---|---|
+    /// | set | any | `Arc<T>` to each; **nothing goes on the wire** |
+    /// | set | none | nothing at all; returns `Ok(0)` |
+    /// | not set | any | `Arc<T>` to each, **and** a normal serialized publish |
+    /// | not set | none | a normal serialized publish |
+    ///
+    /// Row three is deliberately wasteful and is the honest default: without
+    /// asking the graph who is listening, the only safe thing is to serve
+    /// everyone. Row two is why the flag is a prototype — it silently drops the
+    /// message rather than falling back. See [`crate::local_bus`] and issue #36.
+    ///
+    /// # Ordering against [`publish`](Self::publish)
+    ///
+    /// Local delivery is synchronous on the calling thread: the subscriber
+    /// callbacks have run by the time this returns. A message sent with
+    /// `publish` travels the wire and arrives later. Interleaving the two on one
+    /// topic gives no ordering guarantee between them.
+    pub fn publish_shared(&self, msg: Arc<T>) -> Result<usize>
+    where
+        T: Send + Sync + 'static,
+    {
+        let delivered = crate::local_bus::publish(self.local_key.0, &self.local_key.1, msg.clone());
+
+        if self.intra_process_only {
+            if delivered == 0 {
+                debug!(
+                    "[PUB] intra-process only, no local subscriber on {}: message dropped",
+                    self.entity.topic
+                );
+            }
+            return Ok(delivered);
+        }
+
+        self.publish(&msg)?;
+        Ok(delivered)
     }
 
     /// Publish pre-serialized data directly
@@ -925,8 +1010,57 @@ where
             graph: self.graph,
             dyn_schema: self.dyn_schema,
             expected_encoding: self.expected_encoding,
+            _local_sub: None,
             _phantom_data: Default::default(),
         })
+    }
+
+    /// **Prototype.** Build a subscriber that receives an `Arc<T>` from a
+    /// same-session publisher without any serialization, and still receives
+    /// remote traffic over the wire as usual.
+    ///
+    /// Two registrations are made:
+    ///
+    /// | path | source | cost |
+    /// |---|---|---|
+    /// | intra-process bus | a same-session [`ZPub::publish_shared`] for this exact `T` | a refcount bump |
+    /// | zenoh subscriber, `allowed_origin(Remote)` | anything outside this session | the usual CDR decode |
+    ///
+    /// `Remote` on the wire path is what stops a same-session publisher that is
+    /// *not* `with_intra_process_only()` delivering the same message twice —
+    /// once as an `Arc`, once decoded. An explicit
+    /// [`with_locality`](Self::with_locality) is respected and left alone; the
+    /// double delivery is then the caller's to reason about.
+    ///
+    /// The type match is exact: a publisher of a different concrete Rust type
+    /// on the same topic is not delivered here, even if the ROS type name
+    /// agrees. See [`crate::local_bus`] and issue #36.
+    pub fn build_with_shared_callback<F>(mut self, callback: F) -> Result<ZSub<T, (), S>>
+    where
+        T: Send + Sync + 'static,
+        F: Fn(Arc<T>) + Send + Sync + 'static,
+        S: for<'a> ZDeserializer<Input<'a> = &'a [u8], Output = T> + 'static,
+    {
+        let zid = self.session.zid();
+        if self.locality.is_none() {
+            self.locality = Some(zenoh::sample::Locality::Remote);
+        }
+
+        let callback = Arc::new(callback);
+        let wire_cb = callback.clone();
+        let mut sub = self.build_with_callback(move |msg: T| (*wire_cb)(Arc::new(msg)))?;
+
+        // build_with_callback qualified the topic, so read it back rather than
+        // re-deriving it — the publisher keys the bus on its own qualified topic
+        // and the two must agree exactly.
+        let topic = sub.entity.topic.clone();
+        sub._local_sub = Some(crate::local_bus::subscribe::<T, _>(
+            zid,
+            &topic,
+            move |arc: Arc<T>| (*callback)(arc),
+        ));
+        debug!("[SUB] intra-process bus registered: topic={topic}");
+        Ok(sub)
     }
 
     /// Build a subscriber with a callback that processes deserialized messages directly.
@@ -1041,6 +1175,10 @@ pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     pub dyn_schema: Option<Arc<crate::dynamic::schema::MessageSchema>>,
     /// Expected encoding for validation.
     pub expected_encoding: Option<crate::encoding::Encoding>,
+    /// Registration on the intra-process bus, when built with
+    /// [`ZSubBuilder::build_with_shared_callback`]. Dropping it unregisters, so
+    /// a dropped subscriber cannot be called back into.
+    _local_sub: Option<crate::local_bus::LocalSubscription>,
     _phantom_data: PhantomData<(T, Q, S)>,
 }
 
