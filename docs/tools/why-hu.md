@@ -1,6 +1,6 @@
 # hu Toolkit — Overview
 
-`hu` — short for **H**iroz **U**nion, and the crate that builds it is [`hiroz-union`](https://github.com/ZettaScaleLabs/hiroz/tree/main/crates/hiroz-union) — is the tooling ecosystem for the hiroz stack: a single, daemon-free binary that talks directly to Zenoh and grows through WebAssembly plugins. It replaces `ros2 topic`, `ros2 node`, `ros2 service`, `ros2 action`, `ros2 param`, and much of `rqt` — but the more important idea is that most of what `hu` does, including the observation and measurement commands that ship in the box, is delivered as **plugins**. This page introduces that ecosystem; the rest of this section drills into each part.
+`hu` — short for **Hiroz Union**, and the crate that builds it is [`hiroz-union`](https://github.com/ZettaScaleLabs/hiroz/tree/main/crates/hiroz-union) — is the tooling ecosystem for the hiroz stack: a single, daemon-free binary that talks directly to Zenoh and grows through WebAssembly plugins. It replaces `ros2 topic`, `ros2 node`, `ros2 service`, `ros2 action`, `ros2 param`, and much of `rqt` — but the more important idea is that most of what `hu` does, including the observation and measurement commands that ship in the box, is delivered as **plugins**. This page introduces that ecosystem; the rest of this section drills into each part.
 
 ## The ecosystem at a glance
 
