@@ -19,6 +19,10 @@ on:
       - 'Cargo.lock'
       - 'flake.nix'
       - 'flake.lock'
+      # test-release-version-semantics.sh reads and asserts release.yml,
+      # and release.yml itself only ever runs on a v* tag. This job is
+      # the only check it gets before a tag is pushed.
+      - '.github/workflows/release.yml'
       - '.github/workflows/hu-docs.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -35,6 +39,10 @@ on:
       - 'Cargo.lock'
       - 'flake.nix'
       - 'flake.lock'
+      # test-release-version-semantics.sh reads and asserts release.yml,
+      # and release.yml itself only ever runs on a v* tag. This job is
+      # the only check it gets before a tag is pushed.
+      - '.github/workflows/release.yml'
       - '.github/workflows/hu-docs.yml'
 
 concurrency:

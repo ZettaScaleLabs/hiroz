@@ -30,15 +30,10 @@ WORKFLOWS = Path(".github/workflows")
 # oversight.
 EXEMPT: list[tuple[str, str]] = [
     (".github/workflows/lint.yml", "runs on every change; it has no filter to match"),
-    (
-        ".github/workflows/release.yml",
-        "runs on v* tags, not on pushes or pull requests",
-    ),
     (".github/workflows/docs-links.yml", "runs on a schedule"),
     (".github/workflows/semantic-pr.yml", "runs on every pull request"),
     (".github/workflows/pr-draft-check.yml", "runs on every pull request"),
     (".github/pull_request_template.md", "text GitHub renders; nothing consumes it"),
-    (".github/**", "workflow metadata that no job reads"),
     (".gitignore", "affects no build"),
     (".gitattributes", "affects no build"),
     (".envrc", "local developer setup"),
