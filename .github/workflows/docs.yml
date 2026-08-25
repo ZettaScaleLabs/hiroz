@@ -6,12 +6,22 @@ on:
       - 'docs/**'
       - 'mkdocs.yml'
       - '**.md'
+      # build_doc runs lychee with this config, and check-example-coverage.nu
+      # compares the docs against the examples that actually exist
+      - '.lychee.toml'
+      - 'crates/*/examples/**'
+      - 'scripts/check-example-coverage.nu'
       - '.github/workflows/docs.yml'
   pull_request:
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
       - '**.md'
+      # build_doc runs lychee with this config, and check-example-coverage.nu
+      # compares the docs against the examples that actually exist
+      - '.lychee.toml'
+      - 'crates/*/examples/**'
+      - 'scripts/check-example-coverage.nu'
       - '.github/workflows/docs.yml'
 
 jobs:
