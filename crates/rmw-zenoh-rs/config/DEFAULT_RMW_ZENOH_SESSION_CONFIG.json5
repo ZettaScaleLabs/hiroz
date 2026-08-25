@@ -1,0 +1,81 @@
+// Default Zenoh session configuration for RMW-Z
+{
+  /// The node's mode (router, peer or client)
+  mode: "peer",
+
+  /// Configure the scouting mechanisms and their behaviours
+  scouting: {
+    /// In client mode, the period in milliseconds dedicated to scouting for a router before failing.
+    timeout: 3000,
+    /// In peer mode, the maximum period in milliseconds dedicated to scouting remote peers before attempting other operations.
+    delay: 500,
+    /// The multicast scouting configuration.
+    multicast: {
+      /// Whether multicast scouting is enabled or not
+      enabled: true,
+      /// The socket which should be used for multicast scouting
+      address: "224.0.0.224:7446",
+      /// The network interface which should be used for multicast scouting
+      interface: "auto",
+      /// The time-to-live on multicast scouting packets
+      ttl: 1,
+      /// Which type of Zenoh instances to automatically establish sessions with upon discovery on UDP multicast.
+      autoconnect: { router: [], peer: ["router", "peer"], client: ["router", "peer"] },
+      /// Whether or not to listen for scout messages on UDP multicast and reply to them.
+      listen: true,
+    },
+    /// The gossip scouting configuration.
+    gossip: {
+      /// Whether gossip scouting is enabled or not
+      enabled: true,
+      /// When true, gossip scouting information are propagated multiple hops to all nodes in the local network.
+      multihop: false,
+      /// Which type of Zenoh instances to automatically establish sessions with upon discovery on gossip.
+      autoconnect: { router: [], peer: ["router", "peer"], client: ["router", "peer"] },
+    },
+  },
+
+  /// Configuration of data messages timestamps management.
+  timestamping: {
+    /// Whether data messages should be timestamped if not already.
+    /// ROS setting: PublicationCache which is required for transient_local durability
+    ///              only works when time-stamping is enabled.
+    enabled: { router: true, peer: true, client: true },
+    /// Whether data messages with timestamps in the future should be dropped or not.
+    drop_future_timestamp: false,
+  },
+
+  /// The default timeout to apply to queries in milliseconds.
+  queries_default_timeout: 10000,
+
+  /// The routing strategy to use and it's configuration.
+  routing: {
+    /// The routing strategy to use in routers and it's configuration.
+    router: {
+      /// When set to true a router will forward data between two peers
+      /// directly connected to it if it detects that those peers are not
+      /// connected to each other.
+      peers_failover_brokering: true,
+    },
+    /// The routing strategy to use in peers and it's configuration.
+    peer: {
+      /// The routing strategy to use in peers. ("peer_to_peer" or "linkstate").
+      mode: "peer_to_peer",
+    },
+  },
+
+  /// Configure internal transport parameters
+  transport: {
+    unicast: {
+      /// Enables QoS on unicast communications.
+      qos: {
+        enabled: true,
+      },
+    },
+    /// Shared memory configuration.
+    shared_memory: {
+      /// ROS setting: disabled by default until fully tested
+      enabled: false,
+    },
+  },
+}
