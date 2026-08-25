@@ -1,0 +1,45 @@
+name: Lint
+
+# No path filter. The pre-commit check covers .rs, .toml, .yaml, .md, .py and
+# .nix across the whole tree, so every file it lints must be able to trigger
+# it. It is also the cheapest job in CI (~1 min), which is why it is separate
+# from ci.yml: ci.yml is allow-listed down to build inputs, and a config-only
+# change must still be linted.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  formatting:
+    name: Check Formatting
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://hiroz.cachix.org
+            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: hiroz
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: ${{ github.event_name == 'pull_request' }}
+
+      - name: Check formatting
+        run: nix build .#checks.x86_64-linux.pre-commit-check -L

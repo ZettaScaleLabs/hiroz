@@ -3,27 +3,37 @@ name: Interop Tests
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'book/**'
-      - '.github/workflows/docs.yml'
-      - '.github/workflows/mkdocs-preview.yml'
-      - '.github/workflows/ci.yml'
-      - '.github/workflows/rmw-zenoh-rs.yml'
-      - '.github/workflows/semantic-pr.yml'
-      - '.github/workflows/pr-draft-check.yml'
+    paths:
+      # Allow-list, not a deny-list: a deny-list has to be extended for every
+      # new configuration file, and the ones it misses run the whole matrix.
+      # `.lychee.toml` missed it and ran 4 ROS distros for a link-checker
+      # comment (see #323).
+      - 'crates/**'
+      - '!crates/**/*.md'
+      - 'scripts/**'
+      - 'nix/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/test.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'book/**'
-      - '.github/workflows/docs.yml'
-      - '.github/workflows/mkdocs-preview.yml'
-      - '.github/workflows/ci.yml'
-      - '.github/workflows/rmw-zenoh-rs.yml'
-      - '.github/workflows/semantic-pr.yml'
-      - '.github/workflows/pr-draft-check.yml'
+    paths:
+      # Allow-list, not a deny-list: a deny-list has to be extended for every
+      # new configuration file, and the ones it misses run the whole matrix.
+      # `.lychee.toml` missed it and ran 4 ROS distros for a link-checker
+      # comment (see #323).
+      - 'crates/**'
+      - '!crates/**/*.md'
+      - 'scripts/**'
+      - 'nix/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/test.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

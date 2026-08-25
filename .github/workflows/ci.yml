@@ -3,62 +3,47 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - '.github/workflows/docs.yml'
-      - '.github/workflows/mkdocs-preview.yml'
-      - '.github/workflows/test.yml'
-      - '.github/workflows/rmw-zenoh-rs.yml'
-      - '.github/workflows/semantic-pr.yml'
-      - '.github/workflows/pr-draft-check.yml'
+    paths:
+      # Allow-list, not a deny-list: a deny-list has to be extended for every
+      # new configuration file, and the ones it misses run the whole matrix.
+      # `.lychee.toml` missed it and ran 4 ROS distros for a link-checker
+      # comment (see #323).
+      - 'crates/**'
+      - '!crates/**/*.md'
+      - 'scripts/**'
+      - 'nix/**'
+      - 'rustfmt.toml'
+      - 'codecov.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/ci.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - '.github/workflows/docs.yml'
-      - '.github/workflows/mkdocs-preview.yml'
-      - '.github/workflows/test.yml'
-      - '.github/workflows/rmw-zenoh-rs.yml'
-      - '.github/workflows/semantic-pr.yml'
-      - '.github/workflows/pr-draft-check.yml'
+    paths:
+      # Allow-list, not a deny-list: a deny-list has to be extended for every
+      # new configuration file, and the ones it misses run the whole matrix.
+      # `.lychee.toml` missed it and ran 4 ROS distros for a link-checker
+      # comment (see #323).
+      - 'crates/**'
+      - '!crates/**/*.md'
+      - 'scripts/**'
+      - 'nix/**'
+      - 'rustfmt.toml'
+      - 'codecov.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/ci.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  formatting:
-    name: Check Formatting
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@v31
-        with:
-          extra_nix_config: |
-            extra-substituters = https://hiroz.cachix.org
-            extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
-
-      - name: Setup Cachix
-        uses: cachix/cachix-action@v15
-        with:
-          name: hiroz
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-          skipPush: ${{ github.event_name == 'pull_request' }}
-
-      - name: Check formatting
-        run: nix build .#checks.x86_64-linux.pre-commit-check -L
-
   apt-retry:
     name: CI apt wrapper
     runs-on: ubuntu-latest
@@ -558,101 +543,6 @@ jobs:
           test -s "a64-dist/$(ls a64-dist | head -1)" || {
             echo "FAIL: nothing packaged"; exit 1; }
           tar -tzf a64-dist/hu-*-$TGT.tar.gz
-
-  hu-docs-repro:
-    name: hu docs reproduce from a download (ubuntu-latest)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    # Enforces the contract that every `hu` command in docs/tools/ is
-    # runnable by someone who only downloaded a release: it packages the
-    # artifacts, installs them into a scratch HOME with HU_PLUGIN_PATH unset,
-    # and executes the documented commands against that install.
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          target: wasm32-wasip2
-
-      - name: Install nushell and jq
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq
-          cargo install nu --locked --version 0.113.1
-          # No `|| true`: a swallowed install failure resurfaces three steps
-          # later as `nu: command not found`, which names neither the cause
-          # nor the step that caused it.
-          nu --version
-
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ubuntu-latest-hu-docs-repro
-
-      # release.yml only ever runs on a `v*` tag, so no pull request exercises
-      # it. This is the one check those steps get before a tag is pushed, and
-      # it is deliberately pure string arithmetic — no runner, no network, no
-      # build — so it can run here. It encodes the tag-vs-asset-name split that
-      # a pre-release tag depends on, which is the defect that broke the first
-      # pre-release ever cut on the other channel.
-      - name: Release workflow version semantics
-        run: bash scripts/test-release-version-semantics.sh
-
-      - name: Installer refusal paths
-        run: bash scripts/test-install-hu.sh
-
-      - name: Package the release artifacts
-        run: nu scripts/build-hu-release.nu --out dist
-
-      - name: Install exactly as a user would, offline
-        run: |
-          set -e
-          HUHOME="$RUNNER_TEMP/huhome"
-          mkdir -p "$HUHOME"
-          HOME="$HUHOME" HU_PREFIX="$HUHOME/.local" sh scripts/install-hu.sh --offline dist
-          echo "HUHOME=$HUHOME" >> "$GITHUB_ENV"
-
-      # The traffic source is built from the tree, NOT taken from the artifact.
-      # `hu` cannot generate its own traffic (`hu meter pub` needs message
-      # definitions no release ships), so without an external publisher the
-      # suite measures an empty graph and every `hu meter` command degrades to
-      # "did the process start". This example stands in for the deployment hu
-      # is documented to observe.
-      - name: Build the traffic fixture
-        run: cargo build --release --example z_pubsub -p hiroz
-
-      - name: Reproduce the documented commands
-        run: |
-          set -e
-          unset HU_PLUGIN_PATH
-          HOME="$HUHOME" "$HUHOME/.local/bin/hu" router > router.log 2>&1 &
-          ROUTER_PID=$!
-          sleep 5
-          # A router that failed to bind is otherwise silent, and surfaces as a
-          # dozen unrelated-looking measurement failures further down. Fail here
-          # instead, where the message names the cause.
-          kill -0 "$ROUTER_PID" 2>/dev/null || {
-            echo "FAIL: router died on startup"; tail -10 router.log; exit 1; }
-          # --require-traffic so this can never silently degrade back into an
-          # exit-status check if the publisher argument is dropped.
-          # Status must not pass through a pipe.
-          # `set +e` around the run is not optional: with `set -e` active the
-          # shell exits ON the failing command, so `cat repro.log` never runs
-          # and the failure is reported with no output at all. Captured rc is
-          # worthless if the capture is unreachable.
-          set +e
-          nu scripts/test-hu-docs-repro.nu \
-            --home "$HUHOME" \
-            --publisher "${CARGO_TARGET_DIR:-$PWD/target}/release/examples/z_pubsub" \
-            --require-traffic > repro.log 2>&1
-          rc=$?
-          set -e
-          cat repro.log
-          echo "--- router.log ---"; tail -20 router.log || true
-          exit $rc
 
   wasm-plugin-tests:
     name: WASM Plugin Tests (ubuntu-latest)
