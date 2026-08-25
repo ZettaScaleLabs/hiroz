@@ -123,9 +123,9 @@ pub struct ZPub<T: ZMessage, S: ZSerializer> {
     /// If set, this encoding will be used for all published messages.
     encoding: Option<Arc<zenoh::bytes::Encoding>>,
     graph: Arc<Graph>,
-    /// Session id + resolved topic key, the intra-process bus key. See
-    /// [`crate::local_bus`].
-    local_key: (zenoh::session::ZenohId, String),
+    /// Intra-process bus channel for this topic, resolved once at build time.
+    /// See [`crate::local_bus`].
+    local_channel: Arc<crate::local_bus::Channel>,
     /// When set, `publish_shared` delivers only to same-session subscribers and
     /// never touches zenoh. Prototype stand-in for asking the graph whether any
     /// remote subscriber exists.
@@ -456,7 +456,7 @@ where
             debug!("[PUB] Using encoding: {}", enc);
         }
 
-        let local_key = (self.session.zid(), qualified_topic.clone());
+        let local_channel = crate::local_bus::channel(self.session.zid(), &qualified_topic);
 
         Ok(ZPub {
             entity: self.entity,
@@ -471,7 +471,7 @@ where
             dyn_schema: self.dyn_schema,
             encoding,
             graph: self.graph,
-            local_key,
+            local_channel,
             intra_process_only: self.intra_process_only,
             _phantom_data: Default::default(),
         })
@@ -690,7 +690,7 @@ where
     where
         T: Send + Sync + 'static,
     {
-        let delivered = crate::local_bus::publish(self.local_key.0, &self.local_key.1, msg.clone());
+        let delivered = self.local_channel.publish(msg.clone());
 
         if self.intra_process_only {
             if delivered == 0 {
@@ -1054,9 +1054,9 @@ where
         // re-deriving it — the publisher keys the bus on its own qualified topic
         // and the two must agree exactly.
         let topic = sub.entity.topic.clone();
+        let channel = crate::local_bus::channel(zid, &topic);
         sub._local_sub = Some(crate::local_bus::subscribe::<T, _>(
-            zid,
-            &topic,
+            channel,
             move |arc: Arc<T>| (*callback)(arc),
         ));
         debug!("[SUB] intra-process bus registered: topic={topic}");
