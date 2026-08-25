@@ -74,17 +74,19 @@ trait AddTwoInts: ZService {
 ```mermaid
 sequenceDiagram
 accTitle: Service call timeout when no server is registered
-accDescr: The client sends a request to the Zenoh router, which waits indefinitely for a server and eventually times out after the configured queries_default_timeout.
+accDescr: The client sends a request to the Zenoh router, which waits for a server and returns a timeout to the client after ten seconds.
     participant C as Client
     participant Z as Zenoh Router
 
     C->>Z: Request (no server registered)
     Note over Z: waits for server...
-    Z-->>C: Timeout after queries_default_timeout (default: 10 min)
+    Z-->>C: Timeout after 10 s
 ```
 
-!!! tip
-    Set a shorter timeout in the Zenoh config for faster failure detection in production.
+**A hiroz service call times out after 10 seconds.** The client sets that timeout on its own Zenoh querier, so it is the value that applies — not the session's `queries_default_timeout`.
+
+!!! warning "`queries_default_timeout` does not change this"
+    That setting governs queries made on the raw Zenoh session. A `ZClient` overrides it, and the 10 s figure is not configurable today: hiroz sets it in `create_client` and exposes no builder method for it. Earlier revisions of this page said the call times out after `queries_default_timeout` (10 minutes) and suggested lowering that setting for faster failure detection; neither was true of a `ZClient`. Action clients go the other way — they set no deadline at all, so a goal may wait indefinitely.
 
 ### QoS note
 
@@ -138,7 +140,7 @@ Services use **reliable + volatile** durability. Volatile means: if a server res
         <div class="flashcard-hint">Click to flip</div>
       </div>
       <div class="flashcard-back">
-        The call blocks until the server comes online or a timeout fires. hiroz uses Zenoh's query timeout (default: 10 minutes — configure with <strong>queries_default_timeout</strong>).
+        The call blocks until the server comes online or the client's own timeout fires, <strong>10 seconds</strong>. That is set on the querier, so <strong>queries_default_timeout</strong> does not change it.
       </div>
     </div>
   </div>

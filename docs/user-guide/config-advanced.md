@@ -62,7 +62,7 @@ let ctx = ZContextBuilder::default()
 | **Connect Endpoint** | - | `tcp/localhost:7447` | Session connects to router |
 | **Multicast** | Disabled | Disabled | Uses TCP gossip for discovery |
 | **Unicast Timeout** | 60s | 60s | Handles slow networks/large deployments |
-| **Query Timeout** | 10min | 10min | Long-running service calls |
+| **Query Timeout** | 10min | 10min | Queries on the raw session. A `ZClient` sets its own 10s |
 | **Max Sessions** | 10,000 | - | Supports concurrent node startup |
 | **Keep-Alive** | 2s | 2s | Optimized for loopback |
 
@@ -156,13 +156,16 @@ connect: {
 },
 ```
 
-### Reduce Service Call Timeout
+### Reduce the Session Query Timeout
 
 The default 10-minute query timeout is conservative. For real-time applications:
 
 ```json5
 queries_default_timeout: 5000,  // 5 seconds
 ```
+
+!!! warning "This does not change a `ZClient` service call"
+    A hiroz service client sets its own 10-second timeout on the Zenoh querier, which takes precedence over the session default. This setting applies to queries you make on the raw session. See [Services](../core-concepts/services.md#what-happens-with-no-server).
 
 ### Enable TLS
 
