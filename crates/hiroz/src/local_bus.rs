@@ -31,13 +31,18 @@
 //! The last row is the real gap. A publisher here does not ask whether anyone
 //! remote is listening; it is told. See issue #36.
 //!
-//! # Keying
+//! # Keying, and why a publisher resolves it once
 //!
-//! Entries are keyed by `(session zid, topic key expression)`. The zid is what
+//! Channels are keyed by `(session zid, topic key expression)`. The zid is what
 //! makes "same session" true rather than merely "same process" — two
 //! [`ZContext`](crate::context::ZContext)s in one process open two sessions and
 //! must not see each other's traffic. Both `ZPub` and `ZSub` already hold an
 //! `Arc<Session>`, so this needs no plumbing through the node tree.
+//!
+//! A publisher takes its [`Channel`] handle when it is built and never touches
+//! the registry again. Resolving per message would mean hashing a
+//! fully-qualified ROS key expression on every publish, which at small payloads
+//! is a visible share of the whole path.
 //!
 //! # Locking
 //!
@@ -71,51 +76,142 @@ struct Entry {
     callback: LocalCallback,
 }
 
-/// Nested rather than keyed by `(ZenohId, String)` on purpose: a tuple key would
-/// force the publisher to allocate a `String` on every `publish` just to look
-/// itself up. `HashMap<String, _>` can be probed with a `&str`, so this shape
-/// makes the hot path allocation-free.
-type Bus = HashMap<ZenohId, HashMap<String, Vec<Entry>>>;
+/// The subscriber list for one `(session, topic)`, resolved once.
+///
+/// A publisher takes an `Arc<Channel>` when it is built and never consults the
+/// registry again. That matters: looking a topic up per message means hashing a
+/// fully-qualified ROS key expression — a long string — on every publish, which
+/// at 64 B payloads is a visible share of the whole path.
+pub struct Channel {
+    entries: RwLock<Vec<Entry>>,
+}
 
-static BUS: LazyLock<RwLock<Bus>> = LazyLock::new(|| RwLock::new(HashMap::new()));
+impl Channel {
+    /// Deliver `payload` to every subscriber here whose type matches, returning
+    /// how many were called.
+    ///
+    /// Callbacks are **never** invoked with the lock held. A subscriber callback
+    /// commonly publishes — that is exactly what the pong side of a ping/pong
+    /// does — and re-entering under its own read guard is the deadlock this
+    /// workspace has already fixed three times elsewhere.
+    pub fn publish<T>(&self, payload: Arc<T>) -> usize
+    where
+        T: Any + Send + Sync + 'static,
+    {
+        let wanted = TypeId::of::<T>();
+
+        // One subscriber is the overwhelmingly common case and is carried
+        // without allocating a Vec; at 64 B a heap allocation per message is a
+        // measurable share of the path.
+        let (single, many): (Option<LocalCallback>, Option<Vec<LocalCallback>>) = {
+            let entries = match self.entries.read() {
+                Ok(e) => e,
+                Err(e) => e.into_inner(),
+            };
+            let mut matching = entries.iter().filter(|e| e.type_id == wanted);
+            let Some(first) = matching.next() else {
+                return 0;
+            };
+            match matching.next() {
+                None => (Some(first.callback.clone()), None),
+                Some(second) => {
+                    let mut all = vec![first.callback.clone(), second.callback.clone()];
+                    all.extend(matching.map(|e| e.callback.clone()));
+                    (None, Some(all))
+                }
+            }
+        };
+
+        let erased: ErasedPayload = payload;
+        match (single, many) {
+            (Some(cb), _) => {
+                cb(&erased);
+                1
+            }
+            (None, Some(all)) => {
+                for cb in &all {
+                    cb(&erased);
+                }
+                all.len()
+            }
+            (None, None) => 0,
+        }
+    }
+
+    /// How many subscribers this channel has, regardless of type. Diagnostics
+    /// only; the publish path does not use it.
+    pub fn subscriber_count(&self) -> usize {
+        match self.entries.read() {
+            Ok(e) => e.len(),
+            Err(e) => e.into_inner().len(),
+        }
+    }
+}
+
+/// Registry of channels, keyed by session then topic.
+///
+/// Channels are created on demand and never removed. One empty `Channel` per
+/// `(session, topic)` ever used is a bounded, trivial cost, and keeping them
+/// means a publisher's handle stays valid across a subscriber coming and going.
+type Registry = HashMap<ZenohId, HashMap<String, Arc<Channel>>>;
+
+static BUS: LazyLock<RwLock<Registry>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+
+/// Resolve the channel for `(zid, topic)`, creating it if needed.
+///
+/// Call this once, when a publisher or subscriber is built — not per message.
+pub fn channel(zid: ZenohId, topic: &str) -> Arc<Channel> {
+    // Fast path: it usually exists, and a read lock lets concurrent builders through.
+    {
+        let bus = match BUS.read() {
+            Ok(b) => b,
+            Err(e) => e.into_inner(),
+        };
+        if let Some(existing) = bus.get(&zid).and_then(|topics| topics.get(topic)) {
+            return existing.clone();
+        }
+    }
+
+    let mut bus = match BUS.write() {
+        Ok(b) => b,
+        Err(e) => e.into_inner(),
+    };
+    bus.entry(zid)
+        .or_default()
+        .entry(topic.to_owned())
+        .or_insert_with(|| {
+            Arc::new(Channel {
+                entries: RwLock::new(Vec::new()),
+            })
+        })
+        .clone()
+}
 
 /// Keeps a local subscription alive. Dropping it unregisters.
 ///
-/// `ZSub` holds one, so the registration follows the subscriber's lifetime and
-/// a dropped subscriber cannot be called back into.
+/// `ZSub` holds one, so the registration follows the subscriber's lifetime and a
+/// dropped subscriber cannot be called back into.
 pub struct LocalSubscription {
-    zid: ZenohId,
-    topic: String,
+    channel: Arc<Channel>,
     id: u64,
 }
 
 impl Drop for LocalSubscription {
     fn drop(&mut self) {
-        let mut bus = match BUS.write() {
-            Ok(b) => b,
-            // A poisoned registry means some callback panicked. Unregistering is
-            // still the right move; leaving a dead entry would let a later
-            // publish call into a dropped subscriber.
+        let mut entries = match self.channel.entries.write() {
+            Ok(e) => e,
+            // A poisoned list means some callback panicked. Unregistering is
+            // still right; leaving a dead entry would let a later publish call
+            // into a dropped subscriber.
             Err(e) => e.into_inner(),
         };
-        let Some(topics) = bus.get_mut(&self.zid) else {
-            return;
-        };
-        if let Some(entries) = topics.get_mut(&self.topic) {
-            entries.retain(|e| e.id != self.id);
-            if entries.is_empty() {
-                topics.remove(&self.topic);
-            }
-        }
-        if topics.is_empty() {
-            bus.remove(&self.zid);
-        }
+        entries.retain(|e| e.id != self.id);
     }
 }
 
-/// Register a local subscriber for `topic` on `zid`, for payloads of type `T`.
-pub fn subscribe<T, F>(zid: ZenohId, topic: &str, callback: F) -> LocalSubscription
+/// Register a subscriber on `channel` for payloads of type `T`.
+pub fn subscribe<T, F>(channel: Arc<Channel>, callback: F) -> LocalSubscription
 where
     T: Any + Send + Sync + 'static,
     F: Fn(Arc<T>) + Send + Sync + 'static,
@@ -133,86 +229,22 @@ where
         }
     });
 
-    let mut bus = match BUS.write() {
-        Ok(b) => b,
-        Err(e) => e.into_inner(),
-    };
-    bus.entry(zid)
-        .or_default()
-        .entry(topic.to_owned())
-        .or_default()
-        .push(Entry {
+    {
+        let mut entries = match channel.entries.write() {
+            Ok(e) => e,
+            Err(e) => e.into_inner(),
+        };
+        entries.push(Entry {
             id,
             type_id: TypeId::of::<T>(),
             callback: erased,
         });
-    debug!("[LOCAL] subscribed id={id} topic={topic}");
-    LocalSubscription {
-        zid,
-        topic: topic.to_owned(),
-        id,
     }
+    debug!("[LOCAL] subscribed id={id}");
+    LocalSubscription { channel, id }
 }
 
-/// Deliver `payload` to every local subscriber on `topic` whose type matches.
-///
-/// Returns how many callbacks were invoked. Zero means nothing local was
-/// listening — the caller decides whether that is fine or whether the message
-/// needs to go on the wire instead.
-pub fn publish<T>(zid: ZenohId, topic: &str, payload: Arc<T>) -> usize
-where
-    T: Any + Send + Sync + 'static,
-{
-    let wanted = TypeId::of::<T>();
-
-    // Clone the matching callbacks out and DROP the guard before invoking any of
-    // them. A callback that publishes re-enters this function; holding the read
-    // guard across the call is a self-deadlock waiting for a writer to queue.
-    //
-    // One subscriber is the overwhelmingly common case, so it is carried without
-    // allocating a Vec — at 64 B payloads a heap allocation per message is a
-    // measurable fraction of the whole path.
-    let (single, many): (Option<LocalCallback>, Option<Vec<LocalCallback>>) = {
-        let bus = match BUS.read() {
-            Ok(b) => b,
-            Err(e) => e.into_inner(),
-        };
-        let Some(entries) = bus.get(&zid).and_then(|topics| topics.get(topic)) else {
-            return 0;
-        };
-        let mut matching = entries.iter().filter(|e| e.type_id == wanted);
-        let Some(first) = matching.next() else {
-            return 0;
-        };
-        match matching.next() {
-            None => (Some(first.callback.clone()), None),
-            Some(second) => {
-                let mut all = vec![first.callback.clone(), second.callback.clone()];
-                all.extend(matching.map(|e| e.callback.clone()));
-                (None, Some(all))
-            }
-        }
-    };
-
-    let erased: ErasedPayload = payload;
-    match (single, many) {
-        (Some(cb), _) => {
-            cb(&erased);
-            1
-        }
-        (None, Some(all)) => {
-            for cb in &all {
-                cb(&erased);
-            }
-            all.len()
-        }
-        (None, None) => 0,
-    }
-}
-
-/// How many local subscribers `topic` has on `zid`, regardless of type.
-///
-/// For diagnostics and tests; the publish path does not use it.
+/// How many local subscribers `topic` has on `zid`. Diagnostics only.
 pub fn subscriber_count(zid: ZenohId, topic: &str) -> usize {
     let bus = match BUS.read() {
         Ok(b) => b,
@@ -220,6 +252,6 @@ pub fn subscriber_count(zid: ZenohId, topic: &str) -> usize {
     };
     bus.get(&zid)
         .and_then(|topics| topics.get(topic))
-        .map(|e| e.len())
+        .map(|c| c.subscriber_count())
         .unwrap_or(0)
 }
