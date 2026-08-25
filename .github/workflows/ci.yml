@@ -509,6 +509,16 @@ jobs:
           nu scripts/test-pure-rust.nu clippy-tests
         shell: bash
 
+      # `ffi` is not a default feature, so the workspace clippy above never
+      # compiles crates/hiroz/src/ffi/. Naming the feature is what reaches it.
+      - name: Clippy (hiroz, ffi feature)
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            source /tmp/nix-dev-env.sh
+          fi
+          nu scripts/test-pure-rust.nu clippy-ffi
+        shell: bash
+
   hu-aarch64-cross:
     name: hu cross-compiles for aarch64 Linux
     runs-on: ubuntu-latest

@@ -52,6 +52,16 @@ def run-doctests [] {
     run-cmd "cargo test -p hiroz --doc"
 }
 
+def clippy-ffi [] {
+    log-step "Clippy (hiroz, ffi feature)"
+    # `clippy-workspace` runs `--all-targets` with *default* features, so the
+    # `ffi` module is never linted -- it is behind a non-default feature. That
+    # left 22 `missing_safety_doc` errors and one raw-pointer cast standing on
+    # `main`, invisible to a fully green pipeline. `--all-targets` alone does
+    # not reach a feature; the feature has to be named.
+    run-cmd "cargo clippy -p hiroz --features ffi --all-targets -- -D warnings"
+}
+
 def check-bundled-msgs [] {
     log-step "Check hiroz-msgs with bundled messages"
     run-cmd "cargo check -p hiroz-msgs"
@@ -196,6 +206,7 @@ def get-test-map [] {
         check-distro-features: { check-distro-features }
         clippy-hiroz-py: { clippy-hiroz-py }
         clippy-tests: { clippy-tests }
+        clippy-ffi: { clippy-ffi }
         test-shm: { test-shm }
     }
 }
@@ -213,6 +224,7 @@ def get-test-pipeline [] {
         "check-distro-features"
         "clippy-hiroz-py"
         "clippy-tests"
+        "clippy-ffi"
         "test-shm"
     ]
 }
