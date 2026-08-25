@@ -149,6 +149,9 @@ pub struct ZPubBuilder<T, S = SerdeCdrSerdes<T>> {
     /// Encoding format for this publisher.
     /// If set, all published messages will use this encoding.
     pub(crate) encoding: Option<crate::encoding::Encoding>,
+    /// Locality restriction for published samples.
+    /// `None` leaves zenoh's default (`Locality::Any`) in place.
+    pub(crate) locality: Option<zenoh::sample::Locality>,
     pub(crate) _phantom_data: PhantomData<(T, S)>,
 }
 
@@ -217,6 +220,56 @@ impl<T, S> ZPubBuilder<T, S> {
         self
     }
 
+    /// Set the locality restriction for this publisher.
+    ///
+    /// This restricts which matching subscribers receive the published samples:
+    /// those in the same session, those in other sessions, or both (the
+    /// default).
+    ///
+    /// [`Locality::SessionLocal`] is the intra-process fast path. Zenoh skips
+    /// the transport entirely for it — no link, no wire encode, no shared
+    /// memory — and hands the payload straight to the matching subscriber
+    /// callbacks in this session. Every node created from one [`ZContext`]
+    /// shares one zenoh session, so this reaches sibling nodes in the same
+    /// process.
+    ///
+    /// [`ZContext`]: crate::context::ZContext
+    ///
+    /// # This makes the publisher invisible off-process
+    ///
+    /// A [`Locality::SessionLocal`] publisher is not reachable from any other
+    /// process, including `ros2 topic echo`. Set it only where the subscriber
+    /// is known to live in the same context.
+    ///
+    /// # Serialization still happens
+    ///
+    /// Zenoh payloads are bytes, so the message is still CDR-encoded on publish
+    /// and decoded on receive. This setting removes the transport, not the
+    /// serialization. Publisher SHM is wasted work under it — pair it with
+    /// [`without_shm`](Self::without_shm).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use zenoh::sample::Locality;
+    /// use hiroz::Builder;
+    ///
+    /// # fn main() -> zenoh::Result<()> {
+    /// # let ctx = hiroz::context::ZContextBuilder::default().build()?;
+    /// # let node = ctx.create_node("test").build()?;
+    /// let publisher = node
+    ///     .create_pub::<hiroz_msgs::std_msgs::String>("topic")
+    ///     .with_locality(Locality::SessionLocal)
+    ///     .without_shm()
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_locality(mut self, locality: zenoh::sample::Locality) -> Self {
+        self.locality = Some(locality);
+        self
+    }
+
     pub fn with_serdes<S2>(self) -> ZPubBuilder<T, S2> {
         ZPubBuilder {
             entity: self.entity,
@@ -228,6 +281,7 @@ impl<T, S> ZPubBuilder<T, S> {
             keyexpr_format: self.keyexpr_format.clone(),
             dyn_schema: self.dyn_schema,
             encoding: self.encoding,
+            locality: self.locality,
             _phantom_data: PhantomData,
         }
     }
@@ -332,6 +386,14 @@ where
                 pub_builder = pub_builder.congestion_control(zenoh::qos::CongestionControl::Drop);
                 debug!("[PUB] QoS: BestEffort (Drop)");
             }
+        }
+
+        // Apply the locality restriction before .advanced(); AdvancedPublisher
+        // forwards its own destination onto this inner builder, so setting it
+        // here is what survives.
+        if let Some(locality) = self.locality {
+            pub_builder = pub_builder.allowed_destination(locality);
+            debug!("[PUB] Locality restriction: {:?}", locality);
         }
 
         // Build an AdvancedPublisher and apply TransientLocal config if needed.

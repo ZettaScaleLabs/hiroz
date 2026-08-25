@@ -55,6 +55,8 @@ pub use crate::parameter::{
 
 /// The `Result` alias used throughout hiroz (equivalent to `zenoh::Result`).
 pub use zenoh::Result;
+/// Locality restriction for publishers and subscribers, re-exported from zenoh.
+pub use zenoh::sample::Locality;
 
 /// Lifecycle node support.
 pub use crate::lifecycle::{
