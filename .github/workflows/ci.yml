@@ -184,6 +184,16 @@ jobs:
           nu scripts/test-pure-rust.nu run-tests
         shell: bash
 
+      # Separate from "Run tests" because `cargo nextest` cannot run doctests.
+      # Without this step nothing in the pipeline ever compiles a `///` example.
+      - name: Run doctests
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            source /tmp/nix-dev-env.sh
+          fi
+          nu scripts/test-pure-rust.nu run-doctests
+        shell: bash
+
   no-ros-shm:
     name: SHM Tests (ubuntu-latest)
     runs-on: ubuntu-latest

@@ -36,6 +36,22 @@ def run-tests [] {
     run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy"
 }
 
+def run-doctests [] {
+    log-step "Run doctests"
+    # `cargo nextest` does not execute doctests, and it is the only test runner
+    # `run-tests` calls -- so until this step existed, no job in this repository
+    # ever compiled a `///` example. Seven of them in `crates/hiroz/src/action/`
+    # had not compiled for as long as anyone measured: their hidden preambles
+    # omitted `use hiroz::Builder` or named `ZActionClient` / `GoalHandle` /
+    # `goal_state`, which `hiroz::action` does not re-export. `cargo doc`
+    # (check-rustdoc-links) does not catch this -- it resolves intra-doc links
+    # and never builds the examples.
+    #
+    # Scoped to `hiroz`: it is the crate whose examples users read. Widen it
+    # when another crate's doc examples are worth the compile time.
+    run-cmd "cargo test -p hiroz --doc"
+}
+
 def check-bundled-msgs [] {
     log-step "Check hiroz-msgs with bundled messages"
     run-cmd "cargo check -p hiroz-msgs"
@@ -171,6 +187,7 @@ def get-test-map [] {
     {
         clippy-workspace: { clippy-workspace }
         run-tests: { run-tests }
+        run-doctests: { run-doctests }
         check-bundled-msgs: { check-bundled-msgs }
         check-hu: { check-hu }
         check-examples: { check-examples }
@@ -187,6 +204,7 @@ def get-test-pipeline [] {
     [
         "clippy-workspace"
         "run-tests"
+        "run-doctests"
         "check-bundled-msgs"
         "check-hu"
         "check-examples"
