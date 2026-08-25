@@ -47,9 +47,9 @@ EXEMPT: list[tuple[str, str]] = [
     ("cliff.toml", "git-cliff changelog config, used at release time"),
     ("assets/**", "images referenced by prose"),
     ("LICENSE", "text"),
-    (".clang-format", "no job runs clang-format; it configures editors only"),
-    (".vale.ini", "vale ships in the devshell but no job runs it"),
-    (".vale/**", "vale ships in the devshell but no job runs it"),
+    (".clang-format", "lint.yml runs clang-format on every change"),
+    (".vale.ini", "lint.yml runs vale on every change"),
+    (".vale/**", "lint.yml runs vale on every change"),
     ("*.md", "docs.yml covers docs; root prose triggers nothing else"),
 ]
 
