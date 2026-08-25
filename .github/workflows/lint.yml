@@ -43,3 +43,36 @@ jobs:
 
       - name: Check formatting
         run: nix build .#checks.x86_64-linux.pre-commit-check -L
+
+  path-coverage:
+    name: Every changed file reaches a workflow
+    runs-on: ubuntu-latest
+    # Pull requests only. On a push the base is `github.event.before`, which is
+    # all-zeros for the first push of a branch, so the diff has no floor.
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: List the files this pull request changes
+        id: changed
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$GITHUB_BASE_REF"
+          base=$(git merge-base FETCH_HEAD HEAD)
+          # Three dots would be the same set here, but naming the merge base
+          # makes the floor explicit and survives a base branch that moved.
+          git diff --name-only "$base" HEAD > changed.txt
+          echo "count=$(wc -l < changed.txt)" >> "$GITHUB_OUTPUT"
+          cat changed.txt
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+
+      - name: Check each one triggers a workflow
+        if: steps.changed.outputs.count != '0'
+        run: xargs -a changed.txt -d '\n' python3 scripts/check-ci-path-coverage.py
