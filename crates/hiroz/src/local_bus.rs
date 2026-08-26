@@ -54,6 +54,7 @@
 
 use std::{
     any::{Any, TypeId},
+    cell::Cell,
     collections::HashMap,
     sync::{
         Arc, LazyLock, RwLock,
@@ -63,6 +64,35 @@ use std::{
 
 use tracing::debug;
 use zenoh::session::ZenohId;
+
+/// How deep a chain of callback-driven publishes may go before the bus refuses.
+///
+/// Delivery runs inline on the publishing thread, so a callback that publishes
+/// re-enters `Channel::publish` on the same stack. A pong that publishes to a
+/// *different* topic is the motivating case and terminates. A callback that
+/// publishes to its **own** topic does not: on the wire that loop passes through
+/// zenoh's queues and shows up as an endless stream of messages, but here it is
+/// direct recursion and ends in a stack overflow.
+///
+/// Eight is chosen to be far above any legitimate chain — a pipeline of eight
+/// nodes each publishing from the previous one's callback, on one thread — and
+/// far below the depth at which the stack is in danger. See issue #40.
+const MAX_DELIVERY_DEPTH: u32 = 8;
+
+thread_local! {
+    /// Delivery depth for the current thread. Not per channel: a cycle across
+    /// two topics recurses just as fatally as one topic into itself.
+    static DELIVERY_DEPTH: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Restores the delivery depth even if a callback panics.
+struct DepthGuard;
+
+impl Drop for DepthGuard {
+    fn drop(&mut self) {
+        DELIVERY_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
 
 /// An erased payload. Always an `Arc<T>` for the `T` named by `type_id`.
 pub type ErasedPayload = Arc<dyn Any + Send + Sync>;
@@ -98,6 +128,24 @@ impl Channel {
     where
         T: Any + Send + Sync + 'static,
     {
+        // Refuse to recurse without bound. A callback that publishes back onto
+        // its own topic would otherwise overflow the stack; returning here turns
+        // that into a dropped message and a loud log, which is recoverable and
+        // greppable. See issue #40.
+        let depth = DELIVERY_DEPTH.with(|d| d.get());
+        if depth >= MAX_DELIVERY_DEPTH {
+            tracing::error!(
+                depth,
+                max = MAX_DELIVERY_DEPTH,
+                "intra-process delivery nested too deeply; refusing to recurse further. \
+                 A subscriber callback is publishing onto a topic that reaches itself. \
+                 The message was dropped."
+            );
+            return 0;
+        }
+        DELIVERY_DEPTH.with(|d| d.set(depth + 1));
+        let _depth_guard = DepthGuard;
+
         let wanted = TypeId::of::<T>();
 
         // One subscriber is the overwhelmingly common case and is carried
