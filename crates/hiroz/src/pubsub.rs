@@ -714,9 +714,11 @@ where
             return Ok(0);
         }
 
-        let delivered = self.local_channel.publish(msg.clone());
-
+        // When the wire is not used, nothing needs `msg` after delivery, so it is
+        // moved rather than cloned. The clone was a refcount pair on every
+        // message of the path this whole mechanism exists to make cheap.
         if self.intra_process_only {
+            let delivered = self.local_channel.publish(msg);
             if delivered == 0 {
                 debug!(
                     "[PUB] intra-process only, no local subscriber on {}: message dropped",
@@ -726,6 +728,7 @@ where
             return Ok(delivered);
         }
 
+        let delivered = self.local_channel.publish(msg.clone());
         self.publish(&msg)?;
         Ok(delivered)
     }
