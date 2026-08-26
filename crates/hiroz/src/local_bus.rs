@@ -62,6 +62,8 @@ use std::{
     },
 };
 
+use arc_swap::ArcSwap;
+
 use tracing::debug;
 use zenoh::session::ZenohId;
 
@@ -97,7 +99,12 @@ impl Drop for DepthGuard {
 /// An erased payload. Always an `Arc<T>` for the `T` named by `type_id`.
 pub type ErasedPayload = Arc<dyn Any + Send + Sync>;
 
-type LocalCallback = Arc<dyn Fn(&ErasedPayload) + Send + Sync>;
+/// Takes the payload **by value**, so the single-subscriber case can move it.
+///
+/// With a `&ErasedPayload` the callback had to clone before downcasting, which
+/// is a refcount pair on every message. One subscriber is the overwhelmingly
+/// common case, and it can be handed the only reference instead.
+type LocalCallback = Arc<dyn Fn(ErasedPayload) + Send + Sync>;
 
 #[derive(Clone)]
 struct Entry {
@@ -113,7 +120,21 @@ struct Entry {
 /// fully-qualified ROS key expression — a long string — on every publish, which
 /// at 64 B payloads is a visible share of the whole path.
 pub struct Channel {
-    entries: RwLock<Vec<Entry>>,
+    /// Read on every publish, written only when a subscriber comes or goes.
+    ///
+    /// This was an `RwLock<Vec<Entry>>`, and the publish path paid for it twice:
+    /// the lock itself, and an `Arc` clone of each matching callback so the
+    /// guard could be dropped before any callback ran. That clone was not
+    /// optional — invoking a callback under the guard is the re-entrancy
+    /// deadlock this workspace has fixed repeatedly, because a subscriber
+    /// callback that publishes is the normal case rather than the exotic one.
+    ///
+    /// A snapshot removes both. A publisher loads the current list and calls
+    /// straight through it; a subscriber coming or going swaps in a new list and
+    /// leaves any publish already in flight running against the old one. That is
+    /// the same visibility the clone gave, without the atomics, and it cannot
+    /// deadlock because nothing is held.
+    entries: ArcSwap<Vec<Entry>>,
 }
 
 impl Channel {
@@ -148,51 +169,41 @@ impl Channel {
 
         let wanted = TypeId::of::<T>();
 
-        // One subscriber is the overwhelmingly common case and is carried
-        // without allocating a Vec; at 64 B a heap allocation per message is a
-        // measurable share of the path.
-        let (single, many): (Option<LocalCallback>, Option<Vec<LocalCallback>>) = {
-            let entries = match self.entries.read() {
-                Ok(e) => e,
-                Err(e) => e.into_inner(),
-            };
-            let mut matching = entries.iter().filter(|e| e.type_id == wanted);
-            let Some(first) = matching.next() else {
-                return 0;
-            };
-            match matching.next() {
-                None => (Some(first.callback.clone()), None),
-                Some(second) => {
-                    let mut all = vec![first.callback.clone(), second.callback.clone()];
-                    all.extend(matching.map(|e| e.callback.clone()));
-                    (None, Some(all))
-                }
-            }
+        let entries = self.entries.load();
+        let mut matching = entries.iter().filter(|e| e.type_id == wanted);
+        let Some(first) = matching.next() else {
+            return 0;
         };
+        let second = matching.next();
 
         let erased: ErasedPayload = payload;
-        match (single, many) {
-            (Some(cb), _) => {
-                cb(&erased);
+        match second {
+            // One subscriber is the overwhelmingly common case: call straight
+            // through the snapshot, hand over the only reference, and touch no
+            // refcount at all beyond the one the caller already holds.
+            None => {
+                (first.callback)(erased);
                 1
             }
-            (None, Some(all)) => {
-                for cb in &all {
-                    cb(&erased);
+            // More than one receiver genuinely needs a reference each, so the
+            // clones start here and not before.
+            Some(second) => {
+                (first.callback)(erased.clone());
+                (second.callback)(erased.clone());
+                let mut count = 2;
+                for entry in matching {
+                    (entry.callback)(erased.clone());
+                    count += 1;
                 }
-                all.len()
+                count
             }
-            (None, None) => 0,
         }
     }
 
     /// How many subscribers this channel has, regardless of type. Diagnostics
     /// only; the publish path does not use it.
     pub fn subscriber_count(&self) -> usize {
-        match self.entries.read() {
-            Ok(e) => e.len(),
-            Err(e) => e.into_inner().len(),
-        }
+        self.entries.load().len()
     }
 }
 
@@ -230,7 +241,7 @@ pub fn channel(zid: ZenohId, topic: &str) -> Arc<Channel> {
         .entry(topic.to_owned())
         .or_insert_with(|| {
             Arc::new(Channel {
-                entries: RwLock::new(Vec::new()),
+                entries: ArcSwap::from_pointee(Vec::new()),
             })
         })
         .clone()
@@ -247,14 +258,17 @@ pub struct LocalSubscription {
 
 impl Drop for LocalSubscription {
     fn drop(&mut self) {
-        let mut entries = match self.channel.entries.write() {
-            Ok(e) => e,
-            // A poisoned list means some callback panicked. Unregistering is
-            // still right; leaving a dead entry would let a later publish call
-            // into a dropped subscriber.
-            Err(e) => e.into_inner(),
-        };
-        entries.retain(|e| e.id != self.id);
+        // Swap in a list without this entry. A publish already in flight keeps
+        // running against the snapshot it loaded, exactly as it did when the
+        // list was cloned out from under a lock.
+        let id = self.id;
+        self.channel.entries.rcu(|current| {
+            current
+                .iter()
+                .filter(|e| e.id != id)
+                .cloned()
+                .collect::<Vec<_>>()
+        });
     }
 }
 
@@ -265,11 +279,11 @@ where
     F: Fn(Arc<T>) + Send + Sync + 'static,
 {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let erased: LocalCallback = Arc::new(move |payload: &ErasedPayload| {
+    let erased: LocalCallback = Arc::new(move |payload: ErasedPayload| {
         // The publisher already matched on TypeId, so this downcast holds. It is
         // still checked rather than assumed — an unchecked cast here would turn
         // a bookkeeping bug into undefined behaviour.
-        match payload.clone().downcast::<T>() {
+        match payload.downcast::<T>() {
             Ok(typed) => callback(typed),
             Err(_) => tracing::error!(
                 "[LOCAL] payload type did not match subscriber type after a TypeId match"
@@ -277,17 +291,21 @@ where
         }
     });
 
-    {
-        let mut entries = match channel.entries.write() {
-            Ok(e) => e,
-            Err(e) => e.into_inner(),
-        };
-        entries.push(Entry {
+    // Copy on write: rare, and it keeps the publish path free of locks. `rcu`
+    // may run this closure more than once under contention, so it clones rather
+    // than moving what it needs.
+    let type_id = TypeId::of::<T>();
+    channel.entries.rcu(|current| {
+        let mut next = Vec::with_capacity(current.len() + 1);
+        next.extend(current.iter().cloned());
+        next.push(Entry {
             id,
-            type_id: TypeId::of::<T>(),
-            callback: erased,
+            type_id,
+            callback: erased.clone(),
         });
-    }
+        next
+    });
+
     debug!("[LOCAL] subscribed id={id}");
     LocalSubscription { channel, id }
 }
