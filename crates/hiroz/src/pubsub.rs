@@ -130,6 +130,15 @@ pub struct ZPub<T: ZMessage, S: ZSerializer> {
     /// never touches zenoh. Prototype stand-in for asking the graph whether any
     /// remote subscriber exists.
     intra_process_only: bool,
+    /// Whether `publish_shared` may hand the message to same-session
+    /// subscribers over the intra-process bus.
+    ///
+    /// True only when this publisher's wire half cannot reach a same-session
+    /// subscriber as well: either there is no wire half
+    /// (`with_intra_process_only`), or the wire half is restricted to
+    /// `Locality::Remote`. Otherwise a local subscriber would receive the
+    /// message twice, once per path. See issue #39.
+    bus_delivery: bool,
     _phantom_data: PhantomData<(T, S)>,
 }
 
@@ -473,6 +482,11 @@ where
             graph: self.graph,
             local_channel,
             intra_process_only: self.intra_process_only,
+            // The bus is only safe when this publisher's wire half cannot also
+            // reach a same-session subscriber, or there is no wire half at all.
+            // See `ZPub::publish_shared` and issue #39.
+            bus_delivery: self.intra_process_only
+                || self.locality == Some(zenoh::sample::Locality::Remote),
             _phantom_data: Default::default(),
         })
     }
@@ -690,6 +704,16 @@ where
     where
         T: Send + Sync + 'static,
     {
+        // Without a locality restriction this publisher's wire half reaches
+        // same-session subscribers too, so using the bus as well would deliver
+        // the message twice. Take the wire alone: correct, just not zero-copy.
+        // `with_intra_process_only()` or `with_locality(Locality::Remote)` opts
+        // into the fast path. See issue #39.
+        if !self.bus_delivery {
+            self.publish(&msg)?;
+            return Ok(0);
+        }
+
         let delivered = self.local_channel.publish(msg.clone());
 
         if self.intra_process_only {
@@ -1024,10 +1048,10 @@ where
     /// | path | source | cost |
     /// |---|---|---|
     /// | intra-process bus | a same-session [`ZPub::publish_shared`] for this exact `T` | a refcount bump |
-    /// | zenoh subscriber, `allowed_origin(Remote)` | anything outside this session | the usual CDR decode |
+    /// | zenoh subscriber, no origin filter | anything on the wire, near or far | the usual CDR decode |
     ///
     /// `Remote` on the wire path is what stops a same-session publisher that is
-    /// *not* `with_intra_process_only()` delivering the same message twice —
+    /// *not* restricted to `Locality::Remote` delivering the same message twice. That is now prevented on the publisher, which is the only side that knows whether it used both paths — see issue #39 —
     /// once as an `Arc`, once decoded. An explicit
     /// [`with_locality`](Self::with_locality) is respected and left alone; the
     /// double delivery is then the caller's to reason about.
@@ -1035,16 +1059,13 @@ where
     /// The type match is exact: a publisher of a different concrete Rust type
     /// on the same topic is not delivered here, even if the ROS type name
     /// agrees. See [`crate::local_bus`] and issue #36.
-    pub fn build_with_shared_callback<F>(mut self, callback: F) -> Result<ZSub<T, (), S>>
+    pub fn build_with_shared_callback<F>(self, callback: F) -> Result<ZSub<T, (), S>>
     where
         T: Send + Sync + 'static,
         F: Fn(Arc<T>) + Send + Sync + 'static,
         S: for<'a> ZDeserializer<Input<'a> = &'a [u8], Output = T> + 'static,
     {
         let zid = self.session.zid();
-        if self.locality.is_none() {
-            self.locality = Some(zenoh::sample::Locality::Remote);
-        }
 
         let callback = Arc::new(callback);
         let wire_cb = callback.clone();

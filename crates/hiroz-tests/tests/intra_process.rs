@@ -18,6 +18,9 @@
 //! | `a_different_rust_type_on_the_same_topic_is_not_delivered` | the `TypeId` gate holds |
 //! | `dropping_the_subscriber_unregisters_it` | no delivery into a dead subscriber |
 //! | `a_pooled_payload_buffer_is_written_in_place_and_reused` | one buffer serves many sends |
+//! | `a_plain_publish_reaches_a_shared_callback_subscriber` | #39 — no silent same-session loss |
+//! | `publish_shared_without_a_locality_restriction_arrives_once` | #39 — and no duplicate either |
+//! | `a_self_publishing_callback_does_not_recurse_without_bound` | #40 — a cycle is refused, not fatal |
 
 mod common;
 
@@ -286,5 +289,132 @@ fn a_pooled_payload_buffer_is_written_in_place_and_reused() -> hiroz::Result<()>
         );
         assert_eq!(*stamp, i as u64 + 1, "send {i} carried a stale value");
     }
+    Ok(())
+}
+
+/// #39 — an ordinary publisher must reach a shared-callback subscriber.
+///
+/// The bus subscriber's wire half used to be forced to `Locality::Remote`,
+/// which silently discarded every same-session `publish`. Nothing errored and
+/// the graph showed both endpoints matched, so only an assertion on delivery
+/// can catch it.
+#[test]
+fn a_plain_publish_reaches_a_shared_callback_subscriber() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node_tx = ctx.create_node("plain_tx").build()?;
+    let node_rx = ctx.create_node("plain_rx").build()?;
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let _sub = node_rx
+        .create_sub::<RosString>("plain_to_shared")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            h.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    // An ordinary publisher: no locality, no bus involvement, nothing special.
+    let publisher = node_tx.create_pub::<RosString>("plain_to_shared").build()?;
+    wait_for_ready(Duration::from_millis(500));
+
+    publisher.publish(&RosString {
+        data: "over the wire".to_owned(),
+    })?;
+
+    assert!(
+        wait_until(|| hits.load(Ordering::SeqCst) >= 1),
+        "a same-session plain publish never reached the shared-callback subscriber"
+    );
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "delivered more than once — the wire and the bus both fired"
+    );
+    Ok(())
+}
+
+/// #39 — and the duplicate the old filter existed to prevent must stay prevented.
+///
+/// A `publish_shared` on a publisher with no locality restriction reaches the
+/// subscriber over the wire. It must not *also* arrive over the bus.
+#[test]
+fn publish_shared_without_a_locality_restriction_arrives_once() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node_tx = ctx.create_node("once_tx").build()?;
+    let node_rx = ctx.create_node("once_rx").build()?;
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let _sub = node_rx
+        .create_sub::<RosString>("exactly_once")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            h.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node_tx.create_pub::<RosString>("exactly_once").build()?;
+    wait_for_ready(Duration::from_millis(500));
+
+    let delivered = publisher.publish_shared(Arc::new(RosString {
+        data: "once please".to_owned(),
+    }))?;
+    assert_eq!(
+        delivered, 0,
+        "the bus was used by a publisher whose wire half also reaches this session"
+    );
+
+    assert!(
+        wait_until(|| hits.load(Ordering::SeqCst) >= 1),
+        "the message did not arrive at all"
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "delivered twice — once over the bus and once over the wire"
+    );
+    Ok(())
+}
+
+/// #40 — a callback that publishes onto its own topic must not recurse forever.
+///
+/// Delivery is inline on the publishing thread, so this is direct recursion.
+/// On the wire the same shape is an endless stream of messages, which is
+/// observable and survivable; here it used to end in a stack overflow. The bus
+/// now refuses past a fixed depth, so the chain terminates and the test
+/// returns rather than dying with SIGSEGV.
+#[test]
+fn a_self_publishing_callback_does_not_recurse_without_bound() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("echo_node").build()?;
+
+    let publisher = Arc::new(
+        node.create_pub::<RosString>("echo")
+            .with_intra_process_only()
+            .build()?,
+    );
+    let echo = publisher.clone();
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let _sub = node
+        .create_sub::<RosString>("echo")
+        .build_with_shared_callback(move |m: Arc<RosString>| {
+            h.fetch_add(1, Ordering::SeqCst);
+            // Republish onto the very topic this callback serves.
+            let _ = echo.publish_shared(m);
+        })?;
+
+    publisher.publish_shared(Arc::new(RosString {
+        data: "round and round".to_owned(),
+    }))?;
+
+    let seen = hits.load(Ordering::SeqCst);
+    assert!(seen >= 1, "the callback never ran");
+    assert!(
+        seen <= 16,
+        "delivery recursed {seen} deep — the depth guard did not hold"
+    );
     Ok(())
 }
