@@ -17,6 +17,7 @@
 //! | `intra_process_only_publisher_does_not_reach_another_context` | nothing goes on the wire, with a control proving the wire works |
 //! | `a_different_rust_type_on_the_same_topic_is_not_delivered` | the `TypeId` gate holds |
 //! | `dropping_the_subscriber_unregisters_it` | no delivery into a dead subscriber |
+//! | `a_pooled_payload_buffer_is_written_in_place_and_reused` | one buffer serves many sends |
 
 mod common;
 
@@ -30,8 +31,9 @@ use std::{
 };
 
 use common::*;
-use hiroz::Builder;
-use hiroz_msgs::std_msgs::{Int32, String as RosString};
+use hiroz::{Builder, ZBuf};
+use hiroz_msgs::std_msgs::{ByteMultiArray, Int32, String as RosString};
+use zenoh_buffers::buffer::SplitBuffer;
 
 const DELIVERY_DEADLINE: Duration = Duration::from_secs(5);
 
@@ -208,5 +210,81 @@ fn dropping_the_subscriber_unregisters_it() -> hiroz::Result<()> {
         "the bus still holds a registration for a dropped subscriber"
     );
     assert_eq!(hits.load(Ordering::SeqCst), 1, "a dropped subscriber was called");
+    Ok(())
+}
+
+/// One payload buffer, reused across sends, written in place.
+///
+/// Delivering an `Arc<T>` without serializing still leaves the publisher
+/// allocating a payload buffer per message. This is the test for reusing one
+/// instead. Two things must both hold, and neither implies the other:
+///
+/// - the **payload allocation** must not move between sends, or the buffer was
+///   silently reallocated and nothing was reused;
+/// - the subscriber must see the value written for **that** send, or the
+///   in-place write did not reach the receiver.
+///
+/// The `Arc::get_mut` on each iteration is itself load bearing: it succeeds only
+/// because no one still holds the previous message. That is the invariant a
+/// pool has to respect, so a change that leaks a reference fails here.
+#[test]
+fn a_pooled_payload_buffer_is_written_in_place_and_reused() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("zc_pool").build()?;
+
+    // (address of the received Arc, address of its payload bytes, the stamp)
+    let seen: Arc<Mutex<Vec<(usize, usize, u64)>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    let _sub = node
+        .create_sub::<ByteMultiArray>("pooled")
+        .build_with_shared_callback(move |msg: Arc<ByteMultiArray>| {
+            let bytes = msg.data.contiguous();
+            let stamp = u64::from_le_bytes(bytes[0..8].try_into().expect("8 bytes"));
+            sink.lock()
+                .expect("poisoned")
+                .push((Arc::as_ptr(&msg) as usize, bytes.as_ptr() as usize, stamp));
+        })?;
+
+    let publisher = node
+        .create_pub::<ByteMultiArray>("pooled")
+        .with_intra_process_only()
+        .build()?;
+
+    let mut slot = Arc::new(ByteMultiArray {
+        data: ZBuf::from(vec![0xAAu8; 64]),
+        ..Default::default()
+    });
+
+    let mut sent_payload_addrs = Vec::new();
+    for stamp in [1u64, 2, 3] {
+        let payload = Arc::get_mut(&mut slot)
+            .expect("nobody still holds the previous message")
+            .data
+            .as_mut_slice()
+            .expect("a solely owned single-slice buffer must be writable in place");
+        sent_payload_addrs.push(payload.as_ptr() as usize);
+        payload[0..8].copy_from_slice(&stamp.to_le_bytes());
+
+        assert_eq!(publisher.publish_shared(slot.clone())?, 1);
+    }
+
+    let got = seen.lock().expect("poisoned");
+    assert_eq!(got.len(), 3, "not every send arrived");
+
+    assert!(
+        sent_payload_addrs.windows(2).all(|w| w[0] == w[1]),
+        "the payload buffer moved between sends ({sent_payload_addrs:?}) — it was \
+         reallocated, so nothing was reused"
+    );
+    let slot_addr = Arc::as_ptr(&slot) as usize;
+    for (i, (arc_addr, payload_addr, stamp)) in got.iter().enumerate() {
+        assert_eq!(*arc_addr, slot_addr, "send {i} delivered a different allocation");
+        assert_eq!(
+            *payload_addr, sent_payload_addrs[i],
+            "send {i} delivered a different payload buffer"
+        );
+        assert_eq!(*stamp, i as u64 + 1, "send {i} carried a stale value");
+    }
     Ok(())
 }

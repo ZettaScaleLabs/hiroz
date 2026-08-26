@@ -114,3 +114,11 @@ lto = "fat"
 codegen-units = 1
 opt-level = 3
 panic = "abort"
+
+# zenoh-buffers, with ZSlice::as_mut_slice / ZBuf::as_mut_slice added on top of
+# the 1.9.0 tag. hiroz::ZBuf::as_mut_slice delegates to it, which is what lets a
+# publisher reuse one payload buffer instead of allocating per send. Upstream as
+# a PR to eclipse-zenoh/zenoh; this pin goes away when it lands in a release.
+# See circle/hiroz-bench#38.
+[patch.crates-io]
+zenoh-buffers = { git = "https://github.com/YuanYuYuan/zenoh", branch = "feat/zslice-as-mut-slice" }
