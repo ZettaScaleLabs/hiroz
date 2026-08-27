@@ -167,6 +167,26 @@ fn a_different_rust_type_on_the_same_topic_is_not_delivered() -> hiroz::Result<(
             h.fetch_add(1, Ordering::SeqCst);
         })?;
 
+    // Positive control: without it, this test passes against a bus that
+    // delivers nothing at all, which is the failure mode it exists to detect.
+    let ok_hits = Arc::new(AtomicUsize::new(0));
+    let ok = ok_hits.clone();
+    let _sub_ok = node
+        .create_sub::<Int32>("typed_control")
+        .build_with_shared_callback(move |_m: Arc<Int32>| {
+            ok.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let control_pub = node
+        .create_pub::<Int32>("typed_control")
+        .with_intra_process_only()
+        .build()?;
+    assert_eq!(
+        control_pub.publish_shared(Arc::new(Int32 { data: 7 }))?,
+        1,
+        "the control did not deliver: the bus is dead, so the assertion below proves nothing"
+    );
+    assert_eq!(ok_hits.load(Ordering::SeqCst), 1, "control subscriber not called");
+
     // Same topic, different concrete Rust type.
     let publisher = node
         .create_pub::<RosString>("typed")
@@ -418,9 +438,14 @@ fn a_self_publishing_callback_does_not_recurse_without_bound() -> hiroz::Result<
     let _sub = node
         .create_sub::<RosString>("echo")
         .build_with_shared_callback(move |m: Arc<RosString>| {
-            h.fetch_add(1, Ordering::SeqCst);
-            // Republish onto the very topic this callback serves.
-            let _ = echo.publish_shared(m);
+            let seen = h.fetch_add(1, Ordering::SeqCst);
+            // ECHO_CAP so that reverting the depth guard fails this test by
+            // assertion rather than by stack overflow, which aborts the whole
+            // binary and names no property at all.
+            if seen < ECHO_CAP {
+                // Republish onto the very topic this callback serves.
+                let _ = echo.publish_shared(m);
+            }
         })?;
 
     publisher.publish_shared(Arc::new(RosString {
@@ -429,6 +454,11 @@ fn a_self_publishing_callback_does_not_recurse_without_bound() -> hiroz::Result<
 
     let seen = hits.load(Ordering::SeqCst);
     assert!(seen >= 1, "the callback never ran");
+    assert_eq!(
+        seen, hiroz::local_bus::MAX_DELIVERY_DEPTH as usize,
+        "expected exactly the depth bound; a change to MAX_DELIVERY_DEPTH must \
+         update this test rather than slip past a loose ceiling"
+    );
     assert!(
         seen <= 16,
         "delivery recursed {seen} deep — the depth guard did not hold"
@@ -787,5 +817,195 @@ fn transient_local_plus_intra_process_only_is_refused() -> hiroz::Result<()> {
         0,
         "the call was refused but the message was delivered regardless"
     );
+    Ok(())
+}
+
+/// The `Some(second)` branch of `Channel::publish` has no other coverage: every
+/// other test in this file uses exactly one shared subscriber, so a stub that
+/// called only the first and returned `Sent(1)` would pass the whole suite.
+///
+/// `Arc::ptr_eq` on *every* receiver is the point. Delivering a clone to the
+/// second and third is what the branch exists to avoid.
+#[test]
+fn every_shared_subscriber_receives_the_same_allocation() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("fanout").build()?;
+
+    let seen: Arc<Mutex<Vec<Arc<RosString>>>> = Arc::new(Mutex::new(Vec::new()));
+    let mut subs = Vec::new();
+    for _ in 0..3 {
+        let sink = seen.clone();
+        subs.push(
+            node.create_sub::<RosString>("fanout")
+                .build_with_shared_callback(move |m: Arc<RosString>| {
+                    sink.lock().expect("poisoned").push(m);
+                })?,
+        );
+    }
+
+    let publisher = node
+        .create_pub::<RosString>("fanout")
+        .with_intra_process_only()
+        .build()?;
+    let sent = Arc::new(RosString {
+        data: "one allocation, three readers".to_owned(),
+    });
+    let delivered = publisher.publish_shared(sent.clone())?;
+    assert_eq!(delivered, 3, "not every subscriber was served");
+
+    let got = seen.lock().expect("poisoned");
+    assert_eq!(got.len(), 3, "expected three deliveries");
+    for (i, g) in got.iter().enumerate() {
+        assert!(
+            Arc::ptr_eq(&sent, g),
+            "receiver {i} was handed a different allocation: the fan-out branch copies"
+        );
+    }
+    Ok(())
+}
+
+/// #133 reached through the sibling method. `publish_shared` refuses a
+/// transient-local intra-process-only publisher; `publish_owned` took the bus
+/// around that check and returned `Ok(1)`.
+#[test]
+fn transient_local_plus_intra_process_only_is_refused_for_owned_too() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("tl_owned").build()?;
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let _sub = node
+        .create_sub::<RosString>("tl_owned_topic")
+        .build_with_owned_callback(move |_m: RosString| {
+            h.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node
+        .create_pub::<RosString>("tl_owned_topic")
+        .with_qos(hiroz::qos::QosProfile {
+            durability: hiroz::qos::QosDurability::TransientLocal,
+            ..Default::default()
+        })
+        .with_intra_process_only()
+        .build()?;
+    wait_for_ready(Duration::from_millis(500));
+
+    let result = publisher.publish_owned(RosString {
+        data: "durable, allegedly".to_owned(),
+    });
+    assert!(
+        result.is_err(),
+        "publish_owned served the bus for a transient-local publisher"
+    );
+    thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        0,
+        "refused and delivered anyway"
+    );
+    Ok(())
+}
+
+/// A panicking subscriber must not censor its siblings or kill the publisher.
+///
+/// Bus delivery is synchronous on the publishing thread, so without isolation a
+/// panic unwinds out of `publish_shared` into the application and every
+/// subscriber later in the snapshot is skipped. Delivery order is snapshot
+/// order, so which siblings are lost varies between runs.
+///
+/// The wire path gives this isolation for free — one panicking callback kills
+/// one zenoh task. This test exists so the bus does not regress against it.
+#[test]
+fn a_panicking_subscriber_does_not_stop_delivery_to_the_others() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("panicky").build()?;
+
+    let before = Arc::new(AtomicUsize::new(0));
+    let after = Arc::new(AtomicUsize::new(0));
+    let (b, a) = (before.clone(), after.clone());
+
+    // The panicking subscriber is registered FIRST, deliberately. Delivery
+    // walks the snapshot in registration order and the fan-out branch invokes
+    // the first entry on its own line, so a panic anywhere later leaves that
+    // line untested — which is how an earlier version of this test passed
+    // against the isolation being removed.
+    let _s1 = node
+        .create_sub::<RosString>("panicky")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            panic!("this subscriber is deliberately broken");
+        })?;
+    let _s2 = node
+        .create_sub::<RosString>("panicky")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            b.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let _s3 = node
+        .create_sub::<RosString>("panicky")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            a.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node
+        .create_pub::<RosString>("panicky")
+        .with_intra_process_only()
+        .build()?;
+
+    // The panic is reported by the default hook; silence it so the test output
+    // is readable, and restore the hook afterwards.
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let delivered = publisher.publish_shared(Arc::new(RosString {
+        data: "one of you will panic".to_owned(),
+    }));
+    std::panic::set_hook(prev);
+
+    // The publisher returned at all: the panic did not unwind into this thread.
+    let delivered = delivered.expect("the panic escaped into the publishing thread");
+    assert_eq!(delivered, 3, "not every subscriber was invoked");
+    assert_eq!(
+        before.load(Ordering::SeqCst),
+        1,
+        "the subscriber after the panicking one was skipped"
+    );
+    assert_eq!(
+        after.load(Ordering::SeqCst),
+        1,
+        "the subscriber after the panicking one was skipped: one bad callback \
+         censored its siblings"
+    );
+    Ok(())
+}
+
+/// The sole-subscriber branch of `Channel::publish` is a different call site
+/// from the fan-out branch, and a panic there has nowhere else to go: it would
+/// unwind straight out of `publish_shared` into the caller.
+#[test]
+fn a_panicking_sole_subscriber_does_not_reach_the_publisher() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("panicky_solo").build()?;
+
+    let _sub = node
+        .create_sub::<RosString>("panicky_solo")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            panic!("the only subscriber, and it is broken");
+        })?;
+    let publisher = node
+        .create_pub::<RosString>("panicky_solo")
+        .with_intra_process_only()
+        .build()?;
+
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let delivered = publisher.publish_shared(Arc::new(RosString {
+        data: "boom".to_owned(),
+    }));
+    std::panic::set_hook(prev);
+
+    let delivered = delivered.expect("the panic escaped into the publishing thread");
+    assert_eq!(delivered, 1, "the subscriber was not invoked");
     Ok(())
 }
