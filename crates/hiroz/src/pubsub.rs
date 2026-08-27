@@ -138,7 +138,6 @@ pub struct ZPub<T: ZMessage, S: ZSerializer> {
     /// (`with_intra_process_only`), or the wire half is restricted to
     /// `Locality::Remote`. Otherwise a local subscriber would receive the
     /// message twice, once per path. See issue #39.
-    bus_delivery: bool,
     _phantom_data: PhantomData<(T, S)>,
 }
 
@@ -482,11 +481,6 @@ where
             graph: self.graph,
             local_channel,
             intra_process_only: self.intra_process_only,
-            // The bus is only safe when this publisher's wire half cannot also
-            // reach a same-session subscriber, or there is no wire half at all.
-            // See `ZPub::publish_shared` and issue #39.
-            bus_delivery: self.intra_process_only
-                || self.locality == Some(zenoh::sample::Locality::Remote),
             _phantom_data: Default::default(),
         })
     }
@@ -704,16 +698,10 @@ where
     where
         T: Send + Sync + 'static,
     {
-        // Without a locality restriction this publisher's wire half reaches
-        // same-session subscribers too, so using the bus as well would deliver
-        // the message twice. Take the wire alone: correct, just not zero-copy.
-        // `with_intra_process_only()` or `with_locality(Locality::Remote)` opts
-        // into the fast path. See issue #39.
-        if !self.bus_delivery {
-            self.publish(&msg)?;
-            return Ok(0);
-        }
-
+        // #39 was about never using the bus AND the wire for one message, and
+        // that still holds: each branch below takes exactly one of them. It is
+        // not a reason to take the wire unconditionally, which is what this
+        // guard used to do and what #36 filed.
         // Ask the graph, rather than being told by a flag.
         //
         // The bus can serve this message only if every subscriber that could
