@@ -713,23 +713,34 @@ where
     where
         T: Send + Sync + 'static,
     {
-        // #39 was about never using the bus AND the wire for one message, and
-        // that still holds: each branch below takes exactly one of them. It is
-        // not a reason to take the wire unconditionally, which is what this
-        // guard used to do and what #36 filed.
-        // Ask the graph, rather than being told by a flag.
+        // The bus is taken only when the CALLER has asserted who the audience
+        // is. It is not inferred from the graph.
         //
-        // The bus can serve this message only if every subscriber that could
-        // receive it is on the bus. If anything off-session is listening, the
-        // wire has to carry it — and then the wire carries it for the local
-        // subscribers too, because sending both ways would deliver twice.
-        //
-        // `with_intra_process_only()` remains as an explicit override for a
-        // publisher that has decided its audience is local, and it keeps the
-        // old behaviour including dropping when nobody is listening.
+        // Inferring it was unsound: the graph holds ROS liveliness tokens, so a
+        // plain zenoh subscriber on the same keyexpr — `z_sub`, a storage or
+        // REST plugin, a native recorder — is invisible to it. A publisher that
+        // concluded "everyone is local" from the graph skipped the wire and that
+        // subscriber received nothing, with nothing anywhere reporting a loss.
+        // There is no count to subtract our own subscribers from, so the
+        // condition cannot be repaired; the inference is withdrawn. See #134.
         use crate::local_bus::Delivery;
 
         if self.intra_process_only {
+            // TRANSIENT_LOCAL lives in the wire publisher's cache, and this
+            // publisher has no wire. Serving the bus would leave a late-joining
+            // subscriber to be handed whatever predates this call *as if it
+            // were the promised history* — wrong, rather than absent. Refuse
+            // instead, and let the caller choose. See #133.
+            if matches!(self.entity.qos.durability, QosDurability::TransientLocal) {
+                return Err(format!(
+                    "publish_shared on a TRANSIENT_LOCAL, intra-process-only publisher for {}: \
+                     the intra-process path has no durability cache, so a late-joining \
+                     subscriber would be served a history this message is missing from. \
+                     Use publish(), or drop the transient-local durability.",
+                    self.entity.topic
+                )
+                .into());
+            }
             return Ok(match self.local_channel.publish(msg) {
                 Delivery::Sent(n) => n,
                 Delivery::NoTaker => {
@@ -745,11 +756,13 @@ where
         }
 
         // A `Locality::Remote` wire half cannot reach this session, so the bus
-        // and the wire address *disjoint* audiences and both must run: the bus
-        // for same-session subscribers, the wire for everyone else. This is the
-        // one case where two routes for one message is correct, because no
-        // subscriber is on both. Without this, a same-session bus subscriber
-        // received nothing at all. See #36.
+        // and the wire address *disjoint* audiences and both run: the bus for
+        // same-session subscribers, the wire for everyone else — including the
+        // non-ROS subscribers the graph cannot see, and any remote subscriber
+        // whose liveliness token has not arrived yet. This is the one case
+        // where two routes for one message is correct, because no subscriber is
+        // on both. TRANSIENT_LOCAL is safe here: the wire publish populates the
+        // cache exactly as it always did.
         if self.locality == Some(zenoh::sample::Locality::Remote) {
             let delivered = match self.local_channel.publish(msg.clone()) {
                 Delivery::Sent(n) => n,
@@ -759,29 +772,7 @@ where
             return Ok(delivered);
         }
 
-        if self.bus_can_serve_everyone() {
-            // A clone here, unlike the intra-process-only path above, because
-            // the wire fallback below still needs the message. It is one
-            // refcount on a path that is already taking the graph lookup.
-            match self.local_channel.publish(msg.clone()) {
-                Delivery::Sent(n) => return Ok(n),
-                // Falling through to the wire here would re-enter the same
-                // callback on a zenoh thread, where the depth counter is a
-                // fresh thread-local zero — an unbounded loop at wire rate
-                // instead of a bounded drop. See #36.
-                Delivery::DepthExceeded => return Ok(0),
-                Delivery::NoTaker => {}
-            }
-            // Nothing took it after all — the graph and the bus disagreed, which
-            // a subscriber dropping between the two can cause. Fall through to
-            // the wire rather than dropping the message.
-            debug!(
-                "[PUB] bus reported no taker on {} after the graph said local-only; using the wire",
-                self.entity.topic
-            );
-            return self.publish(&msg).map(|()| 0);
-        }
-
+        // No assertion from the caller: the wire alone, which reaches everyone.
         self.publish(&msg)?;
         Ok(0)
     }
@@ -804,7 +795,9 @@ where
         T: Send + Sync + 'static,
     {
         // The move only applies when the bus is serving this message at all.
-        let bus = self.intra_process_only || self.bus_can_serve_everyone();
+        // Same rule as `publish_shared`: the caller asserts the audience.
+        let bus = self.intra_process_only
+            || self.locality == Some(zenoh::sample::Locality::Remote);
         if bus {
             match self.local_channel.publish_owned(msg) {
                 Ok(()) => return Ok(1),
@@ -816,30 +809,6 @@ where
         Ok(0)
     }
 
-    /// Whether every subscriber that could receive this message is on the
-    /// intra-process bus, so the wire is not needed.
-    ///
-    /// Two conditions, both necessary. Every subscriber the graph knows about
-    /// must be in this session — an off-session one can only be reached by the
-    /// wire. And the count on the bus must match the count in the graph, so a
-    /// same-session subscriber that is *not* on the bus (an ordinary callback,
-    /// which expects decoded bytes) is not silently skipped.
-    ///
-    /// This is the shape rclcpp uses: compare the total subscription count
-    /// against the intra-process one, per message, and take the wire only when
-    /// they differ. See issue #36.
-    fn bus_can_serve_everyone(&self) -> bool {
-        let subs = self
-            .graph
-            .get_entities_by_topic(EndpointKind::Subscription, &self.entity.topic);
-        if subs.is_empty() {
-            return false;
-        }
-        if !subs.iter().all(|e| self.graph.is_entity_local(e)) {
-            return false;
-        }
-        self.local_channel.subscriber_count() >= subs.len()
-    }
 
     /// Publish pre-serialized data directly
     ///
