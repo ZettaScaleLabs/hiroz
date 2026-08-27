@@ -693,6 +693,22 @@ where
     /// callbacks have run by the time this returns. A message sent with
     /// `publish` travels the wire and arrives later. Interleaving the two on one
     /// topic gives no ordering guarantee between them.
+    /// # QoS is not carried on the intra-process path
+    ///
+    /// When this message goes to the bus, it does not enter the wire
+    /// publisher's cache and carries no attachment. Concretely:
+    ///
+    /// - **`TRANSIENT_LOCAL` is violated, not merely unsupported.** Nothing
+    ///   published this way enters the durability cache, so a subscriber that
+    ///   joins later is served the surviving samples *as if they were a
+    ///   complete history*. Do not use this method on a transient-local
+    ///   publisher.
+    /// - `RELIABLE` / `BEST_EFFORT` and `KEEP_LAST(n)` have no meaning here:
+    ///   delivery is a synchronous inline call with no queue, so nothing is
+    ///   ever dropped for congestion and no depth is ever displaced.
+    /// - The attachment — source gid, sequence number, source timestamp — is
+    ///   absent, so no bus message carries ROS message-info.
+    ///
     pub fn publish_shared(&self, msg: Arc<T>) -> Result<usize>
     where
         T: Send + Sync + 'static,

@@ -114,18 +114,3 @@ lto = "fat"
 codegen-units = 1
 opt-level = 3
 panic = "abort"
-
-# zenoh-buffers, with ZSlice::as_mut_slice / ZBuf::as_mut_slice added on top of
-# the 1.9.0 tag. hiroz::ZBuf::as_mut_slice delegates to it, which is what lets a
-# publisher reuse one payload buffer instead of allocating per send. Upstream as
-# a PR to eclipse-zenoh/zenoh; this pin goes away when it lands in a release.
-# See circle/hiroz-bench#38.
-[patch.crates-io]
-#
-# Pinned to a rev, not a branch: a [patch.crates-io] entry is the worst place for
-# a dependency that can move under you, because nothing about the build changes
-# when it does. The forge is tailnet-only and the repo is private, so a build
-# host that cannot reach it overrides this line to a local checkout of the same
-# commit — asserting the rev first, since a patch that silently does not apply is
-# indistinguishable from a null result.
-zenoh-buffers = { git = "https://forgejo.yuyuan.dev/circle/zenoh.git", rev = "337adf0dc" }
