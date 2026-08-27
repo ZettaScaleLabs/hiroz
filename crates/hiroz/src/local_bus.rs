@@ -79,7 +79,9 @@ use zenoh::session::ZenohId;
 /// Eight is chosen to be far above any legitimate chain — a pipeline of eight
 /// nodes each publishing from the previous one's callback, on one thread — and
 /// far below the depth at which the stack is in danger. See issue #40.
-const MAX_DELIVERY_DEPTH: u32 = 8;
+/// Public so a test can assert the exact bound rather than a loose ceiling:
+/// a hand-copied constant lets a change to this value slip past unnoticed.
+pub const MAX_DELIVERY_DEPTH: u32 = 8;
 
 thread_local! {
     /// Delivery depth for the current thread. Not per channel: a cycle across
@@ -183,6 +185,40 @@ pub(crate) enum Delivery {
     DepthExceeded,
 }
 
+
+/// Invoke one subscriber callback, isolated.
+///
+/// Two things happen here that must happen at every user-code call site.
+///
+/// The crate contract in [`crate::reentrancy`] says every invocation of user
+/// code is routed through `invoke_user_callback!`, so that calling out while a
+/// tracked lock is held is caught in debug builds. Bus delivery is synchronous
+/// on the publishing thread, which makes that hazard *more* reachable than the
+/// wire path, not less.
+///
+/// And a panic is contained — **under `panic = "unwind"`, which is the
+/// default**. A build that sets `panic = "abort"` cannot catch anything: the
+/// process ends at the panic and this isolation is inert. That is worth knowing
+/// before relying on it in an embedded or abort-configured deployment.
+///
+/// A panic is contained. On the wire, a panicking callback kills one zenoh
+/// task. Here it would unwind into the application's publishing thread and skip
+/// every subscriber after it in the snapshot. Delivery order is snapshot order,
+/// so which siblings got censored would vary run to run.
+fn invoke_isolated(site: &'static str, f: impl FnOnce()) -> bool {
+    crate::reentrancy::assert_no_guards_held(site);
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(()) => true,
+        Err(_) => {
+            tracing::error!(
+                "[BUS] a subscriber callback panicked during intra-process delivery at {site}; \
+                 the panic was contained and delivery continued to the remaining subscribers"
+            );
+            false
+        }
+    }
+}
+
 impl Channel {
     /// Deliver `payload` to every subscriber here whose type matches, returning
     /// how many were called.
@@ -231,19 +267,24 @@ impl Channel {
             // through the snapshot, hand over the only reference, and touch no
             // refcount at all beyond the one the caller already holds.
             None => {
-                first.call_shared(erased);
+                invoke_isolated("local_bus::publish", || first.call_shared(erased));
                 Delivery::Sent(1)
             }
             // More than one receiver genuinely needs a reference each, so the
             // clones start here and not before.
             Some(second) => {
-                first.call_shared(erased.clone());
-                second.call_shared(erased.clone());
+                let e1 = erased.clone();
+                let e2 = erased.clone();
+                invoke_isolated("local_bus::publish", || first.call_shared(e1));
+                invoke_isolated("local_bus::publish", || second.call_shared(e2));
                 let mut count = 2;
                 for entry in matching {
-                    entry.call_shared(erased.clone());
+                    let ec = erased.clone();
+                    invoke_isolated("local_bus::publish", || entry.call_shared(ec));
                     count += 1;
                 }
+                // The count is subscribers invoked, not subscribers that
+                // returned normally. A panicking one is logged above.
                 Delivery::Sent(count)
             }
         }
@@ -282,12 +323,17 @@ impl Channel {
                 max = MAX_DELIVERY_DEPTH,
                 "intra-process delivery nested too deeply; refusing to recurse further"
             );
-            return Err(payload);
+            // Deliberately NOT Err(payload): the caller treats that as "no
+            // owning receiver" and falls back, which for a Remote-locality
+            // publisher puts a message on the wire that the caller asked to
+            // hand to one local owner. A deliberate drop is the honest answer,
+            // and it matches what `publish` does at the same depth.
+            return Ok(());
         }
         DELIVERY_DEPTH.with(|d| d.set(depth + 1));
         let _depth_guard = DepthGuard;
 
-        cb(Box::new(payload));
+        invoke_isolated("local_bus::publish_owned", || cb(Box::new(payload)));
         Ok(())
     }
 
@@ -341,7 +387,12 @@ pub fn channel(zid: ZenohId, topic: &str) -> Arc<Channel> {
 /// Keeps a local subscription alive. Dropping it unregisters.
 ///
 /// `ZSub` holds one, so the registration follows the subscriber's lifetime and a
-/// dropped subscriber cannot be called back into.
+/// dropped subscriber receives no *further* deliveries.
+/// It does not quiesce: a delivery already in flight on another thread runs to
+/// completion against the snapshot it loaded, so the callback can still run after
+/// `drop` has returned. That is memory-safe, because the snapshot owns the closure
+/// and everything it captured. It is not a barrier, so do not tear down a resource
+/// the callback merely observes on the strength of having dropped the subscriber.
 pub struct LocalSubscription {
     channel: Arc<Channel>,
     id: u64,

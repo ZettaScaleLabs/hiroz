@@ -731,15 +731,8 @@ where
             // subscriber to be handed whatever predates this call *as if it
             // were the promised history* — wrong, rather than absent. Refuse
             // instead, and let the caller choose. See #133.
-            if matches!(self.entity.qos.durability, QosDurability::TransientLocal) {
-                return Err(format!(
-                    "publish_shared on a TRANSIENT_LOCAL, intra-process-only publisher for {}: \
-                     the intra-process path has no durability cache, so a late-joining \
-                     subscriber would be served a history this message is missing from. \
-                     Use publish(), or drop the transient-local durability.",
-                    self.entity.topic
-                )
-                .into());
+            if let Some(e) = self.refuse_durable_bus() {
+                return Err(e);
             }
             return Ok(match self.local_channel.publish(msg) {
                 Delivery::Sent(n) => n,
@@ -790,6 +783,33 @@ where
     ///
     /// Returns how many receivers took it on the bus; `0` means it went to the
     /// wire. See issue #36.
+    /// Refuse a durable publisher the bus, which has no durability cache.
+    ///
+    /// This lives in one place because it must guard **every** route onto the
+    /// bus. It was originally written inline in `publish_shared`, and
+    /// `publish_owned` reached the bus around it — the same violation, through
+    /// the sibling method. See #133.
+    fn refuse_durable_bus(&self) -> Option<zenoh::Error> {
+        if !self.intra_process_only {
+            // A `Locality::Remote` publisher still puts every message on the
+            // wire, so its durability cache is populated as it always was.
+            return None;
+        }
+        if !matches!(self.entity.qos.durability, QosDurability::TransientLocal) {
+            return None;
+        }
+        Some(
+            format!(
+                "publish on a TRANSIENT_LOCAL, intra-process-only publisher for {}: \
+                 the intra-process path has no durability cache, so a late-joining \
+                 subscriber would be served a history this message is missing from. \
+                 Use publish(), or drop the transient-local durability.",
+                self.entity.topic
+            )
+            .into(),
+        )
+    }
+
     pub fn publish_owned(&self, msg: T) -> Result<usize>
     where
         T: Send + Sync + 'static,
@@ -799,6 +819,9 @@ where
         let bus = self.intra_process_only
             || self.locality == Some(zenoh::sample::Locality::Remote);
         if bus {
+            if let Some(e) = self.refuse_durable_bus() {
+                return Err(e);
+            }
             match self.local_channel.publish_owned(msg) {
                 Ok(()) => return Ok(1),
                 // Handed back untouched: no sole owning receiver. Share it.
@@ -1314,7 +1337,12 @@ pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     pub expected_encoding: Option<crate::encoding::Encoding>,
     /// Registration on the intra-process bus, when built with
     /// [`ZSubBuilder::build_with_shared_callback`]. Dropping it unregisters, so
-    /// a dropped subscriber cannot be called back into.
+    /// a dropped subscriber receives no *further* deliveries.
+    /// It does not quiesce: a delivery already in flight on another thread runs to
+    /// completion against the snapshot it loaded, so the callback can still run after
+    /// `drop` has returned. That is memory-safe, because the snapshot owns the closure
+    /// and everything it captured. It is not a barrier, so do not tear down a resource
+    /// the callback merely observes on the strength of having dropped the subscriber.
     _local_sub: Option<crate::local_bus::LocalSubscription>,
     _phantom_data: PhantomData<(T, Q, S)>,
 }
