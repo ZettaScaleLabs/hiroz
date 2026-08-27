@@ -21,6 +21,9 @@
 //! | `a_plain_publish_reaches_a_shared_callback_subscriber` | #39 — no silent same-session loss |
 //! | `publish_shared_without_a_locality_restriction_arrives_once` | #39 — and no duplicate either |
 //! | `a_self_publishing_callback_does_not_recurse_without_bound` | #40 — a cycle is refused, not fatal |
+//! | `a_publisher_asks_the_graph_instead_of_being_told` | #36 — no drop when nobody is on the bus |
+//! | `the_wire_is_used_when_a_subscriber_is_off_session` | #36 — and the bus is not, so no duplicate |
+//! | `a_sole_receiver_is_given_the_message_to_own` | #36 — the move, not a shared Arc |
 
 mod common;
 
@@ -416,5 +419,134 @@ fn a_self_publishing_callback_does_not_recurse_without_bound() -> hiroz::Result<
         seen <= 16,
         "delivery recursed {seen} deep — the depth guard did not hold"
     );
+    Ok(())
+}
+
+/// #36 — a publisher without the flag must read its audience off the graph.
+///
+/// The prototype was *told* whether to use the wire, so `publish_shared` on a
+/// publisher whose subscriber was an ordinary one delivered nothing at all.
+/// Now the publisher asks: no bus subscriber means the wire carries it.
+#[test]
+fn a_publisher_asks_the_graph_instead_of_being_told() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node_tx = ctx.create_node("ask_tx").build()?;
+    let node_rx = ctx.create_node("ask_rx").build()?;
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    // An ORDINARY subscriber: not on the bus, expects decoded bytes.
+    let _sub = node_rx
+        .create_sub::<RosString>("ask_graph")
+        .build_with_callback(move |_m: RosString| {
+            h.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    // No locality, no flag. The publisher has to work out the audience.
+    let publisher = node_tx.create_pub::<RosString>("ask_graph").build()?;
+    wait_for_ready(Duration::from_millis(500));
+
+    let delivered = publisher.publish_shared(Arc::new(RosString {
+        data: "who is listening".to_owned(),
+    }))?;
+    assert_eq!(delivered, 0, "the bus took a message its subscriber cannot decode");
+
+    assert!(
+        wait_until(|| hits.load(Ordering::SeqCst) >= 1),
+        "publish_shared reached nobody: the publisher neither used the bus nor the wire"
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(hits.load(Ordering::SeqCst), 1, "delivered more than once");
+    Ok(())
+}
+
+/// #36 — an off-session subscriber forces the wire, and then the bus stays out.
+///
+/// Both paths at once would deliver twice to a same-session bus subscriber.
+/// The publisher takes the wire alone, so the local subscriber gets exactly one
+/// copy — decoded rather than shared, which is the price of a remote audience.
+#[test]
+fn the_wire_is_used_when_a_subscriber_is_off_session() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx_tx = create_hiroz_context_with_router(&router)?;
+    let ctx_far = create_hiroz_context_with_router(&router)?;
+
+    let node_tx = ctx_tx.create_node("mix_tx").build()?;
+    let node_near = ctx_tx.create_node("mix_near").build()?;
+    let node_far = ctx_far.create_node("mix_far").build()?;
+
+    let near = Arc::new(AtomicUsize::new(0));
+    let far = Arc::new(AtomicUsize::new(0));
+    let (n, f) = (near.clone(), far.clone());
+
+    let _s_near = node_near
+        .create_sub::<RosString>("mixed")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            n.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let _s_far = node_far
+        .create_sub::<RosString>("mixed")
+        .build_with_callback(move |_m: RosString| {
+            f.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node_tx.create_pub::<RosString>("mixed").build()?;
+    wait_for_ready(Duration::from_millis(800));
+
+    publisher.publish_shared(Arc::new(RosString {
+        data: "both audiences".to_owned(),
+    }))?;
+
+    // The far one is the control: without it crossing, a zero on the near side
+    // would be indistinguishable from a broken router.
+    assert!(
+        wait_until(|| far.load(Ordering::SeqCst) >= 1),
+        "the off-session subscriber never received it; this run proves nothing"
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        near.load(Ordering::SeqCst),
+        1,
+        "the near subscriber received {} copies — the bus and the wire both fired",
+        near.load(Ordering::SeqCst)
+    );
+    Ok(())
+}
+
+/// #36 — a sole receiver is handed the message itself, not a shared `Arc`.
+///
+/// The proof is that the callback can **mutate** what it receives. A shared
+/// `Arc<T>` cannot be mutated at all, so this does not compile against the
+/// shared path — which is the point of having a separate one.
+#[test]
+fn a_sole_receiver_is_given_the_message_to_own() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("owned_node").build()?;
+
+    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    let _sub = node
+        .create_sub::<RosString>("owned")
+        .build_with_owned_callback(move |mut msg: RosString| {
+            // Mutating the received message is the whole property under test.
+            msg.data.push_str(" — mutated by its owner");
+            sink.lock().expect("poisoned").push(msg.data);
+        })?;
+
+    let publisher = node
+        .create_pub::<RosString>("owned")
+        .with_intra_process_only()
+        .build()?;
+
+    let took = publisher.publish_owned(RosString {
+        data: "mine".to_owned(),
+    })?;
+    assert_eq!(took, 1, "the sole owning receiver did not take the message");
+
+    let got = seen.lock().expect("poisoned");
+    assert_eq!(got.len(), 1, "the owned callback did not run");
+    assert_eq!(got[0], "mine — mutated by its owner");
     Ok(())
 }
