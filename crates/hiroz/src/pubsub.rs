@@ -130,14 +130,12 @@ pub struct ZPub<T: ZMessage, S: ZSerializer> {
     /// never touches zenoh. Prototype stand-in for asking the graph whether any
     /// remote subscriber exists.
     intra_process_only: bool,
-    /// Whether `publish_shared` may hand the message to same-session
-    /// subscribers over the intra-process bus.
+    /// The locality restriction applied to this publisher's wire half, if any.
     ///
-    /// True only when this publisher's wire half cannot reach a same-session
-    /// subscriber as well: either there is no wire half
-    /// (`with_intra_process_only`), or the wire half is restricted to
-    /// `Locality::Remote`. Otherwise a local subscriber would receive the
-    /// message twice, once per path. See issue #39.
+    /// Routing consults it: a `Locality::Remote` wire half cannot reach this
+    /// session, so the bus and the wire address disjoint audiences and both are
+    /// used. Without it they overlap, and using both would deliver twice.
+    locality: Option<zenoh::sample::Locality>,
     _phantom_data: PhantomData<(T, S)>,
 }
 
@@ -481,6 +479,7 @@ where
             graph: self.graph,
             local_channel,
             intra_process_only: self.intra_process_only,
+            locality: self.locality,
             _phantom_data: Default::default(),
         })
     }
@@ -712,14 +711,35 @@ where
         // `with_intra_process_only()` remains as an explicit override for a
         // publisher that has decided its audience is local, and it keeps the
         // old behaviour including dropping when nobody is listening.
+        use crate::local_bus::Delivery;
+
         if self.intra_process_only {
-            let delivered = self.local_channel.publish(msg);
-            if delivered == 0 {
-                debug!(
-                    "[PUB] intra-process only, no local subscriber on {}: message dropped",
-                    self.entity.topic
-                );
-            }
+            return Ok(match self.local_channel.publish(msg) {
+                Delivery::Sent(n) => n,
+                Delivery::NoTaker => {
+                    debug!(
+                        "[PUB] intra-process only, no local subscriber on {}: message dropped",
+                        self.entity.topic
+                    );
+                    0
+                }
+                // Already logged at error level by the bus. Deliberate drop.
+                Delivery::DepthExceeded => 0,
+            });
+        }
+
+        // A `Locality::Remote` wire half cannot reach this session, so the bus
+        // and the wire address *disjoint* audiences and both must run: the bus
+        // for same-session subscribers, the wire for everyone else. This is the
+        // one case where two routes for one message is correct, because no
+        // subscriber is on both. Without this, a same-session bus subscriber
+        // received nothing at all. See #36.
+        if self.locality == Some(zenoh::sample::Locality::Remote) {
+            let delivered = match self.local_channel.publish(msg.clone()) {
+                Delivery::Sent(n) => n,
+                Delivery::NoTaker | Delivery::DepthExceeded => 0,
+            };
+            self.publish(&msg)?;
             return Ok(delivered);
         }
 
@@ -727,9 +747,14 @@ where
             // A clone here, unlike the intra-process-only path above, because
             // the wire fallback below still needs the message. It is one
             // refcount on a path that is already taking the graph lookup.
-            let delivered = self.local_channel.publish(msg.clone());
-            if delivered > 0 {
-                return Ok(delivered);
+            match self.local_channel.publish(msg.clone()) {
+                Delivery::Sent(n) => return Ok(n),
+                // Falling through to the wire here would re-enter the same
+                // callback on a zenoh thread, where the depth counter is a
+                // fresh thread-local zero — an unbounded loop at wire rate
+                // instead of a bounded drop. See #36.
+                Delivery::DepthExceeded => return Ok(0),
+                Delivery::NoTaker => {}
             }
             // Nothing took it after all — the graph and the bus disagreed, which
             // a subscriber dropping between the two can cause. Fall through to
@@ -1142,10 +1167,23 @@ where
         S: for<'a> ZDeserializer<Input<'a> = &'a [u8], Output = T> + 'static,
     {
         let zid = self.session.zid();
-        let mut sub = self.build_with_callback(|_m: T| {})?;
+        // Both halves run the same callback. The wire half is not decoration:
+        // without it this subscriber discards every message that does not
+        // arrive by `publish_owned` on the bus — including from every remote
+        // publisher — while still advertising a live subscription. See #36.
+        //
+        // It cannot deliver twice: a publisher takes the bus or the wire for
+        // any one message, never both, unless its wire half is `Remote`-
+        // restricted, in which case the two audiences are disjoint.
+        let callback = Arc::new(callback);
+        let wire_half = callback.clone();
+        let mut sub = self.build_with_callback(move |m: T| wire_half(m))?;
         let topic = sub.entity.topic.clone();
         let channel = crate::local_bus::channel(zid, &topic);
-        sub._local_sub = Some(crate::local_bus::subscribe_owned::<T, _>(channel, callback));
+        sub._local_sub = Some(crate::local_bus::subscribe_owned::<T, _>(
+            channel,
+            move |m: T| callback(m),
+        ));
         Ok(sub)
     }
 

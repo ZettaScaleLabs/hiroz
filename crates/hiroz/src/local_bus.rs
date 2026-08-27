@@ -167,6 +167,22 @@ pub struct Channel {
     entries: ArcSwap<Vec<Entry>>,
 }
 
+/// What one intra-process publish did.
+///
+/// `NoTaker` and `DepthExceeded` both mean nothing was delivered, and they must
+/// not be conflated: a caller may fall back to the wire on `NoTaker`, but doing
+/// so on `DepthExceeded` re-enters the same callback on a zenoh thread with a
+/// fresh depth counter and loops forever. See #36.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Delivery {
+    /// Handed to this many subscribers.
+    Sent(usize),
+    /// No subscriber of this type is on the bus.
+    NoTaker,
+    /// Refused: delivery is already nested `MAX_DELIVERY_DEPTH` deep.
+    DepthExceeded,
+}
+
 impl Channel {
     /// Deliver `payload` to every subscriber here whose type matches, returning
     /// how many were called.
@@ -175,7 +191,7 @@ impl Channel {
     /// commonly publishes — that is exactly what the pong side of a ping/pong
     /// does — and re-entering under its own read guard is the deadlock this
     /// workspace has already fixed three times elsewhere.
-    pub fn publish<T>(&self, payload: Arc<T>) -> usize
+    pub fn publish<T>(&self, payload: Arc<T>) -> Delivery
     where
         T: Any + Send + Sync + 'static,
     {
@@ -192,7 +208,7 @@ impl Channel {
                  A subscriber callback is publishing onto a topic that reaches itself. \
                  The message was dropped."
             );
-            return 0;
+            return Delivery::DepthExceeded;
         }
         DELIVERY_DEPTH.with(|d| d.set(depth + 1));
         let _depth_guard = DepthGuard;
@@ -205,7 +221,7 @@ impl Channel {
             .filter(|e| e.type_id == wanted)
             .filter(|e| e.is_shared());
         let Some(first) = matching.next() else {
-            return 0;
+            return Delivery::NoTaker;
         };
         let second = matching.next();
 
@@ -216,7 +232,7 @@ impl Channel {
             // refcount at all beyond the one the caller already holds.
             None => {
                 first.call_shared(erased);
-                1
+                Delivery::Sent(1)
             }
             // More than one receiver genuinely needs a reference each, so the
             // clones start here and not before.
@@ -228,7 +244,7 @@ impl Channel {
                     entry.call_shared(erased.clone());
                     count += 1;
                 }
-                count
+                Delivery::Sent(count)
             }
         }
     }

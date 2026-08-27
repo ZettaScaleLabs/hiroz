@@ -29,7 +29,7 @@ mod common;
 
 use std::{
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
     thread,
@@ -42,6 +42,10 @@ use hiroz_msgs::std_msgs::{ByteMultiArray, Int32, String as RosString};
 use zenoh_buffers::buffer::SplitBuffer;
 
 const DELIVERY_DEADLINE: Duration = Duration::from_secs(5);
+
+/// Ceiling on the self-publishing echo, so neither direction of the
+/// recursion test can run forever. Far above the delivery-depth bound.
+const ECHO_CAP: usize = 64;
 
 fn wait_until(f: impl Fn() -> bool) -> bool {
     let start = Instant::now();
@@ -558,5 +562,173 @@ fn a_sole_receiver_is_given_the_message_to_own() -> hiroz::Result<()> {
     let got = seen.lock().expect("poisoned");
     assert_eq!(got.len(), 1, "the owned callback did not run");
     assert_eq!(got[0], "mine — mutated by its owner");
+    Ok(())
+}
+
+/// #36 defect 1. An owned subscriber's wire half was `|_m| {}`, so every
+/// message from off-session — that is, from the entire rest of the ROS graph —
+/// was discarded in silence while the subscription still advertised itself.
+///
+/// The publisher here is in a *different* context, so the bus cannot carry it
+/// and only the wire half can satisfy this test.
+#[test]
+fn an_owned_subscriber_receives_from_an_off_session_publisher() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx_rx = create_hiroz_context_with_router(&router)?;
+    let ctx_tx = create_hiroz_context_with_router(&router)?;
+    let node_rx = ctx_rx.create_node("own_wire_rx").build()?;
+    let node_tx = ctx_tx.create_node("own_wire_tx").build()?;
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let _sub = node_rx
+        .create_sub::<RosString>("owned_wire")
+        .build_with_owned_callback(move |m: RosString| {
+            assert_eq!(m.data, "from far away");
+            h.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node_tx.create_pub::<RosString>("owned_wire").build()?;
+    wait_for_ready(Duration::from_millis(800));
+    publisher.publish(&RosString {
+        data: "from far away".to_owned(),
+    })?;
+
+    assert!(
+        wait_until(|| hits.load(Ordering::SeqCst) >= 1),
+        "an owned subscriber discarded a message from another session"
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(hits.load(Ordering::SeqCst), 1, "delivered more than once");
+    Ok(())
+}
+
+/// #36 defect 2. Depth exhaustion and "no subscriber wanted it" both reported
+/// zero, and the caller read zero as "fall back to the wire". The wire re-enters
+/// the same callback on a zenoh thread, where the depth counter is a fresh
+/// thread-local zero — so a bounded drop became an unbounded loop at wire rate.
+///
+/// The publisher is plain: no flag, no locality. That is the path the existing
+/// recursion test does not take.
+#[test]
+fn a_self_publishing_callback_does_not_escape_to_the_wire_and_loop() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("loop_node").build()?;
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    // The publisher is stored erased, so this test does not have to name
+    // `ZPub`'s serializer parameter. `OnceLock` rather than `Mutex` because
+    // delivery is synchronous: the callback runs on the publishing thread and
+    // would re-enter a lock that thread already holds.
+    type Echo = Arc<OnceLock<Arc<dyn Fn(Arc<RosString>) + Send + Sync>>>;
+    let echo: Echo = Arc::new(OnceLock::new());
+    let echo_cb = echo.clone();
+    let _sub = node
+        .create_sub::<RosString>("cycle")
+        .build_with_shared_callback(move |m: Arc<RosString>| {
+            let seen = h.fetch_add(1, Ordering::SeqCst);
+            // Stop echoing well above the depth guard's bound but well below
+            // forever. Without this the unbounded case never terminates, and a
+            // detector that hangs tells you less than one that fails: the
+            // timeout does not say which property broke.
+            if seen < ECHO_CAP {
+                if let Some(publish) = echo_cb.get() {
+                    publish(m);
+                }
+            }
+        })?;
+
+    let publisher = node.create_pub::<RosString>("cycle").build()?;
+    let _ = echo.set(Arc::new(move |m: Arc<RosString>| {
+        let _ = publisher.publish_shared(m);
+    }));
+    wait_for_ready(Duration::from_millis(500));
+
+    // Publish on a worker thread behind a watchdog. Escaping to the wire does
+    // not merely loop: the wire callback runs on a zenoh runtime thread and
+    // publishes from inside it, which blocks on that runtime — a re-entrancy
+    // deadlock. A count assertion cannot see that, because the count never gets
+    // to climb. Only a timeout can, so the timeout is made explicit here rather
+    // than left to the CI runner, where it would report as "the suite hung"
+    // without naming the property.
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let counter = hits.clone();
+    let publish = echo.get().expect("just set").clone();
+    thread::spawn(move || {
+        publish(Arc::new(RosString {
+            data: "round and round".to_owned(),
+        }));
+        thread::sleep(Duration::from_millis(400));
+        let settled = counter.load(Ordering::SeqCst);
+        thread::sleep(Duration::from_millis(600));
+        let _ = done_tx.send((settled, counter.load(Ordering::SeqCst)));
+    });
+
+    let (settled, later) = done_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("publish never returned: the depth guard escaped to the wire, \
+                 which re-enters on a zenoh thread and deadlocks on its runtime");
+    assert!(
+        later <= 32,
+        "{later} deliveries from one publish (settled at {settled}): the guard \
+         escaped to the wire and re-entered at depth zero"
+    );
+    assert_eq!(
+        settled, later,
+        "delivery is still growing ({settled} -> {later}) after it should have stopped"
+    );
+    Ok(())
+}
+
+/// #36 defect 3. `bus_can_serve_everyone` never consulted the publisher's own
+/// locality. With `Locality::Remote` the wire half cannot reach this session, so
+/// taking the wire alone left the same-session subscriber with nothing.
+///
+/// The far subscriber is the positive control: without it crossing, a zero on
+/// the near side would be indistinguishable from a broken router.
+#[test]
+fn a_remote_locality_publisher_still_reaches_a_same_session_subscriber() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx_tx = create_hiroz_context_with_router(&router)?;
+    let ctx_far = create_hiroz_context_with_router(&router)?;
+    let node_tx = ctx_tx.create_node("rem_tx").build()?;
+    let node_near = ctx_tx.create_node("rem_near").build()?;
+    let node_far = ctx_far.create_node("rem_far").build()?;
+
+    let near = Arc::new(AtomicUsize::new(0));
+    let far = Arc::new(AtomicUsize::new(0));
+    let (n, f) = (near.clone(), far.clone());
+
+    let _s_near = node_near
+        .create_sub::<RosString>("split")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            n.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let _s_far = node_far
+        .create_sub::<RosString>("split")
+        .build_with_callback(move |_m: RosString| {
+            f.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node_tx
+        .create_pub::<RosString>("split")
+        .with_locality(zenoh::sample::Locality::Remote)
+        .build()?;
+    wait_for_ready(Duration::from_millis(800));
+
+    let delivered = publisher.publish_shared(Arc::new(RosString {
+        data: "both, disjointly".to_owned(),
+    }))?;
+    assert_eq!(delivered, 1, "the bus did not carry it to the near subscriber");
+
+    assert!(
+        wait_until(|| far.load(Ordering::SeqCst) >= 1),
+        "the off-session subscriber never received it; this run proves nothing"
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(near.load(Ordering::SeqCst), 1, "near subscriber count wrong");
+    assert_eq!(far.load(Ordering::SeqCst), 1, "far subscriber count wrong");
     Ok(())
 }
