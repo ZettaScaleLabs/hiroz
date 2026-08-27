@@ -371,10 +371,10 @@ fn publish_shared_without_a_locality_restriction_arrives_once() -> hiroz::Result
         data: "once please".to_owned(),
     });
     let delivered = publisher.publish_shared(sent.clone())?;
-    assert_eq!(
-        delivered, 1,
-        "a plain publisher took the wire even though every subscriber is on the bus"
-    );
+    // The wire, because this publisher asserted nothing about its audience.
+    // Inferring "everyone is local" from the ROS graph is unsound: it cannot
+    // see a plain zenoh subscriber. See #134.
+    assert_eq!(delivered, 0, "the bus was taken without the caller asserting the audience");
 
     assert!(
         wait_until(|| hits.load(Ordering::SeqCst) >= 1),
@@ -386,11 +386,10 @@ fn publish_shared_without_a_locality_restriction_arrives_once() -> hiroz::Result
         1,
         "delivered twice — once over the bus and once over the wire"
     );
+    // Deliberately NOT asserting pointer identity: it arrived over the wire, so
+    // it is a decoded copy. The property here is exactly-once, not zero-copy.
     let got = seen.lock().expect("poisoned");
-    assert!(
-        Arc::ptr_eq(&sent, &got[0]),
-        "a different allocation arrived: the wire carried this, not the bus"
-    );
+    assert_eq!(got.len(), 1, "subscriber did not receive the message");
     Ok(())
 }
 
@@ -443,7 +442,7 @@ fn a_self_publishing_callback_does_not_recurse_without_bound() -> hiroz::Result<
 /// publisher whose subscriber was an ordinary one delivered nothing at all.
 /// Now the publisher asks: no bus subscriber means the wire carries it.
 #[test]
-fn a_publisher_asks_the_graph_instead_of_being_told() -> hiroz::Result<()> {
+fn a_plain_publisher_takes_the_wire_for_an_ordinary_subscriber() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
     let node_tx = ctx.create_node("ask_tx").build()?;
@@ -607,10 +606,18 @@ fn an_owned_subscriber_receives_from_an_off_session_publisher() -> hiroz::Result
 /// #36 defect 2. Depth exhaustion and "no subscriber wanted it" both reported
 /// zero, and the caller read zero as "fall back to the wire". The wire re-enters
 /// the same callback on a zenoh thread, where the depth counter is a fresh
-/// thread-local zero — so a bounded drop became an unbounded loop at wire rate.
+/// thread-local zero, and the publish never returns.
 ///
-/// The publisher is plain: no flag, no locality. That is the path the existing
-/// recursion test does not take.
+/// The publisher is `Locality::Remote`: the bus-taking path that does NOT use
+/// `with_intra_process_only()`, which is what the existing recursion test
+/// covers. Its wire half cannot reach this session, so the wire cannot echo and
+/// the depth guard is the only thing bounding this.
+///
+/// Deliberately not tested with a *plain* publisher: since #134 that takes the
+/// wire alone, so a callback republishing onto its own topic is an ordinary
+/// topic cycle — the same unbounded echo any ROS 2 node produces by subscribing
+/// and publishing to one topic. That is the user's cycle to avoid, not a
+/// defect, and no client library prevents it.
 #[test]
 fn a_self_publishing_callback_does_not_escape_to_the_wire_and_loop() -> hiroz::Result<()> {
     let router = TestRouter::new();
@@ -641,7 +648,10 @@ fn a_self_publishing_callback_does_not_escape_to_the_wire_and_loop() -> hiroz::R
             }
         })?;
 
-    let publisher = node.create_pub::<RosString>("cycle").build()?;
+    let publisher = node
+        .create_pub::<RosString>("cycle")
+        .with_locality(zenoh::sample::Locality::Remote)
+        .build()?;
     let _ = echo.set(Arc::new(move |m: Arc<RosString>| {
         let _ = publisher.publish_shared(m);
     }));
@@ -731,5 +741,51 @@ fn a_remote_locality_publisher_still_reaches_a_same_session_subscriber() -> hiro
     thread::sleep(Duration::from_millis(300));
     assert_eq!(near.load(Ordering::SeqCst), 1, "near subscriber count wrong");
     assert_eq!(far.load(Ordering::SeqCst), 1, "far subscriber count wrong");
+    Ok(())
+}
+
+/// #133. TRANSIENT_LOCAL durability lives in the wire publisher's cache, and an
+/// intra-process-only publisher has no wire. Serving the bus would let a
+/// late-joining subscriber be handed a history this message is missing from —
+/// wrong rather than absent — so the call is refused instead.
+#[test]
+fn transient_local_plus_intra_process_only_is_refused() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("tl_node").build()?;
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let _sub = node
+        .create_sub::<RosString>("tl_topic")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            h.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node
+        .create_pub::<RosString>("tl_topic")
+        .with_qos(hiroz::qos::QosProfile {
+            durability: hiroz::qos::QosDurability::TransientLocal,
+            ..Default::default()
+        })
+        .with_intra_process_only()
+        .build()?;
+    wait_for_ready(Duration::from_millis(500));
+
+    let result = publisher.publish_shared(Arc::new(RosString {
+        data: "durable, allegedly".to_owned(),
+    }));
+    assert!(
+        result.is_err(),
+        "a transient-local publisher served the bus, which has no durability cache"
+    );
+    // And it did not deliver it anyway: a refusal that still delivers is worse
+    // than either outcome on its own.
+    thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        0,
+        "the call was refused but the message was delivered regardless"
+    );
     Ok(())
 }
