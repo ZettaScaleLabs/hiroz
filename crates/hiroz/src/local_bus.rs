@@ -106,11 +106,41 @@ pub type ErasedPayload = Arc<dyn Any + Send + Sync>;
 /// common case, and it can be handed the only reference instead.
 type LocalCallback = Arc<dyn Fn(ErasedPayload) + Send + Sync>;
 
+/// A callback that takes the message **owned and mutable**.
+///
+/// The shared path hands every receiver the same read-only `Arc`, which is
+/// right when several of them want it and wrong when exactly one does: a sole
+/// receiver could have been given the value itself, free to mutate or consume
+/// it. This is that path. See issue #36.
+type OwnedCallback = Arc<dyn Fn(Box<dyn Any + Send>) + Send + Sync>;
+
+#[derive(Clone)]
+enum Sink {
+    /// Receives `Arc<T>`; any number may coexist on a topic.
+    Shared(LocalCallback),
+    /// Receives `T` by value. Served only when it is the sole subscriber.
+    Owned(OwnedCallback),
+}
+
 #[derive(Clone)]
 struct Entry {
     id: u64,
     type_id: TypeId,
-    callback: LocalCallback,
+    sink: Sink,
+}
+
+impl Entry {
+    #[inline]
+    fn is_shared(&self) -> bool {
+        matches!(self.sink, Sink::Shared(_))
+    }
+
+    #[inline]
+    fn call_shared(&self, payload: ErasedPayload) {
+        if let Sink::Shared(cb) = &self.sink {
+            cb(payload);
+        }
+    }
 }
 
 /// The subscriber list for one `(session, topic)`, resolved once.
@@ -170,7 +200,10 @@ impl Channel {
         let wanted = TypeId::of::<T>();
 
         let entries = self.entries.load();
-        let mut matching = entries.iter().filter(|e| e.type_id == wanted);
+        let mut matching = entries
+            .iter()
+            .filter(|e| e.type_id == wanted)
+            .filter(|e| e.is_shared());
         let Some(first) = matching.next() else {
             return 0;
         };
@@ -182,22 +215,64 @@ impl Channel {
             // through the snapshot, hand over the only reference, and touch no
             // refcount at all beyond the one the caller already holds.
             None => {
-                (first.callback)(erased);
+                first.call_shared(erased);
                 1
             }
             // More than one receiver genuinely needs a reference each, so the
             // clones start here and not before.
             Some(second) => {
-                (first.callback)(erased.clone());
-                (second.callback)(erased.clone());
+                first.call_shared(erased.clone());
+                second.call_shared(erased.clone());
                 let mut count = 2;
                 for entry in matching {
-                    (entry.callback)(erased.clone());
+                    entry.call_shared(erased.clone());
                     count += 1;
                 }
                 count
             }
         }
+    }
+
+    /// Hand `payload` to a sole owning subscriber, by value.
+    ///
+    /// Returns the payload back as `Err` when it cannot be delivered that way,
+    /// so the caller still owns it and can fall back rather than lose it. That
+    /// happens when no owning subscriber of this type is registered, or when
+    /// anything else is subscribed as well: with a second receiver the message
+    /// cannot be given away, and silently downgrading to a shared delivery
+    /// would defeat the point of having asked for ownership.
+    pub fn publish_owned<T>(&self, payload: T) -> core::result::Result<(), T>
+    where
+        T: Any + Send + 'static,
+    {
+        let wanted = TypeId::of::<T>();
+        let entries = self.entries.load();
+
+        let mut of_type = entries.iter().filter(|e| e.type_id == wanted);
+        let Some(only) = of_type.next() else {
+            return Err(payload);
+        };
+        if of_type.next().is_some() {
+            return Err(payload);
+        }
+        let Sink::Owned(cb) = &only.sink else {
+            return Err(payload);
+        };
+
+        let depth = DELIVERY_DEPTH.with(|d| d.get());
+        if depth >= MAX_DELIVERY_DEPTH {
+            tracing::error!(
+                depth,
+                max = MAX_DELIVERY_DEPTH,
+                "intra-process delivery nested too deeply; refusing to recurse further"
+            );
+            return Err(payload);
+        }
+        DELIVERY_DEPTH.with(|d| d.set(depth + 1));
+        let _depth_guard = DepthGuard;
+
+        cb(Box::new(payload));
+        Ok(())
     }
 
     /// How many subscribers this channel has, regardless of type. Diagnostics
@@ -301,7 +376,7 @@ where
         next.push(Entry {
             id,
             type_id,
-            callback: erased.clone(),
+            sink: Sink::Shared(erased.clone()),
         });
         next
     });
@@ -320,4 +395,44 @@ pub fn subscriber_count(zid: ZenohId, topic: &str) -> usize {
         .and_then(|topics| topics.get(topic))
         .map(|c| c.subscriber_count())
         .unwrap_or(0)
+}
+
+/// Register `callback` to receive messages of type `T` **by value**.
+///
+/// It is served only when it is the sole subscriber on the channel for that
+/// type; see [`Channel::publish_owned`]. Registering one alongside a shared
+/// subscriber is allowed, and simply means the owned path cannot give anything
+/// away, so the publisher falls back to the shared or wire path.
+pub fn subscribe_owned<T, F>(channel: Arc<Channel>, callback: F) -> LocalSubscription
+where
+    T: Any + Send + 'static,
+    F: Fn(T) + Send + Sync + 'static,
+{
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let erased: OwnedCallback = Arc::new(move |payload: Box<dyn Any + Send>| {
+        // The publisher matched on TypeId, so this downcast holds. It is still
+        // checked: an unchecked cast would turn a bookkeeping bug into
+        // undefined behaviour.
+        match payload.downcast::<T>() {
+            Ok(typed) => callback(*typed),
+            Err(_) => tracing::error!(
+                "[LOCAL] payload type did not match an owned subscriber after a TypeId match"
+            ),
+        }
+    });
+
+    let type_id = TypeId::of::<T>();
+    channel.entries.rcu(|current| {
+        let mut next = Vec::with_capacity(current.len() + 1);
+        next.extend(current.iter().cloned());
+        next.push(Entry {
+            id,
+            type_id,
+            sink: Sink::Owned(erased.clone()),
+        });
+        next
+    });
+
+    debug!("[LOCAL] subscribed id={id} (owned)");
+    LocalSubscription { channel, id }
 }

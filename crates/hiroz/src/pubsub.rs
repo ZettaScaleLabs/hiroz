@@ -714,9 +714,16 @@ where
             return Ok(0);
         }
 
-        // When the wire is not used, nothing needs `msg` after delivery, so it is
-        // moved rather than cloned. The clone was a refcount pair on every
-        // message of the path this whole mechanism exists to make cheap.
+        // Ask the graph, rather than being told by a flag.
+        //
+        // The bus can serve this message only if every subscriber that could
+        // receive it is on the bus. If anything off-session is listening, the
+        // wire has to carry it — and then the wire carries it for the local
+        // subscribers too, because sending both ways would deliver twice.
+        //
+        // `with_intra_process_only()` remains as an explicit override for a
+        // publisher that has decided its audience is local, and it keeps the
+        // old behaviour including dropping when nobody is listening.
         if self.intra_process_only {
             let delivered = self.local_channel.publish(msg);
             if delivered == 0 {
@@ -728,9 +735,81 @@ where
             return Ok(delivered);
         }
 
-        let delivered = self.local_channel.publish(msg.clone());
+        if self.bus_can_serve_everyone() {
+            // A clone here, unlike the intra-process-only path above, because
+            // the wire fallback below still needs the message. It is one
+            // refcount on a path that is already taking the graph lookup.
+            let delivered = self.local_channel.publish(msg.clone());
+            if delivered > 0 {
+                return Ok(delivered);
+            }
+            // Nothing took it after all — the graph and the bus disagreed, which
+            // a subscriber dropping between the two can cause. Fall through to
+            // the wire rather than dropping the message.
+            debug!(
+                "[PUB] bus reported no taker on {} after the graph said local-only; using the wire",
+                self.entity.topic
+            );
+            return self.publish(&msg).map(|()| 0);
+        }
+
         self.publish(&msg)?;
-        Ok(delivered)
+        Ok(0)
+    }
+
+    /// Publish `msg` by value, giving it away when exactly one receiver wants it.
+    ///
+    /// Where [`publish_shared`](Self::publish_shared) hands every receiver the
+    /// same read-only `Arc`, this hands a sole owning subscriber the value
+    /// itself — free to mutate it, consume it, or put it back in a pool. It is
+    /// the move rclcpp performs when a topic has exactly one taker.
+    ///
+    /// Falls back, in order: to the bus as a shared `Arc` if the audience is
+    /// entirely local, then to the wire. The message is never dropped by the
+    /// fallback, only by an `intra_process_only` publisher with no listener.
+    ///
+    /// Returns how many receivers took it on the bus; `0` means it went to the
+    /// wire. See issue #36.
+    pub fn publish_owned(&self, msg: T) -> Result<usize>
+    where
+        T: Send + Sync + 'static,
+    {
+        // The move only applies when the bus is serving this message at all.
+        let bus = self.intra_process_only || self.bus_can_serve_everyone();
+        if bus {
+            match self.local_channel.publish_owned(msg) {
+                Ok(()) => return Ok(1),
+                // Handed back untouched: no sole owning receiver. Share it.
+                Err(returned) => return self.publish_shared(Arc::new(returned)),
+            }
+        }
+        self.publish(&msg)?;
+        Ok(0)
+    }
+
+    /// Whether every subscriber that could receive this message is on the
+    /// intra-process bus, so the wire is not needed.
+    ///
+    /// Two conditions, both necessary. Every subscriber the graph knows about
+    /// must be in this session — an off-session one can only be reached by the
+    /// wire. And the count on the bus must match the count in the graph, so a
+    /// same-session subscriber that is *not* on the bus (an ordinary callback,
+    /// which expects decoded bytes) is not silently skipped.
+    ///
+    /// This is the shape rclcpp uses: compare the total subscription count
+    /// against the intra-process one, per message, and take the wire only when
+    /// they differ. See issue #36.
+    fn bus_can_serve_everyone(&self) -> bool {
+        let subs = self
+            .graph
+            .get_entities_by_topic(EndpointKind::Subscription, &self.entity.topic);
+        if subs.is_empty() {
+            return false;
+        }
+        if !subs.iter().all(|e| self.graph.is_entity_local(e)) {
+            return false;
+        }
+        self.local_channel.subscriber_count() >= subs.len()
     }
 
     /// Publish pre-serialized data directly
@@ -1059,6 +1138,29 @@ where
     /// [`with_locality`](Self::with_locality) is respected and left alone; the
     /// double delivery is then the caller's to reason about.
     ///
+    /// Build a subscriber whose callback receives the message **by value**.
+    ///
+    /// Served only by [`ZPub::publish_owned`], and only when this is the sole
+    /// subscriber on the topic for this type — with a second receiver the
+    /// message cannot be given away. Otherwise the publisher falls back to a
+    /// shared or wire delivery, which this subscriber does not receive.
+    ///
+    /// Use it where the receiver wants to mutate or consume the message, which
+    /// the shared path cannot offer. See issue #36.
+    pub fn build_with_owned_callback<F>(self, callback: F) -> Result<ZSub<T, (), S>>
+    where
+        T: Send + Sync + 'static,
+        F: Fn(T) + Send + Sync + 'static,
+        S: for<'a> ZDeserializer<Input<'a> = &'a [u8], Output = T> + 'static,
+    {
+        let zid = self.session.zid();
+        let mut sub = self.build_with_callback(|_m: T| {})?;
+        let topic = sub.entity.topic.clone();
+        let channel = crate::local_bus::channel(zid, &topic);
+        sub._local_sub = Some(crate::local_bus::subscribe_owned::<T, _>(channel, callback));
+        Ok(sub)
+    }
+
     /// The type match is exact: a publisher of a different concrete Rust type
     /// on the same topic is not delivered here, even if the ROS type name
     /// agrees. See [`crate::local_bus`] and issue #36.
