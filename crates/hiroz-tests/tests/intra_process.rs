@@ -237,6 +237,7 @@ fn dropping_the_subscriber_unregisters_it() -> hiroz::Result<()> {
 /// The `Arc::get_mut` on each iteration is itself load bearing: it succeeds only
 /// because no one still holds the previous message. That is the invariant a
 /// pool has to respect, so a change that leaks a reference fails here.
+#[cfg(feature = "pooled-payload")]
 #[test]
 fn a_pooled_payload_buffer_is_written_in_place_and_reused() -> hiroz::Result<()> {
     let router = TestRouter::new();

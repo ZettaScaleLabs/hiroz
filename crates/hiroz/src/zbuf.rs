@@ -65,6 +65,11 @@ impl ZBuf {
     ///
     /// The bytes handed back are this buffer's own window, never the whole
     /// allocation behind it.
+    ///
+    /// Requires the `pooled-payload` feature, which is off by default: this
+    /// needs an accessor that is not in any released `zenoh-buffers`, so a
+    /// workspace enabling it must patch that crate itself.
+    #[cfg(feature = "pooled-payload")]
     #[inline]
     pub fn as_mut_slice(&mut self) -> Option<&mut [u8]> {
         self.0.as_mut_slice()
@@ -288,6 +293,7 @@ mod tests {
         assert_eq!(bytes.as_ref(), &[1, 2, 3]);
     }
 
+    #[cfg(feature = "pooled-payload")]
     #[test]
     fn as_mut_slice_sole_owner_writes_in_place() {
         let mut zbuf = ZBuf::from(vec![0u8; 16]);
@@ -302,6 +308,7 @@ mod tests {
         assert_eq!(bytes.as_ptr(), before, "the write reallocated");
     }
 
+    #[cfg(feature = "pooled-payload")]
     #[test]
     fn as_mut_slice_multi_slice_returns_none() {
         use zenoh_buffers::ZSlice;
