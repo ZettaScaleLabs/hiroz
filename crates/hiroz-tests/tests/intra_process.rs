@@ -348,22 +348,27 @@ fn publish_shared_without_a_locality_restriction_arrives_once() -> hiroz::Result
     let node_rx = ctx.create_node("once_rx").build()?;
 
     let hits = Arc::new(AtomicUsize::new(0));
+    let seen: Arc<Mutex<Vec<Arc<RosString>>>> = Arc::new(Mutex::new(Vec::new()));
     let h = hits.clone();
+    let sink = seen.clone();
     let _sub = node_rx
         .create_sub::<RosString>("exactly_once")
-        .build_with_shared_callback(move |_m: Arc<RosString>| {
+        .build_with_shared_callback(move |m: Arc<RosString>| {
             h.fetch_add(1, Ordering::SeqCst);
+            sink.lock().expect("poisoned").push(m);
         })?;
 
+    // A plain publisher: no locality, no flag, nothing telling it what to do.
     let publisher = node_tx.create_pub::<RosString>("exactly_once").build()?;
     wait_for_ready(Duration::from_millis(500));
 
-    let delivered = publisher.publish_shared(Arc::new(RosString {
+    let sent = Arc::new(RosString {
         data: "once please".to_owned(),
-    }))?;
+    });
+    let delivered = publisher.publish_shared(sent.clone())?;
     assert_eq!(
-        delivered, 0,
-        "the bus was used by a publisher whose wire half also reaches this session"
+        delivered, 1,
+        "a plain publisher took the wire even though every subscriber is on the bus"
     );
 
     assert!(
@@ -375,6 +380,11 @@ fn publish_shared_without_a_locality_restriction_arrives_once() -> hiroz::Result
         hits.load(Ordering::SeqCst),
         1,
         "delivered twice — once over the bus and once over the wire"
+    );
+    let got = seen.lock().expect("poisoned");
+    assert!(
+        Arc::ptr_eq(&sent, &got[0]),
+        "a different allocation arrived: the wire carried this, not the bus"
     );
     Ok(())
 }
