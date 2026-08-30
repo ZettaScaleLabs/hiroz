@@ -227,7 +227,9 @@ fn discover_ros_packages(is_humble: bool) -> Result<Vec<PathBuf>> {
 
     if !still_missing.is_empty() {
         println!("cargo:warning=Missing packages: {:?}", still_missing);
-        println!("cargo:warning=Consider installing ROS 2 or checking hiroz-codegen's bundled assets");
+        println!(
+            "cargo:warning=Consider installing ROS 2 or checking hiroz-codegen's bundled assets"
+        );
     }
 
     Ok(package_map.into_values().collect())
