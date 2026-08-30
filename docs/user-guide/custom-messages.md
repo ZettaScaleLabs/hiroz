@@ -194,16 +194,18 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-hiroz-msgs = { git = "https://github.com/ZettaScaleLabs/hiroz.git" }
-hiroz = { git = "https://github.com/ZettaScaleLabs/hiroz.git", default-features = false }
+hiroz-msgs = "0.2"
+hiroz = { version = "0.2", default-features = false }
 serde = { version = "1", features = ["derive"] }
 smart-default = "0.7"
 zenoh-buffers = "1"
 
 [build-dependencies]
-hiroz-codegen = { git = "https://github.com/ZettaScaleLabs/hiroz.git" }
+hiroz-codegen = "0.2"
 anyhow = "1"
 ```
+
+`hiroz-msgs`, `hiroz`, and `hiroz-codegen` are published on crates.io, so a version dependency is enough — no `git` dependency is required. This matters for your own crate too: crates.io rejects any published crate that depends on a `git` source, so if you want `my-robot-msgs` itself to be publishable, its dependencies need to come from crates.io as well.
 
 **build.rs:**
 

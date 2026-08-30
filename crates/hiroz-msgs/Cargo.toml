@@ -2,10 +2,15 @@
 name = "hiroz-msgs"
 version.workspace = true
 edition.workspace = true
-publish = false
+description = "ROS 2 message, service, and action types for hiroz, generated at build time"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["ros2", "zenoh", "robotics", "messages", "codegen"]
+categories = ["network-programming", "science::robotics"]
 
 [dependencies]
-hiroz = { path = "../hiroz", default-features = false, features = [
+hiroz = { version = "0.2", path = "../hiroz", default-features = false, features = [
   "rmw-zenoh",
 ] }
 serde = { workspace = true }
@@ -17,7 +22,7 @@ zenoh-buffers = { workspace = true }
 
 prost = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
-hiroz-derive = { path = "../hiroz-derive", optional = true }
+hiroz-derive = { version = "0.2", path = "../hiroz-derive", optional = true }
 hiroz-cdr = { workspace = true }
 byteorder = { workspace = true }
 bytemuck = { version = "1", features = ["derive"] }
