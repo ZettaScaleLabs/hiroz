@@ -39,6 +39,47 @@
 //! forever. Waiting becomes meaningful only once a subscriber can hold a
 //! message across a queue, and belongs with that design rather than before it.
 //!
+//! # Where it fits in hiroz
+//!
+//! The pool holds `Arc<T>` and nothing else — no session, no keyexpr, no
+//! liveliness token — so discovery, the ROS graph and QoS negotiation neither
+//! see it nor are affected by it. What matters is only whether anything
+//! downstream *retains* a message, because a retained `Arc` is a slot out of
+//! circulation.
+//!
+//! | it works with | why |
+//! |---|---|
+//! | the wire (`publish_shared` on a plain publisher) | serialization writes a fresh `ZBuf`, so the transport queues a copy and never holds the pooled buffer |
+//! | shared memory | `serialize_to_shm` likewise copies into the SHM provider's own buffer |
+//! | `TRANSIENT_LOCAL` on a wire publisher | the durability cache keeps serialized samples, not the `Arc<T>` |
+//! | `Locality::Remote` (bus and wire together) | both routes release before `publish_shared` returns |
+//! | many subscribers | each gets a clone of the same `Arc`; fan-out costs one slot, not N |
+//! | a callback that republishes from the same pool | `into_shared` ends the pool's borrow *before* the publish, so inline delivery can re-enter it |
+//!
+//! | it does not work with | why |
+//! |---|---|
+//! | [`crate::pubsub::ZPub::publish_owned`] | takes `T` by value and gives the message away; the allocation would leave the pool for good |
+//! | `TRANSIENT_LOCAL` + `with_intra_process_only()` | refused by the publisher itself, pool or not — there is no wire to hold the history |
+//! | a subscriber that stores its `Arc` | a permanent capacity loss, reported through [`PoolStats::stuck`] |
+//! | sharing one pool across threads without a lock | `acquire` needs `&mut self`; wrap it, or give each thread its own |
+//!
+//! Two of these deserve a sentence more.
+//!
+//! **The wire is safe by copy, not by luck.** Nothing in the type system stops
+//! a future serializer from splicing the payload's existing `ZSlice` instead of
+//! writing a copy of it — and if one did, zenoh's TX queue would hold the
+//! pooled allocation while the publisher reused it. That is why the copy is
+//! pinned by a test asserting the slot comes back, rather than left as a
+//! comment.
+//!
+//! **Rewriting bytes in place is the one part that needs more than std.**
+//! `ZBuf::as_mut_slice` is behind the `pooled-payload` feature and an
+//! unreleased zenoh accessor. A pooled message whose fields are plain — a
+//! `String`, a fixed array, a `Vec` replaced wholesale — needs none of it and
+//! works against released zenoh today. Only overwriting bytes *inside* an
+//! existing `ZBuf` does, and that accessor refuses when anything else still
+//! references the buffer, which is a second guard behind the `Arc` check here.
+//!
 //! # The failure mode to watch
 //!
 //! A subscriber that *stores* its `Arc` — rather than reading it and letting it
@@ -208,8 +249,13 @@ impl<T> Pooled<'_, T> {
     /// `publish` method — is deliberate, so a reader can see where capacity is
     /// consumed.
     ///
-    /// The pool does not care what happens next: `publish_shared`,
-    /// `publish_owned`, or a channel to another thread. It is an `Arc<T>`.
+    /// The result is a plain `Arc<T>`, so it suits anything that takes one:
+    /// `ZPub::publish_shared`, a channel, another thread.
+    ///
+    /// **Not `ZPub::publish_owned`.** That takes `T` by value and hands a sole
+    /// receiver the message to own and mutate, which is the opposite of
+    /// pooling — the allocation would leave the pool and never come back.
+    /// Pooling and giving away are alternatives, not a sequence.
     pub fn into_shared(self) -> Arc<T> {
         Arc::clone(self.slot)
     }
