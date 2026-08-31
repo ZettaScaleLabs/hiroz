@@ -71,6 +71,8 @@ pub mod local_bus;
 pub mod msg;
 /// ROS 2 node creation and management.
 pub mod node;
+/// Reusable message allocations for the intra-process path.
+pub mod payload_pool;
 /// Convenience re-exports for common hiroz types.
 pub mod prelude;
 /// Publishers and subscribers.
