@@ -241,13 +241,12 @@ impl Builder for ZNodeBuilder {
         // Create type description service if enabled
         let type_desc_service = if self.enable_type_desc_service {
             debug!("[NOD] Creating type description service");
-            let service = TypeDescriptionService::new(
+            let service = TypeDescriptionService::new_with_node(
                 self.session.clone(),
-                &self.name,
-                &self.namespace,
-                id,
+                node.clone(),
                 &self.counter,
                 &self.clock,
+                self.keyexpr_format.clone(),
             )?;
 
             info!("[NOD] TypeDescriptionService created (callback mode)");
@@ -263,6 +262,8 @@ impl Builder for ZNodeBuilder {
             let service = ParameterService::new(ParameterServiceConfig {
                 session: self.session.clone(),
                 graph: self.graph.clone(),
+                domain_id: self.domain_id,
+                keyexpr_format: self.keyexpr_format.clone(),
                 node_name: &self.name,
                 namespace: &self.namespace,
                 node_id: id,

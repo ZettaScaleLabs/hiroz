@@ -15,6 +15,38 @@ use hiroz::{
     entity::{EndpointKind, NodeKey},
 };
 use hiroz_msgs::{example_interfaces::srv::AddTwoInts, std_msgs::String as RosString};
+use zenoh::{Wait, config::WhatAmI};
+
+struct DomainTestRouter {
+    endpoint: String,
+    _session: zenoh::Session,
+}
+
+impl DomainTestRouter {
+    fn new() -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test port");
+        let port = listener.local_addr().expect("test address").port();
+        drop(listener);
+
+        let endpoint = format!("tcp/127.0.0.1:{port}");
+        let mut config = zenoh::Config::default();
+        config.set_mode(Some(WhatAmI::Router)).unwrap();
+        config
+            .insert_json5("listen/endpoints", &format!("[\"{endpoint}\"]"))
+            .unwrap();
+        config
+            .insert_json5("scouting/multicast/enabled", "false")
+            .unwrap();
+        let session = zenoh::open(config).wait().expect("open test router");
+        std::thread::sleep(Duration::from_millis(300));
+
+        Self {
+            endpoint,
+            _session: session,
+        }
+    }
+}
+
 /// Helper to create a test context and node
 async fn setup_test_node(
     node_name: &str,
@@ -73,6 +105,71 @@ async fn wait_for_subscribers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Built-in services (type description + the six parameter services) must
+    /// announce the node's actual domain, not a hardcoded domain 0.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn built_in_services_inherit_context_domain() -> Result<()> {
+        const DOMAIN_ID: usize = 123;
+        let router = DomainTestRouter::new();
+        let observer_ctx = ZContextBuilder::default()
+            .with_domain_id(DOMAIN_ID)
+            .disable_multicast_scouting()
+            .with_connect_endpoints([router.endpoint.as_str()])
+            .with_mode("client")
+            .build()?;
+        let observer = observer_ctx
+            .create_node("domain_123_observer")
+            .without_parameters()
+            .build()?;
+        let producer_ctx = ZContextBuilder::default()
+            .with_domain_id(DOMAIN_ID)
+            .disable_multicast_scouting()
+            .with_connect_endpoints([router.endpoint.as_str()])
+            .with_mode("client")
+            .build()?;
+        let _producer = producer_ctx
+            .create_node("domain_123_builtins")
+            .with_type_description_service()
+            .build()?;
+        let node_key: NodeKey = (String::new(), "domain_123_builtins".to_string());
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let services = loop {
+            let services = observer
+                .graph()
+                .get_entities_by_node(EndpointKind::Service, node_key.clone());
+            if services.len() >= 7 || tokio::time::Instant::now() >= deadline {
+                break services;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+
+        assert_eq!(
+            services.len(),
+            7,
+            "six parameter services and get_type_description must be discoverable"
+        );
+        assert!(services.iter().all(|endpoint| {
+            endpoint
+                .node
+                .as_ref()
+                .is_some_and(|owner| owner.domain_id == DOMAIN_ID)
+        }));
+
+        let parameter_events = observer
+            .graph()
+            .get_entities_by_node(EndpointKind::Publisher, node_key);
+        assert!(parameter_events.iter().any(|endpoint| {
+            endpoint.topic == "/parameter_events"
+                && endpoint
+                    .node
+                    .as_ref()
+                    .is_some_and(|owner| owner.domain_id == DOMAIN_ID)
+        }));
+
+        Ok(())
+    }
 
     /// Tests getting topic names and types from the graph
     #[tokio::test(flavor = "multi_thread")]
