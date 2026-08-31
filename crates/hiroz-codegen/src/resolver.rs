@@ -517,6 +517,8 @@ impl Resolver {
         // Add goal type description
         let goal_desc = goal.type_description();
         deps.insert(goal_desc.type_name.clone(), goal_desc.clone());
+        self.collect_nested_deps(&goal_desc, &mut deps);
+        
 
         // Calculate action service hash (uses /action/ path instead of /srv/)
         let service_hash = crate::hashing::calculate_service_type_hash(
@@ -622,6 +624,7 @@ impl Resolver {
         // Add result type description
         let result_desc = result.type_description();
         deps.insert(result_desc.type_name.clone(), result_desc.clone());
+        self.collect_nested_deps(&result_desc, &mut deps);
 
         // Calculate action service hash
         let service_hash = crate::hashing::calculate_service_type_hash(
@@ -681,7 +684,8 @@ impl Resolver {
 
         // Add feedback type description
         let feedback_desc = feedback.type_description();
-        deps.insert(feedback_desc.type_name.clone(), feedback_desc);
+        deps.insert(feedback_desc.type_name.clone(), feedback_desc.clone());
+        self.collect_nested_deps(&feedback_desc, &mut deps);
 
         // Build TypeDescriptionMsg and calculate hash
         use crate::hashing::{TypeDescriptionMsg, to_hash_version, to_ros2_json};
