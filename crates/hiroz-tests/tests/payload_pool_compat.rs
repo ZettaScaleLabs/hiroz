@@ -48,7 +48,7 @@ fn wait_until(f: impl Fn() -> bool) -> bool {
 }
 
 fn msg(s: &str) -> RosString {
-    RosString { data: s.into() }
+    RosString { data: s.to_owned() }
 }
 
 /// The wire path must not hold the pooled allocation after `publish` returns.
@@ -62,7 +62,7 @@ fn msg(s: &str) -> RosString {
 fn a_wire_publish_does_not_retain_the_pooled_buffer() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
-    let node = ctx.create_node("pool_wire")?.build()?;
+    let node = ctx.create_node("pool_wire").build()?;
 
     // A plain publisher: no locality restriction, so this goes on the wire.
     let publisher = node.create_pub::<RosString>("pool_wire").build()?;
@@ -72,7 +72,7 @@ fn a_wire_publish_does_not_retain_the_pooled_buffer() -> hiroz::Result<()> {
 
     for i in 0..8 {
         let mut slot = pool.acquire().expect("a slot, every iteration");
-        slot.data = format!("m{i}").into();
+        slot.data = format!("m{i}");
         publisher.publish_shared(slot.into_shared())?;
 
         assert_eq!(
@@ -96,18 +96,20 @@ fn a_wire_publish_does_not_retain_the_pooled_buffer() -> hiroz::Result<()> {
 fn a_transient_local_wire_publisher_does_not_retain_it_either() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
-    let node = ctx.create_node("pool_tl")?.build()?;
+    let node = ctx.create_node("pool_tl").build()?;
 
-    let qos = QosProfile::default().with_durability(QosDurability::TransientLocal);
     let publisher = node
         .create_pub::<RosString>("pool_tl")
-        .with_qos(qos)
+        .with_qos(QosProfile {
+            durability: QosDurability::TransientLocal,
+            ..Default::default()
+        })
         .build()?;
 
     let mut pool = PayloadPool::new(2, || msg("init"));
     for i in 0..8 {
         let mut slot = pool.acquire().expect("a slot, every iteration");
-        slot.data = format!("m{i}").into();
+        slot.data = format!("m{i}");
         publisher.publish_shared(slot.into_shared())?;
         assert_eq!(
             pool.stats().available,
@@ -128,7 +130,7 @@ fn a_transient_local_wire_publisher_does_not_retain_it_either() -> hiroz::Result
 fn two_subscribers_share_one_allocation_and_both_release_it() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
-    let node = ctx.create_node("pool_fanout")?.build()?;
+    let node = ctx.create_node("pool_fanout").build()?;
 
     let hits_a = Arc::new(AtomicUsize::new(0));
     let hits_b = Arc::new(AtomicUsize::new(0));
@@ -161,7 +163,7 @@ fn two_subscribers_share_one_allocation_and_both_release_it() -> hiroz::Result<(
         let mut slot = pool.acquire().unwrap_or_else(|| {
             panic!("iteration {i}: the pool exhausted, so fan-out is retaining slots")
         });
-        slot.data = format!("m{i}").into();
+        slot.data = format!("m{i}");
         let delivered = publisher.publish_shared(slot.into_shared())?;
         assert_eq!(
             delivered, 2,
@@ -189,7 +191,7 @@ fn two_subscribers_share_one_allocation_and_both_release_it() -> hiroz::Result<(
 fn a_remote_locality_publisher_returns_the_slot_after_both_routes() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
-    let node = ctx.create_node("pool_remote")?.build()?;
+    let node = ctx.create_node("pool_remote").build()?;
 
     let hits = Arc::new(AtomicUsize::new(0));
     let h = hits.clone();
@@ -201,13 +203,13 @@ fn a_remote_locality_publisher_returns_the_slot_after_both_routes() -> hiroz::Re
 
     let publisher = node
         .create_pub::<RosString>("pool_remote")
-        .with_locality(hiroz::Locality::Remote)
+        .with_locality(zenoh::sample::Locality::Remote)
         .build()?;
 
     let mut pool = PayloadPool::new(2, || msg("init"));
     for i in 0..6 {
         let mut slot = pool.acquire().expect("a slot, every iteration");
-        slot.data = format!("m{i}").into();
+        slot.data = format!("m{i}");
         publisher.publish_shared(slot.into_shared())?;
         assert_eq!(
             pool.stats().available,
@@ -231,7 +233,7 @@ fn a_remote_locality_publisher_returns_the_slot_after_both_routes() -> hiroz::Re
 fn a_pool_survives_a_subscriber_that_publishes_from_its_own_pool() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
-    let node = ctx.create_node("pool_reentrant")?.build()?;
+    let node = ctx.create_node("pool_reentrant").build()?;
 
     let echoes = Arc::new(AtomicUsize::new(0));
     let inner_pool = Arc::new(Mutex::new(PayloadPool::new(4, || msg("inner"))));
@@ -263,7 +265,7 @@ fn a_pool_survives_a_subscriber_that_publishes_from_its_own_pool() -> hiroz::Res
     let mut outer = PayloadPool::new(2, || msg("outer"));
     for i in 0..5 {
         let mut slot = outer.acquire().expect("outer slot");
-        slot.data = format!("m{i}").into();
+        slot.data = format!("m{i}");
         publisher.publish_shared(slot.into_shared())?;
     }
 
