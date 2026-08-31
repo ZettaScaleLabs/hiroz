@@ -19,6 +19,15 @@
 //! | `two_subscribers_share_one_allocation_and_both_release_it` | fan-out costs one slot, not N |
 //! | `a_remote_locality_publisher_returns_the_slot_after_both_routes` | bus + wire together still release |
 //! | `a_pool_survives_a_subscriber_that_publishes_from_its_own_pool` | inline delivery does not deadlock the pool
+//!
+//! # These do not pass vacuously
+//!
+//! All five conclude "nothing downstream retained the buffer" from `available`
+//! being back at capacity, so if `available` could not drop in this setting they
+//! would all be green for the wrong reason. Measured: retaining the published
+//! `Arc` in `a_wire_publish_does_not_retain_the_pooled_buffer` turns **that test
+//! and only that test** red, with zero compile errors and the patch confirmed
+//! applied. The instrument works.
 
 mod common;
 
