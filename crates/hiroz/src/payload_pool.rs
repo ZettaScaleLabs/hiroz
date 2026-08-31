@@ -188,7 +188,7 @@ impl<T> PayloadPool<T> {
 impl<T> std::ops::Deref for Pooled<'_, T> {
     type Target = T;
     fn deref(&self) -> &T {
-        &**self.slot
+        self.slot
     }
 }
 
@@ -211,7 +211,7 @@ impl<T> Pooled<'_, T> {
     /// The pool does not care what happens next: `publish_shared`,
     /// `publish_owned`, or a channel to another thread. It is an `Arc<T>`.
     pub fn into_shared(self) -> Arc<T> {
-        Arc::clone(&*self.slot)
+        Arc::clone(self.slot)
     }
 }
 
