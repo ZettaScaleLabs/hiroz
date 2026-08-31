@@ -22,7 +22,7 @@ zenoh-buffers = { workspace = true }
 
 prost = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
-hiroz-derive = { version = "0.2", path = "../hiroz-derive", optional = true }
+hiroz-derive = { workspace = true, optional = true }
 hiroz-cdr = { workspace = true }
 byteorder = { workspace = true }
 bytemuck = { version = "1", features = ["derive"] }

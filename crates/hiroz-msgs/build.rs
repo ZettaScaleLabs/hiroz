@@ -29,15 +29,17 @@ fn main() -> Result<()> {
     // Detect ROS version and emit cfg
     let is_humble = detect_ros_version();
 
-    // Message assets are vendored inside the published hiroz-codegen crate (not
-    // a sibling path in this crate's own directory), so ask hiroz-codegen for its
-    // own bundled-assets location. This resolves correctly whether hiroz-codegen
-    // is consumed via path (workspace) or from crates.io.
+    // hiroz-codegen stores the message assets in its own published crate.
+    // They are not in a sibling path inside this crate's directory. Use
+    // hiroz_codegen::bundled_assets_dir to find them. This finds them
+    // correctly whether hiroz-codegen comes from a workspace path or
+    // from crates.io.
     //
-    // Always the jazzy corpus, never `is_humble`: hiroz-codegen ships only the
-    // jazzy assets populated (assets/humble exists but is empty), and the
-    // package list below already excludes post-Humble-only interfaces, so the
-    // jazzy corpus is the correct bundled fallback for a Humble build too.
+    // Always select the jazzy assets here. Do not pass `is_humble`.
+    // hiroz-codegen ships only the jazzy assets. The assets/humble
+    // directory exists but is empty. The package list below already
+    // excludes interfaces added after Humble. So the jazzy assets are
+    // correct for a Humble build too.
     let codegen_assets = hiroz_codegen::bundled_assets_dir(false);
     if codegen_assets.exists() {
         println!("cargo:rerun-if-changed={}", codegen_assets.display());
@@ -430,12 +432,14 @@ fn discover_system_packages(packages: &[&str]) -> Result<Vec<PathBuf>> {
 fn discover_local_assets(package_names: &[&str]) -> Result<Vec<PathBuf>> {
     let mut found_packages = Vec::new();
 
-    // Resolve via hiroz-codegen's own API, not a sibling-directory path — this
-    // works whether hiroz-codegen is a workspace path dependency or pulled from
-    // crates.io, since it resolves against hiroz-codegen's own CARGO_MANIFEST_DIR.
+    // Resolve this through hiroz-codegen's own API, not a sibling-directory
+    // path. This works whether hiroz-codegen is a workspace path
+    // dependency or comes from crates.io, because it resolves against
+    // hiroz-codegen's own CARGO_MANIFEST_DIR.
     //
-    // Always jazzy, never `is_humble`: hiroz-codegen only ships the jazzy
-    // corpus populated (see the call site in `main` for the full reasoning).
+    // Always select jazzy here. Do not pass `is_humble`. hiroz-codegen
+    // ships only the jazzy assets. See the call site in `main` for the
+    // full reason.
     let assets_dir = hiroz_codegen::bundled_assets_dir(false);
 
     if !assets_dir.exists() {
