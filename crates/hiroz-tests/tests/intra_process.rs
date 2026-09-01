@@ -37,6 +37,7 @@ use std::{
 };
 
 use common::*;
+use hiroz::local_bus::{Delivery, Published};
 use hiroz::{Builder, ZBuf};
 use hiroz_msgs::std_msgs::{ByteMultiArray, Int32, String as RosString};
 use zenoh_buffers::buffer::SplitBuffer;
@@ -1007,5 +1008,214 @@ fn a_panicking_sole_subscriber_does_not_reach_the_publisher() -> hiroz::Result<(
 
     let delivered = delivered.expect("the panic escaped into the publishing thread");
     assert_eq!(delivered, 1, "the subscriber was not invoked");
+    Ok(())
+}
+
+/// B1. `publish_owned` on a `Locality::Remote` publisher must reach the wire.
+///
+/// This is the detector that did not exist. Every other `publish_owned` test
+/// uses `with_intra_process_only()`, so none of them could see that the Remote
+/// arm took the bus and returned — losing the message to every off-session
+/// subscriber, silently, while `publish_shared` in the identical configuration
+/// served both.
+///
+/// The far assertion is the point. The near one passes against the defect.
+#[test]
+fn publish_owned_on_a_remote_publisher_still_reaches_the_wire() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx_tx = create_hiroz_context_with_router(&router)?;
+    let ctx_far = create_hiroz_context_with_router(&router)?;
+    let node_tx = ctx_tx.create_node("owned_rem_tx").build()?;
+    let node_near = ctx_tx.create_node("owned_rem_near").build()?;
+    let node_far = ctx_far.create_node("owned_rem_far").build()?;
+
+    let near = Arc::new(AtomicUsize::new(0));
+    let far = Arc::new(AtomicUsize::new(0));
+    let (n, f) = (near.clone(), far.clone());
+
+    let _s_near = node_near
+        .create_sub::<RosString>("owned_split")
+        .build_with_owned_callback(move |_m: RosString| {
+            n.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let _s_far = node_far
+        .create_sub::<RosString>("owned_split")
+        .build_with_callback(move |_m: RosString| {
+            f.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node_tx
+        .create_pub::<RosString>("owned_split")
+        .with_locality(zenoh::sample::Locality::Remote)
+        .build()?;
+    wait_for_ready(Duration::from_millis(800));
+
+    let outcome = publisher.publish_owned(RosString {
+        data: "must reach both".to_owned(),
+    })?;
+
+    // Shared, not moved: the wire half needs the value to serialize it, so a
+    // Remote publisher cannot give it away.
+    assert!(
+        matches!(outcome, Published::BusAndWire(_)),
+        "a Remote publisher must run both routes, got {outcome:?}"
+    );
+
+    assert!(
+        wait_until(|| far.load(Ordering::SeqCst) >= 1),
+        "the off-session subscriber never received it — this is B1"
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(near.load(Ordering::SeqCst), 1, "near subscriber count wrong");
+    assert_eq!(far.load(Ordering::SeqCst), 1, "far subscriber count wrong");
+    Ok(())
+}
+
+/// B2. The durability refusal permits a `Locality::Remote` publisher because
+/// the wire still populates its cache. That justification has to hold on the
+/// owned path too, or a late joiner is served a history this message is
+/// missing from.
+#[test]
+fn transient_local_plus_remote_locality_is_allowed_on_the_owned_path() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("tl_rem_node").build()?;
+
+    let publisher = node
+        .create_pub::<RosString>("tl_rem_topic")
+        .with_qos(hiroz::qos::QosProfile {
+            durability: hiroz::qos::QosDurability::TransientLocal,
+            ..Default::default()
+        })
+        .with_locality(zenoh::sample::Locality::Remote)
+        .build()?;
+    wait_for_ready(Duration::from_millis(300));
+
+    // Permitted, because the wire runs and fills the cache. The companion test
+    // above is what proves the wire actually runs; without it this assertion
+    // would be satisfied by a publisher that silently dropped the message.
+    let outcome = publisher.publish_owned(RosString {
+        data: "durable".to_owned(),
+    })?;
+    assert!(
+        matches!(outcome, Published::BusAndWire(_) | Published::Wire),
+        "a durable Remote publisher must still reach the wire, got {outcome:?}"
+    );
+    Ok(())
+}
+
+/// B3. `Published` must distinguish the three ways nothing was delivered
+/// locally, because a caller may fall back to the wire on one of them and must
+/// not on another.
+///
+/// A count cannot carry this: `NoTaker`, `DepthExceeded` and "there is no bus
+/// on this publisher" were all zero.
+#[test]
+fn published_says_which_routes_ran_and_why_nothing_was_taken() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("outcome_node").build()?;
+
+    // 1. No assertion from the caller: the wire alone, and the bus is not
+    //    consulted at all. Not `Bus(NoTaker)` — nothing asked the bus.
+    let plain = node.create_pub::<RosString>("outcome_plain").build()?;
+    let out = plain.publish_shared(Arc::new(RosString {
+        data: "wire".to_owned(),
+    }))?;
+    assert_eq!(out, Published::Wire, "a plain publisher must report Wire");
+
+    // 2. Bus asserted, nobody listening. Distinct from the case above: here the
+    //    bus WAS asked and had no taker.
+    let local = node
+        .create_pub::<RosString>("outcome_local")
+        .with_intra_process_only()
+        .build()?;
+    let out = local.publish_shared(Arc::new(RosString {
+        data: "nobody".to_owned(),
+    }))?;
+    assert_eq!(
+        out,
+        Published::Bus(Delivery::NoTaker),
+        "an empty bus must report NoTaker, not Wire"
+    );
+
+    // 3. Bus asserted, one subscriber.
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let _sub = node
+        .create_sub::<RosString>("outcome_taken")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            h.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let taken = node
+        .create_pub::<RosString>("outcome_taken")
+        .with_intra_process_only()
+        .build()?;
+    let out = taken.publish_shared(Arc::new(RosString {
+        data: "taken".to_owned(),
+    }))?;
+    assert_eq!(out, Published::Bus(Delivery::Sent(1)));
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    Ok(())
+}
+
+/// B3, the half a count could never express: a message refused at
+/// `MAX_DELIVERY_DEPTH` is dropped, and must not be reported as delivered.
+///
+/// Before this, the bus returned `Ok(())` for both outcomes and `ZPub` mapped
+/// it to `Ok(1)` — a dropped message counted as one receiver taking it. A
+/// caller that retries on a low count would have retried forever on the one
+/// outcome where retrying re-enters the same callback.
+#[test]
+fn a_depth_refusal_is_reported_as_dropped_not_delivered() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("depth_outcome").build()?;
+
+    let outcomes: Arc<Mutex<Vec<Published>>> = Arc::new(Mutex::new(Vec::new()));
+    let publisher: Arc<OnceLock<Box<dyn Fn(RosString) -> hiroz::Result<Published> + Send + Sync>>> =
+        Arc::new(OnceLock::new());
+
+    let p = publisher.clone();
+    let o = outcomes.clone();
+    let _sub = node
+        .create_sub::<RosString>("depth_outcome")
+        .build_with_owned_callback(move |m: RosString| {
+            // Republish onto the same topic: each delivery nests one deeper.
+            if let Some(send) = p.get() {
+                if let Ok(out) = send(m) {
+                    o.lock().expect("outcome lock").push(out);
+                }
+            }
+        })?;
+
+    let pubr = node
+        .create_pub::<RosString>("depth_outcome")
+        .with_intra_process_only()
+        .build()?;
+    let pubr = Arc::new(pubr);
+    let p2 = pubr.clone();
+    publisher
+        .set(Box::new(move |m: RosString| p2.publish_owned(m)))
+        .map_err(|_| "publisher already set")
+        .expect("set once");
+
+    pubr.publish_owned(RosString {
+        data: "recurse".to_owned(),
+    })?;
+
+    let seen = outcomes.lock().expect("outcome lock");
+    assert!(
+        seen.iter()
+            .any(|o| matches!(o, Published::Bus(Delivery::DepthExceeded))),
+        "the depth refusal was never reported; outcomes were {seen:?}"
+    );
+    assert!(
+        !seen
+            .iter()
+            .any(|o| matches!(o, Published::Bus(Delivery::Sent(_)))
+                && seen.len() > hiroz::local_bus::MAX_DELIVERY_DEPTH as usize + 2),
+        "more deliveries than the depth bound allows"
+    );
     Ok(())
 }
