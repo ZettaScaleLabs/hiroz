@@ -158,7 +158,7 @@ mod tests {
         let observer_ctx = ZContextBuilder::default()
             .with_domain_id(DOMAIN_ID)
             .disable_multicast_scouting()
-            .with_connect_endpoints([router.endpoint.as_str()])
+            .with_connect_endpoints([router.endpoint()])
             .with_mode("client")
             .build()?;
         let observer = observer_ctx
@@ -168,7 +168,7 @@ mod tests {
         let producer_ctx = ZContextBuilder::default()
             .with_domain_id(DOMAIN_ID)
             .disable_multicast_scouting()
-            .with_connect_endpoints([router.endpoint.as_str()])
+            .with_connect_endpoints([router.endpoint()])
             .with_mode("client")
             .build()?;
         let _producer = producer_ctx
@@ -229,7 +229,7 @@ mod tests {
         let observer_ctx = ZContextBuilder::default()
             .keyexpr_format(format.clone())
             .disable_multicast_scouting()
-            .with_connect_endpoints([router.endpoint.as_str()])
+            .with_connect_endpoints([router.endpoint()])
             .with_mode("client")
             .build()?;
         let observer = observer_ctx
@@ -239,7 +239,7 @@ mod tests {
         let producer_ctx = ZContextBuilder::default()
             .keyexpr_format(format)
             .disable_multicast_scouting()
-            .with_connect_endpoints([router.endpoint.as_str()])
+            .with_connect_endpoints([router.endpoint()])
             .with_mode("client")
             .build()?;
         let _producer = producer_ctx
