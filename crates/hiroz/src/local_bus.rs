@@ -24,7 +24,7 @@
 //! | | here | not here |
 //! |---|---|---|
 //! | audience | every same-session subscriber registered on this channel | subscribers reached only over the wire |
-//! | type check | exact [`core::any::TypeId`] | any structural or version-tolerant match |
+//! | type check | exact [`TypeId`](core::any::TypeId) | any structural or version-tolerant match |
 //! | mutability | shared `Arc<T>`, or moved to a sole receiver | a receiver mutating a payload others still hold |
 //! | choosing the path | the caller asserts the audience | inferring it |
 //!
@@ -44,7 +44,7 @@
 //! must not see each other's traffic. Both `ZPub` and `ZSub` already hold an
 //! `Arc<Session>`, so this needs no plumbing through the node tree.
 //!
-//! A publisher takes its [`crate::local_bus::Channel`] handle when it is built and never touches
+//! A publisher takes its [`Channel`](crate::local_bus::Channel) handle when it is built and never touches
 //! the registry again. Resolving per message would mean hashing a
 //! fully-qualified ROS key expression on every publish, which at small payloads
 //! is a visible share of the whole path.
