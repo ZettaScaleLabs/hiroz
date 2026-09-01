@@ -71,7 +71,6 @@ impl RemapRules {
     }
 }
 
-#[derive(Default)]
 pub struct ZContextBuilder {
     domain_id: usize,
     namespace: String,
@@ -84,6 +83,45 @@ pub struct ZContextBuilder {
     shm_config: Option<Arc<crate::shm::ShmConfig>>,
     keyexpr_format: hiroz_protocol::KeyExprFormat,
     clock: Option<ZClock>,
+}
+
+impl Default for ZContextBuilder {
+    fn default() -> Self {
+        Self {
+            domain_id: default_domain_id(),
+            namespace: String::default(),
+            enclave: String::default(),
+            zenoh_config: None,
+            config_file: None,
+            config_overrides: Vec::default(),
+            remap_rules: RemapRules::default(),
+            enable_logging: bool::default(),
+            shm_config: None,
+            keyexpr_format: hiroz_protocol::KeyExprFormat::default(),
+            clock: None,
+        }
+    }
+}
+
+/// Domain ID to use when the builder is not given one explicitly.
+///
+/// Matches `rclcpp`/`rclpy`: read `ROS_DOMAIN_ID` from the environment, so
+/// the normal ROS 2 deployment story (set the env var, don't touch source)
+/// works here too. `.with_domain_id()` called after `default()` still
+/// overrides this, same precedence as every other ROS 2 client library.
+fn default_domain_id() -> usize {
+    match std::env::var("ROS_DOMAIN_ID") {
+        Ok(val) => match val.parse::<usize>() {
+            Ok(id) => id,
+            Err(_) => {
+                warn!(
+                    "[CTX] ROS_DOMAIN_ID={val:?} is not a valid non-negative integer, using domain 0"
+                );
+                0
+            }
+        },
+        Err(_) => 0,
+    }
 }
 
 impl ZContextBuilder {
@@ -670,5 +708,57 @@ impl ZContext {
     /// Access the context clock used by nodes and runtime helpers.
     pub fn clock(&self) -> &ZClock {
         &self.clock
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn default_domain_id_falls_back_to_zero_when_unset() {
+        unsafe {
+            std::env::remove_var("ROS_DOMAIN_ID");
+        }
+        assert_eq!(default_domain_id(), 0);
+    }
+
+    #[test]
+    #[serial]
+    fn default_domain_id_reads_ros_domain_id() {
+        unsafe {
+            std::env::set_var("ROS_DOMAIN_ID", "42");
+        }
+        assert_eq!(default_domain_id(), 42);
+        unsafe {
+            std::env::remove_var("ROS_DOMAIN_ID");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn default_domain_id_falls_back_to_zero_on_invalid_value() {
+        unsafe {
+            std::env::set_var("ROS_DOMAIN_ID", "not-a-number");
+        }
+        assert_eq!(default_domain_id(), 0);
+        unsafe {
+            std::env::remove_var("ROS_DOMAIN_ID");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn with_domain_id_overrides_the_env_default() {
+        unsafe {
+            std::env::set_var("ROS_DOMAIN_ID", "42");
+        }
+        let builder = ZContextBuilder::default().with_domain_id(7);
+        assert_eq!(builder.domain_id, 7);
+        unsafe {
+            std::env::remove_var("ROS_DOMAIN_ID");
+        }
     }
 }
