@@ -176,7 +176,7 @@ pub struct Channel {
 /// so on `DepthExceeded` re-enters the same callback on a zenoh thread with a
 /// fresh depth counter and loops forever. See #36.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Delivery {
+pub enum Delivery {
     /// Handed to this many subscribers.
     Sent(usize),
     /// No subscriber of this type is on the bus.
