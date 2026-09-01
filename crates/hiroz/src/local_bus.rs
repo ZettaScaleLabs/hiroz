@@ -19,7 +19,7 @@
 //! | | here | not here |
 //! |---|---|---|
 //! | audience | every same-session subscriber registered on this channel | subscribers reached only over the wire |
-//! | type check | exact [`core::any::TypeId`] | any structural or version-tolerant match |
+//! | type check | exact [`TypeId`](core::any::TypeId) | any structural or version-tolerant match |
 //! | mutability | shared `Arc<T>`, or moved to a sole receiver | a receiver mutating a payload others still hold |
 //! | choosing the path | the caller asserts the audience | inferring it |
 //!
@@ -35,7 +35,7 @@
 //! "same session" true rather than "same process": two
 //! [`ZContext`](crate::context::ZContext)s in one process open two sessions and
 //! do not see each other's traffic. A publisher resolves its
-//! [`crate::local_bus::Channel`] once, at build time, and never touches the
+//! [`Channel`](crate::local_bus::Channel) once, at build time, and never touches the
 //! registry again.
 //!
 //! # Locking
