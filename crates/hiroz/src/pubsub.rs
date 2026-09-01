@@ -12,6 +12,7 @@ use crate::common::DataHandler;
 use crate::entity::{EndpointEntity, EndpointKind};
 use crate::event::EventsManager;
 use crate::graph::Graph;
+use crate::local_bus::{Delivery, Published};
 use crate::impl_with_type_info;
 use crate::queue::BoundedQueue;
 use crate::topic_name;
@@ -709,7 +710,7 @@ where
     /// - The attachment — source gid, sequence number, source timestamp — is
     ///   absent, so no bus message carries ROS message-info.
     ///
-    pub fn publish_shared(&self, msg: Arc<T>) -> Result<usize>
+    pub fn publish_shared(&self, msg: Arc<T>) -> Result<Published>
     where
         T: Send + Sync + 'static,
     {
@@ -723,8 +724,6 @@ where
         // subscriber received nothing, with nothing anywhere reporting a loss.
         // There is no count to subtract our own subscribers from, so the
         // condition cannot be repaired; the inference is withdrawn. See #134.
-        use crate::local_bus::Delivery;
-
         if self.intra_process_only {
             // TRANSIENT_LOCAL lives in the wire publisher's cache, and this
             // publisher has no wire. Serving the bus would leave a late-joining
@@ -734,18 +733,17 @@ where
             if let Some(e) = self.refuse_durable_bus() {
                 return Err(e);
             }
-            return Ok(match self.local_channel.publish(msg) {
-                Delivery::Sent(n) => n,
-                Delivery::NoTaker => {
-                    debug!(
-                        "[PUB] intra-process only, no local subscriber on {}: message dropped",
-                        self.entity.topic
-                    );
-                    0
-                }
-                // Already logged at error level by the bus. Deliberate drop.
-                Delivery::DepthExceeded => 0,
-            });
+            let d = self.local_channel.publish(msg);
+            if d == Delivery::NoTaker {
+                debug!(
+                    "[PUB] intra-process only, no local subscriber on {}: message dropped",
+                    self.entity.topic
+                );
+            }
+            // DepthExceeded is returned rather than folded into "nothing
+            // delivered": a caller may fall back to the wire on NoTaker and
+            // must not on DepthExceeded. See #36.
+            return Ok(Published::Bus(d));
         }
 
         // A `Locality::Remote` wire half cannot reach this session, so the bus
@@ -757,17 +755,14 @@ where
         // on both. TRANSIENT_LOCAL is safe here: the wire publish populates the
         // cache exactly as it always did.
         if self.locality == Some(zenoh::sample::Locality::Remote) {
-            let delivered = match self.local_channel.publish(msg.clone()) {
-                Delivery::Sent(n) => n,
-                Delivery::NoTaker | Delivery::DepthExceeded => 0,
-            };
+            let d = self.local_channel.publish(msg.clone());
             self.publish(&msg)?;
-            return Ok(delivered);
+            return Ok(Published::BusAndWire(d));
         }
 
         // No assertion from the caller: the wire alone, which reaches everyone.
         self.publish(&msg)?;
-        Ok(0)
+        Ok(Published::Wire)
     }
 
     /// Publish `msg` by value, giving it away when exactly one receiver wants it.
@@ -810,26 +805,36 @@ where
         )
     }
 
-    pub fn publish_owned(&self, msg: T) -> Result<usize>
+    pub fn publish_owned(&self, msg: T) -> Result<Published>
     where
         T: Send + Sync + 'static,
     {
-        // The move only applies when the bus is serving this message at all.
-        // Same rule as `publish_shared`: the caller asserts the audience.
-        let bus = self.intra_process_only
-            || self.locality == Some(zenoh::sample::Locality::Remote);
-        if bus {
+        // A `Locality::Remote` publisher serves two disjoint audiences, and
+        // the wire half needs the value in order to serialize it. So the value
+        // cannot be given away: this shares instead of moving.
+        //
+        // Handing it to a sole local owner and returning would lose the message
+        // to every remote subscriber, and would leave a TRANSIENT_LOCAL cache
+        // unpopulated while `refuse_durable_bus` permits the publish on the
+        // grounds that the wire still runs. `publish_shared` gets this right one
+        // method away; this did not.
+        if self.locality == Some(zenoh::sample::Locality::Remote) {
+            return self.publish_shared(Arc::new(msg));
+        }
+
+        if self.intra_process_only {
             if let Some(e) = self.refuse_durable_bus() {
                 return Err(e);
             }
-            match self.local_channel.publish_owned(msg) {
-                Ok(()) => return Ok(1),
+            return match self.local_channel.publish_owned(msg) {
+                Ok(d) => Ok(Published::Bus(d)),
                 // Handed back untouched: no sole owning receiver. Share it.
-                Err(returned) => return self.publish_shared(Arc::new(returned)),
-            }
+                Err(returned) => self.publish_shared(Arc::new(returned)),
+            };
         }
+
         self.publish(&msg)?;
-        Ok(0)
+        Ok(Published::Wire)
     }
 
 

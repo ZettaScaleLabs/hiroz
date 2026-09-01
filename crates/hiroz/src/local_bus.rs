@@ -186,6 +186,23 @@ pub(crate) enum Delivery {
 }
 
 
+/// Which routes one publish took, and what the bus did on its route.
+///
+/// A caller cannot reconstruct this from a delivered count: zero means "no
+/// taker", "refused at depth" and "there is no bus on this publisher", and the
+/// first two must stay distinct — see [`Delivery`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Published {
+    /// zenoh only. The audience is not knowable from here.
+    Wire,
+    /// The intra-process bus only, with this outcome.
+    Bus(Delivery),
+    /// Both, to disjoint audiences: the bus for this session, the wire for
+    /// everyone else. Only a `Locality::Remote` publisher does this.
+    BusAndWire(Delivery),
+}
+
 /// Invoke one subscriber callback, isolated.
 ///
 /// Two things happen here that must happen at every user-code call site.
@@ -298,7 +315,7 @@ impl Channel {
     /// anything else is subscribed as well: with a second receiver the message
     /// cannot be given away, and silently downgrading to a shared delivery
     /// would defeat the point of having asked for ownership.
-    pub fn publish_owned<T>(&self, payload: T) -> core::result::Result<(), T>
+    pub fn publish_owned<T>(&self, payload: T) -> core::result::Result<Delivery, T>
     where
         T: Any + Send + 'static,
     {
@@ -324,17 +341,17 @@ impl Channel {
                 "intra-process delivery nested too deeply; refusing to recurse further"
             );
             // Deliberately NOT Err(payload): the caller treats that as "no
-            // owning receiver" and falls back, which for a Remote-locality
-            // publisher puts a message on the wire that the caller asked to
-            // hand to one local owner. A deliberate drop is the honest answer,
-            // and it matches what `publish` does at the same depth.
-            return Ok(());
+            // owning receiver" and falls back, which re-enters this callback on
+            // a zenoh thread with a fresh depth counter and loops forever. The
+            // message is dropped, and `DepthExceeded` says so — reporting it as
+            // a delivery would hide a dropped message behind a success.
+            return Ok(Delivery::DepthExceeded);
         }
         DELIVERY_DEPTH.with(|d| d.set(depth + 1));
         let _depth_guard = DepthGuard;
 
         invoke_isolated("local_bus::publish_owned", || cb(Box::new(payload)));
-        Ok(())
+        Ok(Delivery::Sent(1))
     }
 
     /// How many subscribers this channel has, regardless of type. Diagnostics
