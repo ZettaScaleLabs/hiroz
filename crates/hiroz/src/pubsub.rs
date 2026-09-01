@@ -207,19 +207,11 @@ where
     S: for<'a> ZSerializer<Input<'a> = &'a T> + 'static,
 {
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published> {
-        // publish_shared returns 0 both when the bus had no taker and when the
-        // caller asserted nothing and it went to the wire. The publisher knows
-        // which, so ask it rather than guessing from the count.
-        let n = publisher.publish_shared(self)?;
-        Ok(if publisher.takes_the_bus() {
-            Published::Bus(if n == 0 {
-                Delivery::NoTaker
-            } else {
-                Delivery::Sent(n)
-            })
-        } else {
-            Published::Wire
-        })
+        // `publish_shared` reports the route itself, so there is nothing to
+        // reconstruct here. It used to return a count, which could not say
+        // whether a zero meant "the bus had no taker" or "there is no bus on
+        // this publisher".
+        publisher.publish_shared(self)
     }
 }
 
@@ -650,12 +642,6 @@ where
     ///
     /// Use [`async_publish`](ZPub::async_publish) when calling from async code to
     /// avoid blocking the executor.
-    #[tracing::instrument(name = "publish", skip(self, msg), fields(
-        topic = %self.entity.topic,
-        sn = self.sn.load(Ordering::Acquire),
-        payload_len = tracing::field::Empty,
-        used_shm = tracing::field::Empty
-    ))]
     /// Publish, with the argument's ownership choosing the route.
     ///
     /// This is the one publish name, in the shape rclcpp uses: there,
@@ -678,7 +664,7 @@ where
     /// nothing about who decides.
     ///
     /// The named methods remain, and stay the right choice when you want their
-    /// exact return type rather than [`Delivery`].
+    /// exact return type.
     pub fn publish(&self, msg: impl Publishable<T, S>) -> Result<Published> {
         msg.publish_to(self)
     }
@@ -687,15 +673,13 @@ where
     ///
     /// [`ZPub::publish`] reaches this for a `&T` argument. Call it directly when
     /// you want the wire whatever else is configured, or when you want the
-    /// `Result<()>` shape rather than [`Delivery`].
-    /// Whether a bus route is available: the caller asserted the audience.
-    ///
-    /// Mirrors the condition `publish_shared` and `publish_moved` use, so
-    /// [`Published`] can say which route ran without inferring it from a count.
-    pub(crate) fn takes_the_bus(&self) -> bool {
-        self.intra_process_only || self.locality == Some(zenoh::sample::Locality::Remote)
-    }
-
+    /// `Result<()>` shape rather than [`Published`].
+    #[tracing::instrument(name = "publish", skip(self, msg), fields(
+        topic = %self.entity.topic,
+        sn = self.sn.load(Ordering::Acquire),
+        payload_len = tracing::field::Empty,
+        used_shm = tracing::field::Empty
+    ))]
     pub fn publish_ref(&self, msg: &T) -> Result<()> {
         use zenoh_buffers::buffer::Buffer;
 
