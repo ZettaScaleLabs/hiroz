@@ -48,7 +48,10 @@ const DELIVERY_DEADLINE: Duration = Duration::from_secs(5);
 fn counting_sub(
     node: &hiroz::node::ZNode,
     topic: &str,
-) -> hiroz::Result<(hiroz::pubsub::ZSub<RosString, (), hiroz::msg::NativeCdrSerdes<RosString>>, Arc<AtomicUsize>)> {
+) -> hiroz::Result<(
+    hiroz::pubsub::ZSub<RosString, (), hiroz::msg::NativeCdrSerdes<RosString>>,
+    Arc<AtomicUsize>,
+)> {
     let count = Arc::new(AtomicUsize::new(0));
     let c = count.clone();
     let sub = node

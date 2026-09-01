@@ -65,14 +65,14 @@ pub mod ffi;
 pub mod graph;
 /// ROS 2 lifecycle node support (state machine, lifecycle publisher).
 pub mod lifecycle;
+/// Intra-process message bus (prototype) — `Arc<T>` delivery without serialization.
+pub mod local_bus;
 /// Typed message wrappers and helpers.
 pub mod msg;
 /// ROS 2 node creation and management.
 pub mod node;
 /// Convenience re-exports for common hiroz types.
 pub mod prelude;
-/// Intra-process message bus (prototype) — `Arc<T>` delivery without serialization.
-pub mod local_bus;
 /// Publishers and subscribers.
 pub mod pubsub;
 /// Python FFI bridge types.

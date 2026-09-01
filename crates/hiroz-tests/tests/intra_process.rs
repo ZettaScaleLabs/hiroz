@@ -37,8 +37,10 @@ use std::{
 };
 
 use common::*;
-use hiroz::local_bus::{Delivery, Published};
-use hiroz::{Builder, ZBuf};
+use hiroz::{
+    Builder, ZBuf,
+    local_bus::{Delivery, Published},
+};
 use hiroz_msgs::std_msgs::{ByteMultiArray, Int32, String as RosString};
 use zenoh_buffers::buffer::SplitBuffer;
 
@@ -190,7 +192,11 @@ fn a_different_rust_type_on_the_same_topic_is_not_delivered() -> hiroz::Result<(
         Published::Bus(Delivery::Sent(1)),
         "the control did not deliver: the bus is dead, so the assertion below proves nothing"
     );
-    assert_eq!(ok_hits.load(Ordering::SeqCst), 1, "control subscriber not called");
+    assert_eq!(
+        ok_hits.load(Ordering::SeqCst),
+        1,
+        "control subscriber not called"
+    );
 
     // Same topic, different concrete Rust type.
     let publisher = node
@@ -251,7 +257,11 @@ fn dropping_the_subscriber_unregisters_it() -> hiroz::Result<()> {
         Published::Bus(Delivery::NoTaker),
         "the bus still holds a registration for a dropped subscriber"
     );
-    assert_eq!(hits.load(Ordering::SeqCst), 1, "a dropped subscriber was called");
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "a dropped subscriber was called"
+    );
     Ok(())
 }
 
@@ -284,9 +294,11 @@ fn a_pooled_payload_buffer_is_written_in_place_and_reused() -> hiroz::Result<()>
         .build_with_shared_callback(move |msg: Arc<ByteMultiArray>| {
             let bytes = msg.data.contiguous();
             let stamp = u64::from_le_bytes(bytes[0..8].try_into().expect("8 bytes"));
-            sink.lock()
-                .expect("poisoned")
-                .push((Arc::as_ptr(&msg) as usize, bytes.as_ptr() as usize, stamp));
+            sink.lock().expect("poisoned").push((
+                Arc::as_ptr(&msg) as usize,
+                bytes.as_ptr() as usize,
+                stamp,
+            ));
         })?;
 
     let publisher = node
@@ -322,7 +334,10 @@ fn a_pooled_payload_buffer_is_written_in_place_and_reused() -> hiroz::Result<()>
     );
     let slot_addr = Arc::as_ptr(&slot) as usize;
     for (i, (arc_addr, payload_addr, stamp)) in got.iter().enumerate() {
-        assert_eq!(*arc_addr, slot_addr, "send {i} delivered a different allocation");
+        assert_eq!(
+            *arc_addr, slot_addr,
+            "send {i} delivered a different allocation"
+        );
         assert_eq!(
             *payload_addr, sent_payload_addrs[i],
             "send {i} delivered a different payload buffer"
@@ -471,7 +486,8 @@ fn a_self_publishing_callback_does_not_recurse_without_bound() -> hiroz::Result<
     let seen = hits.load(Ordering::SeqCst);
     assert!(seen >= 1, "the callback never ran");
     assert_eq!(
-        seen, hiroz::local_bus::MAX_DELIVERY_DEPTH as usize,
+        seen,
+        hiroz::local_bus::MAX_DELIVERY_DEPTH as usize,
         "expected exactly the depth bound; a change to MAX_DELIVERY_DEPTH must \
          update this test rather than slip past a loose ceiling"
     );
@@ -731,10 +747,10 @@ fn a_self_publishing_callback_does_not_escape_to_the_wire_and_loop() -> hiroz::R
         let _ = done_tx.send((settled, counter.load(Ordering::SeqCst)));
     });
 
-    let (settled, later) = done_rx
-        .recv_timeout(Duration::from_secs(10))
-        .expect("publish never returned: the depth guard escaped to the wire, \
-                 which re-enters on a zenoh thread and deadlocks on its runtime");
+    let (settled, later) = done_rx.recv_timeout(Duration::from_secs(10)).expect(
+        "publish never returned: the depth guard escaped to the wire, \
+                 which re-enters on a zenoh thread and deadlocks on its runtime",
+    );
     assert!(
         later <= 32,
         "{later} deliveries from one publish (settled at {settled}): the guard \
@@ -797,7 +813,11 @@ fn a_remote_locality_publisher_still_reaches_a_same_session_subscriber() -> hiro
         "the off-session subscriber never received it; this run proves nothing"
     );
     thread::sleep(Duration::from_millis(300));
-    assert_eq!(near.load(Ordering::SeqCst), 1, "near subscriber count wrong");
+    assert_eq!(
+        near.load(Ordering::SeqCst),
+        1,
+        "near subscriber count wrong"
+    );
     assert_eq!(far.load(Ordering::SeqCst), 1, "far subscriber count wrong");
     Ok(())
 }
@@ -1105,7 +1125,11 @@ fn publish_owned_on_a_remote_publisher_still_reaches_the_wire() -> hiroz::Result
         "the off-session subscriber never received it — this is B1"
     );
     thread::sleep(Duration::from_millis(300));
-    assert_eq!(near.load(Ordering::SeqCst), 1, "near subscriber count wrong");
+    assert_eq!(
+        near.load(Ordering::SeqCst),
+        1,
+        "near subscriber count wrong"
+    );
     assert_eq!(far.load(Ordering::SeqCst), 1, "far subscriber count wrong");
     Ok(())
 }
