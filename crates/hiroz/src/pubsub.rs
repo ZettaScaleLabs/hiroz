@@ -809,17 +809,23 @@ where
     where
         T: Send + Sync + 'static,
     {
-        // A `Locality::Remote` publisher serves two disjoint audiences, and
-        // the wire half needs the value in order to serialize it. So the value
-        // cannot be given away: this shares instead of moving.
+        // A `Locality::Remote` publisher serves two disjoint audiences and both
+        // must run: the bus for this session, the wire for everyone else.
         //
-        // Handing it to a sole local owner and returning would lose the message
-        // to every remote subscriber, and would leave a TRANSIENT_LOCAL cache
-        // unpopulated while `refuse_durable_bus` permits the publish on the
-        // grounds that the wire still runs. `publish_shared` gets this right one
-        // method away; this did not.
+        // Order matters. The wire half needs the value in order to serialize it,
+        // and the bus half wants to own it, so the wire goes first from a
+        // reference and the value is given away afterwards. Sharing instead
+        // would reach the wire but silently stop serving owned subscribers,
+        // because the shared path filters on `is_shared()`.
         if self.locality == Some(zenoh::sample::Locality::Remote) {
-            return self.publish_shared(Arc::new(msg));
+            self.publish(&msg)?;
+            return Ok(Published::BusAndWire(
+                match self.local_channel.publish_owned(msg) {
+                    Ok(d) => d,
+                    // No sole owning receiver; the shared half may still want it.
+                    Err(returned) => self.local_channel.publish(Arc::new(returned)),
+                },
+            ));
         }
 
         if self.intra_process_only {
