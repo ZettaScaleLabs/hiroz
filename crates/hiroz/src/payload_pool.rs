@@ -128,6 +128,12 @@ pub struct PoolStats {
     pub available: usize,
     /// Slots unavailable for [`STUCK_AFTER`] consecutive acquires — almost
     /// always a subscriber that stored its `Arc`.
+    ///
+    /// This can over-report by a slot that has since been released but not yet
+    /// reacquired: the scan stops at the first free slot, so a later one keeps
+    /// its streak until the cursor reaches it. It corrects itself within one
+    /// rotation. Counting exactly would mean sweeping every slot on every
+    /// acquire, which is the cost this pool exists to avoid.
     pub stuck: usize,
     /// Times `acquire` found nothing free.
     pub exhaustions: u64,
