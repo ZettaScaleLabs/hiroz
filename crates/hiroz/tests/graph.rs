@@ -111,7 +111,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn built_in_services_inherit_context_domain() -> Result<()> {
         const DOMAIN_ID: usize = 123;
-        const ENCLAVE: &str = "/sros2/enclave";
+        // A single path segment: the liveliness key expression places the
+        // enclave as exactly one slash-delimited field
+        // (`@ros2_lv/<domain>/.../<kind>/<enclave>/<namespace>/...`,
+        // format/rmw_zenoh.rs), with no escaping for an internal `/` --
+        // that's a separate, pre-existing wire-format limitation, not
+        // something this fix changes.
+        const ENCLAVE: &str = "/test_enclave";
         let router = DomainTestRouter::new();
         let observer_ctx = ZContextBuilder::default()
             .with_domain_id(DOMAIN_ID)
