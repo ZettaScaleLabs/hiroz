@@ -794,4 +794,18 @@ mod tests {
         .with_domain_id(7);
         assert_eq!(builder.domain_id, DomainId::Value(7));
     }
+
+    /// The actual behavior Copilot's review asked for: an invalid domain
+    /// aborts `build()` with an error, matching `rcl_init`, rather than
+    /// silently producing a `ZContext` on domain 0.
+    #[test]
+    fn build_rejects_an_invalid_domain() {
+        let err = ZContextBuilder {
+            domain_id: DomainId::Invalid("garbage".to_string()),
+            ..Default::default()
+        }
+        .build()
+        .expect_err("an invalid ROS_DOMAIN_ID must not silently build");
+        assert!(err.to_string().contains("garbage"));
+    }
 }
