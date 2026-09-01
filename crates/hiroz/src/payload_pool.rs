@@ -72,13 +72,15 @@
 //! pinned by a test asserting the slot comes back, rather than left as a
 //! comment.
 //!
-//! **Rewriting bytes in place is the one part that needs more than std.**
-//! `ZBuf::as_mut_slice` is behind the `pooled-payload` feature and an
-//! unreleased zenoh accessor. A pooled message whose fields are plain — a
-//! `String`, a fixed array, a `Vec` replaced wholesale — needs none of it and
-//! works against released zenoh today. Only overwriting bytes *inside* an
-//! existing `ZBuf` does, and that accessor refuses when anything else still
-//! references the buffer, which is a second guard behind the `Arc` check here.
+//! **Rewriting bytes in place is the one part that needs more than std**, and
+//! it needs nothing from hiroz. A pooled message whose fields are plain — a
+//! `String`, a fixed array, a `Vec` replaced wholesale — works against
+//! released zenoh today. Only overwriting bytes *inside* an existing `ZBuf`
+//! requires `opt_mut_slice`, which no released `zenoh-buffers` has; a
+//! workspace wanting it patches that crate and reaches the accessor through
+//! [`ZBuf`](crate::zbuf::ZBuf), which is a newtype over zenoh's own. That
+//! accessor refuses when anything else still references the buffer, a second
+//! guard behind the `Arc` check here.
 //!
 //! # The failure mode to watch
 //!
