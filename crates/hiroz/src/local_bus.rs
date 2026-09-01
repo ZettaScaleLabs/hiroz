@@ -19,17 +19,23 @@
 //! opt-in fast path beside the wire path, never a replacement for it — the same
 //! shape as rclcpp's intra-process comm.
 //!
-//! # Scope of the prototype
+//! # Scope
 //!
-//! | | this prototype | a production version |
+//! | | here | not here |
 //! |---|---|---|
-//! | audience | every same-session subscriber registered here | same, plus the wire for remote ones, decided from the graph |
-//! | type check | exact [`TypeId`] | same |
-//! | mutability | shared `Arc<T>`, read-only for all receivers | move a unique payload when there is exactly one receiver |
-//! | choosing the path | an explicit `with_intra_process_only()` on the publisher | inferred: use the wire only while remote subscribers exist |
+//! | audience | every same-session subscriber registered on this channel | subscribers reached only over the wire |
+//! | type check | exact [`TypeId`] | any structural or version-tolerant match |
+//! | mutability | shared `Arc<T>`, or moved to a sole receiver | a receiver mutating a payload others still hold |
+//! | choosing the path | the caller asserts the audience | inferring it |
 //!
-//! The last row is the real gap. A publisher here does not ask whether anyone
-//! remote is listening; it is told. See issue #36.
+//! The last row is the one that has been tried and withdrawn. A publisher does
+//! not ask whether anyone remote is listening, because the question has no
+//! answer: a plain zenoh subscriber declares no ROS liveliness token, so the
+//! graph cannot see it and there is no count to subtract our own from. Taking
+//! the bus on a wrong inference loses that subscriber's messages silently. So
+//! the caller says, with `with_intra_process_only()` or a `Locality`, and the
+//! bus is taken only when that assertion makes the wire redundant.
+//! See circle/hiroz-bench#36 for the bus, and #134 for the withdrawal.
 //!
 //! # Keying, and why a publisher resolves it once
 //!
@@ -78,7 +84,7 @@ use zenoh::session::ZenohId;
 ///
 /// Eight is chosen to be far above any legitimate chain — a pipeline of eight
 /// nodes each publishing from the previous one's callback, on one thread — and
-/// far below the depth at which the stack is in danger. See issue #40.
+/// far below the depth at which the stack is in danger. See issue circle/hiroz-bench#40.
 /// Public so a test can assert the exact bound rather than a loose ceiling:
 /// a hand-copied constant lets a change to this value slip past unnoticed.
 pub const MAX_DELIVERY_DEPTH: u32 = 8;
@@ -113,7 +119,7 @@ type LocalCallback = Arc<dyn Fn(ErasedPayload) + Send + Sync>;
 /// The shared path hands every receiver the same read-only `Arc`, which is
 /// right when several of them want it and wrong when exactly one does: a sole
 /// receiver could have been given the value itself, free to mutate or consume
-/// it. This is that path. See issue #36.
+/// it. This is that path. See issue circle/hiroz-bench#36.
 type OwnedCallback = Arc<dyn Fn(Box<dyn Any + Send>) + Send + Sync>;
 
 #[derive(Clone)]
@@ -174,7 +180,7 @@ pub struct Channel {
 /// `NoTaker` and `DepthExceeded` both mean nothing was delivered, and they must
 /// not be conflated: a caller may fall back to the wire on `NoTaker`, but doing
 /// so on `DepthExceeded` re-enters the same callback on a zenoh thread with a
-/// fresh depth counter and loops forever. See #36.
+/// fresh depth counter and loops forever. See circle/hiroz-bench#36.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Delivery {
     /// Handed to this many subscribers.
@@ -251,7 +257,7 @@ impl Channel {
         // Refuse to recurse without bound. A callback that publishes back onto
         // its own topic would otherwise overflow the stack; returning here turns
         // that into a dropped message and a loud log, which is recoverable and
-        // greppable. See issue #40.
+        // greppable. See issue circle/hiroz-bench#40.
         let depth = DELIVERY_DEPTH.with(|d| d.get());
         if depth >= MAX_DELIVERY_DEPTH {
             tracing::error!(

@@ -1258,3 +1258,46 @@ fn a_depth_refusal_is_reported_as_dropped_not_delivered() -> hiroz::Result<()> {
     );
     Ok(())
 }
+
+/// S9. `publish_shared` and `publish_owned` must agree about where a message
+/// goes. They cannot, unless they read the same decision.
+///
+/// They did not. Each tested the conditions itself, in the opposite order, so a
+/// publisher carrying both assertions routed one way through one method and the
+/// other way through the other — the same drift that produced B1, in a
+/// configuration nothing exercised. `with_intra_process_only()` wins, because it
+/// is the stronger claim: this publisher has no wire.
+#[test]
+fn both_publish_methods_agree_when_the_assertions_conflict() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("conflict_node").build()?;
+
+    let publisher = node
+        .create_pub::<RosString>("conflict_topic")
+        .with_intra_process_only()
+        .with_locality(zenoh::sample::Locality::Remote)
+        .build()?;
+    wait_for_ready(Duration::from_millis(300));
+
+    let shared = publisher.publish_shared(Arc::new(RosString {
+        data: "shared".to_owned(),
+    }))?;
+    let moved = publisher.publish_owned(RosString {
+        data: "moved".to_owned(),
+    })?;
+
+    // Nobody is subscribed, so both report the bus having no taker. The point is
+    // that neither reached the wire: a `BusAndWire` from either is the drift.
+    assert_eq!(
+        shared,
+        Published::Bus(Delivery::NoTaker),
+        "publish_shared took the wrong route"
+    );
+    assert_eq!(
+        moved,
+        Published::Bus(Delivery::NoTaker),
+        "publish_owned disagreed with publish_shared"
+    );
+    Ok(())
+}
