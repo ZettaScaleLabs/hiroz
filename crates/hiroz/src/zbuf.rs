@@ -51,29 +51,6 @@ impl ZBuf {
         Self(zbuf)
     }
 
-    /// The bytes of this buffer, mutably, when they can be written in place.
-    ///
-    /// This is what lets a publisher reuse one payload buffer across sends
-    /// instead of allocating a new one each time. It returns `None` — and the
-    /// caller must then allocate — whenever writing in place would be wrong:
-    ///
-    /// - another owner holds the same backing buffer, so a write would be
-    ///   visible to them;
-    /// - the buffer is not a `Vec<u8>` (a shared-memory backing, for example);
-    /// - the buffer is made of more than one slice, and so has no contiguous
-    ///   mutable view.
-    ///
-    /// The bytes handed back are this buffer's own window, never the whole
-    /// allocation behind it.
-    ///
-    /// Requires the `pooled-payload` feature, which is off by default: this
-    /// needs an accessor that is not in any released `zenoh-buffers`, so a
-    /// workspace enabling it must patch that crate itself.
-    #[cfg(feature = "pooled-payload")]
-    #[inline]
-    pub fn as_mut_slice(&mut self) -> Option<&mut [u8]> {
-        self.0.as_mut_slice()
-    }
 }
 
 // Conversions
@@ -291,37 +268,6 @@ mod tests {
         assert_eq!(zbuf.len(), 3);
         let bytes = zbuf.contiguous();
         assert_eq!(bytes.as_ref(), &[1, 2, 3]);
-    }
-
-    #[cfg(feature = "pooled-payload")]
-    #[test]
-    fn as_mut_slice_sole_owner_writes_in_place() {
-        let mut zbuf = ZBuf::from(vec![0u8; 16]);
-        let before = zbuf.contiguous().as_ptr();
-
-        zbuf.as_mut_slice()
-            .expect("a freshly built ZBuf is solely owned")[0..8]
-            .copy_from_slice(&42u64.to_le_bytes());
-
-        let bytes = zbuf.contiguous();
-        assert_eq!(u64::from_le_bytes(bytes[0..8].try_into().unwrap()), 42);
-        assert_eq!(bytes.as_ptr(), before, "the write reallocated");
-    }
-
-    #[cfg(feature = "pooled-payload")]
-    #[test]
-    fn as_mut_slice_multi_slice_returns_none() {
-        use zenoh_buffers::ZSlice;
-
-        let mut inner = ZenohZBuf::default();
-        inner.push_zslice(ZSlice::from(vec![1u8, 2]));
-        inner.push_zslice(ZSlice::from(vec![3u8, 4]));
-        let mut zbuf = ZBuf::from_zenoh(inner);
-
-        assert!(
-            zbuf.as_mut_slice().is_none(),
-            "a two-slice buffer has no contiguous mutable view"
-        );
     }
 
     #[test]
