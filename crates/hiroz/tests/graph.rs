@@ -7,7 +7,7 @@
 //! - Node discovery and information
 //! - Service availability checking
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use hiroz::{
     Builder, Result,
@@ -15,7 +15,69 @@ use hiroz::{
     entity::{EndpointKind, NodeKey},
 };
 use hiroz_msgs::{example_interfaces::srv::AddTwoInts, std_msgs::String as RosString};
+use hiroz_protocol::{
+    EndpointEntity, Entity, KeyExprFormat, KeyExprFormatter, KeyExprFormatterAdapter, NodeEntity,
+    RmwZenohFormatter,
+    entity::{LivelinessKE, TopicKE},
+    qos::QosProfile,
+};
 use zenoh::{Wait, config::WhatAmI};
+
+/// A pass-through `KeyExprFormatter` that delegates to `RmwZenohFormatter` for
+/// everything except its own admin space, so a node using it is
+/// distinguishable on the wire from a plain rmw_zenoh node without
+/// reimplementing any encoding.
+#[derive(Debug)]
+struct TestKeyExprFormatter;
+
+impl TestKeyExprFormatter {
+    fn from_rmw_liveliness(key: LivelinessKE) -> hiroz::Result<LivelinessKE> {
+        Ok(LivelinessKE::new(
+            key.as_str()
+                .replacen("@ros2_lv", Self::ADMIN_SPACE, 1)
+                .try_into()?,
+        ))
+    }
+}
+
+impl KeyExprFormatter for TestKeyExprFormatter {
+    const ESCAPE_CHAR: char = '%';
+    const ADMIN_SPACE: &'static str = "@hiroz_test_lv";
+
+    fn topic_key_expr(entity: &EndpointEntity) -> hiroz::Result<TopicKE> {
+        let rmw = RmwZenohFormatter::topic_key_expr(entity)?;
+        Ok(TopicKE::new(
+            format!("hiroz_test/{}", rmw.as_str()).try_into()?,
+        ))
+    }
+
+    fn liveliness_key_expr(
+        entity: &EndpointEntity,
+        zid: &zenoh::session::ZenohId,
+    ) -> hiroz::Result<LivelinessKE> {
+        Self::from_rmw_liveliness(RmwZenohFormatter::liveliness_key_expr(entity, zid)?)
+    }
+
+    fn node_liveliness_key_expr(entity: &NodeEntity) -> hiroz::Result<LivelinessKE> {
+        Self::from_rmw_liveliness(RmwZenohFormatter::node_liveliness_key_expr(entity)?)
+    }
+
+    fn parse_liveliness(key: &zenoh::key_expr::KeyExpr) -> hiroz::Result<Entity> {
+        let rmw: zenoh::key_expr::KeyExpr<'static> = key
+            .as_str()
+            .replacen(Self::ADMIN_SPACE, "@ros2_lv", 1)
+            .try_into()?;
+        RmwZenohFormatter::parse_liveliness(&rmw)
+    }
+
+    fn encode_qos(qos: &QosProfile, keyless: bool) -> String {
+        RmwZenohFormatter::encode_qos(qos, keyless)
+    }
+
+    fn decode_qos(encoded: &str) -> hiroz::Result<(bool, QosProfile)> {
+        RmwZenohFormatter::decode_qos(encoded)
+    }
+}
 
 struct DomainTestRouter {
     endpoint: String,
@@ -176,6 +238,68 @@ mod tests {
                     .as_ref()
                     .is_some_and(|owner| owner.domain_id == DOMAIN_ID)
         }));
+
+        Ok(())
+    }
+
+    /// Built-in services must also inherit the context's `keyexpr_format`,
+    /// not the default rmw_zenoh format -- the other half of what
+    /// `ParameterServiceConfig`/`TypeDescriptionService::new_with_node`
+    /// thread through alongside `domain_id`. Uses a pass-through custom
+    /// formatter with its own admin space, so a node's built-in services are
+    /// only discoverable at all if they actually used it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn built_in_services_inherit_custom_keyexpr_format() -> Result<()> {
+        let router = DomainTestRouter::new();
+        let format = KeyExprFormat::Custom(Arc::new(
+            KeyExprFormatterAdapter::<TestKeyExprFormatter>::new(),
+        ));
+        let observer_ctx = ZContextBuilder::default()
+            .keyexpr_format(format.clone())
+            .disable_multicast_scouting()
+            .with_connect_endpoints([router.endpoint.as_str()])
+            .with_mode("client")
+            .build()?;
+        let observer = observer_ctx
+            .create_node("custom_format_observer")
+            .without_parameters()
+            .build()?;
+        let producer_ctx = ZContextBuilder::default()
+            .keyexpr_format(format)
+            .disable_multicast_scouting()
+            .with_connect_endpoints([router.endpoint.as_str()])
+            .with_mode("client")
+            .build()?;
+        let _producer = producer_ctx
+            .create_node("custom_format_builtins")
+            .with_type_description_service()
+            .build()?;
+        let node_key: NodeKey = (String::new(), "custom_format_builtins".to_string());
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let services = loop {
+            let services = observer
+                .graph()
+                .get_entities_by_node(EndpointKind::Service, node_key.clone());
+            if services.len() >= 7 || tokio::time::Instant::now() >= deadline {
+                break services;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+
+        assert_eq!(
+            services.len(),
+            7,
+            "built-in services must use the context's custom liveliness format"
+        );
+        assert!(
+            observer
+                .graph()
+                .get_entities_by_node(EndpointKind::Publisher, node_key)
+                .iter()
+                .any(|endpoint| endpoint.topic == "/parameter_events"),
+            "parameter-events publisher must use the context's custom liveliness format"
+        );
 
         Ok(())
     }
