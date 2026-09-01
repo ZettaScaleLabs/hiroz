@@ -300,3 +300,28 @@ fn test_parse_invalid_domain_id_is_err() {
     );
     assert!(result.is_err(), "expected Err for invalid domain_id");
 }
+
+// ---------------------------------------------------------------------------
+// SYSTEM_DEFAULT QoS sub-fields
+// ---------------------------------------------------------------------------
+
+/// rmw_zenoh_cpp omits a QoS sub-field entirely when its value is
+/// SYSTEM_DEFAULT, rather than encoding an explicit default. A liveliness
+/// token captured verbatim from the wire exercises that omission the way a
+/// hand-built fixture wouldn't.
+#[test]
+fn test_parse_liveliness_with_verbatim_rmw_system_default_qos() {
+    let parsed = parse_liveliness(
+        "@ros2_lv/123/1234567890abcdef1234567890abcdef/1/2/MP/%/%/res_gateway/%res%statuslight%autonomy/frost_msgs%msg%StatuslightRpdo1/RIHS01_0000000000000000000000000000000000000000000000000000000000000000/::,:,:,:,,:",
+    )
+    .expect("parse_liveliness");
+
+    let hiroz_protocol::entity::Entity::Endpoint(endpoint) = parsed else {
+        panic!("expected endpoint entity");
+    };
+
+    assert_eq!(endpoint.node.unwrap().domain_id, 123);
+    assert_eq!(endpoint.kind, EndpointKind::Publisher);
+    assert_eq!(endpoint.topic, "/res/statuslight/autonomy");
+    assert_eq!(endpoint.qos, QosProfile::default());
+}

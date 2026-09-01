@@ -318,22 +318,6 @@ mod tests {
         assert_eq!(decoded.durability, QosDurability::TransientLocal);
     }
 
-    #[test]
-    fn parse_liveliness_with_verbatim_rmw_system_default_qos() {
-        let key: KeyExpr<'_> = "@ros2_lv/123/1234567890abcdef1234567890abcdef/1/2/MP/%/%/res_gateway/%res%statuslight%autonomy/frost_msgs%msg%StatuslightRpdo1/RIHS01_0000000000000000000000000000000000000000000000000000000000000000/::,:,:,:,,:"
-            .try_into()
-            .unwrap();
-
-        let Entity::Endpoint(endpoint) = RmwZenohFormatter::parse_liveliness(&key).unwrap() else {
-            panic!("expected endpoint entity");
-        };
-
-        assert_eq!(endpoint.node.unwrap().domain_id, 123);
-        assert_eq!(endpoint.kind, EndpointKind::Publisher);
-        assert_eq!(endpoint.topic, "/res/statuslight/autonomy");
-        assert_eq!(endpoint.qos, QosProfile::default());
-    }
-
     /// Test topic key expression format matches rmw_zenoh.
     ///
     /// rmw_zenoh format: `<domain_id>/<topic>/<type>/<hash>`
