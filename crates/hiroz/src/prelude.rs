@@ -24,7 +24,7 @@ pub use crate::Builder;
 pub use crate::context::{ZContext, ZContextBuilder};
 pub use crate::node::ZNode;
 pub use crate::local_bus::{Delivery, Published};
-pub use crate::pubsub::{ZPub, ZSub};
+pub use crate::pubsub::{Publishable, ZPub, ZSub};
 
 /// Reusable message allocations for the intra-process path.
 pub use crate::payload_pool::{PayloadPool, PoolStats, Pooled};

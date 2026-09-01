@@ -160,7 +160,12 @@ pub struct Channel {
 /// `DepthExceeded` means the bus dropped the message before any callback ran.
 /// A fallback to the wire must not follow it: the fallback re-enters the same
 /// callback with a fresh depth counter.
+///
+/// `Wire` is not a bus outcome: it says the message went to zenoh, where the
+/// audience is not knowable from here. It exists so one `publish` can report
+/// what it did whichever route it took.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Delivery {
     /// This many callbacks returned normally. A callback that panicked is not
     /// counted, so the number of callbacks that ran can be higher.
@@ -170,6 +175,8 @@ pub enum Delivery {
     NoTaker,
     /// Refused: delivery is already nested `MAX_DELIVERY_DEPTH` deep.
     DepthExceeded,
+    /// Published to zenoh. The bus was not used, so no local count exists.
+    Wire,
 }
 
 
