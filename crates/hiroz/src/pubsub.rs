@@ -1177,23 +1177,6 @@ where
         })
     }
 
-    /// **Prototype.** Build a subscriber that receives an `Arc<T>` from a
-    /// same-session publisher without any serialization, and still receives
-    /// remote traffic over the wire as usual.
-    ///
-    /// Two registrations are made:
-    ///
-    /// | path | source | cost |
-    /// |---|---|---|
-    /// | intra-process bus | a same-session [`ZPub::publish_shared`] for this exact `T` | a refcount bump |
-    /// | zenoh subscriber, no origin filter | anything on the wire, near or far | the usual CDR decode |
-    ///
-    /// `Remote` on the wire path is what stops a same-session publisher that is
-    /// *not* restricted to `Locality::Remote` delivering the same message twice. That is now prevented on the publisher, which is the only side that knows whether it used both paths — see issue circle/hiroz-bench#39 —
-    /// once as an `Arc`, once decoded. An explicit
-    /// [`with_locality`](Self::with_locality) is respected and left alone; the
-    /// double delivery is then the caller's to reason about.
-    ///
     /// Build a subscriber whose callback receives the message **by value**.
     ///
     /// Served only by [`ZPub::publish_owned`], and only when this is the sole
@@ -1230,6 +1213,24 @@ where
         Ok(sub)
     }
 
+    /// **Prototype.** Build a subscriber that receives an `Arc<T>` from a
+    /// same-session publisher without any serialization, and still receives
+    /// remote traffic over the wire as usual.
+    ///
+    /// Two registrations are made:
+    ///
+    /// | path | source | cost |
+    /// |---|---|---|
+    /// | intra-process bus | a same-session [`ZPub::publish_shared`] for this exact `T` | a refcount bump |
+    /// | zenoh subscriber, no origin filter | anything on the wire, near or far | the usual CDR decode |
+    ///
+    /// The wire half applies no origin filter, and does not need one. A
+    /// publisher takes the bus or the wire for any one message, never both —
+    /// unless its wire half is `Locality::Remote`, in which case the two
+    /// audiences are disjoint and no subscriber sees it twice. Suppressing the
+    /// duplicate is the publisher's job, because it is the only side that knows
+    /// which routes it used. See circle/hiroz-bench#39.
+    ///
     /// The type match is exact: a publisher of a different concrete Rust type
     /// on the same topic is not delivered here, even if the ROS type name
     /// agrees. See [`crate::local_bus`] and issue circle/hiroz-bench#36.
