@@ -161,6 +161,50 @@ impl<T: ZMessage, S: ZSerializer> std::fmt::Debug for ZPub<T, S> {
     }
 }
 
+
+/// What may be handed to [`ZPub::publish`], and where each form goes.
+///
+/// Implemented for `&T`, `Arc<T>` and `T`. The three impls cannot overlap: the
+/// trait carries the message type, so `Publishable<U> for &U` and
+/// `Publishable<&U> for &U` are different trait references.
+pub trait Publishable<T: ZMessage, S: ZSerializer>: Sized {
+    /// Publish `self` through `publisher`, by the route its ownership selects.
+    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Delivery>;
+}
+
+impl<T, S> Publishable<T, S> for &T
+where
+    T: ZMessage,
+    S: ZSerializer<Input<'static> = &'static T>,
+{
+    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Delivery> {
+        publisher.publish_ref(self)?;
+        Ok(Delivery::Wire)
+    }
+}
+
+impl<T, S> Publishable<T, S> for Arc<T>
+where
+    T: ZMessage + Send + Sync + 'static,
+    S: ZSerializer<Input<'static> = &'static T>,
+{
+    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Delivery> {
+        let n = publisher.publish_shared(self)?;
+        Ok(if n == 0 { Delivery::Wire } else { Delivery::Sent(n) })
+    }
+}
+
+impl<T, S> Publishable<T, S> for T
+where
+    T: ZMessage + Send + Sync + 'static,
+    S: ZSerializer<Input<'static> = &'static T>,
+{
+    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Delivery> {
+        let n = publisher.publish_owned(self)?;
+        Ok(if n == 0 { Delivery::Wire } else { Delivery::Sent(n) })
+    }
+}
+
 #[derive(Debug)]
 pub struct ZPubBuilder<T, S = SerdeCdrSerdes<T>> {
     pub(crate) entity: EndpointEntity,
@@ -593,7 +637,36 @@ where
         payload_len = tracing::field::Empty,
         used_shm = tracing::field::Empty
     ))]
-    pub fn publish(&self, msg: &T) -> Result<()> {
+    /// Publish, with the argument's ownership choosing the route.
+    ///
+    /// This is the one publish name, in the shape rclcpp uses: there,
+    /// `publish(const&)` copies and `publish(unique_ptr)` moves, and the
+    /// overload picks the path. Rust has no overloading, so a trait carries it.
+    ///
+    /// | argument | route | equivalent to |
+    /// |---|---|---|
+    /// | `&T` | zenoh | [`ZPub::publish_ref`] |
+    /// | `Arc<T>` | the bus, every subscriber sharing one allocation | [`ZPub::publish_shared`] |
+    /// | `T` | the bus, a sole receiver owning it | [`ZPub::publish_owned`] |
+    ///
+    /// **The routing rules are unchanged.** A bus route still requires the
+    /// caller to have asserted the audience with
+    /// [`ZPubBuilder::with_intra_process_only`] or a `Locality::Remote`; without
+    /// one, an `Arc<T>` goes on the wire exactly as before. This method renames
+    /// nothing about who decides.
+    ///
+    /// The named methods remain, and stay the right choice when you want their
+    /// exact return type rather than [`Delivery`].
+    pub fn publish(&self, msg: impl Publishable<T, S>) -> Result<Delivery> {
+        msg.publish_to(self)
+    }
+
+    /// Publish over zenoh, always.
+    ///
+    /// [`ZPub::publish`] reaches this for a `&T` argument. Call it directly when
+    /// you want the wire whatever else is configured, or when you want the
+    /// `Result<()>` shape rather than [`Delivery`].
+    pub fn publish_ref(&self, msg: &T) -> Result<()> {
         use zenoh_buffers::buffer::Buffer;
 
         // Try direct SHM serialization if configured
@@ -797,11 +870,11 @@ where
                 // returns Err *after* every local subscriber has already been
                 // called — and Result<Published> has no partial-success value
                 // to say so. A caller that retries then delivers twice locally.
-                self.publish(&msg)?;
+                self.publish_ref(&msg)?;
                 Ok(Published::BusAndWire(self.local_channel.publish(msg)))
             }
             Route::WireOnly => {
-                self.publish(&msg)?;
+                self.publish_ref(&msg)?;
                 Ok(Published::Wire)
             }
         }
@@ -884,7 +957,7 @@ where
             // wire but stop serving owned subscribers, because the shared path
             // filters on `is_shared()`.
             Route::BusAndWire => {
-                self.publish(&msg)?;
+                self.publish_ref(&msg)?;
                 Ok(Published::BusAndWire(
                     match self.local_channel.publish_owned(msg) {
                         Ok(d) => d,
@@ -906,7 +979,7 @@ where
                 }
             }
             Route::WireOnly => {
-                self.publish(&msg)?;
+                self.publish_ref(&msg)?;
                 Ok(Published::Wire)
             }
         }

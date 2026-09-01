@@ -204,7 +204,12 @@ pub struct Channel {
 /// not be conflated: a caller may fall back to the wire on `NoTaker`, but doing
 /// so on `DepthExceeded` re-enters the same callback on a zenoh thread with a
 /// fresh depth counter and loops forever.
+///
+/// `Wire` is not a bus outcome: it says the message went to zenoh, where the
+/// audience is not knowable from here. It exists so one `publish` can report
+/// what it did whichever route it took.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Delivery {
     /// Handed to this many subscribers.
     Sent(usize),
@@ -212,6 +217,8 @@ pub enum Delivery {
     NoTaker,
     /// Refused: delivery is already nested `MAX_DELIVERY_DEPTH` deep.
     DepthExceeded,
+    /// Published to zenoh. The bus was not used, so no local count exists.
+    Wire,
 }
 
 
