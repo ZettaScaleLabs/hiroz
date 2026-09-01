@@ -322,7 +322,7 @@ impl Channel {
     /// of this type is registered, or another subscriber of the type is. The caller
     /// keeps the payload and can fall back. The bus does not downgrade to a shared
     /// delivery, because that would defeat the request for ownership.
-    pub fn publish_owned<T>(&self, payload: T) -> core::result::Result<Delivery, T>
+    pub fn publish_moved<T>(&self, payload: T) -> core::result::Result<Delivery, T>
     where
         T: Any + Send + 'static,
     {
@@ -356,7 +356,7 @@ impl Channel {
         let _depth_guard = DepthGuard;
 
         // A panicked callback delivered nothing, as on the shared path.
-        if invoke_isolated("local_bus::publish_owned", || cb(Box::new(payload))) {
+        if invoke_isolated("local_bus::publish_moved", || cb(Box::new(payload))) {
             Ok(Delivery::Sent(1))
         } else {
             Ok(Delivery::NoTaker)
@@ -521,7 +521,7 @@ pub fn subscriber_count(zid: ZenohId, topic: &str) -> usize {
 /// Register `callback` to receive messages of type `T` **by value**.
 ///
 /// Served only when it is the sole subscriber of that type on the channel; see
-/// [`Channel::publish_owned`]. Registering one beside a shared subscriber is
+/// [`Channel::publish_moved`]. Registering one beside a shared subscriber is
 /// allowed, but then the owned path cannot give anything away.
 pub fn subscribe_owned<T, F>(channel: Arc<Channel>, callback: F) -> LocalSubscription
 where

@@ -154,7 +154,7 @@ pub struct ZPub<T: ZMessage, S: ZSerializer> {
     graph: Arc<Graph>,
     /// Intra-process bus channel for this topic, resolved once at build time.
     local_channel: Arc<crate::local_bus::Channel>,
-    /// When set, `publish_shared` and `publish_owned` use the bus alone and never
+    /// When set, `publish_shared` and `publish_moved` use the bus alone and never
     /// touch zenoh. The caller asserts this; it is not inferred.
     intra_process_only: bool,
     /// The locality restriction on the wire half, if any. A `Locality::Remote`
@@ -222,7 +222,7 @@ where
     S: for<'a> ZSerializer<Input<'a> = &'a T> + 'static,
 {
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published> {
-        let n = publisher.publish_owned(self)?;
+        let n = publisher.publish_moved(self)?;
         Ok(if publisher.takes_the_bus() {
             Published::Bus(if n == 0 {
                 Delivery::NoTaker
@@ -370,7 +370,7 @@ impl<T, S> ZPubBuilder<T, S> {
         self
     }
 
-    /// **Prototype.** Restrict [`ZPub::publish_shared`] and [`ZPub::publish_owned`]
+    /// **Prototype.** Restrict [`ZPub::publish_shared`] and [`ZPub::publish_moved`]
     /// to the intra-process bus. The message goes to same-session subscribers and
     /// never to zenoh, so it is neither serialized nor transmitted.
     ///
@@ -662,7 +662,7 @@ where
     /// |---|---|---|
     /// | `&T` | zenoh | [`ZPub::publish_ref`] |
     /// | `Arc<T>` | the bus, every subscriber sharing one allocation | [`ZPub::publish_shared`] |
-    /// | `T` | the bus, a sole receiver owning it | [`ZPub::publish_owned`] |
+    /// | `T` | the bus, a sole receiver owning it | [`ZPub::publish_moved`] |
     ///
     /// **The routing rules are unchanged.** A bus route still requires the
     /// caller to have asserted the audience with
@@ -683,7 +683,7 @@ where
     /// `Result<()>` shape rather than [`Delivery`].
     /// Whether a bus route is available: the caller asserted the audience.
     ///
-    /// Mirrors the condition `publish_shared` and `publish_owned` use, so
+    /// Mirrors the condition `publish_shared` and `publish_moved` use, so
     /// [`Published`] can say which route ran without inferring it from a count.
     pub(crate) fn takes_the_bus(&self) -> bool {
         self.intra_process_only || self.locality == Some(zenoh::sample::Locality::Remote)
@@ -868,7 +868,7 @@ where
                 if let Some(e) = self.refuse_unservable_owned() {
                     return Err(e);
                 }
-                // Wire first, as in `publish_owned`. Bus delivery is synchronous, so
+                // Wire first, as in `publish_moved`. Bus delivery is synchronous, so
                 // a wire failure after it would return `Err` after the local
                 // subscribers ran, and a retry would deliver twice locally.
                 self.publish_ref(&msg)?;
@@ -900,7 +900,7 @@ where
             format!(
                 "publish_shared on {}: {owned} subscriber(s) on this topic take the message \
                  by value, and a shared publish cannot serve them. The message would not \
-                 reach them. Use publish_owned() with a single owning subscriber, or build \
+                 reach them. Use publish_moved() with a single owning subscriber, or build \
                  the subscribers with build_with_shared_callback().",
                 self.entity.topic
             )
@@ -969,7 +969,7 @@ where
     /// An `intra_process_only` publisher with no listener returns
     /// `Bus(Delivery::NoTaker)` and drops the message. It has no wire to fall
     /// back to.
-    pub fn publish_owned(&self, msg: T) -> Result<Published>
+    pub fn publish_moved(&self, msg: T) -> Result<Published>
     where
         T: Send + Sync + 'static,
     {
@@ -979,7 +979,7 @@ where
             Route::BusAndWire => {
                 self.publish_ref(&msg)?;
                 Ok(Published::BusAndWire(
-                    match self.local_channel.publish_owned(msg) {
+                    match self.local_channel.publish_moved(msg) {
                         Ok(d) => d,
                         // No sole owning receiver: share it.
                         Err(returned) => self.local_channel.publish(Arc::new(returned)),
@@ -990,7 +990,7 @@ where
                 if let Some(e) = self.refuse_durable_bus() {
                     return Err(e);
                 }
-                match self.local_channel.publish_owned(msg) {
+                match self.local_channel.publish_moved(msg) {
                     Ok(d) => Ok(Published::Bus(d)),
                     // Not exactly one owning receiver: share it. `publish_shared`
                     // refuses when only owned subscribers exist.
@@ -1397,17 +1397,17 @@ where
 
     /// Build a subscriber whose callback receives the message **by value**.
     ///
-    /// The bus serves it only through [`ZPub::publish_owned`], and only when it is
+    /// The bus serves it only through [`ZPub::publish_moved`], and only when it is
     /// the sole subscriber of this type on the topic. It also has a wire half, so
     /// an ordinary [`ZPub::publish`] reaches it after deserializing.
     ///
     /// When the bus cannot serve it, the publisher refuses with `Err` on two
     /// routes only: [`ZPub::publish_shared`] on any bus route, and
-    /// [`ZPub::publish_owned`] on an intra-process-only publisher.
+    /// [`ZPub::publish_moved`] on an intra-process-only publisher.
     ///
     /// # Known limit on a `Locality::Remote` publisher
     ///
-    /// [`ZPub::publish_owned`] does not refuse there. If a shared subscriber is
+    /// [`ZPub::publish_moved`] does not refuse there. If a shared subscriber is
     /// also registered, the shared subscriber receives the message and this
     /// subscriber receives nothing. If only owned subscribers are registered and
     /// there are two or more, none receives it and the result is
@@ -1423,7 +1423,7 @@ where
         let zid = self.session.zid();
         // Both halves run the same callback. Without the wire half this
         // subscriber would miss every message that does not arrive by
-        // `publish_owned` on the bus, including all remote traffic.
+        // `publish_moved` on the bus, including all remote traffic.
         //
         // It cannot deliver twice: a publisher uses the bus or the wire for one
         // message, unless its wire half is `Remote`-restricted and the audiences

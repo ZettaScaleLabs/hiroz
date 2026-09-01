@@ -541,7 +541,7 @@ fn a_sole_receiver_is_given_the_message_to_own() -> hiroz::Result<()> {
         .with_intra_process_only()
         .build()?;
 
-    let took = publisher.publish_owned(RosString {
+    let took = publisher.publish_moved(RosString {
         data: "mine".to_owned(),
     })?;
     assert_eq!(
@@ -824,7 +824,7 @@ fn every_shared_subscriber_receives_the_same_allocation() -> hiroz::Result<()> {
     Ok(())
 }
 
-/// The `TRANSIENT_LOCAL` refusal also holds on the `publish_owned` route.
+/// The `TRANSIENT_LOCAL` refusal also holds on the `publish_moved` route.
 #[test]
 fn transient_local_plus_intra_process_only_is_refused_for_owned_too() -> hiroz::Result<()> {
     let router = TestRouter::new();
@@ -849,12 +849,12 @@ fn transient_local_plus_intra_process_only_is_refused_for_owned_too() -> hiroz::
         .build()?;
     wait_for_ready(Duration::from_millis(500));
 
-    let result = publisher.publish_owned(RosString {
+    let result = publisher.publish_moved(RosString {
         data: "durable, allegedly".to_owned(),
     });
     assert!(
         result.is_err(),
-        "publish_owned served the bus for a transient-local publisher"
+        "publish_moved served the bus for a transient-local publisher"
     );
     thread::sleep(Duration::from_millis(200));
     assert_eq!(
@@ -972,12 +972,12 @@ fn a_panicking_sole_subscriber_does_not_reach_the_publisher() -> hiroz::Result<(
     Ok(())
 }
 
-/// `publish_owned` on a `Locality::Remote` publisher reaches the wire.
+/// `publish_moved` on a `Locality::Remote` publisher reaches the wire.
 ///
 /// The far assertion carries the property. The near one also passes when the
 /// publisher takes the bus alone.
 #[test]
-fn publish_owned_on_a_remote_publisher_still_reaches_the_wire() -> hiroz::Result<()> {
+fn publish_moved_on_a_remote_publisher_still_reaches_the_wire() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx_tx = create_hiroz_context_with_router(&router)?;
     let ctx_far = create_hiroz_context_with_router(&router)?;
@@ -1006,7 +1006,7 @@ fn publish_owned_on_a_remote_publisher_still_reaches_the_wire() -> hiroz::Result
         .build()?;
     wait_for_ready(Duration::from_millis(800));
 
-    let outcome = publisher.publish_owned(RosString {
+    let outcome = publisher.publish_moved(RosString {
         data: "must reach both".to_owned(),
     })?;
 
@@ -1050,7 +1050,7 @@ fn transient_local_plus_remote_locality_is_allowed_on_the_owned_path() -> hiroz:
 
     // Permitted, because the wire runs and fills the cache. The companion test
     // above proves the wire runs.
-    let outcome = publisher.publish_owned(RosString {
+    let outcome = publisher.publish_moved(RosString {
         data: "durable".to_owned(),
     })?;
     assert!(
@@ -1146,11 +1146,11 @@ fn a_depth_refusal_is_reported_as_dropped_not_delivered() -> hiroz::Result<()> {
     let pubr = Arc::new(pubr);
     let p2 = pubr.clone();
     publisher
-        .set(Box::new(move |m: RosString| p2.publish_owned(m)))
+        .set(Box::new(move |m: RosString| p2.publish_moved(m)))
         .map_err(|_| "publisher already set")
         .expect("set once");
 
-    pubr.publish_owned(RosString {
+    pubr.publish_moved(RosString {
         data: "recurse".to_owned(),
     })?;
 
@@ -1171,7 +1171,7 @@ fn a_depth_refusal_is_reported_as_dropped_not_delivered() -> hiroz::Result<()> {
     Ok(())
 }
 
-/// `publish_shared` and `publish_owned` agree on the route when the assertions
+/// `publish_shared` and `publish_moved` agree on the route when the assertions
 /// conflict.
 ///
 /// Both read one routing decision. `with_intra_process_only()` wins over a
@@ -1192,7 +1192,7 @@ fn both_publish_methods_agree_when_the_assertions_conflict() -> hiroz::Result<()
     let shared = publisher.publish_shared(Arc::new(RosString {
         data: "shared".to_owned(),
     }))?;
-    let moved = publisher.publish_owned(RosString {
+    let moved = publisher.publish_moved(RosString {
         data: "moved".to_owned(),
     })?;
 
@@ -1206,7 +1206,7 @@ fn both_publish_methods_agree_when_the_assertions_conflict() -> hiroz::Result<()
     assert_eq!(
         moved,
         Published::Bus(Delivery::NoTaker),
-        "publish_owned disagreed with publish_shared"
+        "publish_moved disagreed with publish_shared"
     );
     Ok(())
 }
@@ -1255,10 +1255,10 @@ fn publish_shared_refuses_when_only_owned_subscribers_are_listening() -> hiroz::
     Ok(())
 }
 
-/// Two owning subscribers cannot be served by `publish_owned`: nothing can be
+/// Two owning subscribers cannot be served by `publish_moved`: nothing can be
 /// given away, so it falls back to the shared path above.
 #[test]
-fn publish_owned_refuses_when_two_owned_subscribers_cannot_be_served() -> hiroz::Result<()> {
+fn publish_moved_refuses_when_two_owned_subscribers_cannot_be_served() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
     let node = ctx.create_node("owned_two").build()?;
@@ -1283,7 +1283,7 @@ fn publish_owned_refuses_when_two_owned_subscribers_cannot_be_served() -> hiroz:
         .build()?;
     wait_for_ready(Duration::from_millis(300));
 
-    let outcome = publisher.publish_owned(RosString {
+    let outcome = publisher.publish_moved(RosString {
         data: "two takers, nothing to give".to_owned(),
     });
 
@@ -1423,7 +1423,7 @@ fn a_channel_no_endpoint_holds_is_reclaimed() -> hiroz::Result<()> {
 /// With two takers the value cannot be given away, and the shared path skips the
 /// owned one.
 #[test]
-fn publish_owned_refuses_when_an_owned_and_a_shared_subscriber_coexist() -> hiroz::Result<()> {
+fn publish_moved_refuses_when_an_owned_and_a_shared_subscriber_coexist() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
     let node = ctx.create_node("owned_mixed").build()?;
@@ -1448,7 +1448,7 @@ fn publish_owned_refuses_when_an_owned_and_a_shared_subscriber_coexist() -> hiro
         .build()?;
     wait_for_ready(Duration::from_millis(300));
 
-    let outcome = publisher.publish_owned(RosString {
+    let outcome = publisher.publish_moved(RosString {
         data: "one shared taker, one owned taker".to_owned(),
     });
 
@@ -1599,7 +1599,7 @@ fn no_taker_is_reported_although_a_panicking_callback_had_an_effect() -> hiroz::
 }
 
 /// Known limit, pinned as it is: on a `Locality::Remote` publisher
-/// `publish_owned` does not refuse a mix of shared and owned receivers.
+/// `publish_moved` does not refuse a mix of shared and owned receivers.
 ///
 /// The shared receiver gets the message, the owned receiver gets nothing, and
 /// the result carries no error. `publish_shared` on the same publisher refuses,
@@ -1630,7 +1630,7 @@ fn remote_publisher_owned_publish_serves_only_the_shared_receiver_of_a_mix() -> 
         .with_locality(zenoh::sample::Locality::Remote)
         .build()?;
 
-    let outcome = publisher.publish_owned(RosString {
+    let outcome = publisher.publish_moved(RosString {
         data: "mixed receivers".to_owned(),
     })?;
     assert_eq!(
@@ -1661,7 +1661,7 @@ fn remote_publisher_owned_publish_serves_only_the_shared_receiver_of_a_mix() -> 
 }
 
 /// Known limit, pinned as it is: two owned receivers on a `Locality::Remote`
-/// publisher receive nothing from `publish_owned`, and the result carries no
+/// publisher receive nothing from `publish_moved`, and the result carries no
 /// error. See the companion test for the mixed case.
 #[test]
 fn remote_publisher_owned_publish_reaches_no_one_of_two_owned_receivers() -> hiroz::Result<()> {
@@ -1686,7 +1686,7 @@ fn remote_publisher_owned_publish_reaches_no_one_of_two_owned_receivers() -> hir
         .with_locality(zenoh::sample::Locality::Remote)
         .build()?;
 
-    let outcome = publisher.publish_owned(RosString {
+    let outcome = publisher.publish_moved(RosString {
         data: "two owners".to_owned(),
     })?;
     assert_eq!(
