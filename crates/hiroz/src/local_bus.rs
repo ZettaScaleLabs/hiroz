@@ -393,7 +393,7 @@ impl Channel {
     /// anything else is subscribed as well: with a second receiver the message
     /// cannot be given away, and silently downgrading to a shared delivery
     /// would defeat the point of having asked for ownership.
-    pub fn publish_owned<T>(&self, payload: T) -> core::result::Result<Delivery, T>
+    pub fn publish_moved<T>(&self, payload: T) -> core::result::Result<Delivery, T>
     where
         T: Any + Send + 'static,
     {
@@ -430,7 +430,7 @@ impl Channel {
 
         // Mirror the shared path: a callback that panicked delivered nothing, so
         // reporting Sent(1) would tell the caller a message landed when none did.
-        if invoke_isolated("local_bus::publish_owned", || cb(Box::new(payload))) {
+        if invoke_isolated("local_bus::publish_moved", || cb(Box::new(payload))) {
             Ok(Delivery::Sent(1))
         } else {
             Ok(Delivery::NoTaker)
@@ -600,7 +600,7 @@ pub fn subscriber_count(zid: ZenohId, topic: &str) -> usize {
 /// Register `callback` to receive messages of type `T` **by value**.
 ///
 /// It is served only when it is the sole subscriber on the channel for that
-/// type; see [`Channel::publish_owned`]. Registering one alongside a shared
+/// type; see [`Channel::publish_moved`]. Registering one alongside a shared
 /// subscriber is allowed, and simply means the owned path cannot give anything
 /// away, so the publisher falls back to the shared or wire path.
 pub fn subscribe_owned<T, F>(channel: Arc<Channel>, callback: F) -> LocalSubscription

@@ -58,7 +58,7 @@
 //!
 //! | it does not work with | why |
 //! |---|---|
-//! | [`crate::pubsub::ZPub::publish_owned`] | takes `T` by value and gives the message away; the allocation would leave the pool for good |
+//! | [`crate::pubsub::ZPub::publish_moved`] | takes `T` by value and gives the message away; the allocation would leave the pool for good |
 //! | `TRANSIENT_LOCAL` + `with_intra_process_only()` | refused by the publisher itself, pool or not — there is no wire to hold the history |
 //! | a subscriber that stores its `Arc` | a permanent capacity loss, reported through [`PoolStats::stuck`](crate::payload_pool::PoolStats::stuck) |
 //! | sharing one pool across threads without a lock | `acquire` needs `&mut self`; wrap it, or give each thread its own |
@@ -260,7 +260,7 @@ impl<T> Pooled<'_, T> {
     /// The result is a plain `Arc<T>`, so it suits anything that takes one:
     /// `ZPub::publish_shared`, a channel, another thread.
     ///
-    /// **Not `ZPub::publish_owned`.** That takes `T` by value and hands a sole
+    /// **Not `ZPub::publish_moved`.** That takes `T` by value and hands a sole
     /// receiver the message to own and mutate, which is the opposite of
     /// pooling — the allocation would leave the pool and never come back.
     /// Pooling and giving away are alternatives, not a sequence.
