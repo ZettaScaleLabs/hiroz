@@ -164,9 +164,27 @@ impl<T: ZMessage, S: ZSerializer> std::fmt::Debug for ZPub<T, S> {
 
 /// What may be handed to [`ZPub::publish`], and where each form goes.
 ///
-/// Implemented for `&T`, `Arc<T>` and `T`. The three impls cannot overlap: the
-/// trait carries the message type, so `Publishable<U> for &U` and
+/// Implemented for `&T` and `Arc<T>`. The impls cannot overlap: the trait
+/// carries the message type, so `Publishable<U> for &U` and
 /// `Publishable<&U> for &U` are different trait references.
+///
+/// # Why there is no impl for `T`
+///
+/// There was one, routing to [`ZPub::publish_moved`]. It was removed because it
+/// turned a correct lint into a silent reroute.
+///
+/// `clippy::needless_borrows_for_generic_args` fires on `publish(&expr)` when
+/// the unborrowed expression also satisfies the bound, and suggests dropping
+/// the `&`. With an impl for `T` that suggestion selects a different impl and
+/// moves the message from the wire to the intra-process bus, with no error and
+/// no failing test. This repository gates on `-D warnings`, so a contributor
+/// would be told to make that change.
+///
+/// Measured: with the impl present the lint fires twice and clippy fails; with
+/// it removed the same call site compiles and clippy passes with no errors.
+///
+/// The moved route is still available, by name, as [`ZPub::publish_moved`] —
+/// which is the clearer spelling for a call that gives the message away.
 pub trait Publishable<T: ZMessage, S: ZSerializer>: Sized {
     /// Publish `self` through `publisher`, by the route its ownership selects.
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published>;
@@ -205,24 +223,6 @@ where
     }
 }
 
-impl<T, S> Publishable<T, S> for T
-where
-    T: ZMessage + Send + Sync + 'static,
-    S: for<'a> ZSerializer<Input<'a> = &'a T> + 'static,
-{
-    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published> {
-        let n = publisher.publish_moved(self)?;
-        Ok(if publisher.takes_the_bus() {
-            Published::Bus(if n == 0 {
-                Delivery::NoTaker
-            } else {
-                Delivery::Sent(n)
-            })
-        } else {
-            Published::Wire
-        })
-    }
-}
 
 #[derive(Debug)]
 pub struct ZPubBuilder<T, S = SerdeCdrSerdes<T>> {
@@ -666,7 +666,10 @@ where
     /// |---|---|---|
     /// | `&T` | zenoh | [`ZPub::publish_ref`] |
     /// | `Arc<T>` | the bus, every subscriber sharing one allocation | [`ZPub::publish_shared`] |
-    /// | `T` | the bus, a sole receiver owning it | [`ZPub::publish_moved`] |
+    ///
+    /// There is deliberately no `T` form: see [`Publishable`] for why an impl
+    /// on the bare value made a clippy suggestion reroute messages. Give a
+    /// message away with [`ZPub::publish_moved`].
     ///
     /// **The routing rules are unchanged.** A bus route still requires the
     /// caller to have asserted the audience with
