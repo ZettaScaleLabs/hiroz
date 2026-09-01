@@ -21,7 +21,9 @@ use hiroz_protocol::{
     entity::{LivelinessKE, TopicKE},
     qos::QosProfile,
 };
-use zenoh::{Wait, config::WhatAmI};
+
+mod common;
+use common::TestRouter;
 
 /// A pass-through `KeyExprFormatter` that delegates to `RmwZenohFormatter` for
 /// everything except its own admin space, so a node using it is
@@ -76,36 +78,6 @@ impl KeyExprFormatter for TestKeyExprFormatter {
 
     fn decode_qos(encoded: &str) -> hiroz::Result<(bool, QosProfile)> {
         RmwZenohFormatter::decode_qos(encoded)
-    }
-}
-
-struct DomainTestRouter {
-    endpoint: String,
-    _session: zenoh::Session,
-}
-
-impl DomainTestRouter {
-    fn new() -> Self {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test port");
-        let port = listener.local_addr().expect("test address").port();
-        drop(listener);
-
-        let endpoint = format!("tcp/127.0.0.1:{port}");
-        let mut config = zenoh::Config::default();
-        config.set_mode(Some(WhatAmI::Router)).unwrap();
-        config
-            .insert_json5("listen/endpoints", &format!("[\"{endpoint}\"]"))
-            .unwrap();
-        config
-            .insert_json5("scouting/multicast/enabled", "false")
-            .unwrap();
-        let session = zenoh::open(config).wait().expect("open test router");
-        std::thread::sleep(Duration::from_millis(300));
-
-        Self {
-            endpoint,
-            _session: session,
-        }
     }
 }
 
@@ -182,7 +154,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn built_in_services_inherit_context_domain() -> Result<()> {
         const DOMAIN_ID: usize = 123;
-        let router = DomainTestRouter::new();
+        let router = TestRouter::new();
         let observer_ctx = ZContextBuilder::default()
             .with_domain_id(DOMAIN_ID)
             .disable_multicast_scouting()
@@ -250,7 +222,7 @@ mod tests {
     /// only discoverable at all if they actually used it.
     #[tokio::test(flavor = "multi_thread")]
     async fn built_in_services_inherit_custom_keyexpr_format() -> Result<()> {
-        let router = DomainTestRouter::new();
+        let router = TestRouter::new();
         let format = KeyExprFormat::Custom(Arc::new(
             KeyExprFormatterAdapter::<TestKeyExprFormatter>::new(),
         ));

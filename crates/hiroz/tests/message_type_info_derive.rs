@@ -6,7 +6,9 @@ use hiroz::{
     dynamic::{FieldType, MessageSchemaTypeDescription},
 };
 use serde::{Deserialize, Serialize};
-use zenoh::{Wait, config::WhatAmI};
+
+mod common;
+use common::TestRouter;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, hiroz::MessageTypeInfo)]
 #[ros_msg(type_name = "custom_msgs/msg/Position2D")]
@@ -27,45 +29,6 @@ struct RobotTelemetry {
 
 impl hiroz::msg::ZMessage for RobotTelemetry {
     type Serdes = hiroz::msg::SerdeCdrSerdes<Self>;
-}
-
-struct TestRouter {
-    endpoint: String,
-    _session: zenoh::Session,
-}
-
-impl TestRouter {
-    fn new() -> Self {
-        let port = {
-            let listener =
-                std::net::TcpListener::bind("127.0.0.1:0").expect("failed to bind port 0");
-            listener.local_addr().unwrap().port()
-        };
-
-        let endpoint = format!("tcp/127.0.0.1:{port}");
-        let mut config = zenoh::Config::default();
-        config.set_mode(Some(WhatAmI::Router)).unwrap();
-        config
-            .insert_json5("listen/endpoints", &format!("[\"{endpoint}\"]"))
-            .unwrap();
-        config
-            .insert_json5("scouting/multicast/enabled", "false")
-            .unwrap();
-
-        let session = zenoh::open(config)
-            .wait()
-            .expect("failed to open test router");
-        std::thread::sleep(Duration::from_millis(300));
-
-        Self {
-            endpoint,
-            _session: session,
-        }
-    }
-
-    fn endpoint(&self) -> &str {
-        &self.endpoint
-    }
 }
 
 fn create_context_with_router(router: &TestRouter) -> hiroz::Result<hiroz::context::ZContext> {

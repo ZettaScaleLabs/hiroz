@@ -72,7 +72,7 @@ impl RemapRules {
 }
 
 pub struct ZContextBuilder {
-    domain_id: usize,
+    domain_id: DomainId,
     namespace: String,
     enclave: String,
     zenoh_config: Option<zenoh::Config>,
@@ -85,10 +85,65 @@ pub struct ZContextBuilder {
     clock: Option<ZClock>,
 }
 
+/// The builder's resolved (or pending) ROS domain id.
+///
+/// `Invalid` only exists between `ZContextBuilder::default()` and
+/// `.build()`/`.with_domain_id()` -- a live `ZContext` always carries a
+/// concrete `usize`. Modeling "haven't resolved an invalid ROS_DOMAIN_ID
+/// yet" as a variant, rather than a `usize` plus a side-channel error
+/// field, makes it a state the type carries instead of an invariant call
+/// sites have to remember to check (and that `with_domain_id()` has to
+/// remember to clear).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DomainId {
+    /// A concrete domain, either explicit or read from `ROS_DOMAIN_ID`.
+    Value(usize),
+    /// `ROS_DOMAIN_ID` was set but is not a valid non-negative integer.
+    /// `build()` rejects this unless `.with_domain_id()` overrides it
+    /// first. Falling back to domain 0 silently would put a node on the
+    /// wrong ROS graph after an operator typo; `rcl_get_default_domain_id`
+    /// treats this the same way, returning an error that aborts
+    /// `rcl_init` rather than defaulting.
+    Invalid(String),
+}
+
+impl DomainId {
+    /// Matches `rclcpp`/`rclpy`: read `ROS_DOMAIN_ID` from the environment,
+    /// so the normal ROS 2 deployment story (set the env var, don't touch
+    /// source) works here too. `.with_domain_id()` called after
+    /// `default()` still overrides this, same precedence as every other
+    /// ROS 2 client library.
+    fn from_env() -> Self {
+        Self::parse(std::env::var("ROS_DOMAIN_ID").ok())
+    }
+
+    /// Pure parsing, taking the env var's value directly rather than
+    /// reading it -- so this is unit-testable without mutating (and
+    /// racing on) real process-global state.
+    fn parse(value: Option<String>) -> Self {
+        match value {
+            Some(val) => match val.parse::<usize>() {
+                Ok(id) => Self::Value(id),
+                Err(_) => Self::Invalid(val),
+            },
+            None => Self::Value(0),
+        }
+    }
+}
+
+impl std::fmt::Display for DomainId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Value(id) => write!(f, "{id}"),
+            Self::Invalid(raw) => write!(f, "<invalid ROS_DOMAIN_ID {raw:?}>"),
+        }
+    }
+}
+
 impl Default for ZContextBuilder {
     fn default() -> Self {
         Self {
-            domain_id: default_domain_id(),
+            domain_id: DomainId::from_env(),
             namespace: String::default(),
             enclave: String::default(),
             zenoh_config: None,
@@ -103,31 +158,11 @@ impl Default for ZContextBuilder {
     }
 }
 
-/// Domain ID to use when the builder is not given one explicitly.
-///
-/// Matches `rclcpp`/`rclpy`: read `ROS_DOMAIN_ID` from the environment, so
-/// the normal ROS 2 deployment story (set the env var, don't touch source)
-/// works here too. `.with_domain_id()` called after `default()` still
-/// overrides this, same precedence as every other ROS 2 client library.
-fn default_domain_id() -> usize {
-    match std::env::var("ROS_DOMAIN_ID") {
-        Ok(val) => match val.parse::<usize>() {
-            Ok(id) => id,
-            Err(_) => {
-                warn!(
-                    "[CTX] ROS_DOMAIN_ID={val:?} is not a valid non-negative integer, using domain 0"
-                );
-                0
-            }
-        },
-        Err(_) => 0,
-    }
-}
-
 impl ZContextBuilder {
-    /// Set the ROS domain ID
+    /// Set the ROS domain ID, overriding `ROS_DOMAIN_ID` (and any error
+    /// parsing it) with an explicit value.
     pub fn with_domain_id(mut self, domain_id: usize) -> Self {
-        self.domain_id = domain_id;
+        self.domain_id = DomainId::Value(domain_id);
         self
     }
 
@@ -514,6 +549,15 @@ impl Builder for ZContextBuilder {
         // 4. **NEW DEFAULT**: ROS session config (connects to router at tcp/localhost:7447)
         //    This matches rmw_zenoh_cpp behavior
 
+        let DomainId::Value(_) = &self.domain_id else {
+            return Err(format!(
+                "{}: not a valid non-negative integer; set ROS_DOMAIN_ID to a \
+                 valid domain or call .with_domain_id() explicitly",
+                self.domain_id
+            )
+            .into());
+        };
+
         debug!(
             "[CTX] Building context: domain_id={}, has_config={}",
             self.domain_id,
@@ -588,7 +632,9 @@ impl Builder for ZContextBuilder {
             }
         }
 
-        let domain_id = builder.domain_id;
+        let DomainId::Value(domain_id) = builder.domain_id else {
+            unreachable!("build() already rejected a non-Value domain_id above")
+        };
         let graph = Arc::new(Graph::new(
             &session,
             domain_id,
@@ -714,51 +760,38 @@ impl ZContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
+
+    // `DomainId::parse` takes the env var's value as a plain argument
+    // rather than reading `ROS_DOMAIN_ID` itself, so these are pure unit
+    // tests: no process-global mutation, no #[serial], no race with the
+    // dozens of other tests elsewhere in this crate that build a
+    // `ZContextBuilder::default()` on their own thread.
 
     #[test]
-    #[serial]
-    fn default_domain_id_falls_back_to_zero_when_unset() {
-        unsafe {
-            std::env::remove_var("ROS_DOMAIN_ID");
-        }
-        assert_eq!(default_domain_id(), 0);
+    fn parse_falls_back_to_zero_when_unset() {
+        assert_eq!(DomainId::parse(None), DomainId::Value(0));
     }
 
     #[test]
-    #[serial]
-    fn default_domain_id_reads_ros_domain_id() {
-        unsafe {
-            std::env::set_var("ROS_DOMAIN_ID", "42");
-        }
-        assert_eq!(default_domain_id(), 42);
-        unsafe {
-            std::env::remove_var("ROS_DOMAIN_ID");
-        }
+    fn parse_reads_a_valid_value() {
+        assert_eq!(DomainId::parse(Some("42".to_string())), DomainId::Value(42));
     }
 
     #[test]
-    #[serial]
-    fn default_domain_id_falls_back_to_zero_on_invalid_value() {
-        unsafe {
-            std::env::set_var("ROS_DOMAIN_ID", "not-a-number");
-        }
-        assert_eq!(default_domain_id(), 0);
-        unsafe {
-            std::env::remove_var("ROS_DOMAIN_ID");
-        }
+    fn parse_rejects_an_invalid_value() {
+        assert_eq!(
+            DomainId::parse(Some("not-a-number".to_string())),
+            DomainId::Invalid("not-a-number".to_string())
+        );
     }
 
     #[test]
-    #[serial]
-    fn with_domain_id_overrides_the_env_default() {
-        unsafe {
-            std::env::set_var("ROS_DOMAIN_ID", "42");
+    fn with_domain_id_overrides_an_invalid_parse() {
+        let builder = ZContextBuilder {
+            domain_id: DomainId::Invalid("garbage".to_string()),
+            ..Default::default()
         }
-        let builder = ZContextBuilder::default().with_domain_id(7);
-        assert_eq!(builder.domain_id, 7);
-        unsafe {
-            std::env::remove_var("ROS_DOMAIN_ID");
-        }
+        .with_domain_id(7);
+        assert_eq!(builder.domain_id, DomainId::Value(7));
     }
 }
