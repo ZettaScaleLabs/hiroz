@@ -31,11 +31,13 @@
 
 mod common;
 
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
 };
-use std::time::{Duration, Instant};
 
 use common::*;
 use hiroz::Builder;
