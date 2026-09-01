@@ -147,7 +147,9 @@ fn intra_process_only_publisher_does_not_reach_another_context() -> hiroz::Resul
     });
     for _ in 0..5 {
         pub_local.publish_shared(msg.clone())?;
-        pub_control.publish(&msg)?;
+        // publish_ref, not publish(&msg): `msg` is an Arc, and a generic
+        // parameter does not deref-coerce the way `&T` did.
+        pub_control.publish_ref(&msg)?;
     }
 
     // The control must cross. Without it, a zero on `zc_local` would be
