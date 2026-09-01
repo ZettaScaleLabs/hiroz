@@ -40,9 +40,11 @@ use std::{
 };
 
 use common::*;
-use hiroz::Builder;
-use hiroz::payload_pool::PayloadPool;
-use hiroz::qos::{QosDurability, QosProfile};
+use hiroz::{
+    Builder,
+    payload_pool::PayloadPool,
+    qos::{QosDurability, QosProfile},
+};
 use hiroz_msgs::std_msgs::String as RosString;
 
 const DEADLINE: Duration = Duration::from_secs(5);
