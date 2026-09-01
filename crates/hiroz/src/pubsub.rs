@@ -255,7 +255,7 @@ impl<T, S> ZPubBuilder<T, S> {
     /// those in the same session, those in other sessions, or both (the
     /// default).
     ///
-    /// [`Locality::SessionLocal`] is the intra-process fast path. Zenoh skips
+    /// [`Locality::SessionLocal`](zenoh::sample::Locality::SessionLocal) is the intra-process fast path. Zenoh skips
     /// the transport entirely for it — no link, no wire encode, no shared
     /// memory — and hands the payload straight to the matching subscriber
     /// callbacks in this session. Every node created from one [`ZContext`]
@@ -266,7 +266,7 @@ impl<T, S> ZPubBuilder<T, S> {
     ///
     /// # This makes the publisher invisible off-process
     ///
-    /// A [`Locality::SessionLocal`] publisher is not reachable from any other
+    /// A [`Locality::SessionLocal`](zenoh::sample::Locality::SessionLocal) publisher is not reachable from any other
     /// process, including `ros2 topic echo`. Set it only where the subscriber
     /// is known to live in the same context.
     ///
