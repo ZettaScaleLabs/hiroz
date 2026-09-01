@@ -83,7 +83,11 @@ fn same_arc_reaches_a_same_session_subscriber() -> hiroz::Result<()> {
         data: "no copies please".to_owned(),
     });
     let delivered = publisher.publish_shared(sent.clone())?;
-    assert_eq!(delivered, 1, "expected exactly one local subscriber");
+    assert_eq!(
+        delivered,
+        Published::Bus(Delivery::Sent(1)),
+        "expected exactly one local subscriber"
+    );
 
     // Delivery is synchronous on this thread, so no waiting is needed — but
     // assert on the count first so a failure says "nothing arrived" rather than
@@ -183,7 +187,7 @@ fn a_different_rust_type_on_the_same_topic_is_not_delivered() -> hiroz::Result<(
         .build()?;
     assert_eq!(
         control_pub.publish_shared(Arc::new(Int32 { data: 7 }))?,
-        1,
+        Published::Bus(Delivery::Sent(1)),
         "the control did not deliver: the bus is dead, so the assertion below proves nothing"
     );
     assert_eq!(ok_hits.load(Ordering::SeqCst), 1, "control subscriber not called");
@@ -197,7 +201,11 @@ fn a_different_rust_type_on_the_same_topic_is_not_delivered() -> hiroz::Result<(
         data: "wrong type".to_owned(),
     }))?;
 
-    assert_eq!(delivered, 0, "delivered across a type mismatch");
+    assert_eq!(
+        delivered,
+        Published::Bus(Delivery::NoTaker),
+        "delivered across a type mismatch"
+    );
     assert_eq!(
         hits.load(Ordering::SeqCst),
         0,
@@ -230,14 +238,17 @@ fn dropping_the_subscriber_unregisters_it() -> hiroz::Result<()> {
 
     // Positive control: it is registered right now. Without this the assertion
     // below would pass just as well against a subscriber that never worked.
-    assert_eq!(publisher.publish_shared(msg.clone())?, 1);
+    assert_eq!(
+        publisher.publish_shared(msg.clone())?,
+        Published::Bus(Delivery::Sent(1))
+    );
     assert_eq!(hits.load(Ordering::SeqCst), 1);
 
     drop(sub);
 
     assert_eq!(
         publisher.publish_shared(msg)?,
-        0,
+        Published::Bus(Delivery::NoTaker),
         "the bus still holds a registration for a dropped subscriber"
     );
     assert_eq!(hits.load(Ordering::SeqCst), 1, "a dropped subscriber was called");
@@ -395,7 +406,11 @@ fn publish_shared_without_a_locality_restriction_arrives_once() -> hiroz::Result
     // The wire, because this publisher asserted nothing about its audience.
     // Inferring "everyone is local" from the ROS graph is unsound: it cannot
     // see a plain zenoh subscriber. See #134.
-    assert_eq!(delivered, 0, "the bus was taken without the caller asserting the audience");
+    assert_eq!(
+        delivered,
+        Published::Wire,
+        "the bus was taken without the caller asserting the audience"
+    );
 
     assert!(
         wait_until(|| hits.load(Ordering::SeqCst) >= 1),
@@ -495,7 +510,11 @@ fn a_plain_publisher_takes_the_wire_for_an_ordinary_subscriber() -> hiroz::Resul
     let delivered = publisher.publish_shared(Arc::new(RosString {
         data: "who is listening".to_owned(),
     }))?;
-    assert_eq!(delivered, 0, "the bus took a message its subscriber cannot decode");
+    assert_eq!(
+        delivered,
+        Published::Wire,
+        "the bus took a message its subscriber cannot decode"
+    );
 
     assert!(
         wait_until(|| hits.load(Ordering::SeqCst) >= 1),
@@ -588,7 +607,11 @@ fn a_sole_receiver_is_given_the_message_to_own() -> hiroz::Result<()> {
     let took = publisher.publish_owned(RosString {
         data: "mine".to_owned(),
     })?;
-    assert_eq!(took, 1, "the sole owning receiver did not take the message");
+    assert_eq!(
+        took,
+        Published::Bus(Delivery::Sent(1)),
+        "the sole owning receiver did not take the message"
+    );
 
     let got = seen.lock().expect("poisoned");
     assert_eq!(got.len(), 1, "the owned callback did not run");
@@ -763,7 +786,11 @@ fn a_remote_locality_publisher_still_reaches_a_same_session_subscriber() -> hiro
     let delivered = publisher.publish_shared(Arc::new(RosString {
         data: "both, disjointly".to_owned(),
     }))?;
-    assert_eq!(delivered, 1, "the bus did not carry it to the near subscriber");
+    assert_eq!(
+        delivered,
+        Published::BusAndWire(Delivery::Sent(1)),
+        "the bus did not carry it to the near subscriber, or skipped the wire"
+    );
 
     assert!(
         wait_until(|| far.load(Ordering::SeqCst) >= 1),
@@ -853,7 +880,11 @@ fn every_shared_subscriber_receives_the_same_allocation() -> hiroz::Result<()> {
         data: "one allocation, three readers".to_owned(),
     });
     let delivered = publisher.publish_shared(sent.clone())?;
-    assert_eq!(delivered, 3, "not every subscriber was served");
+    assert_eq!(
+        delivered,
+        Published::Bus(Delivery::Sent(3)),
+        "not every subscriber was served"
+    );
 
     let got = seen.lock().expect("poisoned");
     assert_eq!(got.len(), 3, "expected three deliveries");
@@ -965,7 +996,11 @@ fn a_panicking_subscriber_does_not_stop_delivery_to_the_others() -> hiroz::Resul
 
     // The publisher returned at all: the panic did not unwind into this thread.
     let delivered = delivered.expect("the panic escaped into the publishing thread");
-    assert_eq!(delivered, 3, "not every subscriber was invoked");
+    assert_eq!(
+        delivered,
+        Published::Bus(Delivery::Sent(3)),
+        "not every subscriber was invoked"
+    );
     assert_eq!(
         before.load(Ordering::SeqCst),
         1,
@@ -1007,7 +1042,11 @@ fn a_panicking_sole_subscriber_does_not_reach_the_publisher() -> hiroz::Result<(
     std::panic::set_hook(prev);
 
     let delivered = delivered.expect("the panic escaped into the publishing thread");
-    assert_eq!(delivered, 1, "the subscriber was not invoked");
+    assert_eq!(
+        delivered,
+        Published::Bus(Delivery::Sent(1)),
+        "the subscriber was not invoked"
+    );
     Ok(())
 }
 
