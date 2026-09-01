@@ -167,9 +167,9 @@ impl<T: ZMessage, S: ZSerializer> std::fmt::Debug for ZPub<T, S> {
 /// Implemented for `&T`, `Arc<T>` and `T`. The three impls cannot overlap: the
 /// trait carries the message type, so `Publishable<U> for &U` and
 /// `Publishable<&U> for &U` are different trait references.
-pub trait Publishable<T: ZMessage, S>: Sized {
+pub trait Publishable<T: ZMessage, S: ZSerializer>: Sized {
     /// Publish `self` through `publisher`, by the route its ownership selects.
-    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Delivery>;
+    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published>;
 }
 
 impl<T, S> Publishable<T, S> for &T
@@ -177,9 +177,9 @@ where
     T: ZMessage + 'static,
     S: for<'a> ZSerializer<Input<'a> = &'a T> + 'static,
 {
-    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Delivery> {
+    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published> {
         publisher.publish_ref(self)?;
-        Ok(Delivery::Wire)
+        Ok(Published::Wire)
     }
 }
 
@@ -188,9 +188,20 @@ where
     T: ZMessage + Send + Sync + 'static,
     S: for<'a> ZSerializer<Input<'a> = &'a T> + 'static,
 {
-    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Delivery> {
+    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published> {
+        // publish_shared returns 0 both when the bus had no taker and when the
+        // caller asserted nothing and it went to the wire. The publisher knows
+        // which, so ask it rather than guessing from the count.
         let n = publisher.publish_shared(self)?;
-        Ok(if n == 0 { Delivery::Wire } else { Delivery::Sent(n) })
+        Ok(if publisher.takes_the_bus() {
+            Published::Bus(if n == 0 {
+                Delivery::NoTaker
+            } else {
+                Delivery::Sent(n)
+            })
+        } else {
+            Published::Wire
+        })
     }
 }
 
@@ -199,9 +210,17 @@ where
     T: ZMessage + Send + Sync + 'static,
     S: for<'a> ZSerializer<Input<'a> = &'a T> + 'static,
 {
-    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Delivery> {
+    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published> {
         let n = publisher.publish_owned(self)?;
-        Ok(if n == 0 { Delivery::Wire } else { Delivery::Sent(n) })
+        Ok(if publisher.takes_the_bus() {
+            Published::Bus(if n == 0 {
+                Delivery::NoTaker
+            } else {
+                Delivery::Sent(n)
+            })
+        } else {
+            Published::Wire
+        })
     }
 }
 
@@ -657,7 +676,7 @@ where
     ///
     /// The named methods remain, and stay the right choice when you want their
     /// exact return type rather than [`Delivery`].
-    pub fn publish(&self, msg: impl Publishable<T, S>) -> Result<Delivery> {
+    pub fn publish(&self, msg: impl Publishable<T, S>) -> Result<Published> {
         msg.publish_to(self)
     }
 
@@ -666,6 +685,14 @@ where
     /// [`ZPub::publish`] reaches this for a `&T` argument. Call it directly when
     /// you want the wire whatever else is configured, or when you want the
     /// `Result<()>` shape rather than [`Delivery`].
+    /// Whether a bus route is available: the caller asserted the audience.
+    ///
+    /// Mirrors the condition `publish_shared` and `publish_owned` use, so
+    /// [`Published`] can say which route ran without inferring it from a count.
+    pub(crate) fn takes_the_bus(&self) -> bool {
+        self.intra_process_only || self.locality == Some(zenoh::sample::Locality::Remote)
+    }
+
     pub fn publish_ref(&self, msg: &T) -> Result<()> {
         use zenoh_buffers::buffer::Buffer;
 
