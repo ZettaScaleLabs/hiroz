@@ -107,17 +107,19 @@ mod tests {
     use super::*;
 
     /// Built-in services (type description + the six parameter services) must
-    /// announce the node's actual domain and enclave, not hardcoded defaults.
+    /// announce the node's actual domain, not a hardcoded domain 0.
+    ///
+    /// Does not assert `enclave`: `format/rmw_zenoh.rs`'s liveliness
+    /// encoder hardcodes the enclave segment to the empty placeholder for
+    /// every entity type (`// Enclave (not supported yet)` on the decode
+    /// side), so no entity's enclave round-trips today -- not the node's
+    /// own token, not a plain `ZNode`'s, not these. That is a separate,
+    /// pre-existing wire-format gap this PR does not touch. This test only
+    /// covers what production `ParameterService`/`TypeDescriptionService`
+    /// construction actually controls: domain_id.
     #[tokio::test(flavor = "multi_thread")]
     async fn built_in_services_inherit_context_domain() -> Result<()> {
         const DOMAIN_ID: usize = 123;
-        // A single path segment: the liveliness key expression places the
-        // enclave as exactly one slash-delimited field
-        // (`@ros2_lv/<domain>/.../<kind>/<enclave>/<namespace>/...`,
-        // format/rmw_zenoh.rs), with no escaping for an internal `/` --
-        // that's a separate, pre-existing wire-format limitation, not
-        // something this fix changes.
-        const ENCLAVE: &str = "/test_enclave";
         let router = DomainTestRouter::new();
         let observer_ctx = ZContextBuilder::default()
             .with_domain_id(DOMAIN_ID)
@@ -131,7 +133,6 @@ mod tests {
             .build()?;
         let producer_ctx = ZContextBuilder::default()
             .with_domain_id(DOMAIN_ID)
-            .with_enclave(ENCLAVE)
             .disable_multicast_scouting()
             .with_connect_endpoints([router.endpoint.as_str()])
             .with_mode("client")
@@ -162,7 +163,7 @@ mod tests {
             endpoint
                 .node
                 .as_ref()
-                .is_some_and(|owner| owner.domain_id == DOMAIN_ID && owner.enclave == ENCLAVE)
+                .is_some_and(|owner| owner.domain_id == DOMAIN_ID)
         }));
 
         let parameter_events = observer
@@ -173,7 +174,7 @@ mod tests {
                 && endpoint
                     .node
                     .as_ref()
-                    .is_some_and(|owner| owner.domain_id == DOMAIN_ID && owner.enclave == ENCLAVE)
+                    .is_some_and(|owner| owner.domain_id == DOMAIN_ID)
         }));
 
         Ok(())
