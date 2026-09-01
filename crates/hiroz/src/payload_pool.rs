@@ -29,7 +29,7 @@
 //!
 //! # What it will not do
 //!
-//! [`PayloadPool::acquire`] **never allocates**. An invisible fallback is the
+//! [`PayloadPool::acquire`](crate::payload_pool::PayloadPool::acquire) **never allocates**. An invisible fallback is the
 //! defect this type exists to prevent: a pool that quietly allocates when it is
 //! exhausted performs like no pool at all and says nothing about it.
 //!
@@ -60,7 +60,7 @@
 //! |---|---|
 //! | [`crate::pubsub::ZPub::publish_owned`] | takes `T` by value and gives the message away; the allocation would leave the pool for good |
 //! | `TRANSIENT_LOCAL` + `with_intra_process_only()` | refused by the publisher itself, pool or not — there is no wire to hold the history |
-//! | a subscriber that stores its `Arc` | a permanent capacity loss, reported through [`PoolStats::stuck`] |
+//! | a subscriber that stores its `Arc` | a permanent capacity loss, reported through [`PoolStats::stuck`](crate::payload_pool::PoolStats::stuck) |
 //! | sharing one pool across threads without a lock | `acquire` needs `&mut self`; wrap it, or give each thread its own |
 //!
 //! Two of these deserve a sentence more.
@@ -84,7 +84,7 @@
 //!
 //! A subscriber that *stores* its `Arc` — rather than reading it and letting it
 //! drop — keeps that slot out of circulation permanently. The pool cannot stop
-//! this; it makes it visible. [`PoolStats::stuck`] counts slots that have been
+//! this; it makes it visible. [`PoolStats::stuck`](crate::payload_pool::PoolStats::stuck) counts slots that have been
 //! unavailable across many consecutive acquires, which is the signature of a
 //! retained message rather than of momentary traffic.
 
