@@ -107,10 +107,11 @@ mod tests {
     use super::*;
 
     /// Built-in services (type description + the six parameter services) must
-    /// announce the node's actual domain, not a hardcoded domain 0.
+    /// announce the node's actual domain and enclave, not hardcoded defaults.
     #[tokio::test(flavor = "multi_thread")]
     async fn built_in_services_inherit_context_domain() -> Result<()> {
         const DOMAIN_ID: usize = 123;
+        const ENCLAVE: &str = "/sros2/enclave";
         let router = DomainTestRouter::new();
         let observer_ctx = ZContextBuilder::default()
             .with_domain_id(DOMAIN_ID)
@@ -124,6 +125,7 @@ mod tests {
             .build()?;
         let producer_ctx = ZContextBuilder::default()
             .with_domain_id(DOMAIN_ID)
+            .with_enclave(ENCLAVE)
             .disable_multicast_scouting()
             .with_connect_endpoints([router.endpoint.as_str()])
             .with_mode("client")
@@ -154,7 +156,7 @@ mod tests {
             endpoint
                 .node
                 .as_ref()
-                .is_some_and(|owner| owner.domain_id == DOMAIN_ID)
+                .is_some_and(|owner| owner.domain_id == DOMAIN_ID && owner.enclave == ENCLAVE)
         }));
 
         let parameter_events = observer
@@ -165,7 +167,7 @@ mod tests {
                 && endpoint
                     .node
                     .as_ref()
-                    .is_some_and(|owner| owner.domain_id == DOMAIN_ID)
+                    .is_some_and(|owner| owner.domain_id == DOMAIN_ID && owner.enclave == ENCLAVE)
         }));
 
         Ok(())

@@ -266,6 +266,7 @@ impl Builder for ZNodeBuilder {
                 keyexpr_format: self.keyexpr_format.clone(),
                 node_name: &self.name,
                 namespace: &self.namespace,
+                enclave: &node.enclave,
                 node_id: id,
                 counter: &self.counter,
                 clock: &self.clock,
