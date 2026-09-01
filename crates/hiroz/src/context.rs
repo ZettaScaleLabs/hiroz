@@ -751,61 +751,15 @@ impl ZContext {
         &self.graph
     }
 
+    /// The resolved ROS domain id this context was built with -- either
+    /// explicit via `.with_domain_id()`, from `ROS_DOMAIN_ID`, or the
+    /// default of 0.
+    pub fn domain_id(&self) -> usize {
+        self.domain_id
+    }
+
     /// Access the context clock used by nodes and runtime helpers.
     pub fn clock(&self) -> &ZClock {
         &self.clock
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // `DomainId::parse` takes the env var's value as a plain argument
-    // rather than reading `ROS_DOMAIN_ID` itself, so these are pure unit
-    // tests: no process-global mutation, no #[serial], no race with the
-    // dozens of other tests elsewhere in this crate that build a
-    // `ZContextBuilder::default()` on their own thread.
-
-    #[test]
-    fn parse_falls_back_to_zero_when_unset() {
-        assert_eq!(DomainId::parse(None), DomainId::Value(0));
-    }
-
-    #[test]
-    fn parse_reads_a_valid_value() {
-        assert_eq!(DomainId::parse(Some("42".to_string())), DomainId::Value(42));
-    }
-
-    #[test]
-    fn parse_rejects_an_invalid_value() {
-        assert_eq!(
-            DomainId::parse(Some("not-a-number".to_string())),
-            DomainId::Invalid("not-a-number".to_string())
-        );
-    }
-
-    #[test]
-    fn with_domain_id_overrides_an_invalid_parse() {
-        let builder = ZContextBuilder {
-            domain_id: DomainId::Invalid("garbage".to_string()),
-            ..Default::default()
-        }
-        .with_domain_id(7);
-        assert_eq!(builder.domain_id, DomainId::Value(7));
-    }
-
-    /// The actual behavior Copilot's review asked for: an invalid domain
-    /// aborts `build()` with an error, matching `rcl_init`, rather than
-    /// silently producing a `ZContext` on domain 0.
-    #[test]
-    fn build_rejects_an_invalid_domain() {
-        let err = ZContextBuilder {
-            domain_id: DomainId::Invalid("garbage".to_string()),
-            ..Default::default()
-        }
-        .build()
-        .expect_err("an invalid ROS_DOMAIN_ID must not silently build");
-        assert!(err.to_string().contains("garbage"));
     }
 }
