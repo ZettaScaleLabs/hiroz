@@ -167,15 +167,15 @@ impl<T: ZMessage, S: ZSerializer> std::fmt::Debug for ZPub<T, S> {
 /// Implemented for `&T`, `Arc<T>` and `T`. The three impls cannot overlap: the
 /// trait carries the message type, so `Publishable<U> for &U` and
 /// `Publishable<&U> for &U` are different trait references.
-pub trait Publishable<T: ZMessage, S: ZSerializer>: Sized {
+pub trait Publishable<T: ZMessage, S>: Sized {
     /// Publish `self` through `publisher`, by the route its ownership selects.
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Delivery>;
 }
 
 impl<T, S> Publishable<T, S> for &T
 where
-    T: ZMessage,
-    S: ZSerializer<Input<'static> = &'static T>,
+    T: ZMessage + 'static,
+    S: for<'a> ZSerializer<Input<'a> = &'a T> + 'static,
 {
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Delivery> {
         publisher.publish_ref(self)?;
@@ -186,7 +186,7 @@ where
 impl<T, S> Publishable<T, S> for Arc<T>
 where
     T: ZMessage + Send + Sync + 'static,
-    S: ZSerializer<Input<'static> = &'static T>,
+    S: for<'a> ZSerializer<Input<'a> = &'a T> + 'static,
 {
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Delivery> {
         let n = publisher.publish_shared(self)?;
@@ -197,7 +197,7 @@ where
 impl<T, S> Publishable<T, S> for T
 where
     T: ZMessage + Send + Sync + 'static,
-    S: ZSerializer<Input<'static> = &'static T>,
+    S: for<'a> ZSerializer<Input<'a> = &'a T> + 'static,
 {
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Delivery> {
         let n = publisher.publish_owned(self)?;
