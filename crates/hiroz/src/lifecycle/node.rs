@@ -350,7 +350,11 @@ impl Builder for ZLifecycleNodeBuilder {
                         .lock()
                         .unwrap()
                         .trigger(t, |_| CallbackReturn::Success);
-                    let _ = te_cs.publish(&make_transition_event(t, start, goal));
+                    // publish_ref, not publish: with `publish` generic over
+                    // Publishable, clippy's needless_borrows_for_generic_args
+                    // would have us drop the `&`, which selects the OWNED impl
+                    // and reroutes this from the wire to the intra-process bus.
+                    let _ = te_cs.publish_ref(&make_transition_event(t, start, goal));
                     true
                 } else {
                     warn!("change_state: invalid id={tid} label='{label}' from {current:?}");
