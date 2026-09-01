@@ -42,6 +42,7 @@ use std::{
 use common::*;
 use hiroz::{
     Builder,
+    local_bus::{Delivery, Published},
     payload_pool::PayloadPool,
     qos::{QosDurability, QosProfile},
 };
@@ -179,7 +180,8 @@ fn two_subscribers_share_one_allocation_and_both_release_it() -> hiroz::Result<(
         slot.data = format!("m{i}");
         let delivered = publisher.publish_shared(slot.into_shared())?;
         assert_eq!(
-            delivered, 2,
+            delivered,
+            Published::Bus(Delivery::Sent(2)),
             "iteration {i}: both subscribers must be served"
         );
     }
