@@ -323,5 +323,14 @@ fn test_parse_liveliness_with_verbatim_rmw_system_default_qos() {
     assert_eq!(endpoint.node.unwrap().domain_id, 123);
     assert_eq!(endpoint.kind, EndpointKind::Publisher);
     assert_eq!(endpoint.topic, "/res/statuslight/autonomy");
-    assert_eq!(endpoint.qos, QosProfile::default());
+    // The omitted history depth decodes to rmw_zenoh_cpp's own wire default
+    // (42), not hiroz's unrelated built-in default of 10 -- see
+    // `RMW_ZENOH_DEFAULT_HISTORY_DEPTH`.
+    assert_eq!(
+        endpoint.qos,
+        QosProfile {
+            history: QosHistory::KeepLast(hiroz_protocol::qos::RMW_ZENOH_DEFAULT_HISTORY_DEPTH),
+            ..QosProfile::default()
+        }
+    );
 }

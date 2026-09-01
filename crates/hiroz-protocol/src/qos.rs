@@ -92,12 +92,17 @@ impl QosProfile {
         };
 
         // Parse history: <kind>,<depth>. rmw_zenoh_cpp omits QoS sub-fields
-        // whose value is SYSTEM_DEFAULT, so the history field can be just `,`.
+        // whose value is SYSTEM_DEFAULT, so the history field can be just
+        // `,`. An omitted depth means the *peer* used rmw_zenoh_cpp's own
+        // wire default (42), not hiroz's unrelated built-in default (10) --
+        // substituting the latter here would misreport every such peer's
+        // depth.
+        let wire_default_history = QosHistory::KeepLast(RMW_ZENOH_DEFAULT_HISTORY_DEPTH);
         let history = match fields[2] {
-            "," => default_qos.history,
+            "," => wire_default_history,
             // An omitted history field is only meaningful in the complete
             // six-field wire representation. Keep rejecting truncated `::`.
-            "" if fields.len() >= 6 => default_qos.history,
+            "" if fields.len() >= 6 => wire_default_history,
             encoded => {
                 let (kind, encoded_depth) = encoded
                     .split_once(',')
@@ -106,7 +111,7 @@ impl QosProfile {
                 match kind {
                     "" | "0" | "1" => {
                         let depth = if encoded_depth.is_empty() {
-                            default_qos.history.depth()
+                            RMW_ZENOH_DEFAULT_HISTORY_DEPTH
                         } else {
                             encoded_depth
                                 .parse::<usize>()
@@ -115,7 +120,7 @@ impl QosProfile {
                         // A zero depth represents an unspecified/default depth
                         // at the ROS boundary; KeepLast(0) is not useful.
                         QosHistory::KeepLast(if depth == 0 {
-                            default_qos.history.depth()
+                            RMW_ZENOH_DEFAULT_HISTORY_DEPTH
                         } else {
                             depth
                         })
@@ -153,6 +158,18 @@ pub enum QosDurability {
     Volatile = 0,
     TransientLocal = 1,
 }
+
+/// The history depth `rmw_zenoh_cpp` substitutes on the wire when a QoS
+/// profile's depth is SYSTEM_DEFAULT (0), and the value it omits from a
+/// compact liveliness token's history field for the same reason.
+/// `rmw_zenoh_cpp/src/detail/qos.cpp`: `RMW_ZENOH_DEFAULT_HISTORY_DEPTH`.
+///
+/// Distinct from [`QosHistory::default`]'s depth, which is hiroz's own
+/// unrelated fallback (matching `rclcpp`'s default of 10) for a `QosProfile`
+/// built without a history depth in code -- conflating the two silently
+/// misreports the depth of any peer that relied on `rmw_zenoh_cpp`'s
+/// SYSTEM_DEFAULT omission.
+pub const RMW_ZENOH_DEFAULT_HISTORY_DEPTH: usize = 42;
 
 /// QoS history policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

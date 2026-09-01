@@ -2,14 +2,25 @@
 //! format, including the SYSTEM_DEFAULT omission rmw_zenoh_cpp uses for QoS
 //! sub-fields it did not set explicitly.
 
-use hiroz_protocol::qos::{QosDecodeError, QosDurability, QosHistory, QosProfile, QosReliability};
+use hiroz_protocol::qos::{
+    QosDecodeError, QosDurability, QosHistory, QosProfile, QosReliability,
+    RMW_ZENOH_DEFAULT_HISTORY_DEPTH,
+};
 
 #[test]
 fn decode_rmw_compact_qos_corpus() {
+    // An omitted or zero-valued depth decodes to rmw_zenoh_cpp's own wire
+    // default (42), not hiroz's unrelated built-in default (`QosProfile::
+    // default()`'s depth of 10) -- see `RMW_ZENOH_DEFAULT_HISTORY_DEPTH`.
+    let wire_default = QosProfile {
+        history: QosHistory::KeepLast(RMW_ZENOH_DEFAULT_HISTORY_DEPTH),
+        ..QosProfile::default()
+    };
+
     let cases = [
-        ("::,:,:,:,,", QosProfile::default()),
-        (":::,:,:,,", QosProfile::default()),
-        ("::1,:,:,:,,", QosProfile::default()),
+        ("::,:,:,:,,", wire_default),
+        (":::,:,:,,", wire_default),
+        ("::1,:,:,:,,", wire_default),
         ("::,10:,:,:,,", QosProfile::default()),
         (
             "::2,:,:,:,,",
@@ -34,7 +45,7 @@ fn decode_rmw_compact_qos_corpus() {
                 ..QosProfile::default()
             },
         ),
-        ("0:0:0,0:,:,:,,", QosProfile::default()),
+        ("0:0:0,0:,:,:,,", wire_default),
     ];
 
     for (encoded, expected) in cases {
