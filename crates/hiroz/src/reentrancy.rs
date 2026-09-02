@@ -93,17 +93,27 @@ pub fn live_guards() -> usize {
 /// message — when this fires, *which* callback was about to run is the useful
 /// information, not the counter's backtrace.
 #[inline(always)]
+/// The opening words of a re-entrancy violation panic.
+///
+/// [`local_bus::invoke_isolated`](crate::local_bus) contains subscriber panics
+/// so one bad callback cannot censor its siblings. That containment must not
+/// swallow *this* panic: it is the crate reporting its own contract violation,
+/// not a user fault, and a nested delivery raises it from inside that
+/// `catch_unwind`. The prefix is what lets the two be told apart.
+pub const REENTRANCY_VIOLATION: &str = "hiroz re-entrancy rule violated";
+
 pub fn assert_no_guards_held(site: &str) {
     #[cfg(debug_assertions)]
     {
         let live = live_guards();
         assert!(
             live == 0,
-            "hiroz re-entrancy rule violated at `{site}`: about to invoke a user \
+            "{} at `{site}`: about to invoke a user \
              callback with {live} lock guard(s) live on this thread. A callback \
              that re-enters hiroz will deadlock if it touches a lock this thread \
              holds. Fix: collect what you need into an owned value, drop every \
-             guard, then invoke the callback."
+             guard, then invoke the callback.",
+            REENTRANCY_VIOLATION,
         );
     }
     #[cfg(not(debug_assertions))]

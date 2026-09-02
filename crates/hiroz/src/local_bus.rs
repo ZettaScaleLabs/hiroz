@@ -59,6 +59,7 @@
 //! cloned out, the guard dropped, and only then are the callbacks called.
 
 use std::{
+use crate::reentrancy::REENTRANCY_VIOLATION;
     any::{Any, TypeId},
     cell::Cell,
     collections::HashMap,
@@ -232,7 +233,20 @@ fn invoke_isolated(site: &'static str, f: impl FnOnce()) -> bool {
     crate::reentrancy::assert_no_guards_held(site);
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(()) => true,
-        Err(_) => {
+        Err(payload) => {
+            // Re-raise the crate's own re-entrancy violation instead of
+            // logging it. `assert_no_guards_held` reports by panicking, and a
+            // *nested* delivery runs inside this catch_unwind — so without
+            // this, the detector built to catch "a user callback ran while a
+            // lock was held" is silently downgraded to a log line in exactly
+            // the case the bus makes most reachable: a callback that publishes.
+            #[cfg(debug_assertions)]
+            if payload
+                .downcast_ref::<String>()
+                .is_some_and(|m| m.starts_with(REENTRANCY_VIOLATION))
+            {
+                std::panic::resume_unwind(payload);
+            }
             tracing::error!(
                 "[BUS] a subscriber callback panicked during intra-process delivery at {site}; \
                  the panic was contained and delivery continued to the remaining subscribers"
@@ -313,23 +327,27 @@ impl Channel {
             // through the snapshot, hand over the only reference, and touch no
             // refcount at all beyond the one the caller already holds.
             None => {
-                invoke_isolated("local_bus::publish", || first.call_shared(erased));
-                Delivery::Sent(1)
+                if invoke_isolated("local_bus::publish", || first.call_shared(erased)) {
+                    Delivery::Sent(1)
+                } else {
+                    // The only subscriber panicked. Reporting Sent(1) here told
+                    // the caller a message was delivered when none was.
+                    Delivery::NoTaker
+                }
             }
             // More than one receiver genuinely needs a reference each, so the
             // clones start here and not before.
             Some(second) => {
                 let e1 = erased.clone();
                 let e2 = erased.clone();
-                invoke_isolated("local_bus::publish", || first.call_shared(e1));
-                invoke_isolated("local_bus::publish", || second.call_shared(e2));
-                let mut count = 2;
+                let mut count = 0;
+                count += invoke_isolated("local_bus::publish", || first.call_shared(e1)) as usize;
+                count += invoke_isolated("local_bus::publish", || second.call_shared(e2)) as usize;
                 for entry in matching {
                     let ec = erased.clone();
-                    invoke_isolated("local_bus::publish", || entry.call_shared(ec));
-                    count += 1;
+                    count += invoke_isolated("local_bus::publish", || entry.call_shared(ec)) as usize;
                 }
-                // The count is subscribers invoked, not subscribers that
+                // The count is subscribers that returned normally, not
                 // returned normally. A panicking one is logged above.
                 Delivery::Sent(count)
             }
@@ -403,6 +421,20 @@ static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 /// Resolve the channel for `(zid, topic)`, creating it if needed.
 ///
 /// Call this once, when a publisher or subscriber is built — not per message.
+/// How many channels the registry currently holds, across every session.
+///
+/// Exposed so the reclamation in [`channel`] can be observed. Without a way to
+/// read this, "the registry no longer grows without bound" is a claim no test
+/// can make: the leak is invisible from the outside, which is why it survived
+/// this long.
+pub fn total_channels() -> usize {
+    let bus = match BUS.read() {
+        Ok(b) => b,
+        Err(e) => e.into_inner(),
+    };
+    bus.values().map(|topics| topics.len()).sum()
+}
+
 pub fn channel(zid: ZenohId, topic: &str) -> Arc<Channel> {
     // Fast path: it usually exists, and a read lock lets concurrent builders through.
     {
@@ -419,6 +451,21 @@ pub fn channel(zid: ZenohId, topic: &str) -> Arc<Channel> {
         Ok(b) => b,
         Err(e) => e.into_inner(),
     };
+
+    // Reclaim while we already hold the write lock. A channel is removable only
+    // when the registry is its sole owner and it has no subscribers: every
+    // `ZPub` and `ZSub` holds its own `Arc<Channel>`, so a strong count of one
+    // proves no endpoint can still reach it, and a later builder gets a fresh
+    // channel that nobody is split from.
+    //
+    // Without this the map only ever grows. It is not merely one entry per
+    // `ZContext` — `channel()` runs in *every* `ZPubBuilder::build()`, so a
+    // process that publishes on dynamically-named topics accumulates an entry
+    // per topic, for its lifetime, even after every publisher is dropped.
+    if let Some(topics) = bus.get_mut(&zid) {
+        topics.retain(|_, ch| Arc::strong_count(ch) > 1 || !ch.entries.load().is_empty());
+    }
+
     bus.entry(zid)
         .or_default()
         .entry(topic.to_owned())
