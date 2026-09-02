@@ -35,7 +35,6 @@
 //! the bus on a wrong inference loses that subscriber's messages silently. So
 //! the caller says, with `with_intra_process_only()` or a `Locality`, and the
 //! bus is taken only when that assertion makes the wire redundant.
-//! See circle/hiroz-bench#36 for the bus, and #134 for the withdrawal.
 //!
 //! # Keying, and why a publisher resolves it once
 //!
@@ -88,7 +87,7 @@ use zenoh::session::ZenohId;
 ///
 /// Eight is chosen to be far above any legitimate chain — a pipeline of eight
 /// nodes each publishing from the previous one's callback, on one thread — and
-/// far below the depth at which the stack is in danger. See issue circle/hiroz-bench#40.
+/// far below the depth at which the stack is in danger.
 /// Public so a test can assert the exact bound rather than a loose ceiling:
 /// a hand-copied constant lets a change to this value slip past unnoticed.
 ///
@@ -143,7 +142,7 @@ type LocalCallback = Arc<dyn Fn(ErasedPayload) + Send + Sync>;
 /// The shared path hands every receiver the same read-only `Arc`, which is
 /// right when several of them want it and wrong when exactly one does: a sole
 /// receiver could have been given the value itself, free to mutate or consume
-/// it. This is that path. See issue circle/hiroz-bench#36.
+/// it. This is that path.
 type OwnedCallback = Arc<dyn Fn(Box<dyn Any + Send>) + Send + Sync>;
 
 #[derive(Clone)]
@@ -204,7 +203,7 @@ pub struct Channel {
 /// `NoTaker` and `DepthExceeded` both mean nothing was delivered, and they must
 /// not be conflated: a caller may fall back to the wire on `NoTaker`, but doing
 /// so on `DepthExceeded` re-enters the same callback on a zenoh thread with a
-/// fresh depth counter and loops forever. See circle/hiroz-bench#36.
+/// fresh depth counter and loops forever.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Delivery {
     /// Handed to this many subscribers.
@@ -317,7 +316,7 @@ impl Channel {
         // Refuse to recurse without bound. A callback that publishes back onto
         // its own topic would otherwise overflow the stack; returning here turns
         // that into a dropped message and a loud log, which is recoverable and
-        // greppable. See issue circle/hiroz-bench#40.
+        // greppable.
         let depth = DELIVERY_DEPTH.with(|d| d.get());
         if depth >= MAX_DELIVERY_DEPTH {
             tracing::error!(
