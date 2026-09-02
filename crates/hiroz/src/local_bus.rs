@@ -68,6 +68,8 @@ use std::{
     },
 };
 
+// Only the debug-only re-raise below reads this, so the import is gated too.
+#[cfg(debug_assertions)]
 use crate::reentrancy::REENTRANCY_VIOLATION;
 
 use arc_swap::ArcSwap;
@@ -254,7 +256,7 @@ fn invoke_isolated(site: &'static str, f: impl FnOnce()) -> bool {
     crate::reentrancy::assert_no_guards_held(site);
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(()) => true,
-        Err(payload) => {
+        Err(_payload) => {
             // Re-raise the crate's own re-entrancy violation instead of
             // logging it. `assert_no_guards_held` reports by panicking, and a
             // *nested* delivery runs inside this catch_unwind — so without
@@ -262,11 +264,11 @@ fn invoke_isolated(site: &'static str, f: impl FnOnce()) -> bool {
             // lock was held" is silently downgraded to a log line in exactly
             // the case the bus makes most reachable: a callback that publishes.
             #[cfg(debug_assertions)]
-            if payload
+            if _payload
                 .downcast_ref::<String>()
                 .is_some_and(|m| m.starts_with(REENTRANCY_VIOLATION))
             {
-                std::panic::resume_unwind(payload);
+                std::panic::resume_unwind(_payload);
             }
             tracing::error!(
                 "[BUS] a subscriber callback panicked during intra-process delivery at {site}; \
