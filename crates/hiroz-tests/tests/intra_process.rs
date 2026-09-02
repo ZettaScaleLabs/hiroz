@@ -1382,3 +1382,88 @@ fn a_remote_publisher_serves_the_bus_after_the_wire() -> hiroz::Result<()> {
     );
     Ok(())
 }
+
+/// A sole subscriber that panics delivered nothing, and must not be counted.
+///
+/// `invoke_isolated` returns whether the callback returned normally, and every
+/// call site used to discard it — so `Delivery::Sent(n)` counted subscribers
+/// *invoked*. A caller that falls back on `NoTaker` could not see a total
+/// delivery failure: one subscriber, panicking on every message, reported
+/// `Sent(1)` forever.
+#[test]
+fn a_panicking_sole_subscriber_is_not_counted_as_delivered() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("panic_count").build()?;
+
+    let _sub = node
+        .create_sub::<RosString>("panic_count")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            panic!("this subscriber always fails");
+        })?;
+
+    let publisher = node
+        .create_pub::<RosString>("panic_count")
+        .with_intra_process_only()
+        .build()?;
+    wait_for_ready(Duration::from_millis(300));
+
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let outcome = publisher.publish_shared(Arc::new(RosString {
+        data: "nobody will process this".to_owned(),
+    }))?;
+    std::panic::set_hook(prev);
+
+    assert_eq!(
+        outcome,
+        Published::Bus(Delivery::NoTaker),
+        "the only subscriber panicked, so nothing was delivered; reporting Sent(1) \
+         tells the caller a message landed when none did. Got {outcome:?}"
+    );
+    Ok(())
+}
+
+/// A channel nobody holds any more is reclaimed, so the registry does not grow
+/// for the life of the process.
+///
+/// `channel()` runs in **every** `ZPubBuilder::build()`, so this is not one
+/// entry per `ZContext` — a process publishing on dynamically-named topics
+/// accumulated one entry per topic, permanently, long after every publisher was
+/// dropped. Reclamation is safe only because an `Arc::strong_count` of one
+/// proves no `ZPub` or `ZSub` can still reach the channel, so a later builder
+/// cannot be split from a live endpoint.
+#[test]
+fn a_channel_no_endpoint_holds_is_reclaimed() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("reclaim").build()?;
+
+    let before = hiroz::local_bus::total_channels();
+    for i in 0..24 {
+        let p = node
+            .create_pub::<RosString>(&format!("ephemeral_{i}"))
+            .build()?;
+        drop(p);
+    }
+    let after_ephemeral = hiroz::local_bus::total_channels();
+    assert!(
+        after_ephemeral - before <= 4,
+        "24 publishers were created and dropped; the registry grew by {} channels. \
+         It should reclaim the ones no endpoint holds.",
+        after_ephemeral - before
+    );
+
+    // The control. Without it this test passes equally well against a registry
+    // that reclaims indiscriminately — which would split a live publisher from
+    // a subscriber created afterwards, turning a leak into lost messages.
+    let held = node.create_pub::<RosString>("held_topic").build()?;
+    let with_held = hiroz::local_bus::total_channels();
+    let _forces_a_reclaim_pass = node.create_pub::<RosString>("spacer_topic").build()?;
+    assert!(
+        hiroz::local_bus::total_channels() >= with_held,
+        "a channel a live publisher still holds must survive a reclamation pass"
+    );
+    drop(held);
+    Ok(())
+}
