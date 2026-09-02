@@ -26,7 +26,27 @@ pub fn protocol_qos_to_hiroz_qos(qos: &hiroz_protocol::qos::QosProfile) -> hiroz
             }
             hiroz_protocol::qos::QosHistory::KeepAll => hiroz::qos::QosHistory::KeepAll,
         },
-        ..Default::default()
+        deadline: hiroz::qos::QosDuration {
+            sec: qos.deadline.sec,
+            nsec: qos.deadline.nsec,
+        },
+        lifespan: hiroz::qos::QosDuration {
+            sec: qos.lifespan.sec,
+            nsec: qos.lifespan.nsec,
+        },
+        liveliness: match qos.liveliness {
+            hiroz_protocol::qos::QosLiveliness::Automatic => hiroz::qos::QosLiveliness::Automatic,
+            hiroz_protocol::qos::QosLiveliness::ManualByNode => {
+                hiroz::qos::QosLiveliness::ManualByNode
+            }
+            hiroz_protocol::qos::QosLiveliness::ManualByTopic => {
+                hiroz::qos::QosLiveliness::ManualByTopic
+            }
+        },
+        liveliness_lease_duration: hiroz::qos::QosDuration {
+            sec: qos.liveliness_lease_duration.sec,
+            nsec: qos.liveliness_lease_duration.nsec,
+        },
     }
 }
 

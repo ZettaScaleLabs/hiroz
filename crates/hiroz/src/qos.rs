@@ -185,6 +185,23 @@ impl QosProfile {
                 }
                 QosHistory::KeepAll => hiroz_protocol::qos::QosHistory::KeepAll,
             },
+            deadline: hiroz_protocol::qos::QosDuration {
+                sec: self.deadline.sec,
+                nsec: self.deadline.nsec,
+            },
+            lifespan: hiroz_protocol::qos::QosDuration {
+                sec: self.lifespan.sec,
+                nsec: self.lifespan.nsec,
+            },
+            liveliness: match self.liveliness {
+                QosLiveliness::Automatic => hiroz_protocol::qos::QosLiveliness::Automatic,
+                QosLiveliness::ManualByNode => hiroz_protocol::qos::QosLiveliness::ManualByNode,
+                QosLiveliness::ManualByTopic => hiroz_protocol::qos::QosLiveliness::ManualByTopic,
+            },
+            liveliness_lease_duration: hiroz_protocol::qos::QosDuration {
+                sec: self.liveliness_lease_duration.sec,
+                nsec: self.liveliness_lease_duration.nsec,
+            },
         }
     }
 }
