@@ -201,3 +201,51 @@ class SetParametersResponse(msgspec.Struct, frozen=True, kw_only=True):
     __msgtype__: ClassVar[str] = 'rcl_interfaces/msg/SetParametersResponse'
     __hash__: ClassVar[str] = 'RIHS01_56eed9a67e169f9cb6c1f987bc88f868c14a8fc9f743a263bc734c154015d7e0'
 
+class DescribeParameters:
+    """Service grouping type. Use DescribeParameters.Request and DescribeParameters.Response."""
+    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/DescribeParameters'
+    Request: ClassVar[type] = DescribeParametersRequest
+    Response: ClassVar[type] = DescribeParametersResponse
+
+class GetLoggerLevels:
+    """Service grouping type. Use GetLoggerLevels.Request and GetLoggerLevels.Response."""
+    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/GetLoggerLevels'
+    Request: ClassVar[type] = GetLoggerLevelsRequest
+    Response: ClassVar[type] = GetLoggerLevelsResponse
+
+class GetParameters:
+    """Service grouping type. Use GetParameters.Request and GetParameters.Response."""
+    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/GetParameters'
+    Request: ClassVar[type] = GetParametersRequest
+    Response: ClassVar[type] = GetParametersResponse
+
+class SetParameters:
+    """Service grouping type. Use SetParameters.Request and SetParameters.Response."""
+    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/SetParameters'
+    Request: ClassVar[type] = SetParametersRequest
+    Response: ClassVar[type] = SetParametersResponse
+
+class ListParameters:
+    """Service grouping type. Use ListParameters.Request and ListParameters.Response."""
+    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/ListParameters'
+    Request: ClassVar[type] = ListParametersRequest
+    Response: ClassVar[type] = ListParametersResponse
+
+class GetParameterTypes:
+    """Service grouping type. Use GetParameterTypes.Request and GetParameterTypes.Response."""
+    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/GetParameterTypes'
+    Request: ClassVar[type] = GetParameterTypesRequest
+    Response: ClassVar[type] = GetParameterTypesResponse
+
+class SetParametersAtomically:
+    """Service grouping type. Use SetParametersAtomically.Request and SetParametersAtomically.Response."""
+    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/SetParametersAtomically'
+    Request: ClassVar[type] = SetParametersAtomicallyRequest
+    Response: ClassVar[type] = SetParametersAtomicallyResponse
+
+class SetLoggerLevels:
+    """Service grouping type. Use SetLoggerLevels.Request and SetLoggerLevels.Response."""
+    __srvtype__: ClassVar[str] = 'rcl_interfaces/srv/SetLoggerLevels'
+    Request: ClassVar[type] = SetLoggerLevelsRequest
+    Response: ClassVar[type] = SetLoggerLevelsResponse
+
