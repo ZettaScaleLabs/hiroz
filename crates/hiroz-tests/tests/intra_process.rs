@@ -1468,3 +1468,62 @@ fn a_channel_no_endpoint_holds_is_reclaimed() -> hiroz::Result<()> {
     drop(held);
     Ok(())
 }
+
+/// The headline of this PR is that `publish` dispatches on ownership, and until
+/// now nothing exercised it: every test called `publish_shared`/`publish_ref`
+/// directly, so the trait impls could regress without a single failure.
+///
+/// `&T` must take the wire and `Arc<T>` the bus, and both must report it.
+#[test]
+fn ownership_selects_the_route_through_the_generic_publish() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("dispatch").build()?;
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let _sub = node
+        .create_sub::<RosString>("dispatch_topic")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            h.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node
+        .create_pub::<RosString>("dispatch_topic")
+        .with_intra_process_only()
+        .build()?;
+    wait_for_ready(Duration::from_millis(300));
+
+    // Arc<T> -> the bus, through the trait rather than publish_shared.
+    let shared = publisher.publish(Arc::new(RosString {
+        data: "by arc".to_owned(),
+    }))?;
+    assert_eq!(
+        shared,
+        Published::Bus(Delivery::Sent(1)),
+        "an Arc argument must select the bus, got {shared:?}"
+    );
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "the bus subscriber must be served"
+    );
+
+    // &T -> the wire. On an intra-process-only publisher there is no wire, so
+    // the route is observable as the *absence* of a second bus delivery.
+    let wire_pub = node.create_pub::<RosString>("dispatch_wire").build()?;
+    let borrowed = wire_pub.publish(&RosString {
+        data: "by reference".to_owned(),
+    })?;
+    assert_eq!(
+        borrowed,
+        Published::Wire,
+        "a &T argument must select the wire, got {borrowed:?}"
+    );
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "the borrowed publish must not have reached the bus subscriber"
+    );
+    Ok(())
+}

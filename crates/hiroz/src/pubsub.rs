@@ -936,7 +936,7 @@ where
                 "publish on a TRANSIENT_LOCAL, intra-process-only publisher for {}: \
                  the intra-process path has no durability cache, so a late-joining \
                  subscriber would be served a history this message is missing from. \
-                 Use publish(), or drop the transient-local durability.",
+                 Use publish_ref(), or drop the transient-local durability.",
                 self.entity.topic
             )
             .into(),
