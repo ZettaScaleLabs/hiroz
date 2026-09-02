@@ -518,7 +518,6 @@ impl Resolver {
         let goal_desc = goal.type_description();
         deps.insert(goal_desc.type_name.clone(), goal_desc.clone());
         self.collect_nested_deps(&goal_desc, &mut deps);
-        
 
         // Calculate action service hash (uses /action/ path instead of /srv/)
         let service_hash = crate::hashing::calculate_service_type_hash(
