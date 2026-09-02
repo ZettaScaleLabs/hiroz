@@ -11,10 +11,28 @@
 #define hiroz_ZENOH_EVENT_ID_MAX 11
 
 /**
- * Default depth for KEEP_LAST when SYSTEM_DEFAULT (depth=0) is used
- * This matches ROS 2 and rmw_zenoh_cpp behavior
+ * Default depth for `KeepLast` when SYSTEM_DEFAULT (depth=0) is used.
+ * Matches rclcpp's default of 10. Note this is distinct from
+ * [`KEEP_ALL_CACHE_DEPTH`] below, which is the rmw_zenoh-aligned cap
+ * applied to `KeepAll` when mapped to zenoh-ext's `cache.max_samples`.
  */
 #define hiroz_DEFAULT_HISTORY_DEPTH 10
+
+/**
+ * Cache/history depth used when a TransientLocal endpoint carries
+ * `QosHistory::KeepAll` (no inherent depth) or `KeepLast(0)`.
+ *
+ * Matches rmw_zenoh_cpp's `RMW_ZENOH_DEFAULT_HISTORY_DEPTH = 42`
+ * (`rmw_zenoh_cpp/src/detail/qos.cpp:27`), which is the value
+ * rmw_zenoh's `best_available_qos` substitutes for a zero-valued
+ * `qos.depth` before passing it to
+ * `AdvancedPublisherOptions::CacheOptions::max_samples`.
+ *
+ * This is intentionally a *finite* cap that mirrors rmw_zenoh's
+ * pragmatic behaviour rather than the DDS KEEP_ALL spec's "keep
+ * everything" semantics.
+ */
+#define hiroz_KEEP_ALL_CACHE_DEPTH 42
 
 /**
  * Default shared memory pool size (10 MB).
@@ -28,6 +46,31 @@
  * Matches rmw_zenoh_cpp default for compatibility.
  */
 #define hiroz_DEFAULT_SHM_THRESHOLD 512
+
+/**
+ * Constant for ListParameters: recursively get parameters with unlimited depth.
+ */
+#define hiroz_DEPTH_RECURSIVE 0
+
+#define hiroz_NOT_SET 0
+
+#define hiroz_BOOL 1
+
+#define hiroz_INTEGER 2
+
+#define hiroz_DOUBLE 3
+
+#define hiroz_STRING 4
+
+#define hiroz_BYTE_ARRAY 5
+
+#define hiroz_BOOL_ARRAY 6
+
+#define hiroz_INTEGER_ARRAY 7
+
+#define hiroz_DOUBLE_ARRAY 8
+
+#define hiroz_STRING_ARRAY 9
 
 /**
  * Opaque action client handle for FFI
@@ -185,6 +228,11 @@ typedef struct hiroz_context_config_t {
    * Whether to enable logging
    */
   bool enable_logging;
+  /**
+   * Default namespace inherited by nodes created from this context (nullable).
+   * Added after all pre-existing fields to preserve ABI compatibility.
+   */
+  const char *namespace_;
 } hiroz_context_config_t;
 
 /**
@@ -630,8 +678,8 @@ int32_t hiroz_service_client_destroy(struct hiroz_service_client_t *client);
 
 /**
  * Wait until at least one matching service server is visible in the graph,
- * or `timeout_ms` elapses. Returns 0 if ready, -10 (ServiceTimeout) on
- * timeout, -1 (NullPointer) if `client_handle` is null.
+ * or `timeout_ms` elapses. Returns `Success` (0) if ready, `ServiceTimeout`
+ * (-10) on timeout, `NullPointer` (-1) if `client` is null.
  */
 int32_t hiroz_service_client_wait_for_service(struct hiroz_service_client_t *client_handle,
                                               uint64_t timeout_ms);
