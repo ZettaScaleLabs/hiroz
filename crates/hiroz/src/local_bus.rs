@@ -369,7 +369,7 @@ impl Channel {
                     count += invoke_isolated("local_bus::publish", || entry.call_shared(ec)) as usize;
                 }
                 // The count is subscribers that returned normally, not
-                // returned normally. A panicking one is logged above.
+                // subscribers invoked. A panicking one is logged above.
                 Delivery::Sent(count)
             }
         }
