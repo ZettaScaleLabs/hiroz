@@ -265,9 +265,16 @@ fn a_pool_survives_a_subscriber_that_publishes_from_its_own_pool() -> hiroz::Res
             // Re-entering the pool from inside a callback, on the publishing
             // thread. If `into_shared` did not end the borrow, this is where
             // the design would deadlock.
-            let mut guard = p.lock().expect("pool lock");
-            if let Some(slot) = guard.acquire() {
-                let _ = out.publish_shared(slot.into_shared());
+            // Acquire, stamp and *release the guard* before publishing. Holding
+            // it across the publish is what would deadlock: delivery is inline,
+            // so the callback this publish invokes runs on this thread and
+            // re-locks the same mutex.
+            let shared = {
+                let mut guard = p.lock().expect("pool lock");
+                guard.acquire().map(|slot| slot.into_shared())
+            };
+            if let Some(shared) = shared {
+                let _ = out.publish_shared(shared);
                 e.fetch_add(1, Ordering::SeqCst);
             }
         })?;
@@ -277,11 +284,17 @@ fn a_pool_survives_a_subscriber_that_publishes_from_its_own_pool() -> hiroz::Res
         .with_intra_process_only()
         .build()?;
 
-    let mut outer = PayloadPool::new(2, || msg("outer"));
+    // The same pool the callback re-enters — that is the property under test.
+    // A separate `outer` pool here would have made the test pass without ever
+    // exercising re-entry.
     for i in 0..5 {
-        let mut slot = outer.acquire().expect("outer slot");
-        slot.data = format!("m{i}");
-        publisher.publish_shared(slot.into_shared())?;
+        let shared = {
+            let mut guard = inner_pool.lock().expect("pool lock");
+            let mut slot = guard.acquire().expect("outer slot");
+            slot.data = format!("m{i}");
+            slot.into_shared()
+        };
+        publisher.publish_shared(shared)?;
     }
 
     assert_eq!(
