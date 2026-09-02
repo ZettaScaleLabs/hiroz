@@ -296,15 +296,38 @@ mod tests {
     }
 
     /// A tripwire that never fires is indistinguishable from a clean codebase.
+    ///
+    /// The payload is asserted by **type**, not by message. `should_panic` can
+    /// only match a string, and matching the message is exactly what made the
+    /// old classifier forgeable: a subscriber panicking with the same words
+    /// would have been mistaken for a violation. Testing the type is both
+    /// stronger and the thing the containment in `local_bus` actually keys on.
     #[test]
-    #[cfg_attr(debug_assertions, should_panic(expected = "re-entrancy rule violated"))]
     fn assert_fires_while_a_guard_is_live() {
-        let m = TrackedMutex::new(0u32);
-        let _g = m.lock().unwrap();
-        assert_no_guards_held("deliberate violation");
-        // Compiled out in release, so no panic is expected there.
+        let fired = std::panic::catch_unwind(|| {
+            let m = TrackedMutex::new(0u32);
+            let _g = m.lock().unwrap();
+            assert_no_guards_held("deliberate violation");
+        });
+
+        #[cfg(debug_assertions)]
+        {
+            let payload = fired.expect_err("the tripwire did not fire while a guard was live");
+            let violation = payload
+                .downcast_ref::<ReentrancyViolation>()
+                .expect("the panic must carry ReentrancyViolation, not a bare string");
+            assert!(
+                violation.message.contains("deliberate violation"),
+                "the site must reach the operator: {}",
+                violation.message
+            );
+        }
+        // Compiled out in release, so nothing panics there.
         #[cfg(not(debug_assertions))]
-        assert_eq!(live_guards(), 0);
+        {
+            assert!(fired.is_ok(), "the check is debug-only");
+            assert_eq!(live_guards(), 0);
+        }
     }
 
     /// The underflow assertion needs the same proof the tripwire gets. Only this
