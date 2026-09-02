@@ -638,10 +638,6 @@ where
         Attachment::with_clock(sn as _, self.gid, &self.clock)
     }
 
-    /// Serialize and publish `msg` on the topic. Blocks until the put completes.
-    ///
-    /// Use [`async_publish`](ZPub::async_publish) when calling from async code to
-    /// avoid blocking the executor.
     /// Publish, with the argument's ownership choosing the route.
     ///
     /// This is the one publish name, in the shape rclcpp uses: there,
@@ -665,6 +661,19 @@ where
     ///
     /// The named methods remain, and stay the right choice when you want their
     /// exact return type.
+    ///
+    /// # Blocking, and which route it applies to
+    ///
+    /// The two routes block differently, so one blanket statement would be
+    /// wrong for one of them:
+    ///
+    /// - **the wire** blocks until the put completes. Reach for
+    ///   [`async_publish`](ZPub::async_publish) from async code to avoid
+    ///   holding the executor.
+    /// - **the bus** does not serialize and never touches zenoh, but delivery
+    ///   is *synchronous and inline*: every subscriber callback has run before
+    ///   this returns. It is not the blocking `async_publish` avoids, and
+    ///   `async_publish` is wire-only — it cannot be used to escape it.
     pub fn publish(&self, msg: impl Publishable<T, S>) -> Result<Published> {
         msg.publish_to(self)
     }
