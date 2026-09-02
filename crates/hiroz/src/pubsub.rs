@@ -330,7 +330,6 @@ impl<T, S> ZPubBuilder<T, S> {
     /// disclosed limitation, not an oversight: a node debugging "the publisher
     /// is there but nothing arrives" has no signal separating this from a QoS
     /// mismatch.
-
     pub fn with_intra_process_only(mut self) -> Self {
         self.intra_process_only = true;
         self

@@ -935,8 +935,10 @@ fn a_panicking_subscriber_does_not_stop_delivery_to_the_others() -> hiroz::Resul
     let delivered = delivered.expect("the panic escaped into the publishing thread");
     assert_eq!(
         delivered,
-        Published::Bus(Delivery::Sent(3)),
-        "not every subscriber was invoked"
+        Published::Bus(Delivery::Sent(2)),
+        "three subscribers were called and two returned. The count is deliveries, \
+         not invocations — the assertions on the two counters below are what \
+         prove the panicking one did not stop its siblings."
     );
     assert_eq!(
         before.load(Ordering::SeqCst),
@@ -981,8 +983,10 @@ fn a_panicking_sole_subscriber_does_not_reach_the_publisher() -> hiroz::Result<(
     let delivered = delivered.expect("the panic escaped into the publishing thread");
     assert_eq!(
         delivered,
-        Published::Bus(Delivery::Sent(1)),
-        "the subscriber was not invoked"
+        Published::Bus(Delivery::NoTaker),
+        "the sole subscriber panicked, so nothing was delivered. Sent(1) would \
+         report a message as landed when none was: Delivery::Sent counts \
+         subscribers that returned, not subscribers that were called."
     );
     Ok(())
 }
@@ -1379,47 +1383,6 @@ fn a_remote_publisher_serves_the_bus_after_the_wire() -> hiroz::Result<()> {
         near.load(Ordering::SeqCst),
         1,
         "the same-session subscriber must still be served exactly once"
-    );
-    Ok(())
-}
-
-/// A sole subscriber that panics delivered nothing, and must not be counted.
-///
-/// `invoke_isolated` returns whether the callback returned normally, and every
-/// call site used to discard it — so `Delivery::Sent(n)` counted subscribers
-/// *invoked*. A caller that falls back on `NoTaker` could not see a total
-/// delivery failure: one subscriber, panicking on every message, reported
-/// `Sent(1)` forever.
-#[test]
-fn a_panicking_sole_subscriber_is_not_counted_as_delivered() -> hiroz::Result<()> {
-    let router = TestRouter::new();
-    let ctx = create_hiroz_context_with_router(&router)?;
-    let node = ctx.create_node("panic_count").build()?;
-
-    let _sub = node
-        .create_sub::<RosString>("panic_count")
-        .build_with_shared_callback(move |_m: Arc<RosString>| {
-            panic!("this subscriber always fails");
-        })?;
-
-    let publisher = node
-        .create_pub::<RosString>("panic_count")
-        .with_intra_process_only()
-        .build()?;
-    wait_for_ready(Duration::from_millis(300));
-
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-    let outcome = publisher.publish_shared(Arc::new(RosString {
-        data: "nobody will process this".to_owned(),
-    }))?;
-    std::panic::set_hook(prev);
-
-    assert_eq!(
-        outcome,
-        Published::Bus(Delivery::NoTaker),
-        "the only subscriber panicked, so nothing was delivered; reporting Sent(1) \
-         tells the caller a message landed when none did. Got {outcome:?}"
     );
     Ok(())
 }
