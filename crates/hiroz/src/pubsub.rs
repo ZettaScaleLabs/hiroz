@@ -1248,6 +1248,8 @@ where
         // restricted, in which case the two audiences are disjoint.
         let callback = Arc::new(callback);
         let wire_half = callback.clone();
+        // Read before `self` is consumed below.
+        let bus_is_excluded = self.locality == Some(zenoh::sample::Locality::Remote);
         let mut sub = self.build_with_callback(move |m: T| wire_half(m))?;
         // A `Locality::Remote` subscriber has asked not to see same-session
         // traffic, and the bus is same-session by definition. Registering it
@@ -1255,7 +1257,7 @@ where
         // excludes — the wire half honours the restriction while the bus half
         // silently ignored it. Skip the bus registration; the wire half keeps
         // serving the remote traffic this subscriber asked for.
-        if self.locality == Some(zenoh::sample::Locality::Remote) {
+        if bus_is_excluded {
             return Ok(sub);
         }
 
@@ -1299,6 +1301,8 @@ where
 
         let callback = Arc::new(callback);
         let wire_cb = callback.clone();
+        // Read before `self` is consumed below.
+        let bus_is_excluded = self.locality == Some(zenoh::sample::Locality::Remote);
         let mut sub = self.build_with_callback(move |msg: T| (*wire_cb)(Arc::new(msg)))?;
 
         // build_with_callback qualified the topic, so read it back rather than
@@ -1310,7 +1314,7 @@ where
         // excludes — the wire half honours the restriction while the bus half
         // silently ignored it. Skip the bus registration; the wire half keeps
         // serving the remote traffic this subscriber asked for.
-        if self.locality == Some(zenoh::sample::Locality::Remote) {
+        if bus_is_excluded {
             return Ok(sub);
         }
 
