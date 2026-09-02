@@ -43,6 +43,13 @@ use hiroz::{
 };
 use hiroz_msgs::std_msgs::{Int32, String as RosString};
 
+/// The erased republish hook the depth tests install.
+///
+/// Named so the signature does not have to be spelled inline: `ZPub` carries a
+/// serializer parameter, and writing it out at the binding is what tripped
+/// `clippy::type_complexity`.
+type EchoPublisher = Box<dyn Fn(RosString) -> hiroz::Result<Published> + Send + Sync>;
+
 const DELIVERY_DEADLINE: Duration = Duration::from_secs(5);
 
 /// Ceiling on the self-publishing echo, so neither direction of the
@@ -628,10 +635,10 @@ fn a_self_publishing_callback_does_not_escape_to_the_wire_and_loop() -> hiroz::R
             // forever. Without this the unbounded case never terminates, and a
             // detector that hangs tells you less than one that fails: the
             // timeout does not say which property broke.
-            if seen < ECHO_CAP {
-                if let Some(publish) = echo_cb.get() {
-                    publish(m);
-                }
+            if seen < ECHO_CAP
+                && let Some(publish) = echo_cb.get()
+            {
+                publish(m);
             }
         })?;
 
@@ -1159,8 +1166,7 @@ fn a_depth_refusal_is_reported_as_dropped_not_delivered() -> hiroz::Result<()> {
     let node = ctx.create_node("depth_outcome").build()?;
 
     let outcomes: Arc<Mutex<Vec<Published>>> = Arc::new(Mutex::new(Vec::new()));
-    let publisher: Arc<OnceLock<Box<dyn Fn(RosString) -> hiroz::Result<Published> + Send + Sync>>> =
-        Arc::new(OnceLock::new());
+    let publisher: Arc<OnceLock<EchoPublisher>> = Arc::new(OnceLock::new());
 
     let p = publisher.clone();
     let o = outcomes.clone();
@@ -1168,10 +1174,10 @@ fn a_depth_refusal_is_reported_as_dropped_not_delivered() -> hiroz::Result<()> {
         .create_sub::<RosString>("depth_outcome")
         .build_with_owned_callback(move |m: RosString| {
             // Republish onto the same topic: each delivery nests one deeper.
-            if let Some(send) = p.get() {
-                if let Ok(out) = send(m) {
-                    o.lock().expect("outcome lock").push(out);
-                }
+            if let Some(send) = p.get()
+                && let Ok(out) = send(m)
+            {
+                o.lock().expect("outcome lock").push(out);
             }
         })?;
 
