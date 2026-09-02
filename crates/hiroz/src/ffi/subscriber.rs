@@ -2,14 +2,15 @@ use super::node::{CNode, get_node_ref};
 use super::qos::CQosProfile;
 use super::{ErrorCode, cstr_to_str};
 use std::ffi::c_char;
-use zenoh_ext::AdvancedSubscriber;
+
+use crate::pubsub::SubscriberHandle;
 
 /// Callback type for receiving messages
 pub type MessageCallback = extern "C" fn(user_data: usize, data: *const u8, len: usize);
 
 /// Raw subscriber wrapper that keeps the zenoh subscriber alive
 pub struct RawSubscriber {
-    pub inner: AdvancedSubscriber<()>,
+    pub inner: SubscriberHandle,
 }
 
 /// Opaque subscriber handle for FFI
