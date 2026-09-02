@@ -350,7 +350,14 @@ impl Builder for ZLifecycleNodeBuilder {
                         .lock()
                         .unwrap()
                         .trigger(t, |_| CallbackReturn::Success);
-                    let _ = te_cs.publish(&make_transition_event(t, start, goal));
+                    // publish_ref, not publish: `publish` is generic over
+                    // Publishable, so clippy's needless_borrows_for_generic_args
+                    // fires on `publish(&expr)` and suggests dropping the `&`.
+                    // There is no impl for `T`, so that suggestion no longer
+                    // compiles rather than rerouting silently — which is why the
+                    // impl was removed. Naming the wire call keeps the lint
+                    // silent and says what this line means.
+                    let _ = te_cs.publish_ref(&make_transition_event(t, start, goal));
                     true
                 } else {
                     warn!("change_state: invalid id={tid} label='{label}' from {current:?}");

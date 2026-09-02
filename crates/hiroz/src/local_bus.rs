@@ -24,7 +24,7 @@
 //! | | here | not here |
 //! |---|---|---|
 //! | audience | every same-session subscriber registered on this channel | subscribers reached only over the wire |
-//! | type check | exact [`core::any::TypeId`] | any structural or version-tolerant match |
+//! | type check | exact [`TypeId`](core::any::TypeId) | any structural or version-tolerant match |
 //! | mutability | shared `Arc<T>`, or moved to a sole receiver | a receiver mutating a payload others still hold |
 //! | choosing the path | the caller asserts the audience | inferring it |
 //!
@@ -44,7 +44,7 @@
 //! must not see each other's traffic. Both `ZPub` and `ZSub` already hold an
 //! `Arc<Session>`, so this needs no plumbing through the node tree.
 //!
-//! A publisher takes its [`crate::local_bus::Channel`] handle when it is built and never touches
+//! A publisher takes its [`Channel`](crate::local_bus::Channel) handle when it is built and never touches
 //! the registry again. Resolving per message would mean hashing a
 //! fully-qualified ROS key expression on every publish, which at small payloads
 //! is a visible share of the whole path.
@@ -205,6 +205,7 @@ pub struct Channel {
 /// so on `DepthExceeded` re-enters the same callback on a zenoh thread with a
 /// fresh depth counter and loops forever.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Delivery {
     /// Handed to this many subscribers.
     Sent(usize),
@@ -213,7 +214,6 @@ pub enum Delivery {
     /// Refused: delivery is already nested `MAX_DELIVERY_DEPTH` deep.
     DepthExceeded,
 }
-
 
 /// Which routes one publish took, and what the bus did on its route.
 ///
@@ -393,7 +393,7 @@ impl Channel {
     /// anything else is subscribed as well: with a second receiver the message
     /// cannot be given away, and silently downgrading to a shared delivery
     /// would defeat the point of having asked for ownership.
-    pub fn publish_owned<T>(&self, payload: T) -> core::result::Result<Delivery, T>
+    pub fn publish_moved<T>(&self, payload: T) -> core::result::Result<Delivery, T>
     where
         T: Any + Send + 'static,
     {
@@ -430,7 +430,7 @@ impl Channel {
 
         // Mirror the shared path: a callback that panicked delivered nothing, so
         // reporting Sent(1) would tell the caller a message landed when none did.
-        if invoke_isolated("local_bus::publish_owned", || cb(Box::new(payload))) {
+        if invoke_isolated("local_bus::publish_moved", || cb(Box::new(payload))) {
             Ok(Delivery::Sent(1))
         } else {
             Ok(Delivery::NoTaker)
@@ -600,7 +600,7 @@ pub fn subscriber_count(zid: ZenohId, topic: &str) -> usize {
 /// Register `callback` to receive messages of type `T` **by value**.
 ///
 /// It is served only when it is the sole subscriber on the channel for that
-/// type; see [`Channel::publish_owned`]. Registering one alongside a shared
+/// type; see [`Channel::publish_moved`]. Registering one alongside a shared
 /// subscriber is allowed, and simply means the owned path cannot give anything
 /// away, so the publisher falls back to the shared or wire path.
 pub fn subscribe_owned<T, F>(channel: Arc<Channel>, callback: F) -> LocalSubscription

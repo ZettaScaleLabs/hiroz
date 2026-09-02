@@ -147,7 +147,9 @@ fn intra_process_only_publisher_does_not_reach_another_context() -> hiroz::Resul
     });
     for _ in 0..5 {
         pub_local.publish_shared(msg.clone())?;
-        pub_control.publish(&msg)?;
+        // publish_ref, not publish(&msg): `msg` is an Arc, and a generic
+        // parameter does not deref-coerce the way `&T` did.
+        pub_control.publish_ref(&msg)?;
     }
 
     // The control must cross. Without it, a zero on `zc_local` would be
@@ -544,7 +546,7 @@ fn a_sole_receiver_is_given_the_message_to_own() -> hiroz::Result<()> {
         .with_intra_process_only()
         .build()?;
 
-    let took = publisher.publish_owned(RosString {
+    let took = publisher.publish_moved(RosString {
         data: "mine".to_owned(),
     })?;
     assert_eq!(
@@ -842,7 +844,7 @@ fn every_shared_subscriber_receives_the_same_allocation() -> hiroz::Result<()> {
 }
 
 /// #133 reached through the sibling method. `publish_shared` refuses a
-/// transient-local intra-process-only publisher; `publish_owned` took the bus
+/// transient-local intra-process-only publisher; `publish_moved` took the bus
 /// around that check and returned `Ok(1)`.
 #[test]
 fn transient_local_plus_intra_process_only_is_refused_for_owned_too() -> hiroz::Result<()> {
@@ -868,12 +870,12 @@ fn transient_local_plus_intra_process_only_is_refused_for_owned_too() -> hiroz::
         .build()?;
     wait_for_ready(Duration::from_millis(500));
 
-    let result = publisher.publish_owned(RosString {
+    let result = publisher.publish_moved(RosString {
         data: "durable, allegedly".to_owned(),
     });
     assert!(
         result.is_err(),
-        "publish_owned served the bus for a transient-local publisher"
+        "publish_moved served the bus for a transient-local publisher"
     );
     thread::sleep(Duration::from_millis(200));
     assert_eq!(
@@ -1000,9 +1002,9 @@ fn a_panicking_sole_subscriber_does_not_reach_the_publisher() -> hiroz::Result<(
     Ok(())
 }
 
-/// B1. `publish_owned` on a `Locality::Remote` publisher must reach the wire.
+/// B1. `publish_moved` on a `Locality::Remote` publisher must reach the wire.
 ///
-/// This is the detector that did not exist. Every other `publish_owned` test
+/// This is the detector that did not exist. Every other `publish_moved` test
 /// uses `with_intra_process_only()`, so none of them could see that the Remote
 /// arm took the bus and returned — losing the message to every off-session
 /// subscriber, silently, while `publish_shared` in the identical configuration
@@ -1010,7 +1012,7 @@ fn a_panicking_sole_subscriber_does_not_reach_the_publisher() -> hiroz::Result<(
 ///
 /// The far assertion is the point. The near one passes against the defect.
 #[test]
-fn publish_owned_on_a_remote_publisher_still_reaches_the_wire() -> hiroz::Result<()> {
+fn publish_moved_on_a_remote_publisher_still_reaches_the_wire() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx_tx = create_hiroz_context_with_router(&router)?;
     let ctx_far = create_hiroz_context_with_router(&router)?;
@@ -1039,7 +1041,7 @@ fn publish_owned_on_a_remote_publisher_still_reaches_the_wire() -> hiroz::Result
         .build()?;
     wait_for_ready(Duration::from_millis(800));
 
-    let outcome = publisher.publish_owned(RosString {
+    let outcome = publisher.publish_moved(RosString {
         data: "must reach both".to_owned(),
     })?;
 
@@ -1087,7 +1089,7 @@ fn transient_local_plus_remote_locality_is_allowed_on_the_owned_path() -> hiroz:
     // Permitted, because the wire runs and fills the cache. The companion test
     // above is what proves the wire actually runs; without it this assertion
     // would be satisfied by a publisher that silently dropped the message.
-    let outcome = publisher.publish_owned(RosString {
+    let outcome = publisher.publish_moved(RosString {
         data: "durable".to_owned(),
     })?;
     assert!(
@@ -1188,11 +1190,11 @@ fn a_depth_refusal_is_reported_as_dropped_not_delivered() -> hiroz::Result<()> {
     let pubr = Arc::new(pubr);
     let p2 = pubr.clone();
     publisher
-        .set(Box::new(move |m: RosString| p2.publish_owned(m)))
+        .set(Box::new(move |m: RosString| p2.publish_moved(m)))
         .map_err(|_| "publisher already set")
         .expect("set once");
 
-    pubr.publish_owned(RosString {
+    pubr.publish_moved(RosString {
         data: "recurse".to_owned(),
     })?;
 
@@ -1216,7 +1218,7 @@ fn a_depth_refusal_is_reported_as_dropped_not_delivered() -> hiroz::Result<()> {
     Ok(())
 }
 
-/// S9. `publish_shared` and `publish_owned` must agree about where a message
+/// S9. `publish_shared` and `publish_moved` must agree about where a message
 /// goes. They cannot, unless they read the same decision.
 ///
 /// They did not. Each tested the conditions itself, in the opposite order, so a
@@ -1240,7 +1242,7 @@ fn both_publish_methods_agree_when_the_assertions_conflict() -> hiroz::Result<()
     let shared = publisher.publish_shared(Arc::new(RosString {
         data: "shared".to_owned(),
     }))?;
-    let moved = publisher.publish_owned(RosString {
+    let moved = publisher.publish_moved(RosString {
         data: "moved".to_owned(),
     })?;
 
@@ -1254,7 +1256,7 @@ fn both_publish_methods_agree_when_the_assertions_conflict() -> hiroz::Result<()
     assert_eq!(
         moved,
         Published::Bus(Delivery::NoTaker),
-        "publish_owned disagreed with publish_shared"
+        "publish_moved disagreed with publish_shared"
     );
     Ok(())
 }
@@ -1308,11 +1310,11 @@ fn publish_shared_refuses_when_only_owned_subscribers_are_listening() -> hiroz::
     Ok(())
 }
 
-/// The same starvation reached through `publish_owned`, which is the likelier
+/// The same starvation reached through `publish_moved`, which is the likelier
 /// route to it: two owning subscribers means nothing can be given away, so it
 /// falls back to sharing — into the case above.
 #[test]
-fn publish_owned_refuses_when_two_owned_subscribers_cannot_be_served() -> hiroz::Result<()> {
+fn publish_moved_refuses_when_two_owned_subscribers_cannot_be_served() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
     let node = ctx.create_node("owned_two").build()?;
@@ -1337,7 +1339,7 @@ fn publish_owned_refuses_when_two_owned_subscribers_cannot_be_served() -> hiroz:
         .build()?;
     wait_for_ready(Duration::from_millis(300));
 
-    let outcome = publisher.publish_owned(RosString {
+    let outcome = publisher.publish_moved(RosString {
         data: "two takers, nothing to give".to_owned(),
     });
 
@@ -1464,5 +1466,64 @@ fn a_channel_no_endpoint_holds_is_reclaimed() -> hiroz::Result<()> {
         "a channel a live publisher still holds must survive a reclamation pass"
     );
     drop(held);
+    Ok(())
+}
+
+/// The headline of this PR is that `publish` dispatches on ownership, and until
+/// now nothing exercised it: every test called `publish_shared`/`publish_ref`
+/// directly, so the trait impls could regress without a single failure.
+///
+/// `&T` must take the wire and `Arc<T>` the bus, and both must report it.
+#[test]
+fn ownership_selects_the_route_through_the_generic_publish() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("dispatch").build()?;
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let _sub = node
+        .create_sub::<RosString>("dispatch_topic")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            h.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node
+        .create_pub::<RosString>("dispatch_topic")
+        .with_intra_process_only()
+        .build()?;
+    wait_for_ready(Duration::from_millis(300));
+
+    // Arc<T> -> the bus, through the trait rather than publish_shared.
+    let shared = publisher.publish(Arc::new(RosString {
+        data: "by arc".to_owned(),
+    }))?;
+    assert_eq!(
+        shared,
+        Published::Bus(Delivery::Sent(1)),
+        "an Arc argument must select the bus, got {shared:?}"
+    );
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "the bus subscriber must be served"
+    );
+
+    // &T -> the wire. On an intra-process-only publisher there is no wire, so
+    // the route is observable as the *absence* of a second bus delivery.
+    let wire_pub = node.create_pub::<RosString>("dispatch_wire").build()?;
+    let borrowed = wire_pub.publish(&RosString {
+        data: "by reference".to_owned(),
+    })?;
+    assert_eq!(
+        borrowed,
+        Published::Wire,
+        "a &T argument must select the wire, got {borrowed:?}"
+    );
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "the borrowed publish must not have reached the bus subscriber"
+    );
     Ok(())
 }
