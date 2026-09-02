@@ -302,6 +302,14 @@ fn a_pool_survives_a_subscriber_that_publishes_from_its_own_pool() -> hiroz::Res
         5,
         "the callback did not complete five re-entrant publishes"
     );
-    assert_eq!(outer.stats().exhaustions, 0);
+    // The pool both sides share: re-entering it must not have exhausted it.
+    // A slot is taken by the outer publish and again by the callback it
+    // invokes, so an exhaustion here would mean `into_shared` failed to end
+    // the borrow before the nested acquire.
+    assert_eq!(
+        inner_pool.lock().expect("pool lock").stats().exhaustions,
+        0,
+        "the re-entrant acquire exhausted the pool"
+    );
     Ok(())
 }
