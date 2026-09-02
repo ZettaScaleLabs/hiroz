@@ -317,7 +317,7 @@ impl<T, S> ZPubBuilder<T, S> {
     /// every other process, including `ros2 topic echo`, and to any local
     /// subscriber that did not register on the bus with
     /// [`ZSubBuilder::build_with_shared_callback`]. Set it only where both ends
-    /// are known. See issue circle/hiroz-bench#36.
+    /// are known.
     /// # This publisher still appears in the ROS graph
     ///
     /// The liveliness token is declared in `build()` before any locality is
@@ -722,7 +722,7 @@ where
     ///
     /// `Bus(NoTaker)` is a distinct outcome rather than a silent drop: the
     /// caller asserted there was a local audience and there was none, which is
-    /// worth acting on. See [`crate::local_bus`] and circle/hiroz-bench#36.
+    /// worth acting on. See [`crate::local_bus`].
     ///
     /// # Ordering against [`publish`](Self::publish)
     ///
@@ -786,7 +786,7 @@ where
                 }
                 // DepthExceeded is kept distinct from "nothing delivered": a
                 // caller may fall back to the wire on NoTaker and must not on
-                // DepthExceeded. See circle/hiroz-bench#36.
+                // DepthExceeded.
                 Ok(Published::Bus(d))
             }
             // Both audiences, and no subscriber is on both. TRANSIENT_LOCAL is
@@ -872,7 +872,7 @@ where
     /// `intra_process_only` publisher with no listener reports
     /// `Bus(Delivery::NoTaker)` and the message is dropped; it does **not**
     /// fall through to the wire, because such a publisher has none.
-    /// See circle/hiroz-bench#36.
+    ///
     pub fn publish_owned(&self, msg: T) -> Result<Published>
     where
         T: Send + Sync + 'static,
@@ -1230,7 +1230,7 @@ where
     /// shared or wire delivery, which this subscriber does not receive.
     ///
     /// Use it where the receiver wants to mutate or consume the message, which
-    /// the shared path cannot offer. See issue circle/hiroz-bench#36.
+    /// the shared path cannot offer.
     pub fn build_with_owned_callback<F>(self, callback: F) -> Result<ZSub<T, (), S>>
     where
         T: Send + Sync + 'static,
@@ -1241,7 +1241,7 @@ where
         // Both halves run the same callback. The wire half is not decoration:
         // without it this subscriber discards every message that does not
         // arrive by `publish_owned` on the bus — including from every remote
-        // publisher — while still advertising a live subscription. See circle/hiroz-bench#36.
+        // publisher — while still advertising a live subscription.
         //
         // It cannot deliver twice: a publisher takes the bus or the wire for
         // any one message, never both, unless its wire half is `Remote`-
@@ -1286,11 +1286,11 @@ where
     /// unless its wire half is `Locality::Remote`, in which case the two
     /// audiences are disjoint and no subscriber sees it twice. Suppressing the
     /// duplicate is the publisher's job, because it is the only side that knows
-    /// which routes it used. See circle/hiroz-bench#39.
+    /// which routes it used.
     ///
     /// The type match is exact: a publisher of a different concrete Rust type
     /// on the same topic is not delivered here, even if the ROS type name
-    /// agrees. See [`crate::local_bus`] and issue circle/hiroz-bench#36.
+    /// agrees. See [`crate::local_bus`].
     pub fn build_with_shared_callback<F>(self, callback: F) -> Result<ZSub<T, (), S>>
     where
         T: Send + Sync + 'static,
