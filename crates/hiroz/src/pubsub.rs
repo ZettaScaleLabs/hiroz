@@ -315,6 +315,22 @@ impl<T, S> ZPubBuilder<T, S> {
     /// subscriber that did not register on the bus with
     /// [`ZSubBuilder::build_with_shared_callback`]. Set it only where both ends
     /// are known. See issue circle/hiroz-bench#36.
+    /// # This publisher still appears in the ROS graph
+    ///
+    /// The liveliness token is declared in `build()` before any locality is
+    /// consulted, so a publisher that can reach nothing outside this process
+    /// still advertises itself as an ordinary ROS 2 endpoint. Every other node
+    /// counts it: `ros2 topic info -v`, `ros2 node info`, a remote subscriber's
+    /// matched-publisher event, and any `Graph::count` derived from them.
+    /// `ros2 topic echo` shows the topic and never a message.
+    ///
+    /// Suppressing the token would make the counts honest and remove the
+    /// publisher from `ros2 node info`, which is a change to graph visibility
+    /// and belongs in its own change with its own test. Until then this is a
+    /// disclosed limitation, not an oversight: a node debugging "the publisher
+    /// is there but nothing arrives" has no signal separating this from a QoS
+    /// mismatch.
+
     pub fn with_intra_process_only(mut self) -> Self {
         self.intra_process_only = true;
         self
