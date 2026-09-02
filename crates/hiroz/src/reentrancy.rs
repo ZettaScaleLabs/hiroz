@@ -87,12 +87,6 @@ pub fn live_guards() -> usize {
     }
 }
 
-/// Panics (debug only) if any tracked guard is live on this thread.
-///
-/// Call immediately before invoking user code. `site` is reproduced in the panic
-/// message — when this fires, *which* callback was about to run is the useful
-/// information, not the counter's backtrace.
-#[inline(always)]
 /// The opening words of a re-entrancy violation panic.
 ///
 /// [`local_bus::invoke_isolated`](crate::local_bus) contains subscriber panics
@@ -102,6 +96,12 @@ pub fn live_guards() -> usize {
 /// `catch_unwind`. The prefix is what lets the two be told apart.
 pub const REENTRANCY_VIOLATION: &str = "hiroz re-entrancy rule violated";
 
+/// Panics (debug only) if any tracked guard is live on this thread.
+///
+/// Call immediately before invoking user code. `site` is reproduced in the panic
+/// message — when this fires, *which* callback was about to run is the useful
+/// information, not the counter's backtrace.
+#[inline(always)]
 pub fn assert_no_guards_held(site: &str) {
     #[cfg(debug_assertions)]
     {

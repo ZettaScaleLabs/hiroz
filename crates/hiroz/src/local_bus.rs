@@ -59,7 +59,6 @@
 //! cloned out, the guard dropped, and only then are the callbacks called.
 
 use std::{
-use crate::reentrancy::REENTRANCY_VIOLATION;
     any::{Any, TypeId},
     cell::Cell,
     collections::HashMap,
@@ -68,6 +67,8 @@ use crate::reentrancy::REENTRANCY_VIOLATION;
         atomic::{AtomicU64, Ordering},
     },
 };
+
+use crate::reentrancy::REENTRANCY_VIOLATION;
 
 use arc_swap::ArcSwap;
 
@@ -88,6 +89,26 @@ use zenoh::session::ZenohId;
 /// far below the depth at which the stack is in danger. See issue circle/hiroz-bench#40.
 /// Public so a test can assert the exact bound rather than a loose ceiling:
 /// a hand-copied constant lets a change to this value slip past unnoticed.
+///
+/// # What this does not bound
+///
+/// It bounds the **stack**, on **one thread**. Two things escape it, and both
+/// are inherent rather than oversights:
+///
+/// - **A callback that spawns a thread and publishes there** starts at depth
+///   zero, because the counter is thread-local. Unbounded recursion then
+///   exhausts threads rather than the stack, and this guard never trips.
+/// - **A topic cycle across the wire is not bounded at all.** A
+///   `Locality::Remote` publisher runs both routes, so a nested delivery emits
+///   a wire message per nesting level; a peer that echoes amplifies again. That
+///   is a property of publish/subscribe — any ROS 2 node that publishes to a
+///   topic it subscribes to does the same, and no client library prevents it.
+///   Suppressing the wire half for nested deliveries was considered and
+///   rejected: a nested publish is a distinct message the callback chose to
+///   send, so dropping it would trade a loud problem for a silent one.
+///
+/// The guard exists to turn a stack overflow into a dropped message and a
+/// greppable log. It is not a cycle detector.
 pub const MAX_DELIVERY_DEPTH: u32 = 8;
 
 thread_local! {
