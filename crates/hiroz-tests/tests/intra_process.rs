@@ -21,7 +21,7 @@
 //! | `a_plain_publish_reaches_a_shared_callback_subscriber` | #39 — no silent same-session loss |
 //! | `publish_shared_without_a_locality_restriction_arrives_once` | #39 — and no duplicate either |
 //! | `a_self_publishing_callback_does_not_recurse_without_bound` | #40 — a cycle is refused, not fatal |
-//! | `a_publisher_asks_the_graph_instead_of_being_told` | #36 — no drop when nobody is on the bus |
+//! | `a_plain_publisher_takes_the_wire_for_an_ordinary_subscriber` | #36 — no drop when nobody is on the bus |
 //! | `the_wire_is_used_when_a_subscriber_is_off_session` | #36 — and the bus is not, so no duplicate |
 //! | `a_sole_receiver_is_given_the_message_to_own` | #36 — the move, not a shared Arc |
 

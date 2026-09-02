@@ -140,8 +140,9 @@ pub struct ZPub<T: ZMessage, S: ZSerializer> {
     /// See [`crate::local_bus`].
     local_channel: Arc<crate::local_bus::Channel>,
     /// When set, `publish_shared` delivers only to same-session subscribers and
-    /// never touches zenoh. Prototype stand-in for asking the graph whether any
-    /// remote subscriber exists.
+    /// never touches zenoh. The caller's assertion that this publisher has no
+    /// off-session audience — not inferred, because the graph cannot see a
+    /// plain zenoh subscriber.
     intra_process_only: bool,
     /// The locality restriction applied to this publisher's wire half, if any.
     ///
@@ -308,9 +309,11 @@ impl<T, S> ZPubBuilder<T, S> {
     ///
     /// # Why the flag exists, and why it should not
     ///
-    /// The real rule is "use the wire only while a remote subscriber exists",
-    /// which a production version reads off the graph per message. This
-    /// prototype is *told* instead. A publisher with this set is invisible to
+    /// The caller asserts the audience; it is not inferred. Reading it off the
+/// ROS graph was tried and withdrawn: a plain zenoh subscriber declares no
+/// liveliness token, so the graph cannot see it, and a publisher that
+/// concluded "everyone is local" from the graph dropped that subscriber's
+/// messages with nothing reporting the loss.
     /// every other process, including `ros2 topic echo`, and to any local
     /// subscriber that did not register on the bus with
     /// [`ZSubBuilder::build_with_shared_callback`]. Set it only where both ends
@@ -1246,6 +1249,16 @@ where
         let callback = Arc::new(callback);
         let wire_half = callback.clone();
         let mut sub = self.build_with_callback(move |m: T| wire_half(m))?;
+        // A `Locality::Remote` subscriber has asked not to see same-session
+        // traffic, and the bus is same-session by definition. Registering it
+        // here would deliver exactly what its own `allowed_origin` filter
+        // excludes — the wire half honours the restriction while the bus half
+        // silently ignored it. Skip the bus registration; the wire half keeps
+        // serving the remote traffic this subscriber asked for.
+        if self.locality == Some(zenoh::sample::Locality::Remote) {
+            return Ok(sub);
+        }
+
         let topic = sub.entity.topic.clone();
         let channel = crate::local_bus::channel(zid, &topic);
         sub._local_sub = Some(crate::local_bus::subscribe_owned::<T, _>(
@@ -1291,6 +1304,16 @@ where
         // build_with_callback qualified the topic, so read it back rather than
         // re-deriving it — the publisher keys the bus on its own qualified topic
         // and the two must agree exactly.
+        // A `Locality::Remote` subscriber has asked not to see same-session
+        // traffic, and the bus is same-session by definition. Registering it
+        // here would deliver exactly what its own `allowed_origin` filter
+        // excludes — the wire half honours the restriction while the bus half
+        // silently ignored it. Skip the bus registration; the wire half keeps
+        // serving the remote traffic this subscriber asked for.
+        if self.locality == Some(zenoh::sample::Locality::Remote) {
+            return Ok(sub);
+        }
+
         let topic = sub.entity.topic.clone();
         let channel = crate::local_bus::channel(zid, &topic);
         sub._local_sub = Some(crate::local_bus::subscribe::<T, _>(

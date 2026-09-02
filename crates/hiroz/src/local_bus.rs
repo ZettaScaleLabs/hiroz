@@ -70,7 +70,7 @@ use std::{
 
 // Only the debug-only re-raise below reads this, so the import is gated too.
 #[cfg(debug_assertions)]
-use crate::reentrancy::REENTRANCY_VIOLATION;
+use crate::reentrancy::ReentrancyViolation;
 
 use arc_swap::ArcSwap;
 
@@ -264,10 +264,10 @@ fn invoke_isolated(site: &'static str, f: impl FnOnce()) -> bool {
             // lock was held" is silently downgraded to a log line in exactly
             // the case the bus makes most reachable: a callback that publishes.
             #[cfg(debug_assertions)]
-            if _payload
-                .downcast_ref::<String>()
-                .is_some_and(|m| m.starts_with(REENTRANCY_VIOLATION))
-            {
+            // A type, not a message prefix: a subscriber can panic with any
+            // string it likes, so matching text would let user code force a
+            // re-raise and defeat the isolation this function provides.
+            if _payload.downcast_ref::<ReentrancyViolation>().is_some() {
                 std::panic::resume_unwind(_payload);
             }
             tracing::error!(
@@ -372,7 +372,16 @@ impl Channel {
                 }
                 // The count is subscribers that returned normally, not
                 // subscribers invoked. A panicking one is logged above.
-                Delivery::Sent(count)
+                //
+                // Zero is NoTaker, never Sent(0): the sole-subscriber arm above
+                // already reports NoTaker for the same outcome, and two spellings
+                // of "nothing was delivered" mean a caller that branches on
+                // NoTaker silently misses one of them.
+                if count == 0 {
+                    Delivery::NoTaker
+                } else {
+                    Delivery::Sent(count)
+                }
             }
         }
     }
@@ -420,8 +429,13 @@ impl Channel {
         DELIVERY_DEPTH.with(|d| d.set(depth + 1));
         let _depth_guard = DepthGuard;
 
-        invoke_isolated("local_bus::publish_owned", || cb(Box::new(payload)));
-        Ok(Delivery::Sent(1))
+        // Mirror the shared path: a callback that panicked delivered nothing, so
+        // reporting Sent(1) would tell the caller a message landed when none did.
+        if invoke_isolated("local_bus::publish_owned", || cb(Box::new(payload))) {
+            Ok(Delivery::Sent(1))
+        } else {
+            Ok(Delivery::NoTaker)
+        }
     }
 
     /// How many subscribers this channel has, regardless of type. Diagnostics
@@ -485,9 +499,13 @@ pub fn channel(zid: ZenohId, topic: &str) -> Arc<Channel> {
     // `ZContext` — `channel()` runs in *every* `ZPubBuilder::build()`, so a
     // process that publishes on dynamically-named topics accumulates an entry
     // per topic, for its lifetime, even after every publisher is dropped.
-    if let Some(topics) = bus.get_mut(&zid) {
+    // Sweep every session, not just this one. Scoping it to `zid` left each
+    // retired session holding its final channel for the process lifetime, which
+    // is the session-churn half of the leak rather than a fix for it.
+    bus.retain(|_, topics| {
         topics.retain(|_, ch| Arc::strong_count(ch) > 1 || !ch.entries.load().is_empty());
-    }
+        !topics.is_empty()
+    });
 
     bus.entry(zid)
         .or_default()
