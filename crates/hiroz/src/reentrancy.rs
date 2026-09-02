@@ -87,14 +87,31 @@ pub fn live_guards() -> usize {
     }
 }
 
-/// The opening words of a re-entrancy violation panic.
+/// The payload of a re-entrancy violation panic.
 ///
-/// [`local_bus::invoke_isolated`](crate::local_bus) contains subscriber panics
-/// so one bad callback cannot censor its siblings. That containment must not
-/// swallow *this* panic: it is the crate reporting its own contract violation,
-/// not a user fault, and a nested delivery raises it from inside that
-/// `catch_unwind`. The prefix is what lets the two be told apart.
-pub const REENTRANCY_VIOLATION: &str = "hiroz re-entrancy rule violated";
+/// [`local_bus`](crate::local_bus) contains subscriber panics so one bad
+/// callback cannot censor its siblings. That containment must not swallow
+/// *this* panic: it is the crate reporting its own contract violation, and a
+/// nested delivery raises it from inside that `catch_unwind`.
+///
+/// It is a type rather than a message prefix because the alternative is
+/// forgeable: a subscriber that panicked with a `String` beginning with the
+/// prefix would be re-raised as though it were a violation, breaking the very
+/// isolation guarantee the containment exists to provide. The private field
+/// means no code outside this crate can construct one.
+#[derive(Debug)]
+pub struct ReentrancyViolation {
+    /// The operator-facing description.
+    pub message: String,
+    _private: (),
+}
+
+impl std::fmt::Display for ReentrancyViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
 
 /// Panics (debug only) if any tracked guard is live on this thread.
 ///
@@ -106,15 +123,18 @@ pub fn assert_no_guards_held(site: &str) {
     #[cfg(debug_assertions)]
     {
         let live = live_guards();
-        assert!(
-            live == 0,
-            "{} at `{site}`: about to invoke a user \
-             callback with {live} lock guard(s) live on this thread. A callback \
-             that re-enters hiroz will deadlock if it touches a lock this thread \
-             holds. Fix: collect what you need into an owned value, drop every \
-             guard, then invoke the callback.",
-            REENTRANCY_VIOLATION,
-        );
+        if live != 0 {
+            std::panic::panic_any(ReentrancyViolation {
+                message: format!(
+                    "hiroz re-entrancy rule violated at `{site}`: about to invoke a user \
+                     callback with {live} lock guard(s) live on this thread. A callback \
+                     that re-enters hiroz will deadlock if it touches a lock this thread \
+                     holds. Fix: collect what you need into an owned value, drop every \
+                     guard, then invoke the callback."
+                ),
+                _private: (),
+            });
+        }
     }
     #[cfg(not(debug_assertions))]
     let _ = site;
