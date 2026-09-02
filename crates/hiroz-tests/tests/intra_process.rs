@@ -1190,12 +1190,16 @@ fn a_depth_refusal_is_reported_as_dropped_not_delivered() -> hiroz::Result<()> {
             .any(|o| matches!(o, Published::Bus(Delivery::DepthExceeded))),
         "the depth refusal was never reported; outcomes were {seen:?}"
     );
+    // A plain global bound, not a per-element predicate. The previous form put
+    // the loop-invariant `seen.len()` inside `any(..)`, where the guard's own
+    // bound made it false for every element — so the assertion was `!false` for
+    // all inputs and could never fail. Without this, "refused once at depth 8"
+    // and "refused once at depth 800" are indistinguishable.
     assert!(
-        !seen
-            .iter()
-            .any(|o| matches!(o, Published::Bus(Delivery::Sent(_)))
-                && seen.len() > hiroz::local_bus::MAX_DELIVERY_DEPTH as usize + 2),
-        "more deliveries than the depth bound allows"
+        seen.len() <= hiroz::local_bus::MAX_DELIVERY_DEPTH as usize + 2,
+        "delivery went {} deep; the depth bound is {}",
+        seen.len(),
+        hiroz::local_bus::MAX_DELIVERY_DEPTH
     );
     Ok(())
 }
@@ -1239,6 +1243,142 @@ fn both_publish_methods_agree_when_the_assertions_conflict() -> hiroz::Result<()
         moved,
         Published::Bus(Delivery::NoTaker),
         "publish_owned disagreed with publish_shared"
+    );
+    Ok(())
+}
+
+/// An owned subscriber must not be starved in silence.
+///
+/// `Channel::publish` filters on `is_shared()`, so an owned subscriber is
+/// invisible to the shared path — and an `intra_process_only` publisher has no
+/// wire behind the bus. Before this, the message vanished and the caller was
+/// told `Ok(Bus(NoTaker))`: a registered receiver of the right type existed and
+/// got nothing, with one `debug!` line as the only trace.
+///
+/// It cannot be repaired by serving a clone, because `ZMessage` is not `Clone`.
+/// So the publisher refuses instead, the way `refuse_durable_bus` refuses a
+/// durable publisher rather than quietly violating its contract.
+#[test]
+fn publish_shared_refuses_when_only_owned_subscribers_are_listening() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("owned_starve").build()?;
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let _sub = node
+        .create_sub::<RosString>("owned_starve")
+        .build_with_owned_callback(move |_m: RosString| {
+            h.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node
+        .create_pub::<RosString>("owned_starve")
+        .with_intra_process_only()
+        .build()?;
+    wait_for_ready(Duration::from_millis(300));
+
+    let outcome = publisher.publish_shared(Arc::new(RosString {
+        data: "nobody shared is listening".to_owned(),
+    }));
+
+    assert!(
+        outcome.is_err(),
+        "an owned subscriber was registered and could not be served, and there is \
+         no wire: this must refuse, not report success. Got {outcome:?}"
+    );
+    // The control: it really was unserviceable, not merely refused.
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        0,
+        "the owned subscriber cannot be served by a shared publish"
+    );
+    Ok(())
+}
+
+/// The same starvation reached through `publish_owned`, which is the likelier
+/// route to it: two owning subscribers means nothing can be given away, so it
+/// falls back to sharing — into the case above.
+#[test]
+fn publish_owned_refuses_when_two_owned_subscribers_cannot_be_served() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("owned_two").build()?;
+
+    let a = Arc::new(AtomicUsize::new(0));
+    let b = Arc::new(AtomicUsize::new(0));
+    let (ca, cb) = (a.clone(), b.clone());
+    let _s1 = node
+        .create_sub::<RosString>("owned_two")
+        .build_with_owned_callback(move |_m: RosString| {
+            ca.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let _s2 = node
+        .create_sub::<RosString>("owned_two")
+        .build_with_owned_callback(move |_m: RosString| {
+            cb.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node
+        .create_pub::<RosString>("owned_two")
+        .with_intra_process_only()
+        .build()?;
+    wait_for_ready(Duration::from_millis(300));
+
+    let outcome = publisher.publish_owned(RosString {
+        data: "two takers, nothing to give".to_owned(),
+    });
+
+    assert!(
+        outcome.is_err(),
+        "two owning subscribers cannot both be given the value, and neither can be \
+         served by the shared fallback: this must refuse. Got {outcome:?}"
+    );
+    assert_eq!(
+        (a.load(Ordering::SeqCst), b.load(Ordering::SeqCst)),
+        (0, 0),
+        "neither owned subscriber is serviceable here"
+    );
+    Ok(())
+}
+
+/// Reordering `publish_shared`'s `BusAndWire` arm to publish on the wire first
+/// must not stop it serving the bus. The ordering itself exists so that a wire
+/// failure returns `Err` before any local subscriber has run — otherwise a
+/// caller that retries delivers twice locally, and `Result<Published>` has no
+/// partial-success value with which to warn them.
+#[test]
+fn a_remote_publisher_serves_the_bus_after_the_wire() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("order_near").build()?;
+
+    let near = Arc::new(AtomicUsize::new(0));
+    let n = near.clone();
+    let _sub = node
+        .create_sub::<RosString>("order_topic")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            n.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node
+        .create_pub::<RosString>("order_topic")
+        .with_locality(zenoh::sample::Locality::Remote)
+        .build()?;
+    wait_for_ready(Duration::from_millis(300));
+
+    let outcome = publisher.publish_shared(Arc::new(RosString {
+        data: "both routes".to_owned(),
+    }))?;
+
+    assert!(
+        matches!(outcome, Published::BusAndWire(Delivery::Sent(1))),
+        "the bus half must still run, and after the wire. Got {outcome:?}"
+    );
+    assert_eq!(
+        near.load(Ordering::SeqCst),
+        1,
+        "the same-session subscriber must still be served exactly once"
     );
     Ok(())
 }

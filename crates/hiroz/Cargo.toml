@@ -76,11 +76,6 @@ prost-build = { workspace = true, optional = true }
 
 [features]
 default = ["config-builders", "jazzy", "rmw-zenoh"]
-# Exposes ZBuf::as_mut_slice, so a caller can reuse one payload buffer across
-# sends instead of allocating per send. OFF by default and NOT usable from
-# crates.io: it needs ZSlice::as_mut_slice, which is not in any released
-# zenoh-buffers. A workspace that enables it must supply its own
-# [patch.crates-io] for zenoh-buffers. No hiroz code path requires it.
 config-builders = []
 generate-configs = []
 protobuf = ["prost", "prost-build"]

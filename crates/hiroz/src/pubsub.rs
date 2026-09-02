@@ -744,6 +744,23 @@ where
                 }
                 let d = self.local_channel.publish(msg);
                 if d == Delivery::NoTaker {
+                    // Distinguish "nobody is listening" from "somebody is
+                    // listening whom this path cannot serve". The shared path
+                    // filters on is_shared(), so an owned subscriber is skipped
+                    // — and this publisher has no wire to catch the message.
+                    // Reporting Ok here loses it silently.
+                    let owned = self.local_channel.owned_receivers::<T>();
+                    if owned > 0 {
+                        return Err(format!(
+                            "publish_shared on an intra-process-only publisher for {}: \
+                             {owned} subscriber(s) on this topic take the message by value, \
+                             and a shared publish cannot serve them. The message would be \
+                             dropped with no wire behind it. Use publish_owned(), or build \
+                             the subscriber with build_with_shared_callback().",
+                            self.entity.topic
+                        )
+                        .into());
+                    }
                     debug!(
                         "[PUB] intra-process only, no local subscriber on {}: message dropped",
                         self.entity.topic
@@ -757,9 +774,13 @@ where
             // Both audiences, and no subscriber is on both. TRANSIENT_LOCAL is
             // safe here: the wire publish populates the cache as it always did.
             Route::BusAndWire => {
-                let d = self.local_channel.publish(msg.clone());
+                // Wire first, matching publish_owned. Bus delivery is
+                // synchronous, so running it first and then failing on the wire
+                // returns Err *after* every local subscriber has already been
+                // called — and Result<Published> has no partial-success value
+                // to say so. A caller that retries then delivers twice locally.
                 self.publish(&msg)?;
-                Ok(Published::BusAndWire(d))
+                Ok(Published::BusAndWire(self.local_channel.publish(msg)))
             }
             Route::WireOnly => {
                 self.publish(&msg)?;
@@ -768,25 +789,6 @@ where
         }
     }
 
-    /// Publish `msg` by value, giving it away when exactly one receiver wants it.
-    ///
-    /// Where [`publish_shared`](Self::publish_shared) hands every receiver the
-    /// same read-only `Arc`, this hands a sole owning subscriber the value
-    /// itself — free to mutate it, consume it, or put it back in a pool. It is
-    /// the move rclcpp performs when a topic has exactly one taker.
-    ///
-    /// Falls back, in order: to the bus as a shared `Arc` if the audience is
-    /// entirely local, then to the wire. The message is never dropped by the
-    /// fallback, only by an `intra_process_only` publisher with no listener.
-    ///
-    /// Returns how many receivers took it on the bus; `0` means it went to the
-    /// wire. See issue circle/hiroz-bench#36.
-    /// Refuse a durable publisher the bus, which has no durability cache.
-    ///
-    /// This lives in one place because it must guard **every** route onto the
-    /// bus. It was originally written inline in `publish_shared`, and
-    /// `publish_owned` reached the bus around it — the same violation, through
-    /// the sibling method. See #133.
     /// Which routes this publisher's messages take.
     ///
     /// Resolved in one place because it is asserted by the caller and read by
@@ -809,6 +811,12 @@ where
         }
     }
 
+    /// Refuse a durable publisher the bus, which has no durability cache.
+    ///
+    /// This lives in one place because it must guard **every** route onto the
+    /// bus. It was originally written inline in `publish_shared`, and
+    /// `publish_owned` reached the bus around it — the same violation, through
+    /// the sibling method. See #133.
     fn refuse_durable_bus(&self) -> Option<zenoh::Error> {
         if !self.intra_process_only {
             // A `Locality::Remote` publisher still puts every message on the
@@ -830,6 +838,23 @@ where
         )
     }
 
+    /// Publish `msg` by value, giving it away when exactly one receiver wants it.
+    ///
+    /// Where [`publish_shared`](Self::publish_shared) hands every receiver the
+    /// same read-only `Arc`, this hands a sole owning subscriber the value
+    /// itself — free to mutate it, consume it, or put it back in a pool. It is
+    /// the move rclcpp performs when a topic has exactly one taker.
+    ///
+    /// The route is the same one [`publish_shared`](Self::publish_shared)
+    /// documents, resolved from what the caller asserted. Within a bus route,
+    /// a sole owning subscriber is given the value; with more than one taker
+    /// there is nothing to give away, so it is shared instead.
+    ///
+    /// Returns a [`Published`] saying which routes ran — not a count. An
+    /// `intra_process_only` publisher with no listener reports
+    /// `Bus(Delivery::NoTaker)` and the message is dropped; it does **not**
+    /// fall through to the wire, because such a publisher has none.
+    /// See circle/hiroz-bench#36.
     pub fn publish_owned(&self, msg: T) -> Result<Published>
     where
         T: Send + Sync + 'static,
@@ -856,7 +881,9 @@ where
                 }
                 match self.local_channel.publish_owned(msg) {
                     Ok(d) => Ok(Published::Bus(d)),
-                    // Handed back untouched: no sole owning receiver. Share it.
+                    // Handed back untouched: not exactly one owning receiver.
+                    // Share it instead — publish_shared refuses rather than
+                    // dropping if the only subscribers are owned ones.
                     Err(returned) => self.publish_shared(Arc::new(returned)),
                 }
             }

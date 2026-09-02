@@ -50,7 +50,6 @@ impl ZBuf {
     pub fn from_zenoh(zbuf: ZenohZBuf) -> Self {
         Self(zbuf)
     }
-
 }
 
 // Conversions

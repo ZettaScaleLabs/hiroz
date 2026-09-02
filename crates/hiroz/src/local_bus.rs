@@ -250,6 +250,29 @@ impl Channel {
     /// commonly publishes — that is exactly what the pong side of a ping/pong
     /// does — and re-entering under its own read guard is the deadlock this
     /// workspace has already fixed three times elsewhere.
+    /// How many subscribers of `T` on this channel want the message **by value**.
+    ///
+    /// A publisher needs this to tell apart two outcomes that both surface as
+    /// [`Delivery::NoTaker`]: nobody is listening, and somebody is listening
+    /// whom the shared path structurally cannot serve. [`Channel::publish`]
+    /// filters on `is_shared`, so an owned subscriber is invisible to it — and
+    /// an `intra_process_only` publisher has no wire behind the bus to catch the
+    /// message. Without this, that difference is a silent drop reported as success.
+    ///
+    /// It cannot be repaired by handing them a clone: `ZMessage` is
+    /// `Send + Sync + Sized`, not `Clone`.
+    pub fn owned_receivers<T>(&self) -> usize
+    where
+        T: Any + 'static,
+    {
+        let wanted = TypeId::of::<T>();
+        self.entries
+            .load()
+            .iter()
+            .filter(|e| e.type_id == wanted && !e.is_shared())
+            .count()
+    }
+
     pub fn publish<T>(&self, payload: Arc<T>) -> Delivery
     where
         T: Any + Send + Sync + 'static,
