@@ -279,9 +279,10 @@ pub extern "C" fn rmw_create_publisher(
                 continue;
             };
 
-            // Only check QoS compatibility with entities from the same Zenoh session
-            // This avoids counting subscriptions from previous test cases that used different sessions
-            if node.z_id != local_zid {
+            // DDS-style QoS-incompatibility checking is for remote peers --
+            // skip only this session's own entities. The old `!=` guard had
+            // this backwards: same-session only, never remote.
+            if node.z_id == local_zid {
                 continue;
             }
 
@@ -665,9 +666,10 @@ pub extern "C" fn rmw_create_subscription(
                 continue;
             };
 
-            // Only check QoS compatibility with entities from the same Zenoh session
-            // This avoids counting publishers from previous test cases that used different sessions
-            if node.z_id != local_zid {
+            // DDS-style QoS-incompatibility checking is for remote peers --
+            // skip only this session's own entities. The old `!=` guard had
+            // this backwards: same-session only, never remote.
+            if node.z_id == local_zid {
                 continue;
             }
 
