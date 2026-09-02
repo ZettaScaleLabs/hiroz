@@ -45,13 +45,16 @@ const MESSAGES: usize = 5;
 /// mistaken for a blocked one.
 const DELIVERY_DEADLINE: Duration = Duration::from_secs(5);
 
+/// A string subscriber, spelled once so the signature below stays readable.
+///
+/// `ZSub` carries a serializer parameter, so writing the full type at the
+/// return position is what trips `clippy::type_complexity`.
+type StringSub = hiroz::pubsub::ZSub<RosString, (), hiroz::msg::NativeCdrSerdes<RosString>>;
+
 fn counting_sub(
     node: &hiroz::node::ZNode,
     topic: &str,
-) -> hiroz::Result<(
-    hiroz::pubsub::ZSub<RosString, (), hiroz::msg::NativeCdrSerdes<RosString>>,
-    Arc<AtomicUsize>,
-)> {
+) -> hiroz::Result<(StringSub, Arc<AtomicUsize>)> {
     let count = Arc::new(AtomicUsize::new(0));
     let c = count.clone();
     let sub = node
