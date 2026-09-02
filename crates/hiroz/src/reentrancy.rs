@@ -100,10 +100,10 @@ pub fn live_guards() -> usize {
 /// isolation guarantee the containment exists to provide. The private field
 /// means no code outside this crate can construct one.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct ReentrancyViolation {
     /// The operator-facing description.
     pub message: String,
-    _private: (),
 }
 
 impl std::fmt::Display for ReentrancyViolation {
@@ -132,7 +132,6 @@ pub fn assert_no_guards_held(site: &str) {
                      holds. Fix: collect what you need into an owned value, drop every \
                      guard, then invoke the callback."
                 ),
-                _private: (),
             });
         }
     }
