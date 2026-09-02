@@ -887,6 +887,7 @@ fn transient_local_plus_intra_process_only_is_refused_for_owned_too() -> hiroz::
 /// The wire path gives this isolation for free — one panicking callback kills
 /// one zenoh task. This test exists so the bus does not regress against it.
 #[test]
+#[serial_test::serial(panic_hook)]
 fn a_panicking_subscriber_does_not_stop_delivery_to_the_others() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
@@ -958,6 +959,7 @@ fn a_panicking_subscriber_does_not_stop_delivery_to_the_others() -> hiroz::Resul
 /// from the fan-out branch, and a panic there has nowhere else to go: it would
 /// unwind straight out of `publish_shared` into the caller.
 #[test]
+#[serial_test::serial(panic_hook)]
 fn a_panicking_sole_subscriber_does_not_reach_the_publisher() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
@@ -1346,43 +1348,66 @@ fn publish_owned_refuses_when_two_owned_subscribers_cannot_be_served() -> hiroz:
     Ok(())
 }
 
-/// Reordering `publish_shared`'s `BusAndWire` arm to publish on the wire first
-/// must not stop it serving the bus. The ordering itself exists so that a wire
-/// failure returns `Err` before any local subscriber has run — otherwise a
-/// caller that retries delivers twice locally, and `Result<Published>` has no
-/// partial-success value with which to warn them.
+/// A wire failure must return **before** any local subscriber has run.
+///
+/// The previous version of this test published successfully and asserted both
+/// routes ran. That passes equally well with the bus first, so it did not
+/// protect the property it was named for. The property is only observable in
+/// the failure case: bus delivery is synchronous, so if the bus ran first, a
+/// caller that retries after an `Err` delivers to every local subscriber twice
+/// — and `Result<Published>` has no partial-success value to warn them.
+///
+/// The session is closed to make the wire fail deterministically.
 #[test]
-fn a_remote_publisher_serves_the_bus_after_the_wire() -> hiroz::Result<()> {
+fn a_wire_failure_returns_before_any_local_subscriber_runs() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
-    let node = ctx.create_node("order_near").build()?;
+    let node = ctx.create_node("order_fail").build()?;
 
     let near = Arc::new(AtomicUsize::new(0));
     let n = near.clone();
     let _sub = node
-        .create_sub::<RosString>("order_topic")
+        .create_sub::<RosString>("order_fail_topic")
         .build_with_shared_callback(move |_m: Arc<RosString>| {
             n.fetch_add(1, Ordering::SeqCst);
         })?;
 
     let publisher = node
-        .create_pub::<RosString>("order_topic")
+        .create_pub::<RosString>("order_fail_topic")
         .with_locality(zenoh::sample::Locality::Remote)
         .build()?;
     wait_for_ready(Duration::from_millis(300));
 
-    let outcome = publisher.publish_shared(Arc::new(RosString {
-        data: "both routes".to_owned(),
+    // The control: while the session is alive, both routes run. Without this a
+    // broken setup would satisfy the assertion below for the wrong reason.
+    let ok = publisher.publish_shared(Arc::new(RosString {
+        data: "healthy".to_owned(),
     }))?;
-
     assert!(
-        matches!(outcome, Published::BusAndWire(Delivery::Sent(1))),
-        "the bus half must still run, and after the wire. Got {outcome:?}"
+        matches!(ok, Published::BusAndWire(Delivery::Sent(1))),
+        "control: a healthy publish must run both routes, got {ok:?}"
     );
     assert_eq!(
         near.load(Ordering::SeqCst),
         1,
-        "the same-session subscriber must still be served exactly once"
+        "control: the bus must deliver"
+    );
+
+    ctx.shutdown()?;
+    let after_control = near.load(Ordering::SeqCst);
+
+    let failed = publisher.publish_shared(Arc::new(RosString {
+        data: "the wire is gone".to_owned(),
+    }));
+    assert!(
+        failed.is_err(),
+        "the session is closed, so the wire half must fail; got {failed:?}"
+    );
+    assert_eq!(
+        near.load(Ordering::SeqCst),
+        after_control,
+        "the wire failed, so no local subscriber may have run. Running the bus \
+         first and failing afterwards leaves the caller unable to retry safely."
     );
     Ok(())
 }
@@ -1397,11 +1422,14 @@ fn a_remote_publisher_serves_the_bus_after_the_wire() -> hiroz::Result<()> {
 /// proves no `ZPub` or `ZSub` can still reach the channel, so a later builder
 /// cannot be split from a live endpoint.
 #[test]
+#[serial_test::serial(registry)]
 fn a_channel_no_endpoint_holds_is_reclaimed() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
     let node = ctx.create_node("reclaim").build()?;
 
+    // Serialised: total_channels() is process-global and sibling tests create
+    // channels of their own, so an unsynchronised delta is not attributable.
     let before = hiroz::local_bus::total_channels();
     for i in 0..24 {
         let p = node
@@ -1410,11 +1438,13 @@ fn a_channel_no_endpoint_holds_is_reclaimed() -> hiroz::Result<()> {
         drop(p);
     }
     let after_ephemeral = hiroz::local_bus::total_channels();
+    // saturating: reclamation triggered by another test can legitimately make
+    // the total fall, and an unsigned underflow would panic on a healthy run.
     assert!(
-        after_ephemeral - before <= 4,
+        after_ephemeral.saturating_sub(before) <= 4,
         "24 publishers were created and dropped; the registry grew by {} channels. \
          It should reclaim the ones no endpoint holds.",
-        after_ephemeral - before
+        after_ephemeral.saturating_sub(before)
     );
 
     // The control. Without it this test passes equally well against a registry
