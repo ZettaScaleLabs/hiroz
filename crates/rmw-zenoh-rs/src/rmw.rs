@@ -542,36 +542,15 @@ pub extern "C" fn rmw_create_subscription(
 
     let zsub_builder = zsub_builder.with_type_info(ts.get_type_info()); // Set type_info BEFORE build() so liveliness token has correct type
 
-    // Create shared callback and user_data holders that will be populated after SubscriptionImpl is created
-    let callback_holder: std::sync::Arc<
-        std::sync::Mutex<crate::ros::rmw_subscription_new_message_callback_t>,
-    > = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let user_data_holder = std::sync::Arc::new(std::sync::Mutex::new(0usize)); // Store pointer as usize for thread safety
-    let unread_count_holder = std::sync::Arc::new(std::sync::Mutex::new(0usize)); // Track unread messages
+    // Executor-notification slot, populated after SubscriptionImpl is created.
+    let exec_callback = crate::exec_callback::ExecCallback::new("subscription");
 
     // Create notification callback that will wake up wait sets and invoke user callback
     let notifier_clone = notifier.clone();
-    let callback_holder_clone = callback_holder.clone();
-    let user_data_holder_clone = user_data_holder.clone();
-    let unread_count_clone = unread_count_holder.clone();
+    let exec_callback_clone = exec_callback.clone();
     let notify_callback = move || {
         notifier_clone.notify_all();
-        // Invoke the user callback if set, otherwise increment unread count
-        if let Ok(cb) = callback_holder_clone.lock() {
-            if let Some(callback_fn) = *cb {
-                if let Ok(user_data_usize) = user_data_holder_clone.lock() {
-                    unsafe {
-                        let user_data_ptr = *user_data_usize as *const std::ffi::c_void;
-                        callback_fn(user_data_ptr, 1); // 1 new message
-                    }
-                }
-            } else {
-                // No callback set, increment unread count
-                if let Ok(mut unread) = unread_count_clone.lock() {
-                    *unread += 1;
-                }
-            }
-        }
+        exec_callback_clone.notify_one();
     };
 
     let zsub = match zsub_builder.build_with_notifier(notify_callback) {
@@ -716,9 +695,7 @@ pub extern "C" fn rmw_create_subscription(
         topic: topic_cstr.clone(),
         options: unsafe { *subscription_options },
         qos: crate::qos::normalize_rmw_qos(unsafe { &*qos_policies }),
-        callback: callback_holder,
-        callback_user_data: user_data_holder,
-        unread_count: unread_count_holder,
+        exec_callback,
         graph: graph.clone(),
         entity: entity.clone(),
         notifier,
@@ -1044,11 +1021,8 @@ pub extern "C" fn rmw_create_client(
         .with_qos(qos);
     let entity = zclient_builder.entity().clone();
 
-    // Create shared callback and user_data holders
-    let callback_holder: std::sync::Arc<
-        std::sync::Mutex<crate::ros::rmw_client_new_response_callback_t>,
-    > = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let user_data_holder = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+    // Executor-notification slot, shared with every per-request notifier.
+    let exec_callback = crate::exec_callback::ExecCallback::new("client");
 
     // Build the client (notification callback will be set per-request in send_request)
     let zclient = match zclient_builder.build() {
@@ -1072,10 +1046,8 @@ pub extern "C" fn rmw_create_client(
         },
         request_ts: service_type_support,
         response_ts: service_type_support,
-        callback: callback_holder,
-        callback_user_data: user_data_holder,
+        exec_callback,
         notifier,
-        unread_count: std::sync::Arc::new(std::sync::Mutex::new(0)),
         graph: node_impl.inner.graph().clone(),
         entity: entity.clone(),
     };
@@ -1240,36 +1212,15 @@ pub extern "C" fn rmw_create_service(
         .with_qos(qos);
     let entity = zserver_builder.entity().clone();
 
-    // Create shared callback and user_data holders that will be populated after ServiceImpl is created
-    let callback_holder: std::sync::Arc<
-        std::sync::Mutex<crate::ros::rmw_service_new_request_callback_t>,
-    > = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let user_data_holder = std::sync::Arc::new(std::sync::Mutex::new(0usize)); // Store pointer as usize for thread safety
-    let unread_count_holder = std::sync::Arc::new(std::sync::Mutex::new(0usize)); // Track unread requests
+    // Executor-notification slot, populated after ServiceImpl is created.
+    let exec_callback = crate::exec_callback::ExecCallback::new("service");
 
     // Create notification callback that will wake up wait sets and invoke user callback
     let notifier_clone = notifier.clone();
-    let callback_holder_clone = callback_holder.clone();
-    let user_data_holder_clone = user_data_holder.clone();
-    let unread_count_clone = unread_count_holder.clone();
+    let exec_callback_clone = exec_callback.clone();
     let notify_callback = move || {
         notifier_clone.notify_all();
-        // Invoke user callback if set, otherwise increment unread count
-        if let Ok(cb) = callback_holder_clone.lock() {
-            if let Some(callback_fn) = *cb {
-                if let Ok(user_data_usize) = user_data_holder_clone.lock() {
-                    unsafe {
-                        let user_data_ptr = *user_data_usize as *const std::ffi::c_void;
-                        callback_fn(user_data_ptr, 1); // 1 new request
-                    }
-                }
-            } else {
-                // No callback set, increment unread count
-                if let Ok(mut unread) = unread_count_clone.lock() {
-                    *unread += 1;
-                }
-            }
-        }
+        exec_callback_clone.notify_one();
     };
 
     let zserver = match zserver_builder.build_with_notifier(notify_callback) {
@@ -1292,9 +1243,7 @@ pub extern "C" fn rmw_create_service(
         request_ts: service_type_support,
         response_ts: service_type_support,
         qos: crate::qos::normalize_rmw_qos(unsafe { &*qos_profile }),
-        callback: callback_holder,
-        callback_user_data: user_data_holder,
-        unread_count: unread_count_holder, // Use the same Arc created earlier for notify_callback
+        exec_callback,
         graph: node_impl.inner.graph().clone(),
         entity: entity.clone(),
     };
@@ -2511,29 +2460,7 @@ pub extern "C" fn rmw_subscription_set_on_new_message_callback(
         Err(_) => return RMW_RET_INVALID_ARGUMENT as _,
     };
 
-    // Set user_data first
-    if let Ok(mut ud) = subscription_impl.callback_user_data.lock() {
-        *ud = user_data as usize; // Store pointer as usize for thread safety
-    }
-
-    // Then set callback and check for unread messages
-    if let Ok(mut cb) = subscription_impl.callback.lock() {
-        if callback.is_some() {
-            // Check if there are unread messages and invoke callback if needed
-            if let Ok(mut unread) = subscription_impl.unread_count.lock() {
-                if *unread > 0 {
-                    // Invoke callback with unread count
-                    unsafe {
-                        if let Some(callback_fn) = callback {
-                            callback_fn(user_data as *const std::ffi::c_void, *unread);
-                        }
-                    }
-                    *unread = 0; // Reset unread count after notifying
-                }
-            }
-        }
-        *cb = callback;
-    }
+    subscription_impl.exec_callback.set(callback, user_data);
 
     RMW_RET_OK as _
 }
@@ -2553,36 +2480,7 @@ pub extern "C" fn rmw_service_set_on_new_request_callback(
         Err(_) => return RMW_RET_INVALID_ARGUMENT as _,
     };
 
-    if let Some(callback_fn) = callback {
-        // Push events arrived before setting the executor callback (retroactive notification)
-        if let Ok(mut unread) = service_impl.unread_count.lock() {
-            if *unread > 0 {
-                tracing::debug!(
-                    "[rmw_service_set_on_new_request_callback] Invoking callback retroactively for {} unread requests",
-                    *unread
-                );
-                unsafe {
-                    callback_fn(user_data as *const std::ffi::c_void, *unread);
-                }
-                *unread = 0; // Reset unread count after notification
-            }
-        }
-        // Store the new callback and user_data
-        if let Ok(mut cb) = service_impl.callback.lock() {
-            *cb = callback;
-        }
-        if let Ok(mut ud) = service_impl.callback_user_data.lock() {
-            *ud = user_data as usize;
-        }
-    } else {
-        // Callback is being cleared (set to None)
-        if let Ok(mut cb) = service_impl.callback.lock() {
-            *cb = None;
-        }
-        if let Ok(mut ud) = service_impl.callback_user_data.lock() {
-            *ud = 0;
-        }
-    }
+    service_impl.exec_callback.set(callback, user_data);
 
     RMW_RET_OK as _
 }
@@ -2602,36 +2500,7 @@ pub extern "C" fn rmw_client_set_on_new_response_callback(
         Err(_) => return RMW_RET_INVALID_ARGUMENT as _,
     };
 
-    if let Some(callback_fn) = callback {
-        // Push events arrived before setting the executor callback (retroactive notification)
-        if let Ok(mut unread) = client_impl.unread_count.lock() {
-            if *unread > 0 {
-                tracing::debug!(
-                    "[rmw_client_set_on_new_response_callback] Invoking callback retroactively for {} unread responses",
-                    *unread
-                );
-                unsafe {
-                    callback_fn(user_data as *const std::ffi::c_void, *unread);
-                }
-                *unread = 0; // Reset unread count after notification
-            }
-        }
-        // Store the new callback and user_data
-        if let Ok(mut cb) = client_impl.callback.lock() {
-            *cb = callback;
-        }
-        if let Ok(mut ud) = client_impl.callback_user_data.lock() {
-            *ud = user_data as usize;
-        }
-    } else {
-        // Callback is being cleared (set to None)
-        if let Ok(mut cb) = client_impl.callback.lock() {
-            *cb = None;
-        }
-        if let Ok(mut ud) = client_impl.callback_user_data.lock() {
-            *ud = 0;
-        }
-    }
+    client_impl.exec_callback.set(callback, user_data);
 
     RMW_RET_OK as _
 }
