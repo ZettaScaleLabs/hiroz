@@ -307,19 +307,99 @@ echo "== every workspace crate inherits one version =="
 # The nested plugins workspace under crates/hiroz-union/plugins is `exclude`d
 # and its versions are cosmetic -- release assets are named for the workspace
 # version -- so it is deliberately not covered here.
+#
+# Read the `members` list rather than globbing `crates/*/Cargo.toml`. That glob
+# is one level deep, so it never saw `crates/hiroz/examples/protobuf_demo` --
+# a real workspace member, and the one member whose Cargo.lock entry the 0.2.0
+# release left at 0.1.0. A check that cannot see a member cannot vouch for it.
+members() { # print each member path listed in the root Cargo.toml
+    awk '
+        /^members[[:space:]]*=[[:space:]]*\[/ { inside = 1; next }
+        inside && /^\]/                       { exit }
+        inside {
+            if (match($0, /"[^"]+"/))
+                print substr($0, RSTART + 1, RLENGTH - 2)
+        }
+    ' "$ROOT/Cargo.toml"
+}
+
+MEMBERS=$(members)
+MEMBER_COUNT=$(printf '%s\n' "$MEMBERS" | grep -c .)
+# Guard the parser itself: an awk change that stops matching would leave every
+# loop below iterating over nothing and reporting a clean pass.
+if [ "$MEMBER_COUNT" -ge 10 ]; then
+    ok "parsed $MEMBER_COUNT workspace members from Cargo.toml"
+else
+    bad "parsed only $MEMBER_COUNT workspace members -- the members parser is broken"
+fi
+
 stray=""
-for f in "$ROOT"/crates/*/Cargo.toml; do
+for m in $MEMBERS; do
+    f="$ROOT/$m/Cargo.toml"
+    [ -f "$f" ] || { bad "member $m has no Cargo.toml"; continue; }
     v=$(grep -m1 '^version' "$f" 2>/dev/null || true)
     case "$v" in
         *workspace*) ;;
         "")          ;;
-        *)           stray="$stray $(basename "$(dirname "$f")")" ;;
+        *)           stray="$stray $m" ;;
     esac
 done
 if [ -z "$stray" ]; then
     ok "no crate carries a literal version"
 else
     bad "these crates carry a literal version instead of version.workspace:$stray"
+fi
+
+echo
+echo "== Cargo.lock agrees with the workspace version =="
+# The 0.2.0 release bumped 11 of the 12 members in Cargo.lock and left
+# protobuf_demo at 0.1.0, because the lock was edited by pattern rather than
+# regenerated. Nothing noticed: no job passes --locked, so cargo silently
+# rewrote that line on every build and every run left the tree dirty.
+#
+# This compares the lock against the manifests directly, so it needs no cargo,
+# no network and no build -- the same properties as the rest of this suite.
+WS_VERSION=$(awk '
+    /^\[workspace\.package\]/ { inside = 1; next }
+    inside && /^\[/           { exit }
+    inside && /^version[[:space:]]*=/ {
+        if (match($0, /"[^"]+"/)) { print substr($0, RSTART + 1, RLENGTH - 2); exit }
+    }
+' "$ROOT/Cargo.toml")
+check "the workspace declares a version" 1 "$([ -n "$WS_VERSION" ] && echo 1 || echo 0)"
+
+# The lock keys on the package name, which need not equal the directory name.
+lock_version() { # package name
+    awk -v want="$1" '
+        $0 == "name = \"" want "\"" { found = 1; next }
+        found && /^version[[:space:]]*=/ {
+            if (match($0, /"[^"]+"/)) { print substr($0, RSTART + 1, RLENGTH - 2) }
+            exit
+        }
+    ' "$ROOT/Cargo.lock"
+}
+
+lock_stray=""
+lock_checked=0
+for m in $MEMBERS; do
+    f="$ROOT/$m/Cargo.toml"
+    [ -f "$f" ] || continue
+    name=$(awk '/^name[[:space:]]*=/ { if (match($0, /"[^"]+"/)) { print substr($0, RSTART + 1, RLENGTH - 2); exit } }' "$f")
+    [ -n "$name" ] || { bad "member $m declares no package name"; continue; }
+    got=$(lock_version "$name")
+    lock_checked=$((lock_checked + 1))
+    if [ -z "$got" ]; then
+        lock_stray="$lock_stray $name(absent)"
+    elif [ "$got" != "$WS_VERSION" ]; then
+        lock_stray="$lock_stray $name($got)"
+    fi
+done
+check "every member was looked up in Cargo.lock" "$MEMBER_COUNT" "$lock_checked"
+if [ -z "$lock_stray" ]; then
+    ok "all $lock_checked members are at $WS_VERSION in Cargo.lock"
+else
+    bad "Cargo.lock disagrees with the workspace version $WS_VERSION for:$lock_stray"
+    printf '         run `cargo metadata --offline >/dev/null` and commit Cargo.lock\n'
 fi
 
 echo
