@@ -87,6 +87,32 @@ pub fn live_guards() -> usize {
     }
 }
 
+/// The payload of a re-entrancy violation panic.
+///
+/// [`local_bus`](crate::local_bus) contains subscriber panics so one bad
+/// callback cannot censor its siblings. That containment must not swallow
+/// *this* panic: it is the crate reporting its own contract violation, and a
+/// nested delivery raises it from inside that `catch_unwind`.
+///
+/// It is a type rather than a message prefix because the alternative is
+/// forgeable: a subscriber that panicked with a `String` beginning with the
+/// prefix would be re-raised as though it were a violation, breaking the very
+/// isolation guarantee the containment exists to provide. The private field
+/// means no code outside this crate can construct one.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ReentrancyViolation {
+    /// The operator-facing description.
+    pub message: String,
+}
+
+impl std::fmt::Display for ReentrancyViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+
 /// Panics (debug only) if any tracked guard is live on this thread.
 ///
 /// Call immediately before invoking user code. `site` is reproduced in the panic
@@ -97,14 +123,17 @@ pub fn assert_no_guards_held(site: &str) {
     #[cfg(debug_assertions)]
     {
         let live = live_guards();
-        assert!(
-            live == 0,
-            "hiroz re-entrancy rule violated at `{site}`: about to invoke a user \
-             callback with {live} lock guard(s) live on this thread. A callback \
-             that re-enters hiroz will deadlock if it touches a lock this thread \
-             holds. Fix: collect what you need into an owned value, drop every \
-             guard, then invoke the callback."
-        );
+        if live != 0 {
+            std::panic::panic_any(ReentrancyViolation {
+                message: format!(
+                    "hiroz re-entrancy rule violated at `{site}`: about to invoke a user \
+                     callback with {live} lock guard(s) live on this thread. A callback \
+                     that re-enters hiroz will deadlock if it touches a lock this thread \
+                     holds. Fix: collect what you need into an owned value, drop every \
+                     guard, then invoke the callback."
+                ),
+            });
+        }
     }
     #[cfg(not(debug_assertions))]
     let _ = site;
@@ -267,15 +296,38 @@ mod tests {
     }
 
     /// A tripwire that never fires is indistinguishable from a clean codebase.
+    ///
+    /// The payload is asserted by **type**, not by message. `should_panic` can
+    /// only match a string, and matching the message is exactly what made the
+    /// old classifier forgeable: a subscriber panicking with the same words
+    /// would have been mistaken for a violation. Testing the type is both
+    /// stronger and the thing the containment in `local_bus` actually keys on.
     #[test]
-    #[cfg_attr(debug_assertions, should_panic(expected = "re-entrancy rule violated"))]
     fn assert_fires_while_a_guard_is_live() {
-        let m = TrackedMutex::new(0u32);
-        let _g = m.lock().unwrap();
-        assert_no_guards_held("deliberate violation");
-        // Compiled out in release, so no panic is expected there.
+        let fired = std::panic::catch_unwind(|| {
+            let m = TrackedMutex::new(0u32);
+            let _g = m.lock().unwrap();
+            assert_no_guards_held("deliberate violation");
+        });
+
+        #[cfg(debug_assertions)]
+        {
+            let payload = fired.expect_err("the tripwire did not fire while a guard was live");
+            let violation = payload
+                .downcast_ref::<ReentrancyViolation>()
+                .expect("the panic must carry ReentrancyViolation, not a bare string");
+            assert!(
+                violation.message.contains("deliberate violation"),
+                "the site must reach the operator: {}",
+                violation.message
+            );
+        }
+        // Compiled out in release, so nothing panics there.
         #[cfg(not(debug_assertions))]
-        assert_eq!(live_guards(), 0);
+        {
+            assert!(fired.is_ok(), "the check is debug-only");
+            assert_eq!(live_guards(), 0);
+        }
     }
 
     /// The underflow assertion needs the same proof the tripwire gets. Only this
