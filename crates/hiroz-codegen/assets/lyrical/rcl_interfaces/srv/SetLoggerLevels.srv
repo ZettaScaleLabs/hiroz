@@ -1,0 +1,6 @@
+# A list of loggers to set.
+LoggerLevel[] levels
+
+---
+# Indicates whether setting each logger succeeded or not and why.
+SetLoggerLevelsResult[] results

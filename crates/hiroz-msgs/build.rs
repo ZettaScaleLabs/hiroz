@@ -10,43 +10,25 @@ fn main() -> Result<()> {
     // Declare custom cfg for ROS version detection
     println!("cargo:rustc-check-cfg=cfg(ros_humble)");
 
-    // Declare custom cfg flags for package availability
-    println!("cargo::rustc-check-cfg=cfg(has_example_interfaces)");
-    println!("cargo::rustc-check-cfg=cfg(has_test_msgs)");
-    println!("cargo::rustc-check-cfg=cfg(has_rcl_interfaces)");
-    println!("cargo::rustc-check-cfg=cfg(has_tf2_msgs)");
-    println!("cargo::rustc-check-cfg=cfg(has_visualization_msgs)");
-    println!("cargo::rustc-check-cfg=cfg(has_rosgraph_msgs)");
-    println!("cargo::rustc-check-cfg=cfg(has_trajectory_msgs)");
-    println!("cargo::rustc-check-cfg=cfg(has_diagnostic_msgs)");
-    println!("cargo::rustc-check-cfg=cfg(has_shape_msgs)");
-    println!("cargo::rustc-check-cfg=cfg(has_stereo_msgs)");
-    println!("cargo::rustc-check-cfg=cfg(has_statistics_msgs)");
-    println!("cargo::rustc-check-cfg=cfg(has_composition_interfaces)");
-    println!("cargo::rustc-check-cfg=cfg(has_std_srvs)");
-    println!("cargo::rustc-check-cfg=cfg(has_rosbag2_interfaces)");
+    // Select the target ROS distro from Cargo features (default: jazzy). The
+    // distro selects both the bundled asset tree (hiroz-codegen/assets/<distro>/)
+    // and the type-hash semantics (Humble predates ServiceEventInfo and uses
+    // placeholder hashes).
+    let distro = Distro::from_features();
+    let is_humble = distro.is_humble();
+    if is_humble {
+        println!("cargo:rustc-cfg=ros_humble");
+    }
+    println!("cargo:warning=target ROS distro: {}", distro.assets_dir());
 
-    // Detect ROS version and emit cfg
-    let is_humble = detect_ros_version();
-
-    // hiroz-codegen stores the message assets in its own published crate.
-    // They are not in a sibling path inside this crate's directory. Use
-    // hiroz_codegen::bundled_assets_dir to find them. This finds them
-    // correctly whether hiroz-codegen comes from a workspace path or
-    // from crates.io.
-    //
-    // Always select the jazzy assets here. Do not pass `is_humble`.
-    // hiroz-codegen ships only the jazzy assets. The assets/humble
-    // directory exists but is empty. The package list below already
-    // excludes interfaces added after Humble. So the jazzy assets are
-    // correct for a Humble build too.
-    let codegen_assets = hiroz_codegen::bundled_assets_dir(false);
+    // Re-run if the selected distro's bundled asset tree changes.
+    let codegen_assets = hiroz_codegen::bundled_assets_dir_for(distro.assets_dir());
     if codegen_assets.exists() {
         println!("cargo:rerun-if-changed={}", codegen_assets.display());
     }
 
-    // Discover ROS packages
-    let ros_packages = discover_ros_packages(is_humble)?;
+    // Discover ROS packages by enumerating the selected distro's asset tree.
+    let ros_packages = discover_ros_packages(distro)?;
 
     println!(
         "cargo:warning=protobuf feature: {}",
@@ -164,343 +146,101 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn discover_ros_packages(is_humble: bool) -> Result<Vec<PathBuf>> {
-    use std::collections::HashMap;
-
-    // Use HashMap to track packages by name and deduplicate
-    let mut package_map: HashMap<String, PathBuf> = HashMap::new();
-
-    let all_packages = get_all_packages(is_humble);
-
-    // Priority 1: Local bundled assets (highest priority - canonical source)
-    // This ensures our bundled message definitions are always used consistently,
-    // avoiding issues with system packages that may have different versions or
-    // hardcoded paths from Nix wrapProgram.
-    println!("cargo:info=Checking local bundled assets from hiroz-codegen's bundled assets");
-    let local_asset_packages = discover_local_assets(&all_packages)?;
-    let local_count = local_asset_packages.len();
-    for pkg_path in local_asset_packages {
-        if let Ok(name) = discover_package_name_from_path(&pkg_path) {
-            println!("cargo:info=Local: Adding package {}", name);
-            package_map.insert(name, pkg_path);
-        }
-    }
-
-    if local_count > 0 {
-        println!(
-            "cargo:info=Found {} packages from local bundled assets",
-            local_count
-        );
-
-        // Emit cfg flags for each found package
-        for package_name in package_map.keys() {
-            println!("cargo:rustc-cfg=has_{}", package_name);
-        }
-
-        return Ok(package_map.into_values().collect());
-    }
-
-    // Priority 2: System ROS installation (fallback for packages not bundled locally)
-    let system_packages = discover_system_packages(&all_packages)?;
-    let mut system_added = 0;
-    for pkg_path in system_packages {
-        if let Ok(name) = discover_package_name_from_path(&pkg_path) {
-            // Only add if not already found in local assets
-            if let std::collections::hash_map::Entry::Vacant(e) = package_map.entry(name) {
-                println!("cargo:info=System: Adding package {}", e.key());
-                e.insert(pkg_path);
-                system_added += 1;
-            }
-        }
-    }
-
-    if system_added > 0 {
-        println!(
-            "cargo:info=Added {} packages from ROS 2 installation (not in local assets)",
-            system_added
-        );
-    }
-
-    println!(
-        "cargo:info=Total unique packages discovered: {}",
-        package_map.len()
-    );
-
-    // Warn if packages are still not found
-    let still_missing: Vec<_> = all_packages
-        .iter()
-        .filter(|&&pkg| !package_map.contains_key(pkg))
-        .collect();
-
-    if !still_missing.is_empty() {
-        println!("cargo:warning=Missing packages: {:?}", still_missing);
-        println!(
-            "cargo:warning=Consider installing ROS 2 or checking hiroz-codegen's bundled assets"
-        );
-    }
-
-    Ok(package_map.into_values().collect())
+/// The target ROS 2 distro, selected by Cargo feature. Determines both which
+/// bundled asset tree (hiroz-codegen/assets/<distro>/) is generated and the
+/// type-hash semantics (Humble predates ServiceEventInfo and uses placeholder
+/// hashes).
+#[derive(Clone, Copy, Debug)]
+enum Distro {
+    Humble,
+    Jazzy,
+    Lyrical,
 }
 
-/// Extract package name from path using package.xml or directory name
-fn discover_package_name_from_path(package_path: &std::path::Path) -> Result<String> {
-    hiroz_codegen::discovery::discover_package_name(package_path)
-}
-
-/// Get list of all package names based on enabled features
-/// All packages are bundled inside hiroz-codegen's own crate (see
-/// `hiroz_codegen::bundled_assets_dir`)
-fn get_all_packages(is_humble: bool) -> Vec<&'static str> {
-    let mut names = vec![
-        "builtin_interfaces",     // Always required
-        "action_msgs",            // Required for ROS 2 actions
-        "unique_identifier_msgs", // Required by action_msgs
-        "lifecycle_msgs",         // Required for lifecycle nodes
-    ];
-
-    // service_msgs was introduced in ROS 2 Iron (May 2023) as part of the service
-    // introspection feature. It contains types like ServiceEventInfo for monitoring
-    // service calls. This package doesn't exist in Humble (May 2022).
-    if !is_humble {
-        names.push("service_msgs");
-        // type_description_interfaces was also introduced in Jazzy/Iron
-        // for runtime type introspection support
-        names.push("type_description_interfaces");
-    }
-
-    // Check features via environment variables (cfg! doesn't work in build scripts)
-    if env::var("CARGO_FEATURE_STD_MSGS").is_ok() {
-        names.push("std_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_GEOMETRY_MSGS").is_ok() {
-        names.push("geometry_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_SENSOR_MSGS").is_ok() {
-        names.push("sensor_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_NAV_MSGS").is_ok() {
-        names.push("nav_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_EXAMPLE_INTERFACES").is_ok() {
-        names.push("example_interfaces");
-    }
-
-    if env::var("CARGO_FEATURE_ACTION_TUTORIALS_INTERFACES").is_ok() {
-        names.push("action_tutorials_interfaces");
-    }
-
-    if env::var("CARGO_FEATURE_TEST_MSGS").is_ok() {
-        names.push("test_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_RCL_INTERFACES").is_ok() {
-        names.push("rcl_interfaces");
-    }
-
-    if env::var("CARGO_FEATURE_TF2_MSGS").is_ok() {
-        names.push("tf2_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_VISUALIZATION_MSGS").is_ok() {
-        names.push("visualization_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_ROSGRAPH_MSGS").is_ok() {
-        names.push("rosgraph_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_TRAJECTORY_MSGS").is_ok() {
-        names.push("trajectory_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_DIAGNOSTIC_MSGS").is_ok() {
-        names.push("diagnostic_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_SHAPE_MSGS").is_ok() {
-        names.push("shape_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_STEREO_MSGS").is_ok() {
-        names.push("stereo_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_STATISTICS_MSGS").is_ok() {
-        names.push("statistics_msgs");
-    }
-
-    if env::var("CARGO_FEATURE_COMPOSITION_INTERFACES").is_ok() {
-        names.push("composition_interfaces");
-    }
-
-    if env::var("CARGO_FEATURE_STD_SRVS").is_ok() {
-        names.push("std_srvs");
-    }
-
-    if env::var("CARGO_FEATURE_ROSBAG2_INTERFACES").is_ok() {
-        names.push("rosbag2_interfaces");
-    }
-
-    names
-}
-
-/// Try to discover packages from system ROS 2 installation
-fn discover_system_packages(packages: &[&str]) -> Result<Vec<PathBuf>> {
-    if packages.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut found_packages = Vec::new();
-
-    // 1. Check AMENT_PREFIX_PATH (standard ROS 2 environment variable)
-    if let Ok(ament_prefix_path) = env::var("AMENT_PREFIX_PATH") {
-        for prefix in ament_prefix_path.split(':') {
-            let prefix_path = PathBuf::from(prefix);
-            for package_name in packages {
-                let package_path = prefix_path.join("share").join(package_name);
-                if package_path.exists()
-                    && (package_path.join("msg").exists()
-                        || package_path.join("srv").exists()
-                        || package_path.join("action").exists())
-                {
-                    found_packages.push(package_path);
-                }
-            }
+impl Distro {
+    /// Pick the distro from Cargo features. Defaults to Jazzy when no explicit
+    /// distro feature is set. If several are enabled the newest wins.
+    fn from_features() -> Self {
+        if env::var("CARGO_FEATURE_LYRICAL").is_ok() {
+            Distro::Lyrical
+        } else if env::var("CARGO_FEATURE_JAZZY").is_ok() {
+            Distro::Jazzy
+        } else if env::var("CARGO_FEATURE_HUMBLE").is_ok() {
+            Distro::Humble
+        } else {
+            Distro::Jazzy
         }
     }
 
-    // 2. Check CMAKE_PREFIX_PATH (also commonly set in ROS 2)
-    if found_packages.is_empty()
-        && let Ok(cmake_prefix_path) = env::var("CMAKE_PREFIX_PATH")
-    {
-        for prefix in cmake_prefix_path.split(':') {
-            let prefix_path = PathBuf::from(prefix);
-            for package_name in packages {
-                let package_path = prefix_path.join("share").join(package_name);
-                if package_path.exists()
-                    && (package_path.join("msg").exists()
-                        || package_path.join("srv").exists()
-                        || package_path.join("action").exists())
-                {
-                    found_packages.push(package_path);
-                }
-            }
+    fn assets_dir(self) -> &'static str {
+        match self {
+            Distro::Humble => "humble",
+            Distro::Jazzy => "jazzy",
+            Distro::Lyrical => "lyrical",
         }
     }
 
-    // 3. Check common ROS 2 installation paths
-    if found_packages.is_empty() {
-        let common_install_paths = vec![
-            "/opt/ros/rolling",
-            "/opt/ros/jazzy",
-            "/opt/ros/kilted",
-            "/opt/ros/lyrical",
-            "/opt/ros/humble",
-        ];
-
-        for install_path in common_install_paths {
-            let install = PathBuf::from(install_path);
-            if install.exists() {
-                for package_name in packages {
-                    let package_path = install.join("share").join(package_name);
-                    if package_path.exists()
-                        && (package_path.join("msg").exists()
-                            || package_path.join("srv").exists()
-                            || package_path.join("action").exists())
-                    {
-                        found_packages.push(package_path);
-                    }
-                }
-                if !found_packages.is_empty() {
-                    break;
-                }
-            }
-        }
+    fn is_humble(self) -> bool {
+        matches!(self, Distro::Humble)
     }
-
-    Ok(found_packages)
 }
 
-/// Discover packages from hiroz-codegen's bundled assets directory.
-///
-/// Only returns the subset named in `package_names` (i.e. whatever the enabled
-/// Cargo features requested), not every package hiroz-codegen bundles.
-fn discover_local_assets(package_names: &[&str]) -> Result<Vec<PathBuf>> {
-    let mut found_packages = Vec::new();
-
-    // Resolve this through hiroz-codegen's own API, not a sibling-directory
-    // path. This works whether hiroz-codegen is a workspace path
-    // dependency or comes from crates.io, because it resolves against
-    // hiroz-codegen's own CARGO_MANIFEST_DIR.
-    //
-    // Always select jazzy here. Do not pass `is_humble`. hiroz-codegen
-    // ships only the jazzy assets. See the call site in `main` for the
-    // full reason.
-    let assets_dir = hiroz_codegen::bundled_assets_dir(false);
+/// Discover the packages to generate by enumerating the selected distro's
+/// bundled asset tree. Every subdirectory of assets/<distro>/ that contains a
+/// msg/, srv/, or action/ directory is a package. There is no hand-maintained
+/// allow-list: adding a package is just dropping its interface files into the
+/// tree.
+fn discover_ros_packages(distro: Distro) -> Result<Vec<PathBuf>> {
+    let assets_dir = hiroz_codegen::bundled_assets_dir_for(distro.assets_dir());
 
     if !assets_dir.exists() {
-        println!(
-            "cargo:warning=Local assets directory not found: {:?}",
+        anyhow::bail!(
+            "bundled assets directory not found for distro {}: {:?}",
+            distro.assets_dir(),
             assets_dir
         );
-        return Ok(Vec::new());
     }
 
-    // Search for the requested packages in the bundled assets directory
-    for package_name in package_names {
-        let package_path = assets_dir.join(package_name);
+    // Re-run the build script if the asset tree changes.
+    println!("cargo:rerun-if-changed={}", assets_dir.display());
 
-        if package_path.exists()
-            && (package_path.join("msg").exists()
-                || package_path.join("srv").exists()
-                || package_path.join("action").exists())
-        {
-            println!(
-                "cargo:info=Found {} in local assets: {:?}",
-                package_name, package_path
-            );
-            found_packages.push(package_path);
+    let mut packages = Vec::new();
+    for entry in std::fs::read_dir(&assets_dir)? {
+        let path = entry?.path();
+        if !path.is_dir() {
+            continue; // skips dependencies.json etc.
         }
-    }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
 
-    Ok(found_packages)
-}
-
-/// Detect ROS version and emit cfg(ros_humble) if Humble is detected
-/// Returns true if Humble is detected
-fn detect_ros_version() -> bool {
-    // Check feature flag first (explicitly requested Humble)
-    if cfg!(feature = "humble") {
-        println!("cargo:rustc-cfg=ros_humble");
-        println!("cargo:warning=ROS Humble detected - using Humble-compatible codegen");
-        return true;
-    }
-
-    // Check if ROS is installed by looking for AMENT_PREFIX_PATH
-    if let Ok(ament_prefix) = env::var("AMENT_PREFIX_PATH") {
-        // Jazzy and newer have type_description_interfaces, Humble doesn't
-        let has_type_description = ament_prefix.split(':').any(|prefix| {
-            PathBuf::from(prefix)
-                .join("include/type_description_interfaces")
-                .exists()
-        });
-
-        if !has_type_description {
-            // No type_description_interfaces means Humble
-            println!("cargo:rustc-cfg=ros_humble");
-            println!("cargo:warning=ROS Humble detected - using Humble-compatible codegen");
-            return true;
-        } else {
-            println!("cargo:warning=ROS Jazzy+ detected - using modern codegen");
-            return false;
+        // Test-fixtures packages are excluded: their BasicTypes/Arrays messages
+        // have wstring fields codegen skips, but Nested*/sequence types still
+        // reference them (and String fields aren't Copy), which fails to compile.
+        // These aren't real shipped message packages.
+        if matches!(name, "test_msgs" | "test_interface_files") {
+            continue;
         }
+
+        let has_interfaces = path.join("msg").exists()
+            || path.join("srv").exists()
+            || path.join("action").exists();
+        if !has_interfaces {
+            continue;
+        }
+
+        packages.push(path);
     }
 
-    // Default to Jazzy (modern)
-    println!("cargo:warning=ROS Jazzy+ detected - using modern codegen");
-    false
+    if packages.is_empty() {
+        anyhow::bail!("no packages found in assets/{}", distro.assets_dir());
+    }
+    println!(
+        "cargo:warning=generating {} packages from assets/{}",
+        packages.len(),
+        distro.assets_dir()
+    );
+
+    Ok(packages)
 }
