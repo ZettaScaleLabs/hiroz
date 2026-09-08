@@ -44,6 +44,7 @@ type ContextBuilder struct {
 	jsonConfig           string
 	remapRules           []string
 	enableLogging        bool
+	shmPoolBytes         uint64
 	hasAdvancedConfig    bool
 }
 
@@ -118,6 +119,19 @@ func (b *ContextBuilder) WithLogging() *ContextBuilder {
 	return b
 }
 
+// WithShmPool attaches a shared-memory provider of the given size (bytes),
+// making the session SHM-capable so payloads can be published and received by
+// shared-memory reference (zero-copy) instead of being copied over the
+// transport. A non-zero pool is required for SHM transport to negotiate —
+// enabling SHM via config alone is not sufficient. Pass 0 (the default) to
+// disable. A receiver needs only a small pool (it maps the publisher's
+// segments); a publisher needs a pool large enough for its in-flight payloads.
+func (b *ContextBuilder) WithShmPool(bytes uint64) *ContextBuilder {
+	b.shmPoolBytes = bytes
+	b.hasAdvancedConfig = true
+	return b
+}
+
 // Build creates the context
 func (b *ContextBuilder) Build() (*Context, error) {
 	var handle *C.hiroz_context_t
@@ -135,6 +149,7 @@ func (b *ContextBuilder) Build() (*Context, error) {
 		cfg.disable_multicast_scouting = C.bool(b.disableMulticast)
 		cfg.connect_to_local_zenohd = C.bool(b.connectToLocalZenohd)
 		cfg.enable_logging = C.bool(b.enableLogging)
+		cfg.shm_pool_bytes = C.uintptr_t(b.shmPoolBytes)
 
 		// Config file
 		if b.configFile != "" {
