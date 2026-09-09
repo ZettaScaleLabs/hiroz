@@ -59,14 +59,14 @@ jobs:
     steps:
       # Must stay first: the apt steps run `scripts/ci/apt-retry.sh`, and the
       # cache key hashes this file, yielding a constant on an empty workspace.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Compute weekly cache key
         id: cache-week
         run: echo "week=$(date -u +%Y-W%V)" >> "$GITHUB_OUTPUT"
 
       - name: Cache apt packages
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: /var/cache/apt/archives
           key: apt-${{ matrix.distro }}-v3-${{ hashFiles('.github/workflows/test.yml') }}
@@ -75,7 +75,7 @@ jobs:
       # going stale; a miss re-fetches. The rate that justified it does not
       # reproduce -- see hiroz#308.
       - name: Cache apt package lists
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: /var/lib/apt/lists
           key: apt-lists-${{ matrix.distro }}-${{ steps.cache-week.outputs.week }}
@@ -219,18 +219,18 @@ jobs:
       # in the matrix -- so the four legs shared one target/. humble is the only
       # 22.04 image, so it restored proc-macros the 24.04 legs had built and
       # failed with "GLIBC_2.39 not found". The cache below is per-distro.
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
           cache: false
 
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           # -v2 discards entries saved while the shared cache above was in use.
           shared-key: ${{ matrix.distro }}-interop-v2
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff  # v2
         with:
           tool: cargo-nextest
 
@@ -256,7 +256,7 @@ jobs:
               --no-tests=warn
           fi
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
         with:
           go-version: '1.23'
           cache: false

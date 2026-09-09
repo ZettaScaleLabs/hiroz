@@ -63,12 +63,12 @@ jobs:
             ros-jazzy-osrf-testing-tools-cpp
 
       - name: Checkout hiroz
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           path: hiroz
 
       - name: Checkout rcl fork
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           repository: YuanYuYuan/rcl
           ref: patch-rmwz/jazzy
@@ -80,7 +80,7 @@ jobs:
           cp -r $GITHUB_WORKSPACE/rcl ws/src/rcl
 
       - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
 
       - name: Install Nushell
         run: |
@@ -125,7 +125,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: rmw-zenoh-rs-test-results
           path: ws/log/latest_test/

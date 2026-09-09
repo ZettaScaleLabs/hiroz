@@ -25,11 +25,11 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Install Nix
         if: github.event.action != 'closed'
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31
 
       - name: Build MkDocs documentation
         if: github.event.action != 'closed'
@@ -37,7 +37,7 @@ jobs:
           nix develop '.#pureRust-ci' -c mkdocs build --strict
 
       - name: Deploy MkDocs preview
-        uses: rossjrw/pr-preview-action@v1
+        uses: rossjrw/pr-preview-action@ffa7509e91a3ec8dfc2e5536c4d5c1acdf7a6de9  # v1
         with:
           source-dir: ./site
           preview-branch: gh-pages
