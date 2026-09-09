@@ -37,6 +37,21 @@ fn main() -> Result<()> {
     // Discover ROS packages by enumerating the selected distro's asset tree.
     let ros_packages = discover_ros_packages(distro)?;
 
+    // Embed the exact package set this build generated code for, so tests
+    // can assert on `selected_package_names`'s real output instead of only
+    // on whether `cargo check` succeeds. `cargo check` succeeding proves
+    // nothing about *which* packages were generated -- over-generation
+    // (circle/hiroz#199, D2) compiled cleanly too. See
+    // `tests/feature_scoping.rs`.
+    let generated_package_names: Vec<String> = ros_packages
+        .iter()
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    println!(
+        "cargo:rustc-env=HIROZ_MSGS_GENERATED_PACKAGES={}",
+        generated_package_names.join(",")
+    );
+
     println!(
         "cargo:warning=protobuf feature: {}",
         cfg!(feature = "protobuf")

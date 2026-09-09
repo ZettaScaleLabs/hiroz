@@ -11,6 +11,13 @@ pub mod size_estimation;
 // Re-export the namespaced modules for compatibility
 pub use self::ros::*;
 
+/// Comma-separated ROS package names this build actually generated code
+/// for -- `build.rs`'s real `selected_package_names`/`discover_ros_packages`
+/// output, embedded via `cargo:rustc-env` at build time. Lets tests assert
+/// on which packages a given feature set produced without needing to name
+/// every generated type. See `tests/feature_scoping.rs`.
+pub const GENERATED_PACKAGES: &str = env!("HIROZ_MSGS_GENERATED_PACKAGES");
+
 // Include the protobuf-compatible generated code (prost-based) if feature is enabled
 #[cfg(feature = "protobuf")]
 pub mod proto {
