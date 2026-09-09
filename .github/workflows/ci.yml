@@ -40,17 +40,17 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31
         with:
           extra_nix_config: |
             extra-substituters = https://hiroz.cachix.org
             extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@ad2ddac53f961de1989924296a1f236fcfbaa4fc  # v15
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -67,7 +67,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       # Interop runs this wrapper, but only its success path. This runs the
       # retries, the mirror switch and the guards. See hiroz#308.
@@ -86,12 +86,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       # Linux-specific setup
       - name: Free Disk Space (Ubuntu)
         if: runner.os == 'Linux'
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
           large-packages: true
           tool-cache: true
@@ -103,7 +103,7 @@ jobs:
 
       - name: Install Nix (Linux)
         if: runner.os == 'Linux'
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31
         with:
           extra_nix_config: |
             extra-substituters = https://hiroz.cachix.org
@@ -111,7 +111,7 @@ jobs:
 
       - name: Setup Cachix (Linux)
         if: runner.os == 'Linux'
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@ad2ddac53f961de1989924296a1f236fcfbaa4fc  # v15
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -139,7 +139,7 @@ jobs:
       # macOS-specific setup
       - name: Install Rust toolchain (macOS)
         if: runner.os == 'macOS'
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
           toolchain: stable
           components: clippy, rustfmt
@@ -152,13 +152,13 @@ jobs:
 
       - name: Install cargo-nextest (macOS)
         if: runner.os == 'macOS'
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff  # v2
         with:
           tool: cargo-nextest
 
       # Common setup
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ${{ runner.os }}-pureRust-test
 
@@ -192,10 +192,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
           large-packages: true
           tool-cache: true
@@ -206,14 +206,14 @@ jobs:
           swap-storage: false
 
       - name: Install Nix (Linux)
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31
         with:
           extra_nix_config: |
             extra-substituters = https://hiroz.cachix.org
             extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@ad2ddac53f961de1989924296a1f236fcfbaa4fc  # v15
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -237,7 +237,7 @@ jobs:
           echo "export CI=true" >> /tmp/nix-dev-env.sh
 
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ${{ runner.os }}-pureRust-shm
 
@@ -257,10 +257,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
           large-packages: true
           tool-cache: true
@@ -271,14 +271,14 @@ jobs:
           swap-storage: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31
         with:
           extra_nix_config: |
             extra-substituters = https://hiroz.cachix.org
             extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@ad2ddac53f961de1989924296a1f236fcfbaa4fc  # v15
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -300,12 +300,12 @@ jobs:
           echo "export CI=true" >> /tmp/nix-dev-env.sh
 
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ubuntu-latest-coverage
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff  # v2
         with:
           tool: cargo-llvm-cov
 
@@ -323,7 +323,7 @@ jobs:
         shell: bash
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238  # v4
         continue-on-error: true
         with:
           files: lcov.info
@@ -342,12 +342,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       # Linux-specific setup
       - name: Free Disk Space (Ubuntu)
         if: runner.os == 'Linux'
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
           large-packages: true
           tool-cache: true
@@ -359,7 +359,7 @@ jobs:
 
       - name: Install Nix (Linux)
         if: runner.os == 'Linux'
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31
         with:
           extra_nix_config: |
             extra-substituters = https://hiroz.cachix.org
@@ -367,7 +367,7 @@ jobs:
 
       - name: Setup Cachix (Linux)
         if: runner.os == 'Linux'
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@ad2ddac53f961de1989924296a1f236fcfbaa4fc  # v15
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -395,7 +395,7 @@ jobs:
       # macOS-specific setup
       - name: Install Rust toolchain (macOS)
         if: runner.os == 'macOS'
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
           toolchain: stable
           target: wasm32-wasip2
@@ -409,7 +409,7 @@ jobs:
 
       # Common setup
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ${{ runner.os }}-pureRust-checks-v2
 
@@ -515,15 +515,15 @@ jobs:
     # and running the binary is a separate question from whether the release
     # artifact can be produced.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # stable
         with:
           targets: aarch64-unknown-linux-gnu
 
       - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff  # v2
         with:
           tool: cargo-zigbuild
 
@@ -531,12 +531,12 @@ jobs:
         run: pip install ziglang
 
       - name: Install nushell
-        uses: hustcer/setup-nu@v3
+        uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
         with:
           version: "0.113.1"
 
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ubuntu-latest-hu-aarch64-cross
 
@@ -570,10 +570,10 @@ jobs:
     # and executes the documented commands against that install.
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
           toolchain: stable
           target: wasm32-wasip2
@@ -588,7 +588,7 @@ jobs:
           nu --version
 
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ubuntu-latest-hu-docs-repro
 
@@ -662,10 +662,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
           large-packages: true
           tool-cache: true
@@ -676,14 +676,14 @@ jobs:
           swap-storage: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31
         with:
           extra_nix_config: |
             extra-substituters = https://hiroz.cachix.org
             extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@ad2ddac53f961de1989924296a1f236fcfbaa4fc  # v15
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -702,7 +702,7 @@ jobs:
           echo "export CI=true" >> /tmp/nix-dev-env.sh
 
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ubuntu-latest-wasm-plugin-tests
 
@@ -719,10 +719,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
           large-packages: true
           tool-cache: true
@@ -733,14 +733,14 @@ jobs:
           swap-storage: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31
         with:
           extra_nix_config: |
             extra-substituters = https://hiroz.cachix.org
             extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@ad2ddac53f961de1989924296a1f236fcfbaa4fc  # v15
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -757,7 +757,7 @@ jobs:
           echo "export CI=true" >> /tmp/nix-dev-env.sh
 
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ubuntu-latest-python-stubs
 
@@ -779,25 +779,25 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
         with:
           go-version: '1.23'
 
       - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
           toolchain: stable
 
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ${{ runner.os }}-go-ffi
 
       - name: Install Nushell
-        uses: hustcer/setup-nu@v3
+        uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
         with:
           version: '0.102'
 
@@ -826,10 +826,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
           large-packages: true
           tool-cache: true
@@ -840,7 +840,7 @@ jobs:
           swap-storage: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31
         with:
           extra_nix_config: |
             extra-substituters = https://ros.cachix.org https://hiroz.cachix.org
@@ -848,7 +848,7 @@ jobs:
             extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@ad2ddac53f961de1989924296a1f236fcfbaa4fc  # v15
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -876,7 +876,7 @@ jobs:
           echo "export CI=true" >> /tmp/nix-dev-env.sh
 
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ${{ matrix.distro }}-python
 
@@ -884,7 +884,7 @@ jobs:
         run: find target -name 'build-script-build' -path '*pyo3-build-config*' -delete 2>/dev/null || true
 
       - name: Cache generated Python types
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: crates/hiroz-msgs/python/hiroz_msgs_py/types
           key: >-
@@ -950,10 +950,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
           large-packages: true
           tool-cache: true
@@ -964,7 +964,7 @@ jobs:
           swap-storage: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31
         with:
           extra_nix_config: |
             extra-substituters = https://ros.cachix.org https://hiroz.cachix.org
@@ -972,7 +972,7 @@ jobs:
             extra-trusted-public-keys = hiroz.cachix.org-1:wKJuqEckTG0DL3Df7Ly9OVsg5S5TGBHtvlPGs+vlqrY=
 
       - name: Setup Cachix
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@ad2ddac53f961de1989924296a1f236fcfbaa4fc  # v15
         with:
           name: hiroz
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -997,7 +997,7 @@ jobs:
           echo "export CI=true" >> /tmp/nix-dev-env.sh
 
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ${{ matrix.distro }}-ros-v2
 
