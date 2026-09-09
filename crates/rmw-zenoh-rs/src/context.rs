@@ -359,6 +359,44 @@ pub extern "C" fn rmw_init(
         }
     }
 
+    // Stop glibc returning the payload heap to the kernel between messages.
+    //
+    // This RMW sizes its deserialisation buffer to the payload. glibc adapts
+    // M_MMAP_THRESHOLD to the largest mmap'd block a process frees and sets
+    // M_TRIM_THRESHOLD to twice it, so payload-sized buffers leave the trim
+    // threshold at roughly 4 MiB. An rclpy node's heap swings 6-9 MB per
+    // message at 1 MiB payloads, which exceeds that: the heap is handed back
+    // with brk on every free and re-faulted on the next message. Measured at
+    // 1 MiB / 200 Hz: 12,028 brk calls and 2.3M page faults in 18 s, costing
+    // 33% of round-trip latency and making the arm bimodal between runs.
+    //
+    // An implementation that over-allocates avoids this by accident, because a
+    // larger freed block raises the threshold. Setting it explicitly is the
+    // same protection without the waste. See circle/hiroz issue 201.
+    //
+    // Deliberately skipped when the operator has set the glibc environment
+    // variables, so an explicit deployment choice is not silently overridden.
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        const M_TRIM_THRESHOLD: core::ffi::c_int = -1;
+        const M_MMAP_THRESHOLD: core::ffi::c_int = -3;
+        unsafe extern "C" {
+            fn mallopt(param: core::ffi::c_int, value: core::ffi::c_int) -> core::ffi::c_int;
+        }
+        let operator_set = std::env::var_os("MALLOC_TRIM_THRESHOLD_").is_some()
+            || std::env::var_os("MALLOC_MMAP_THRESHOLD_").is_some();
+        if !operator_set {
+            // 64 MiB clears the measured 6-9 MB working-set swing with margin.
+            const THRESHOLD: core::ffi::c_int = 64 << 20;
+            let mmap_rc = unsafe { mallopt(M_MMAP_THRESHOLD, THRESHOLD) };
+            let trim_rc = unsafe { mallopt(M_TRIM_THRESHOLD, THRESHOLD) };
+            tracing::debug!(
+                "glibc thresholds pinned at {} MiB (mallopt rc: mmap={}, trim={})",
+                THRESHOLD >> 20, mmap_rc, trim_rc
+            );
+        }
+    }
+
     // Initialize Zenoh logging
     zenoh::init_log_from_env_or("error");
 
