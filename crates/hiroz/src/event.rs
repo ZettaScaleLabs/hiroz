@@ -697,6 +697,29 @@ mod tests {
         assert_eq!(losses_for(&[(1, 0), (1, i64::MAX)]), i32::MAX);
     }
 
+    /// A publisher that restarts and reuses its GID, but resets its sequence
+    /// counter to something *below* the old high-water mark, has real gaps in
+    /// its new stream silently undercounted as zero until its sequence number
+    /// climbs back past that old mark.
+    ///
+    /// `endpoint_gid` is derived from the zenoh session id plus the entity id,
+    /// not from anything ROS assigns fresh per process, so "a restarted
+    /// endpoint normally gets a fresh GID" does not hold for a deployment
+    /// with a pinned/deterministic session id. This is a known, intentional
+    /// tradeoff of always treating `sn <= high_water` as replay rather than
+    /// loss (see `message_loss_survives_a_transient_local_replay` above,
+    /// which needs exactly that rule to avoid `rmw_zenoh_cpp`'s phantom
+    /// double-count on `TransientLocal` history replay) — pinned here as
+    /// intentional and tracked, not accidental. See circle/hiroz#207.
+    #[test]
+    fn message_loss_undercounts_after_a_same_gid_publisher_restart() {
+        // Baseline established high (100), then the publisher "restarts":
+        // same GID, sequence numbers reset low. `5` skips `2, 3, 4` in the
+        // new stream -- a real 3-sample gap -- but every arrival is `<= 100`,
+        // so the tracker reports zero throughout.
+        assert_eq!(losses_for(&[(1, 100), (1, 1), (1, 5)]), 0);
+    }
+
     #[test]
     fn test_update_event_status_fires_callback() {
         let called = Arc::new(Mutex::new(0i32));
