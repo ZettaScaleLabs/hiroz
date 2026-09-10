@@ -256,8 +256,13 @@ fn session_specific_overrides() -> &'static [ConfigOverride] {
             },
             ConfigOverride {
                 key: "queries_default_timeout",
-                value: serde_json::json!(60000),
-                reason: "Increased from 10s to 60s to handle slow service servers at launch",
+                value: serde_json::json!(600000),
+                reason: "Increased from zenoh's 10s to 10min for slow service servers at \
+                         launch, matching rmw_zenoh_cpp. This was 60s, which upstream \
+                         raised to 10min for that same case; the docs and this repository \
+                         disagreed on it. Note a hiroz ZClient does not reach this value: \
+                         it sets its own 10s querier timeout in node.rs. This governs \
+                         queries made on the raw session.",
             },
             ConfigOverride {
                 key: "transport/link/tx/queue/congestion_control/block/wait_before_close",
