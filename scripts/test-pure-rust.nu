@@ -47,8 +47,8 @@ def check-bundled-msgs [] {
     # codegen actually generated -- generating the full distro package set
     # regardless of the requested feature compiles just as cleanly as
     # generating only `std_msgs` does. That is exactly how the
-    # `selected_package_names` regression (circle/hiroz#199, D2) shipped
-    # undetected. Assert on the generated package set directly.
+    # `selected_package_names` regression shipped undetected. Assert on
+    # the generated package set directly.
     run-cmd "cargo test -p hiroz-msgs --no-default-features --features std_msgs --test feature_scoping"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features geometry_msgs"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features sensor_msgs"
@@ -169,7 +169,7 @@ def check-distro-features [] {
     # feature to pick a bundled asset tree (crates/hiroz-msgs/build.rs,
     # `Distro::bundled_dir`/`discover_ros_packages`). The checks above never
     # build `hiroz-msgs` at all, so a distro whose asset tree is missing or
-    # broken (circle/hiroz#196/#197) compiled clean here while failing for
+    # broken compiled clean here while failing for
     # real users. Exercise `hiroz-msgs` itself, one distro at a time, for
     # every distro that has a bundled asset tree today (see `ls
     # crates/hiroz-codegen/assets/`) -- `rolling`/`kilted` have none yet and

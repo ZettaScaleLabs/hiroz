@@ -2,8 +2,8 @@
 //! requested packages, instead of silently generating the full distro
 //! package set no matter which features are enabled.
 //!
-//! This pins the regression tracked at circle/hiroz#199 (D2): an upstream
-//! change dropped `build.rs`'s `selected_package_names` filtering, so every
+//! This pins a regression: an upstream change dropped `build.rs`'s
+//! `selected_package_names` filtering, so every
 //! build generated every package in the bundled asset tree regardless of
 //! which Cargo features were on. `cargo check` did not catch it -- a build
 //! that generates too much still compiles cleanly. Catching this needs a
@@ -53,8 +53,8 @@ fn std_msgs_feature_does_not_pull_in_unrelated_packages() {
         assert!(
             !generated.contains(&unrelated),
             "`{unrelated}` was generated even though only the `std_msgs` feature was \
-             enabled -- this is the over-generation regression from circle/hiroz#199 (D2): \
-             every Cargo feature generated the full distro package set. Generated: {generated:?}"
+             enabled -- every Cargo feature used to generate the full distro package set \
+             regardless of which was selected. Generated: {generated:?}"
         );
     }
 }

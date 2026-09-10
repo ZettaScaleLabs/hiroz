@@ -22,7 +22,7 @@ fn main() -> Result<()> {
     println!("cargo:warning=target ROS distro: {}", distro.assets_dir());
     if distro.bundled_dir() != distro.assets_dir() {
         println!(
-            "cargo:warning=assets/{} has no packages yet (circle/hiroz#196) — reading assets/{} instead",
+            "cargo:warning=assets/{} has no packages yet — reading assets/{} instead",
             distro.assets_dir(),
             distro.bundled_dir()
         );
@@ -41,8 +41,7 @@ fn main() -> Result<()> {
     // can assert on `selected_package_names`'s real output instead of only
     // on whether `cargo check` succeeds. `cargo check` succeeding proves
     // nothing about *which* packages were generated -- over-generation
-    // (circle/hiroz#199, D2) compiled cleanly too. See
-    // `tests/feature_scoping.rs`.
+    // compiled cleanly too. See `tests/feature_scoping.rs`.
     let generated_package_names: Vec<String> = ros_packages
         .iter()
         .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
@@ -203,7 +202,7 @@ impl Distro {
     }
 
     /// The bundled asset tree actually read for this distro. `assets/humble/`
-    /// carries no real packages yet (circle/hiroz#196) — jazzy's interface set
+    /// carries no real packages yet — jazzy's interface set
     /// predates Humble's EOL and is a safe superset, so Humble reads from it
     /// too, same as before #344. Populating `assets/humble/` for real makes
     /// this an identity match again.
@@ -299,7 +298,7 @@ fn discover_ros_packages(distro: Distro) -> Result<Vec<PathBuf>> {
         if !has_interfaces {
             anyhow::bail!(
                 "feature requested package `{name}` but it was not found in assets/{} \
-                 (distro {}): {path:?} — see circle/hiroz#197",
+                 (distro {}): {path:?}",
                 distro.bundled_dir(),
                 distro.assets_dir(),
             );
