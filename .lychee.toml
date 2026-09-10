@@ -24,4 +24,10 @@ exclude = [
     # file:// URLs are generated when lychee resolves internal links in the built site/ HTML
     # on the CI runner — they are not real external links and are always false positives
     "file://",
+    # The site's own published URL. MkDocs writes it into site/sitemap.xml and into the
+    # rel="canonical" tag of every page, so every build asks GitHub Pages about several
+    # hundred of its own URLs. Two reasons this can never be a useful check:
+    #   - it queries the PREVIOUS deployment, so a page added in this build always 404s
+    #   - the request burst gets rate-limited; issue #323 was a 503 on a page that is live
+    "zettascalelabs\\.github\\.io/hiroz",
 ]
