@@ -219,6 +219,12 @@
           # Ensure python is available since we unwrapped the ROS env
           python3
           go # Go toolchain (latest stable)
+          # Generates crates/hiroz-go/hiroz/hiroz_ffi.h from crates/hiroz/src/ffi/
+          # (crates/hiroz/build.rs) under `--features ffi`. Sits beside `go`
+          # because that header is what cgo compiles against. Absent from every
+          # shell until now, so CI never regenerated it and the committed copy
+          # silently drifted out of sync with the Rust structs -- see #270.
+          rust-cbindgen
         ];
 
         # Development tools
