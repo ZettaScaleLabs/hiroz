@@ -268,7 +268,6 @@ pub extern "C" fn rmw_create_publisher(
         graph.get_entities_by_topic(hiroz::entity::EndpointKind::Subscription, &entity.topic);
 
     // Track which subscription GIDs we've already checked to avoid double-counting
-    let local_zid = graph.zid;
     let mut checked_gids = std::collections::HashSet::new();
     let mut incompatible_count = 0;
     let mut last_policy_kind = 0u32;
@@ -278,13 +277,6 @@ pub extern "C" fn rmw_create_publisher(
             let Some(node) = endpoint.node.as_ref() else {
                 continue;
             };
-
-            // DDS-style QoS-incompatibility checking is for remote peers --
-            // skip only this session's own entities. The old `!=` guard had
-            // this backwards: same-session only, never remote.
-            if node.z_id == local_zid {
-                continue;
-            }
 
             // node is Some here, so endpoint_gid is always Some
             let gid = hiroz::entity::endpoint_gid(endpoint).unwrap();
@@ -655,7 +647,6 @@ pub extern "C" fn rmw_create_subscription(
         graph.get_entities_by_topic(hiroz::entity::EndpointKind::Publisher, &entity.topic);
 
     // Track which publisher GIDs we've already checked to avoid double-counting
-    let local_zid = graph.zid;
     let mut checked_gids = std::collections::HashSet::new();
     let mut incompatible_count = 0;
     let mut last_policy_kind = 0u32;
@@ -665,13 +656,6 @@ pub extern "C" fn rmw_create_subscription(
             let Some(node) = endpoint.node.as_ref() else {
                 continue;
             };
-
-            // DDS-style QoS-incompatibility checking is for remote peers --
-            // skip only this session's own entities. The old `!=` guard had
-            // this backwards: same-session only, never remote.
-            if node.z_id == local_zid {
-                continue;
-            }
 
             // node is Some here, so endpoint_gid is always Some
             let gid = hiroz::entity::endpoint_gid(endpoint).unwrap();
