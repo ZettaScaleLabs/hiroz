@@ -41,6 +41,7 @@ fn endpoint_entity(domain_id: usize, kind: EndpointKind, topic: &str) -> Endpoin
             reliability: QosReliability::Reliable,
             durability: QosDurability::Volatile,
             history: QosHistory::KeepLast(10),
+            ..QosProfile::default()
         },
     }
 }
