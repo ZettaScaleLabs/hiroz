@@ -1,0 +1,141 @@
+{
+  "format_version": "1.0",
+  "ros_distro": "lyrical",
+  "generated": "harvested",
+  "packages": {
+    "action_msgs": {
+      "dependencies": [
+        "builtin_interfaces",
+        "unique_identifier_msgs"
+      ]
+    },
+    "builtin_interfaces": {
+      "dependencies": []
+    },
+    "composition_interfaces": {
+      "dependencies": [
+        "rcl_interfaces"
+      ]
+    },
+    "diagnostic_msgs": {
+      "dependencies": [
+        "std_msgs"
+      ]
+    },
+    "example_interfaces": {
+      "dependencies": []
+    },
+    "ffmpeg_image_transport_msgs": {
+      "dependencies": [
+        "std_msgs"
+      ]
+    },
+    "geometry_msgs": {
+      "dependencies": [
+        "std_msgs"
+      ]
+    },
+    "lifecycle_msgs": {
+      "dependencies": [
+        "builtin_interfaces"
+      ]
+    },
+    "nav_msgs": {
+      "dependencies": [
+        "builtin_interfaces",
+        "geometry_msgs",
+        "std_msgs"
+      ]
+    },
+    "rcl_interfaces": {
+      "dependencies": [
+        "builtin_interfaces"
+      ]
+    },
+    "rosbag2_interfaces": {
+      "dependencies": [
+        "builtin_interfaces"
+      ]
+    },
+    "rosgraph_msgs": {
+      "dependencies": [
+        "builtin_interfaces",
+        "rcl_interfaces"
+      ]
+    },
+    "sensor_msgs": {
+      "dependencies": [
+        "builtin_interfaces",
+        "geometry_msgs",
+        "std_msgs"
+      ]
+    },
+    "service_msgs": {
+      "dependencies": [
+        "builtin_interfaces"
+      ]
+    },
+    "shape_msgs": {
+      "dependencies": [
+        "geometry_msgs"
+      ]
+    },
+    "statistics_msgs": {
+      "dependencies": [
+        "builtin_interfaces"
+      ]
+    },
+    "std_msgs": {
+      "dependencies": [
+        "builtin_interfaces"
+      ]
+    },
+    "std_srvs": {
+      "dependencies": []
+    },
+    "stereo_msgs": {
+      "dependencies": [
+        "sensor_msgs",
+        "std_msgs"
+      ]
+    },
+    "test_msgs": {
+      "dependencies": [
+        "builtin_interfaces"
+      ]
+    },
+    "tf2_msgs": {
+      "dependencies": [
+        "builtin_interfaces",
+        "geometry_msgs"
+      ]
+    },
+    "trajectory_msgs": {
+      "dependencies": [
+        "builtin_interfaces",
+        "geometry_msgs",
+        "std_msgs"
+      ]
+    },
+    "type_description_interfaces": {
+      "dependencies": []
+    },
+    "unique_identifier_msgs": {
+      "dependencies": []
+    },
+    "vision_msgs": {
+      "dependencies": [
+        "geometry_msgs",
+        "std_msgs"
+      ]
+    },
+    "visualization_msgs": {
+      "dependencies": [
+        "builtin_interfaces",
+        "geometry_msgs",
+        "sensor_msgs",
+        "std_msgs"
+      ]
+    }
+  }
+}
