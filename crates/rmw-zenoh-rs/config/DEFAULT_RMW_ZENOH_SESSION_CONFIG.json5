@@ -48,22 +48,6 @@
   /// The default timeout to apply to queries in milliseconds.
   queries_default_timeout: 10000,
 
-  /// The routing strategy to use and it's configuration.
-  routing: {
-    /// The routing strategy to use in routers and it's configuration.
-    router: {
-      /// When set to true a router will forward data between two peers
-      /// directly connected to it if it detects that those peers are not
-      /// connected to each other.
-      peers_failover_brokering: true,
-    },
-    /// The routing strategy to use in peers and it's configuration.
-    peer: {
-      /// The routing strategy to use in peers. ("peer_to_peer" or "linkstate").
-      mode: "peer_to_peer",
-    },
-  },
-
   /// Configure internal transport parameters
   transport: {
     unicast: {

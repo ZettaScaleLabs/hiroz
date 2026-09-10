@@ -6,7 +6,7 @@
 //!
 //! # Architecture
 //! - Common overrides: 10 settings shared between router and session
-//! - Router-specific: 5 settings unique to router mode
+//! - Router-specific: 4 settings unique to router mode
 //! - Session-specific: 6 settings unique to peer mode
 //!
 //! # Example
@@ -195,7 +195,7 @@ fn common_overrides() -> &'static [ConfigOverride] {
     &COMMON
 }
 
-/// Router-specific overrides (5 settings)
+/// Router-specific overrides (4 settings)
 fn router_specific_overrides() -> &'static [ConfigOverride] {
     static ROUTER_SPECIFIC: LazyLock<Vec<ConfigOverride>> = LazyLock::new(|| {
         vec![
@@ -213,11 +213,6 @@ fn router_specific_overrides() -> &'static [ConfigOverride] {
                 key: "connect/endpoints",
                 value: serde_json::json!([]),
                 reason: "Router does not connect to other endpoints (empty list)",
-            },
-            ConfigOverride {
-                key: "routing/router/peers_failover_brokering",
-                value: serde_json::json!(false),
-                reason: "Changed from true to false - unnecessary when peers connect directly, reduces overhead",
             },
             ConfigOverride {
                 key: "transport/link/tx/queue/congestion_control/block/wait_before_close",
