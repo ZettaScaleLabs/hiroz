@@ -268,20 +268,13 @@ pub extern "C" fn rmw_create_publisher(
         graph.get_entities_by_topic(hiroz::entity::EndpointKind::Subscription, &entity.topic);
 
     // Track which subscription GIDs we've already checked to avoid double-counting
-    let local_zid = graph.zid;
     let mut checked_gids = std::collections::HashSet::new();
     let mut incompatible_count = 0;
     let mut last_policy_kind = 0u32;
     for sub_entity in &sub_entities {
         if let Some(endpoint) = hiroz::entity::entity_get_endpoint(sub_entity) {
             // Skip Ros2Dds endpoints that carry no node identity
-            let Some(node) = endpoint.node.as_ref() else {
-                continue;
-            };
-
-            // Only check QoS compatibility with entities from the same Zenoh session
-            // This avoids counting subscriptions from previous test cases that used different sessions
-            if node.z_id != local_zid {
+            if endpoint.node.is_none() {
                 continue;
             }
 
@@ -654,20 +647,13 @@ pub extern "C" fn rmw_create_subscription(
         graph.get_entities_by_topic(hiroz::entity::EndpointKind::Publisher, &entity.topic);
 
     // Track which publisher GIDs we've already checked to avoid double-counting
-    let local_zid = graph.zid;
     let mut checked_gids = std::collections::HashSet::new();
     let mut incompatible_count = 0;
     let mut last_policy_kind = 0u32;
     for pub_entity in &pub_entities {
         if let Some(endpoint) = hiroz::entity::entity_get_endpoint(pub_entity) {
             // Skip Ros2Dds endpoints that carry no node identity
-            let Some(node) = endpoint.node.as_ref() else {
-                continue;
-            };
-
-            // Only check QoS compatibility with entities from the same Zenoh session
-            // This avoids counting publishers from previous test cases that used different sessions
-            if node.z_id != local_zid {
+            if endpoint.node.is_none() {
                 continue;
             }
 
