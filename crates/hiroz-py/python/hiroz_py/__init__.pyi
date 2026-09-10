@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 from typing import Any, Final
 
 # Re-export message types from hiroz_msgs_py.types
@@ -31,8 +32,11 @@ except ImportError:
 # Exceptions
 # ---------------------------------------------------------------------------
 
-class HirozError(Exception): ...
-class TimeoutError(HirozError): ...
+class HirozError(RuntimeError): ...
+
+# Also subclasses the builtin TimeoutError, which is what rclpy's Client.call
+# raises -- so `except TimeoutError:` in ported code keeps catching.
+class TimeoutError(HirozError, builtins.TimeoutError): ...
 class SerializationError(HirozError): ...
 class TypeMismatchError(HirozError): ...
 
@@ -78,6 +82,30 @@ QOS_DEFAULT: Final[QosProfile] = QosProfile.default()
 QOS_SENSOR_DATA: Final[QosProfile] = QosProfile.sensor_data()
 QOS_PARAMETERS: Final[QosProfile] = QosProfile.parameters()
 QOS_SERVICES: Final[QosProfile] = QosProfile.services()
+
+# ---------------------------------------------------------------------------
+# QoS policy enum holders (P8)
+# ---------------------------------------------------------------------------
+
+class ReliabilityPolicy:
+    RELIABLE: Final[str]
+    BEST_EFFORT: Final[str]
+
+class DurabilityPolicy:
+    VOLATILE: Final[str]
+    TRANSIENT_LOCAL: Final[str]
+
+class HistoryPolicy:
+    KEEP_LAST: Final[str]
+    KEEP_ALL: Final[str]
+
+class LivelinessPolicy:
+    AUTOMATIC: Final[str]
+    MANUAL_BY_TOPIC: Final[str]
+    MANUAL_BY_NODE: Final[str]
+
+# A QoS argument: a QosProfile, an int depth shorthand, or a legacy dict.
+QosLike = QosProfile | int | dict[str, object]
 
 # ---------------------------------------------------------------------------
 # GoalStatus
@@ -175,30 +203,44 @@ class ZNode:
         self,
         topic: str,
         msg_type: Any,
-        qos: QosProfile | dict[str, object] | None = None,
+        qos: QosLike | None = None,
     ) -> ZPublisher: ...
     def create_subscriber(
         self,
         topic: str,
         msg_type: Any,
-        qos: QosProfile | dict[str, object] | None = None,
+        qos: QosLike | None = None,
+        callback: Any | None = None,
+    ) -> ZSubscriber: ...
+    # rclpy-style alias for create_subscriber (P3).
+    def create_subscription(
+        self,
+        topic: str,
+        msg_type: Any,
+        qos: QosLike | None = None,
         callback: Any | None = None,
     ) -> ZSubscriber: ...
     def create_client(self, service: str, srv_type: Any) -> ZClient: ...
-    def create_server(self, service: str, srv_type: Any) -> ZServer: ...
+    def create_server(
+        self, service: str, srv_type: Any, callback: Any | None = None
+    ) -> ZServer: ...
+    # rclpy-style alias for create_server (P3); pass callback= for callback mode (P6).
+    def create_service(
+        self, service: str, srv_type: Any, callback: Any | None = None
+    ) -> ZServer: ...
     def create_action_client(
         self,
         action_name: str,
         goal_type: Any,
-        result_type: Any,
-        feedback_type: Any,
+        result_type: Any | None = None,
+        feedback_type: Any | None = None,
     ) -> ZActionClient: ...
     def create_action_server(
         self,
         action_name: str,
         goal_type: Any,
-        result_type: Any,
-        feedback_type: Any,
+        result_type: Any | None = None,
+        feedback_type: Any | None = None,
     ) -> ZActionServer: ...
     def get_topic_names_and_types(self) -> list[tuple[str, str]]: ...
     def get_node_names(self) -> list[tuple[str, str]]: ...
@@ -213,6 +255,9 @@ class ZNode:
 class ZPublisher:
     def publish(self, data: Any) -> None: ...
     def publish_raw(self, data: bytes) -> None: ...
+    def wait_for_subscription(
+        self, count: int = 1, timeout: float | None = None
+    ) -> bool: ...
     def get_type_name(self) -> str: ...
 
 # ---------------------------------------------------------------------------
@@ -236,6 +281,7 @@ class ZSubscriber:
 
 class ZClient:
     def call(self, data: Any, timeout: float | None = None) -> Any: ...
+    def wait_for_service(self, timeout: float | None = None) -> bool: ...
     def get_type_name(self) -> str: ...
 
 # ---------------------------------------------------------------------------
@@ -246,6 +292,16 @@ class ZServer:
     def take_request(self) -> tuple[dict[str, Any], Any]: ...
     def send_response(self, response: Any, request_id: dict[str, Any]) -> None: ...
     def get_type_name(self) -> str: ...
+    @property
+    def last_error(self) -> str | None: ...
+    def close(self) -> None: ...
+    def __enter__(self) -> ZServer: ...
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        traceback: Any | None = None,
+    ) -> bool: ...
 
 # ---------------------------------------------------------------------------
 # ZActionClient
@@ -253,6 +309,7 @@ class ZServer:
 
 class ZActionClient:
     def send_goal(self, goal: Any) -> ActionGoalHandle: ...
+    def wait_for_server(self, timeout: float | None = None) -> bool: ...
     @property
     def goal_type(self) -> Any: ...
 
@@ -267,7 +324,7 @@ class ActionGoalHandle:
     def status(self) -> int: ...
     def recv_feedback(self, timeout: float | None = None) -> Any | None: ...
     def try_recv_feedback(self) -> Any | None: ...
-    def get_result(self, timeout: float | None = None) -> Any | None: ...
+    def get_result(self, timeout: float | None = None) -> Any: ...
     def cancel(self) -> None: ...
 
 # ---------------------------------------------------------------------------

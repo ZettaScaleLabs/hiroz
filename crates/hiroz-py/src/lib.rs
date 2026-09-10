@@ -37,10 +37,9 @@ fn list_registered_types() -> Vec<String> {
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Register custom exceptions
     m.add("HirozError", m.py().get_type_bound::<error::HirozError>())?;
-    m.add(
-        "TimeoutError",
-        m.py().get_type_bound::<error::TimeoutError>(),
-    )?;
+    // TimeoutError has two bases, so it is built at runtime rather than by
+    // `create_exception!` — see error.rs.
+    m.add("TimeoutError", error::init_timeout_error(m.py())?)?;
     m.add(
         "SerializationError",
         m.py().get_type_bound::<error::SerializationError>(),

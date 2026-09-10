@@ -2,6 +2,7 @@
 
 # Import all message types
 from . import action_msgs
+from . import action_tutorials_interfaces
 from . import builtin_interfaces
 from . import example_interfaces
 from . import geometry_msgs
@@ -16,6 +17,7 @@ from . import unique_identifier_msgs
 
 __all__ = [
     "action_msgs",
+    "action_tutorials_interfaces",
     "builtin_interfaces",
     "example_interfaces",
     "geometry_msgs",

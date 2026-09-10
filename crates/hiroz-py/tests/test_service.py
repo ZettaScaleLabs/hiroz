@@ -93,9 +93,9 @@ def test_timeout_handling(client):
     req = example_interfaces.AddTwoIntsRequest(a=1, b=2)
     try:
         timeout_client.call(req, timeout=1.0)
-        assert False, "Expected timeout error, but call succeeded"
-    except RuntimeError:
-        pass  # expected: call timed out
+        assert False, "Expected an error, but call succeeded"
+    except hiroz_py.HirozError:
+        pass  # expected: call failed (no server / timeout). TimeoutError is a subclass.
 
     print("✓ Timeout handling works")
 

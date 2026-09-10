@@ -94,6 +94,19 @@ class AddTwoIntsResponse(msgspec.Struct, frozen=True, kw_only=True):
 
 For service types, `__hash__` contains the service type hash (computed from the combined request/response definition). Both request and response share the same hash since they belong to the same service. This differs from regular messages where `__hash__` contains the individual message type hash.
 
+Alongside the standalone Request/Response structs, the generator emits an rclpy-style grouping class that references them:
+
+```python
+# Generated grouping class for example_interfaces/srv/AddTwoInts
+class AddTwoInts:
+    """Service grouping type. Use AddTwoInts.Request and AddTwoInts.Response."""
+    __srvtype__: ClassVar[str] = 'example_interfaces/srv/AddTwoInts'
+    Request: ClassVar[type] = AddTwoIntsRequest
+    Response: ClassVar[type] = AddTwoIntsResponse
+```
+
+Actions get the equivalent `Goal`/`Result`/`Feedback` grouping class (`__actiontype__`). `create_client`/`create_server` and `create_action_client`/`create_action_server` accept either the grouping class or the bare per-message classes — see the [Grouped Request/Response and Goal/Result/Feedback Types](./python.md#grouped-requestresponse-and-goalresultfeedback-types) section of the main Python bindings chapter for usage.
+
 ### Rust: Generated Structs with Derive Macros
 
 The Rust code generator adds derive attributes to message structs:

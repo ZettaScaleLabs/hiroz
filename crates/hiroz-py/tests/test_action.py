@@ -185,18 +185,18 @@ def test_goal_rejection(action_context):
 
 
 def test_goal_timeout_no_server(action_context):
-    """get_result returns None when no server is present and timeout expires."""
+    """send_goal raises when no server is present; get_result raises TimeoutError
+    on timeout if a goal handle is ever obtained."""
     node_c = action_context.create_node("timeout_client").build()
     client = node_c.create_action_client(
         "/nonexistent_action", CountGoal, CountResult, CountFeedback
     )
 
     with pytest.raises(Exception):
-        # send_goal should raise (or the goal handle's get_result should time out)
+        # send_goal should raise (or the goal handle's get_result should raise
+        # hiroz_py.TimeoutError).
         handle = client.send_goal(CountGoal(target=1))
-        result = handle.get_result(timeout=1.0)
-        # If send_goal doesn't raise, get_result should return None
-        assert result is None
+        handle.get_result(timeout=1.0)
 
 
 def test_server_abort(action_context):

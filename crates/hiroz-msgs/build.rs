@@ -83,7 +83,7 @@ fn main() -> Result<()> {
         #[cfg(feature = "python_registry")]
         {
             // Use hiroz_codegen's discovery and resolver to get resolved messages
-            let (messages, services, _actions) =
+            let (messages, services, actions) =
                 hiroz_codegen::discovery::discover_all(&package_refs)?;
 
             // Filter out problematic messages
@@ -125,10 +125,19 @@ fn main() -> Result<()> {
                 })
                 .collect();
 
+            let actions: Vec<_> = actions
+                .into_iter()
+                .filter(|act| {
+                    let full_name = format!("{}/{}", act.package, act.name);
+                    !full_name.starts_with("actionlib_msgs/")
+                })
+                .collect();
+
             // Resolve dependencies using hiroz_codegen resolver
             let mut resolver = hiroz_codegen::resolver::Resolver::new(is_humble);
             let resolved_msgs = resolver.resolve_messages(messages)?;
             let resolved_srvs = resolver.resolve_services(services)?;
+            let resolved_actions = resolver.resolve_actions(actions)?;
 
             // Create Python output directory
             let python_output_dir = PathBuf::from("python/hiroz_msgs_py/types");
@@ -138,6 +147,7 @@ fn main() -> Result<()> {
             python_msgspec_generator::generate_python_bindings(
                 &resolved_msgs,
                 &resolved_srvs,
+                &resolved_actions,
                 &python_output_dir,
                 &out_dir.join("python_bindings.rs"),
             )?;
