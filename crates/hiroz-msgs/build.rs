@@ -37,11 +37,9 @@ fn main() -> Result<()> {
     // Discover ROS packages by enumerating the selected distro's asset tree.
     let ros_packages = discover_ros_packages(distro)?;
 
-    // Embed the exact package set this build generated code for, so tests
-    // can assert on `selected_package_names`'s real output instead of only
-    // on whether `cargo check` succeeds. `cargo check` succeeding proves
-    // nothing about *which* packages were generated -- over-generation
-    // compiled cleanly too. See `tests/feature_scoping.rs`.
+    // Expose the generated package set so tests can assert on it directly --
+    // `cargo check` succeeding doesn't prove the right packages were
+    // generated. See `tests/feature_scoping.rs`.
     let generated_package_names: Vec<String> = ros_packages
         .iter()
         .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
@@ -201,11 +199,8 @@ impl Distro {
         }
     }
 
-    /// The bundled asset tree actually read for this distro. `assets/humble/`
-    /// carries no real packages yet — jazzy's interface set
-    /// predates Humble's EOL and is a safe superset, so Humble reads from it
-    /// too, same as before #344. Populating `assets/humble/` for real makes
-    /// this an identity match again.
+    /// `assets/humble/` has no real packages yet, so Humble falls back to
+    /// jazzy (a safe superset), same as before #344.
     fn bundled_dir(self) -> &'static str {
         match self {
             Distro::Humble => "jazzy",
@@ -219,12 +214,9 @@ impl Distro {
     }
 }
 
-/// Which packages `hiroz-msgs`' enabled Cargo features request for this
-/// distro. `builtin_interfaces`/`action_msgs`/`unique_identifier_msgs`/
-/// `lifecycle_msgs` are always required; `service_msgs`/
-/// `type_description_interfaces` were introduced after Humble and are added
-/// for every other distro. Every other name here has a matching feature in
-/// `Cargo.toml` (see also `no_default_features`/`all_msgs`/`core_msgs`).
+/// Packages requested by enabled Cargo features. Always includes the four
+/// base packages, plus `service_msgs`/`type_description_interfaces` for
+/// non-Humble distros.
 fn selected_package_names(is_humble: bool) -> Vec<&'static str> {
     let mut names = vec![
         "builtin_interfaces",
@@ -268,12 +260,8 @@ fn selected_package_names(is_humble: bool) -> Vec<&'static str> {
     names
 }
 
-/// Discover the packages to generate: the names `selected_package_names`
-/// requests, resolved against the selected distro's bundled asset tree. A
-/// requested package that is not in the tree is a hard error rather than a
-/// silent omission — the same class of bug #344 fixes for `lyrical` (a
-/// feature flag advertising support the asset tree does not back), applied to
-/// every distro/feature combination instead of only the newly-added one.
+/// Resolves `selected_package_names` against the asset tree. A requested
+/// package missing from the tree is a hard error, not a silent omission.
 fn discover_ros_packages(distro: Distro) -> Result<Vec<PathBuf>> {
     let assets_dir = hiroz_codegen::bundled_assets_dir_for(distro.bundled_dir());
 

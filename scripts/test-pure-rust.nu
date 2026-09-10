@@ -43,12 +43,8 @@ def check-bundled-msgs [] {
     run-cmd "cargo check -p hiroz-msgs --features common_interfaces"
     run-cmd "cargo check -p hiroz-msgs --features all_msgs"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features std_msgs"
-    # `cargo check` succeeding here says nothing about *which* packages
-    # codegen actually generated -- generating the full distro package set
-    # regardless of the requested feature compiles just as cleanly as
-    # generating only `std_msgs` does. That is exactly how the
-    # `selected_package_names` regression shipped undetected. Assert on
-    # the generated package set directly.
+    # `cargo check` alone can't catch over-generation -- assert on the
+    # generated package set directly.
     run-cmd "cargo test -p hiroz-msgs --no-default-features --features std_msgs --test feature_scoping"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features geometry_msgs"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features sensor_msgs"
@@ -164,17 +160,10 @@ def check-distro-features [] {
     run-cmd "cargo check -p hiroz --no-default-features --features kilted"
     run-cmd "cargo check -p hiroz --no-default-features --features lyrical"
 
-    # `hiroz`'s own distro features only gate type-hash/compat behaviour --
-    # they say nothing about `hiroz-msgs`' codegen, which reads the distro
-    # feature to pick a bundled asset tree (crates/hiroz-msgs/build.rs,
-    # `Distro::bundled_dir`/`discover_ros_packages`). The checks above never
-    # build `hiroz-msgs` at all, so a distro whose asset tree is missing or
-    # broken compiled clean here while failing for
-    # real users. Exercise `hiroz-msgs` itself, one distro at a time, for
-    # every distro that has a bundled asset tree today (see `ls
-    # crates/hiroz-codegen/assets/`) -- `rolling`/`kilted` have none yet and
-    # are deliberately not checked here; add them once assets exist rather
-    # than pinning a check that can only ever fail.
+    # The checks above only cover `hiroz`'s own type-hash/compat features --
+    # `hiroz-msgs`' codegen (a separate distro-gated asset tree) is unchecked
+    # by them. `rolling`/`kilted` have no bundled assets yet, so they're
+    # deliberately left out here rather than pinning a check that can only fail.
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features core_msgs,humble"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features core_msgs,jazzy"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features core_msgs,lyrical"
