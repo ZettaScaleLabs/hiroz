@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: transparent; overflow: hidden; }
+  svg { width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<svg id="anim" viewBox="0 0 500 290" xmlns="http://www.w3.org/2000/svg"></svg>
+<script>
+(function() {
+  var svg = document.getElementById("anim");
+  var ns = "http://www.w3.org/2000/svg";
+  var W = 500, H = 290;
+  var LX = 100, RX = 400;
+  var TOP = 56;
+  var STEP_H = 38;
+
+  // Detect parent theme
+  var dark = false;
+  try {
+    dark = window.parent.document.body.getAttribute("data-md-color-scheme") === "slate";
+  } catch(e) {}
+
+  var bg       = dark ? "#1a1a2e" : "#ffffff";
+  var textcol  = dark ? "#e0e0e0" : "#212121";
+  var lifeline = dark ? "rgba(100,130,255,0.3)" : "rgba(63,81,181,0.25)";
+
+  document.body.style.background = bg;
+
+  function el(tag, attrs) {
+    var e = document.createElementNS(ns, tag);
+    Object.keys(attrs).forEach(function(k) { e.setAttribute(k, attrs[k]); });
+    return e;
+  }
+  function txt(str, attrs) {
+    var e = el("text", attrs);
+    e.textContent = str;
+    return e;
+  }
+  function append(e) { svg.appendChild(e); return e; }
+
+  // Actor boxes
+  [[LX, "Action\nClient"], [RX, "Action\nServer"]].forEach(function(a) {
+    append(el("rect", {x: a[0]-55, y: 6, width: 110, height: 42, rx: 7, fill: "#3f51b5"}));
+    a[1].split("\n").forEach(function(line, i) {
+      append(txt(line, {x: a[0], y: 23 + i*16, "text-anchor":"middle",
+        "dominant-baseline":"middle", fill:"#fff", "font-size":"12",
+        "font-weight":"700", "font-family":"system-ui,sans-serif"}));
+    });
+    // Lifeline
+    append(el("line", {x1:a[0], y1:TOP, x2:a[0], y2:H-10,
+      stroke: "#3f51b5", "stroke-opacity":"0.28", "stroke-width":"2", "stroke-dasharray":"5 5"}));
+  });
+
+  function pointsAt(x, y, dir) {
+    var tip = x, base = x - dir*11;
+    return tip+","+y+" "+base+","+(y-6)+" "+base+","+(y+6);
+  }
+
+  // Steps config: [delay_ms, from, to, label, color]
+  var CYCLE = 8000;
+  var steps = [
+    [300,  LX, RX, "Goal",             "#3f51b5"],
+    [1300, RX, LX, "Accepted",          "#2e7d32"],
+    [2300, RX, LX, "Feedback  30%",     "#e65100"],
+    [3300, RX, LX, "Feedback  65%",     "#e65100"],
+    [4300, RX, LX, "Feedback 100%",     "#e65100"],
+    [5300, RX, LX, "Result: Succeeded", "#1565c0"],
+  ];
+
+  var TRAVEL = 650; // ms for arrow to travel
+
+  // Pre-create arrow groups
+  var arrows = steps.map(function(s, i) {
+    var y = TOP + 24 + i * STEP_H;
+    var g = el("g", {opacity: "0"});
+    svg.appendChild(g);
+    var shaft = el("line", {x1: s[1], x2: s[1], y1: y, y2: y,
+      stroke: s[4], "stroke-width": "2.5", "stroke-linecap": "round"});
+    g.appendChild(shaft);
+    var dir = s[2] > s[1] ? 1 : -1;
+    var head = el("polygon", {fill: s[4], points: pointsAt(s[1], y, dir)});
+    g.appendChild(head);
+    // Label background + text
+    var midX = (s[1]+s[2])/2;
+    var labBg = el("rect", {rx:8, fill: s[4]});
+    g.appendChild(labBg);
+    var labTxt = el("text", {x: midX, y: y-11, "text-anchor":"middle",
+      "dominant-baseline":"middle", fill:"#fff", "font-size":"10.5",
+      "font-weight":"600", "font-family":"system-ui,sans-serif"});
+    labTxt.textContent = s[3];
+    g.appendChild(labTxt);
+
+    return {g:g, shaft:shaft, head:head, labBg:labBg, labTxt:labTxt,
+            from:s[1], to:s[2], color:s[4], delay:s[0], y:y};
+  });
+
+  // Measure label bboxes after first render
+  requestAnimationFrame(function() {
+    arrows.forEach(function(a) {
+      try {
+        var bb = a.labTxt.getBBox();
+        a.labBg.setAttribute("x", bb.x-6);
+        a.labBg.setAttribute("y", bb.y-3);
+        a.labBg.setAttribute("width", bb.width+12);
+        a.labBg.setAttribute("height", bb.height+6);
+      } catch(e) {}
+    });
+  });
+
+  // "Executing" label
+  var execTxt = append(txt("⚙  Executing…", {
+    x: RX, y: TOP + 80, "text-anchor":"middle",
+    fill:"#e65100", "font-size":"11", "font-weight":"600",
+    "font-family":"system-ui,sans-serif", opacity:"0"
+  }));
+
+  var start = null;
+  function frame(ts) {
+    if (!start) start = ts;
+    var elapsed = (ts - start) % CYCLE;
+
+    // Executing label
+    execTxt.setAttribute("opacity", (elapsed > 1800 && elapsed < 5100) ? "1" : "0");
+
+    arrows.forEach(function(a) {
+      var t = elapsed - a.delay;
+      if (t < 0 || t > TRAVEL + 700) {
+        a.g.setAttribute("opacity", "0");
+        a.shaft.setAttribute("x2", a.from);
+        var dir = a.to > a.from ? 1 : -1;
+        a.head.setAttribute("points", pointsAt(a.from, a.y, dir));
+        return;
+      }
+      var op = t > TRAVEL + 400 ? Math.max(0, 1-(t-TRAVEL-400)/300) : 1;
+      a.g.setAttribute("opacity", op);
+      var progress = Math.min(1, t / TRAVEL);
+      var curX = a.from + (a.to - a.from) * progress;
+      a.shaft.setAttribute("x2", curX);
+      var dir = a.to > a.from ? 1 : -1;
+      a.head.setAttribute("points", pointsAt(curX, a.y, dir));
+    });
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
