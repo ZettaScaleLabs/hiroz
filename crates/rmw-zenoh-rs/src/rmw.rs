@@ -274,9 +274,9 @@ pub extern "C" fn rmw_create_publisher(
     for sub_entity in &sub_entities {
         if let Some(endpoint) = hiroz::entity::entity_get_endpoint(sub_entity) {
             // Skip Ros2Dds endpoints that carry no node identity
-            let Some(node) = endpoint.node.as_ref() else {
+            if endpoint.node.is_none() {
                 continue;
-            };
+            }
 
             // node is Some here, so endpoint_gid is always Some
             let gid = hiroz::entity::endpoint_gid(endpoint).unwrap();
@@ -653,9 +653,9 @@ pub extern "C" fn rmw_create_subscription(
     for pub_entity in &pub_entities {
         if let Some(endpoint) = hiroz::entity::entity_get_endpoint(pub_entity) {
             // Skip Ros2Dds endpoints that carry no node identity
-            let Some(node) = endpoint.node.as_ref() else {
+            if endpoint.node.is_none() {
                 continue;
-            };
+            }
 
             // node is Some here, so endpoint_gid is always Some
             let gid = hiroz::entity::endpoint_gid(endpoint).unwrap();
