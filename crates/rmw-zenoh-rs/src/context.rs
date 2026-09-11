@@ -411,10 +411,23 @@ pub extern "C" fn rmw_init(
             const THRESHOLD: core::ffi::c_int = 64 << 20;
             let mmap_rc = unsafe { mallopt(M_MMAP_THRESHOLD, THRESHOLD) };
             let trim_rc = unsafe { mallopt(M_TRIM_THRESHOLD, THRESHOLD) };
-            tracing::debug!(
-                "glibc thresholds pinned at {} MiB (mallopt rc: mmap={}, trim={})",
-                THRESHOLD >> 20, mmap_rc, trim_rc
-            );
+            if mmap_rc == 0 || trim_rc == 0 {
+                // mallopt() returns 0 only for a handful of documented invalid
+                // (param, value) combinations; the cfg gate above and the
+                // fixed, valid THRESHOLD constant make this unlikely, but a
+                // silent failure here would look identical to the regression
+                // this call exists to prevent, so make it visible by default.
+                tracing::warn!(
+                    "glibc rejected the allocator threshold pin (mallopt rc: mmap={}, trim={}); \
+                     large 1 MiB-class messages may show the heap-trim latency regression this call exists to avoid",
+                    mmap_rc, trim_rc
+                );
+            } else {
+                tracing::debug!(
+                    "glibc thresholds pinned at {} MiB (mallopt rc: mmap={}, trim={})",
+                    THRESHOLD >> 20, mmap_rc, trim_rc
+                );
+            }
         }
     }
 
