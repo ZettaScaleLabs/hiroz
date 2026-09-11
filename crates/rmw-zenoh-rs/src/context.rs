@@ -359,6 +359,9 @@ pub extern "C" fn rmw_init(
         }
     }
 
+    // Initialize Zenoh logging
+    zenoh::init_log_from_env_or("error");
+
     // Stop glibc returning the payload heap to the kernel between messages.
     //
     // This RMW sizes its deserialisation buffer to the payload. glibc adapts
@@ -391,9 +394,16 @@ pub extern "C" fn rmw_init(
     //
     // 64 MiB is a bound, not a tuned value: it must exceed both the largest
     // message this pins for and the working-set swing of several live
-    // payload-sized buffers, and it is (measured on this host) twice glibc's
-    // own ceiling on how far it will ever raise these thresholds by itself --
-    // so this pins inside the allocator's own envelope rather than past it.
+    // payload-sized buffers. It is NOT "inside glibc's own envelope" for
+    // both parameters equally, and the two should not be read as matching
+    // the same ceiling: glibc's *dynamic* M_MMAP_THRESHOLD adjustment caps
+    // itself at DEFAULT_MMAP_THRESHOLD_MAX (typically 32 MiB on 64-bit), so
+    // pinning M_MMAP_THRESHOLD to 64 MiB is deliberately larger than glibc's
+    // own adjustment would ever choose for that parameter -- an explicit
+    // override, not a value glibc would arrive at on its own. M_TRIM_THRESHOLD
+    // is different: glibc ties its dynamic value to twice the mmap threshold,
+    // so 64 MiB is exactly the largest value its own adjustment could ever
+    // reach for THIS parameter.
     //
     // Deliberately skipped when the operator has set the glibc environment
     // variables, so an explicit deployment choice is not silently overridden.
@@ -430,9 +440,6 @@ pub extern "C" fn rmw_init(
             }
         }
     }
-
-    // Initialize Zenoh logging
-    zenoh::init_log_from_env_or("error");
 
     // Log RMW initialization
     tracing::info!("rmw_zenoh_rs v{} initialized", env!("CARGO_PKG_VERSION"));
