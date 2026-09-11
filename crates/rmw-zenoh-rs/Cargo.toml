@@ -59,12 +59,15 @@ test-all = ["test-core", "test-msgs"]
 # Legacy compatibility
 test-rmw = ["test-all"]
 
-# Wires lock-tripwire into the three callback-holder Mutex fields
+# Wires lock-tripwire into the callback-holder/user_data Mutex fields
 # (Subscription/Service/Client). Off by default -- no change to shipped
 # behavior. The plain fix already removes the deadlock this guards
 # against; this is a regression guard, not a live fix -- it fires only if
 # a future change reintroduces holding one of these locks across a
-# call-out.
+# call-out. Live in cargo test / a plain debug build; a no-op in a plain
+# --release build unless lock-tripwire's own force-checks feature (or its
+# per-package profile override) is also enabled -- see
+# tripwire_compat.rs's module docs.
 lock-tripwire-guard = ["dep:lock-tripwire"]
 
 [dev-dependencies]

@@ -14,7 +14,21 @@
 //! call-out anymore. What this feature adds is a regression guard -- if a
 //! future change ever reintroduces holding one of these locks across a
 //! call-out, `guarded_call!` fires immediately and names the site, instead
-//! of the change silently reintroducing a hang in production.
+//! of the change silently reintroducing a hang.
+//!
+//! **Scope, stated precisely rather than implied**: `lock-tripwire`'s own
+//! tracking is gated on `debug_assertions` (see its crate docs), so this
+//! guard is live in `cargo test` and any plain debug build, but compiles
+//! out to nothing in a plain `--release` build even with this feature on --
+//! it does not, on its own, guard a release binary. To also catch a
+//! regression in a release build, either enable `lock-tripwire`'s own
+//! `force-checks` feature explicitly (a real, measured cost -- see that
+//! crate's `OVERHEAD.md` before turning it on unconditionally here), or use
+//! its per-package Cargo profile override
+//! (`[profile.release.package.lock-tripwire] debug-assertions = true`) in
+//! the top-level binary's own `Cargo.toml`. Deliberately not forwarded
+//! automatically by `lock-tripwire-guard` -- that decision belongs to
+//! whoever builds the release binary, not to this crate.
 
 #[cfg(feature = "lock-tripwire-guard")]
 pub type GuardedMutex<T> = lock_tripwire::TrackedMutex<T>;
