@@ -362,17 +362,38 @@ pub extern "C" fn rmw_init(
     // Stop glibc returning the payload heap to the kernel between messages.
     //
     // This RMW sizes its deserialisation buffer to the payload. glibc adapts
-    // M_MMAP_THRESHOLD to the largest mmap'd block a process frees and sets
-    // M_TRIM_THRESHOLD to twice it, so payload-sized buffers leave the trim
-    // threshold at roughly 4 MiB. An rclpy node's heap swings 6-9 MB per
-    // message at 1 MiB payloads, which exceeds that: the heap is handed back
-    // with brk on every free and re-faulted on the next message. Measured at
-    // 1 MiB / 200 Hz: 12,028 brk calls and 2.3M page faults in 18 s, costing
-    // 33% of round-trip latency and making the arm bimodal between runs.
+    // M_MMAP_THRESHOLD upward as it frees large blocks, and ties
+    // M_TRIM_THRESHOLD to twice that value. In our measurements, a process
+    // handling 1 MiB payloads settled with a trim threshold around 4 MiB --
+    // that is a measured figure for this workload, not a general glibc
+    // guarantee, and it depends on prior allocation history. An rclpy node's
+    // heap swings 6-9 MB per message at 1 MiB payloads, which exceeds that
+    // threshold: the heap is handed back with brk() on every free and
+    // re-faulted on the next message. Measured at 1 MiB / 200 Hz: 12,028 brk
+    // calls and 2.3M page faults in 18 s, costing 33% of round-trip latency
+    // and making the arm bimodal between runs.
     //
-    // An implementation that over-allocates avoids this by accident, because a
-    // larger freed block raises the threshold. Setting it explicitly is the
-    // same protection without the waste. See circle/hiroz issue 201.
+    // Both calls below are required together, not as a stronger/weaker pair.
+    // mallopt() on EITHER parameter disables glibc's automatic threshold
+    // adaptation for BOTH of them (see mallopt(3), "dynamic adjustment ...
+    // is disabled if any of M_TRIM_THRESHOLD, M_TOP_PAD, M_MMAP_THRESHOLD or
+    // M_MMAP_MAX is set"). Pinning M_TRIM_THRESHOLD alone freezes
+    // M_MMAP_THRESHOLD at its 128 KiB default, so every payload-sized buffer
+    // would then be served by mmap() instead of the heap -- measured to be
+    // *worse* than doing nothing at all, not merely ineffective. Raising
+    // M_MMAP_THRESHOLD in lockstep is what keeps the buffer heap-served, and
+    // M_TRIM_THRESHOLD is then what decides whether that heap is trimmed
+    // between messages.
+    //
+    // An implementation that over-allocates its buffer avoids this by
+    // accident, because freeing a larger block raises the threshold anyway.
+    // Setting it explicitly gives the same protection without the waste.
+    //
+    // 64 MiB is a bound, not a tuned value: it must exceed both the largest
+    // message this pins for and the working-set swing of several live
+    // payload-sized buffers, and it is (measured on this host) twice glibc's
+    // own ceiling on how far it will ever raise these thresholds by itself --
+    // so this pins inside the allocator's own envelope rather than past it.
     //
     // Deliberately skipped when the operator has set the glibc environment
     // variables, so an explicit deployment choice is not silently overridden.
