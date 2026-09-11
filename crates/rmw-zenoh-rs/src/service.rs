@@ -24,29 +24,93 @@ pub struct ClientImpl {
     pub entity: hiroz::entity::EndpointEntity,
 }
 
+/// The real notify-callback logic `ClientImpl::send_request` builds fresh
+/// per request. See [`crate::pubsub::build_subscription_notify_callback`]
+/// for why the lock must be released before the call-out.
+pub(crate) fn build_client_notify_callback(
+    notifier: std::sync::Arc<crate::utils::Notifier>,
+    callback_holder: std::sync::Arc<Mutex<rmw_client_new_response_callback_t>>,
+    user_data_holder: std::sync::Arc<Mutex<usize>>,
+    unread_count_holder: std::sync::Arc<Mutex<usize>>,
+) -> impl Fn() + Send + Sync + 'static {
+    move || {
+        notifier.notify_all();
+        let Ok(callback_fn) = callback_holder.lock().map(|g| *g) else {
+            return;
+        };
+        match callback_fn {
+            Some(callback_fn) => {
+                // Copied out and the lock released before the call-out --
+                // the setter locks this same mutex, so holding it here
+                // would be a second AB-BA pair alongside `callback_holder`.
+                if let Ok(user_data_usize) = user_data_holder.lock().map(|g| *g) {
+                    let user_data_ptr = user_data_usize as *const std::ffi::c_void;
+                    unsafe { callback_fn(user_data_ptr, 1) };
+                }
+            }
+            None => {
+                if let Ok(mut unread) = unread_count_holder.lock() {
+                    *unread += 1;
+                }
+            }
+        }
+    }
+}
+
+/// The real logic behind `rmw_client_set_on_new_response_callback`. See
+/// [`crate::pubsub::set_subscription_callback_core`] for the same
+/// collect/reset/store/call-out-last pattern.
+pub(crate) fn set_client_callback_core(
+    callback_holder: &Mutex<rmw_client_new_response_callback_t>,
+    user_data_holder: &Mutex<usize>,
+    unread_count_holder: &Mutex<usize>,
+    callback: rmw_client_new_response_callback_t,
+    user_data: *mut c_void,
+) {
+    let pending = if callback.is_some() {
+        unread_count_holder.lock().ok().map(|mut unread| {
+            let n = *unread;
+            *unread = 0;
+            n
+        })
+    } else {
+        None
+    };
+
+    if let Ok(mut cb) = callback_holder.lock() {
+        *cb = callback;
+    }
+    if let Ok(mut ud) = user_data_holder.lock() {
+        // Matches the pre-fix behavior exactly: clearing the callback also
+        // zeroes the stored user_data, regardless of what was passed in.
+        *ud = if callback.is_some() {
+            user_data as usize
+        } else {
+            0
+        };
+    }
+
+    if let (Some(callback_fn), Some(n)) = (callback, pending) {
+        if n > 0 {
+            tracing::debug!(
+                "[rmw_client_set_on_new_response_callback] Invoking callback retroactively for {} unread responses",
+                n
+            );
+            unsafe { callback_fn(user_data as *const std::ffi::c_void, n) };
+        }
+    }
+}
+
 impl ClientImpl {
     pub fn send_request(&self, request: *const c_void, sequence_id: *mut i64) -> Result<()> {
         let req = crate::msg::RosMessage::new(request, self.request_ts.request);
 
-        let notifier = self.notifier.clone();
-        let callback_holder = self.callback.clone();
-        let user_data_holder = self.callback_user_data.clone();
-        let unread_count_holder = self.unread_count.clone();
-        let notify_callback = move || {
-            notifier.notify_all();
-            if let Ok(cb) = callback_holder.lock() {
-                if let Some(callback_fn) = *cb {
-                    if let Ok(user_data_usize) = user_data_holder.lock() {
-                        unsafe {
-                            let user_data_ptr = *user_data_usize as *const std::ffi::c_void;
-                            callback_fn(user_data_ptr, 1);
-                        }
-                    }
-                } else if let Ok(mut unread) = unread_count_holder.lock() {
-                    *unread += 1;
-                }
-            }
-        };
+        let notify_callback = build_client_notify_callback(
+            self.notifier.clone(),
+            self.callback.clone(),
+            self.callback_user_data.clone(),
+            self.unread_count.clone(),
+        );
 
         // rmw_send_request returns the sequence number stamped into the attachment,
         // which is the same value the server will echo back. Use it directly as the
@@ -167,6 +231,84 @@ pub struct ServiceImpl {
     pub unread_count: std::sync::Arc<Mutex<usize>>,
     pub graph: std::sync::Arc<hiroz::graph::Graph>,
     pub entity: hiroz::entity::EndpointEntity,
+}
+
+/// The real notify-callback logic `rmw_create_service` wires into
+/// `build_with_notifier`. See
+/// [`crate::pubsub::build_subscription_notify_callback`] for why the lock
+/// must be released before the call-out.
+pub(crate) fn build_service_notify_callback(
+    notifier: std::sync::Arc<crate::utils::Notifier>,
+    callback_holder: std::sync::Arc<Mutex<rmw_service_new_request_callback_t>>,
+    user_data_holder: std::sync::Arc<Mutex<usize>>,
+    unread_count_holder: std::sync::Arc<Mutex<usize>>,
+) -> impl Fn() + Send + Sync + 'static {
+    move || {
+        notifier.notify_all();
+        let Ok(callback_fn) = callback_holder.lock().map(|g| *g) else {
+            return;
+        };
+        match callback_fn {
+            Some(callback_fn) => {
+                // Copied out and the lock released before the call-out --
+                // the setter locks this same mutex, so holding it here
+                // would be a second AB-BA pair alongside `callback_holder`.
+                if let Ok(user_data_usize) = user_data_holder.lock().map(|g| *g) {
+                    let user_data_ptr = user_data_usize as *const std::ffi::c_void;
+                    unsafe { callback_fn(user_data_ptr, 1) }; // 1 new request
+                }
+            }
+            None => {
+                if let Ok(mut unread) = unread_count_holder.lock() {
+                    *unread += 1;
+                }
+            }
+        }
+    }
+}
+
+/// The real logic behind `rmw_service_set_on_new_request_callback`. See
+/// [`crate::pubsub::set_subscription_callback_core`] for the same
+/// collect/reset/store/call-out-last pattern.
+pub(crate) fn set_service_callback_core(
+    callback_holder: &Mutex<rmw_service_new_request_callback_t>,
+    user_data_holder: &Mutex<usize>,
+    unread_count_holder: &Mutex<usize>,
+    callback: rmw_service_new_request_callback_t,
+    user_data: *mut c_void,
+) {
+    let pending = if callback.is_some() {
+        unread_count_holder.lock().ok().map(|mut unread| {
+            let n = *unread;
+            *unread = 0;
+            n
+        })
+    } else {
+        None
+    };
+
+    if let Ok(mut cb) = callback_holder.lock() {
+        *cb = callback;
+    }
+    if let Ok(mut ud) = user_data_holder.lock() {
+        // Matches the pre-fix behavior exactly: clearing the callback also
+        // zeroes the stored user_data, regardless of what was passed in.
+        *ud = if callback.is_some() {
+            user_data as usize
+        } else {
+            0
+        };
+    }
+
+    if let (Some(callback_fn), Some(n)) = (callback, pending) {
+        if n > 0 {
+            tracing::debug!(
+                "[rmw_service_set_on_new_request_callback] Invoking callback retroactively for {} unread requests",
+                n
+            );
+            unsafe { callback_fn(user_data as *const std::ffi::c_void, n) };
+        }
+    }
 }
 
 impl ServiceImpl {
@@ -441,4 +583,174 @@ pub extern "C" fn rmw_client_response_subscription_get_actual_qos(
     qos: *mut rmw_qos_profile_t,
 ) -> rmw_ret_t {
     rmw_client_request_publisher_get_actual_qos(client, qos)
+}
+
+#[cfg(test)]
+mod service_gil_deadlock_tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use crate::c_void;
+    use crate::ros::rmw_service_new_request_callback_t;
+
+    static GIL_ACQUIRED: AtomicBool = AtomicBool::new(false);
+    static ENTERED_CALLBACK: AtomicBool = AtomicBool::new(false);
+    static CALLBACK_RAN: AtomicBool = AtomicBool::new(false);
+
+    unsafe extern "C" fn gil_wanting_callback(_user_data: *const std::ffi::c_void, _n: usize) {
+        ENTERED_CALLBACK.store(true, Ordering::SeqCst);
+        pyo3::Python::with_gil(|_py| {
+            CALLBACK_RAN.store(true, Ordering::SeqCst);
+        });
+    }
+
+    fn wait_flag(flag: &AtomicBool, timeout: Duration) -> bool {
+        let start = Instant::now();
+        while !flag.load(Ordering::SeqCst) {
+            if start.elapsed() > timeout {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        true
+    }
+
+    /// Same shape as `pubsub::gil_deadlock_tests`, for `ServiceImpl`.
+    #[test]
+    fn service_notify_and_setter_do_not_deadlock_under_gil_contention() {
+        pyo3::prepare_freethreaded_python();
+        GIL_ACQUIRED.store(false, Ordering::SeqCst);
+        ENTERED_CALLBACK.store(false, Ordering::SeqCst);
+        CALLBACK_RAN.store(false, Ordering::SeqCst);
+
+        let notifier = Arc::new(crate::utils::Notifier::default());
+        let callback_holder: Arc<Mutex<rmw_service_new_request_callback_t>> = Arc::new(Mutex::new(
+            Some(gil_wanting_callback as unsafe extern "C" fn(*const std::ffi::c_void, usize)),
+        ));
+        let user_data_holder = Arc::new(Mutex::new(0usize));
+        let unread_count_holder = Arc::new(Mutex::new(0usize));
+
+        let notify = super::build_service_notify_callback(
+            notifier,
+            callback_holder.clone(),
+            user_data_holder.clone(),
+            unread_count_holder.clone(),
+        );
+
+        let cb2 = callback_holder.clone();
+        let ud2 = user_data_holder.clone();
+        let un2 = unread_count_holder.clone();
+        let setter_thread = std::thread::spawn(move || {
+            pyo3::Python::with_gil(|_py| {
+                GIL_ACQUIRED.store(true, Ordering::SeqCst);
+                wait_flag(&ENTERED_CALLBACK, Duration::from_secs(3));
+                super::set_service_callback_core(
+                    &cb2,
+                    &ud2,
+                    &un2,
+                    Some(gil_wanting_callback),
+                    std::ptr::null_mut::<c_void>(),
+                );
+            });
+        });
+
+        let notify_thread = std::thread::spawn(move || {
+            wait_flag(&GIL_ACQUIRED, Duration::from_secs(3));
+            notify();
+        });
+
+        notify_thread.join().unwrap();
+        setter_thread.join().unwrap();
+
+        assert!(
+            CALLBACK_RAN.load(Ordering::SeqCst),
+            "the callback never actually ran -- the repro did not exercise the real call-out"
+        );
+    }
+}
+
+#[cfg(test)]
+mod client_gil_deadlock_tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use crate::c_void;
+    use crate::ros::rmw_client_new_response_callback_t;
+
+    static GIL_ACQUIRED: AtomicBool = AtomicBool::new(false);
+    static ENTERED_CALLBACK: AtomicBool = AtomicBool::new(false);
+    static CALLBACK_RAN: AtomicBool = AtomicBool::new(false);
+
+    unsafe extern "C" fn gil_wanting_callback(_user_data: *const std::ffi::c_void, _n: usize) {
+        ENTERED_CALLBACK.store(true, Ordering::SeqCst);
+        pyo3::Python::with_gil(|_py| {
+            CALLBACK_RAN.store(true, Ordering::SeqCst);
+        });
+    }
+
+    fn wait_flag(flag: &AtomicBool, timeout: Duration) -> bool {
+        let start = Instant::now();
+        while !flag.load(Ordering::SeqCst) {
+            if start.elapsed() > timeout {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        true
+    }
+
+    /// Same shape as `pubsub::gil_deadlock_tests`, for `ClientImpl`.
+    #[test]
+    fn client_notify_and_setter_do_not_deadlock_under_gil_contention() {
+        pyo3::prepare_freethreaded_python();
+        GIL_ACQUIRED.store(false, Ordering::SeqCst);
+        ENTERED_CALLBACK.store(false, Ordering::SeqCst);
+        CALLBACK_RAN.store(false, Ordering::SeqCst);
+
+        let notifier = Arc::new(crate::utils::Notifier::default());
+        let callback_holder: Arc<Mutex<rmw_client_new_response_callback_t>> = Arc::new(Mutex::new(
+            Some(gil_wanting_callback as unsafe extern "C" fn(*const std::ffi::c_void, usize)),
+        ));
+        let user_data_holder = Arc::new(Mutex::new(0usize));
+        let unread_count_holder = Arc::new(Mutex::new(0usize));
+
+        let notify = super::build_client_notify_callback(
+            notifier,
+            callback_holder.clone(),
+            user_data_holder.clone(),
+            unread_count_holder.clone(),
+        );
+
+        let cb2 = callback_holder.clone();
+        let ud2 = user_data_holder.clone();
+        let un2 = unread_count_holder.clone();
+        let setter_thread = std::thread::spawn(move || {
+            pyo3::Python::with_gil(|_py| {
+                GIL_ACQUIRED.store(true, Ordering::SeqCst);
+                wait_flag(&ENTERED_CALLBACK, Duration::from_secs(3));
+                super::set_client_callback_core(
+                    &cb2,
+                    &ud2,
+                    &un2,
+                    Some(gil_wanting_callback),
+                    std::ptr::null_mut::<c_void>(),
+                );
+            });
+        });
+
+        let notify_thread = std::thread::spawn(move || {
+            wait_flag(&GIL_ACQUIRED, Duration::from_secs(3));
+            notify();
+        });
+
+        notify_thread.join().unwrap();
+        setter_thread.join().unwrap();
+
+        assert!(
+            CALLBACK_RAN.load(Ordering::SeqCst),
+            "the callback never actually ran -- the repro did not exercise the real call-out"
+        );
+    }
 }
