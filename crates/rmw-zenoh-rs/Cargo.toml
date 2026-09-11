@@ -57,3 +57,6 @@ test-all = ["test-core", "test-msgs"]
 
 # Legacy compatibility
 test-rmw = ["test-all"]
+
+[dev-dependencies]
+pyo3 = { version = "0.22", features = ["auto-initialize"] }
