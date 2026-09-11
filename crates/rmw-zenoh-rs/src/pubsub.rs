@@ -132,6 +132,15 @@ pub(crate) fn set_subscription_callback_core(
         *ud = user_data as usize;
     }
 
+    // Nested inside callback_holder's own lock, matching the pre-fix
+    // structure exactly: if callback_holder is poisoned, nothing here
+    // runs -- no unread reset, no call-out, no store. Computing `pending`
+    // independently of this lock would make a poisoned callback_holder
+    // silently reset progress and still fire the call, which is a real
+    // (if narrow) behavior change from before, not just a refactor.
+    let Ok(mut cb) = callback_holder.lock() else {
+        return;
+    };
     let pending = if callback.is_some() {
         unread_count_holder.lock().ok().map(|mut unread| {
             let n = *unread;
@@ -141,10 +150,8 @@ pub(crate) fn set_subscription_callback_core(
     } else {
         None
     };
-
-    if let Ok(mut cb) = callback_holder.lock() {
-        *cb = callback;
-    }
+    *cb = callback;
+    drop(cb); // released before any call-out below
 
     if let (Some(callback_fn), Some(n)) = (callback, pending) {
         if n > 0 {
@@ -965,6 +972,13 @@ mod gil_deadlock_tests {
     /// `pending` computation), and must complete immediately either way.
     #[test]
     fn subscription_setter_with_no_pending_messages_does_not_panic() {
+        // Own reset of the shared statics: this test doesn't run the GIL
+        // contention scenario, just checks the n == 0 boundary, but reuses
+        // `gil_wanting_callback` (the only extern "C" fn available) as the
+        // registered callback, so it must confirm that fn body never runs.
+        ENTERED_CALLBACK.store(false, Ordering::SeqCst);
+        CALLBACK_RAN.store(false, Ordering::SeqCst);
+
         let callback_holder: Arc<Mutex<crate::ros::rmw_subscription_new_message_callback_t>> =
             Arc::new(Mutex::new(None));
         let user_data_holder = Arc::new(Mutex::new(0usize));
@@ -979,5 +993,9 @@ mod gil_deadlock_tests {
         );
 
         assert!(callback_holder.lock().unwrap().is_some());
+        assert!(
+            !ENTERED_CALLBACK.load(Ordering::SeqCst),
+            "the callback fired despite zero pending messages"
+        );
     }
 }
