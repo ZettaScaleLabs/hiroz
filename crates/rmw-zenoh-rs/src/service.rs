@@ -15,8 +15,9 @@ pub struct ClientImpl {
     pub options: rmw_client_options_t,
     pub request_ts: crate::type_support::ServiceTypeSupport,
     pub response_ts: crate::type_support::ServiceTypeSupport,
-    pub callback: std::sync::Arc<Mutex<rmw_client_new_response_callback_t>>,
-    pub callback_user_data: std::sync::Arc<Mutex<usize>>,
+    pub callback:
+        std::sync::Arc<crate::tripwire_compat::GuardedMutex<rmw_client_new_response_callback_t>>,
+    pub callback_user_data: std::sync::Arc<crate::tripwire_compat::GuardedMutex<usize>>,
     pub notifier: std::sync::Arc<crate::utils::Notifier>,
     /// Tracks responses that arrived while no callback was set
     pub unread_count: std::sync::Arc<Mutex<usize>>,
@@ -29,13 +30,19 @@ pub struct ClientImpl {
 /// for why the lock must be released before the call-out.
 pub(crate) fn build_client_notify_callback(
     notifier: std::sync::Arc<crate::utils::Notifier>,
-    callback_holder: std::sync::Arc<Mutex<rmw_client_new_response_callback_t>>,
-    user_data_holder: std::sync::Arc<Mutex<usize>>,
+    callback_holder: std::sync::Arc<
+        crate::tripwire_compat::GuardedMutex<rmw_client_new_response_callback_t>,
+    >,
+    user_data_holder: std::sync::Arc<crate::tripwire_compat::GuardedMutex<usize>>,
     unread_count_holder: std::sync::Arc<Mutex<usize>>,
 ) -> impl Fn() + Send + Sync + 'static {
+    use crate::tripwire_compat::LockGuarded;
     move || {
         notifier.notify_all();
-        let Ok(callback_fn) = callback_holder.lock().map(|g| *g) else {
+        let Ok(callback_fn) = callback_holder
+            .lock_guarded("rmw_zenoh_rs::service::ClientImpl::notify_callback::callback")
+            .map(|g| *g)
+        else {
             return;
         };
         match callback_fn {
@@ -43,9 +50,15 @@ pub(crate) fn build_client_notify_callback(
                 // Copied out and the lock released before the call-out --
                 // the setter locks this same mutex, so holding it here
                 // would be a second AB-BA pair alongside `callback_holder`.
-                if let Ok(user_data_usize) = user_data_holder.lock().map(|g| *g) {
+                if let Ok(user_data_usize) = user_data_holder
+                    .lock_guarded("rmw_zenoh_rs::service::ClientImpl::notify_callback::user_data")
+                    .map(|g| *g)
+                {
                     let user_data_ptr = user_data_usize as *const std::ffi::c_void;
-                    unsafe { callback_fn(user_data_ptr, 1) };
+                    crate::guarded_call!(
+                        "rmw_zenoh_rs::service::ClientImpl::notify_callback::call_out",
+                        unsafe { callback_fn(user_data_ptr, 1) }
+                    );
                 }
             }
             None => {
@@ -61,12 +74,14 @@ pub(crate) fn build_client_notify_callback(
 /// [`crate::pubsub::set_subscription_callback_core`] for the same
 /// collect/reset/store/call-out-last pattern.
 pub(crate) fn set_client_callback_core(
-    callback_holder: &Mutex<rmw_client_new_response_callback_t>,
-    user_data_holder: &Mutex<usize>,
+    callback_holder: &crate::tripwire_compat::GuardedMutex<rmw_client_new_response_callback_t>,
+    user_data_holder: &crate::tripwire_compat::GuardedMutex<usize>,
     unread_count_holder: &Mutex<usize>,
     callback: rmw_client_new_response_callback_t,
     user_data: *mut c_void,
 ) {
+    use crate::tripwire_compat::LockGuarded;
+
     let pending = if callback.is_some() {
         unread_count_holder.lock().ok().map(|mut unread| {
             let n = *unread;
@@ -77,10 +92,14 @@ pub(crate) fn set_client_callback_core(
         None
     };
 
-    if let Ok(mut cb) = callback_holder.lock() {
+    if let Ok(mut cb) = callback_holder
+        .lock_guarded("rmw_zenoh_rs::rmw_client_set_on_new_response_callback::callback")
+    {
         *cb = callback;
     }
-    if let Ok(mut ud) = user_data_holder.lock() {
+    if let Ok(mut ud) = user_data_holder
+        .lock_guarded("rmw_zenoh_rs::rmw_client_set_on_new_response_callback::user_data")
+    {
         // Matches the pre-fix behavior exactly: clearing the callback also
         // zeroes the stored user_data, regardless of what was passed in.
         *ud = if callback.is_some() {
@@ -96,7 +115,10 @@ pub(crate) fn set_client_callback_core(
                 "[rmw_client_set_on_new_response_callback] Invoking callback retroactively for {} unread responses",
                 n
             );
-            unsafe { callback_fn(user_data as *const std::ffi::c_void, n) };
+            crate::guarded_call!(
+                "rmw_zenoh_rs::rmw_client_set_on_new_response_callback::call_out",
+                unsafe { callback_fn(user_data as *const std::ffi::c_void, n) }
+            );
         }
     }
 }
@@ -225,8 +247,9 @@ pub struct ServiceImpl {
     pub request_ts: crate::type_support::ServiceTypeSupport,
     pub response_ts: crate::type_support::ServiceTypeSupport,
     pub qos: rmw_qos_profile_t,
-    pub callback: std::sync::Arc<Mutex<rmw_service_new_request_callback_t>>,
-    pub callback_user_data: std::sync::Arc<Mutex<usize>>,
+    pub callback:
+        std::sync::Arc<crate::tripwire_compat::GuardedMutex<rmw_service_new_request_callback_t>>,
+    pub callback_user_data: std::sync::Arc<crate::tripwire_compat::GuardedMutex<usize>>,
     /// Tracks requests that arrived while no callback was set
     pub unread_count: std::sync::Arc<Mutex<usize>>,
     pub graph: std::sync::Arc<hiroz::graph::Graph>,
@@ -239,13 +262,19 @@ pub struct ServiceImpl {
 /// must be released before the call-out.
 pub(crate) fn build_service_notify_callback(
     notifier: std::sync::Arc<crate::utils::Notifier>,
-    callback_holder: std::sync::Arc<Mutex<rmw_service_new_request_callback_t>>,
-    user_data_holder: std::sync::Arc<Mutex<usize>>,
+    callback_holder: std::sync::Arc<
+        crate::tripwire_compat::GuardedMutex<rmw_service_new_request_callback_t>,
+    >,
+    user_data_holder: std::sync::Arc<crate::tripwire_compat::GuardedMutex<usize>>,
     unread_count_holder: std::sync::Arc<Mutex<usize>>,
 ) -> impl Fn() + Send + Sync + 'static {
+    use crate::tripwire_compat::LockGuarded;
     move || {
         notifier.notify_all();
-        let Ok(callback_fn) = callback_holder.lock().map(|g| *g) else {
+        let Ok(callback_fn) = callback_holder
+            .lock_guarded("rmw_zenoh_rs::service::notify_callback::callback")
+            .map(|g| *g)
+        else {
             return;
         };
         match callback_fn {
@@ -253,9 +282,15 @@ pub(crate) fn build_service_notify_callback(
                 // Copied out and the lock released before the call-out --
                 // the setter locks this same mutex, so holding it here
                 // would be a second AB-BA pair alongside `callback_holder`.
-                if let Ok(user_data_usize) = user_data_holder.lock().map(|g| *g) {
+                if let Ok(user_data_usize) = user_data_holder
+                    .lock_guarded("rmw_zenoh_rs::service::notify_callback::user_data")
+                    .map(|g| *g)
+                {
                     let user_data_ptr = user_data_usize as *const std::ffi::c_void;
-                    unsafe { callback_fn(user_data_ptr, 1) }; // 1 new request
+                    crate::guarded_call!(
+                        "rmw_zenoh_rs::service::notify_callback::call_out",
+                        unsafe { callback_fn(user_data_ptr, 1) } // 1 new request
+                    );
                 }
             }
             None => {
@@ -271,12 +306,14 @@ pub(crate) fn build_service_notify_callback(
 /// [`crate::pubsub::set_subscription_callback_core`] for the same
 /// collect/reset/store/call-out-last pattern.
 pub(crate) fn set_service_callback_core(
-    callback_holder: &Mutex<rmw_service_new_request_callback_t>,
-    user_data_holder: &Mutex<usize>,
+    callback_holder: &crate::tripwire_compat::GuardedMutex<rmw_service_new_request_callback_t>,
+    user_data_holder: &crate::tripwire_compat::GuardedMutex<usize>,
     unread_count_holder: &Mutex<usize>,
     callback: rmw_service_new_request_callback_t,
     user_data: *mut c_void,
 ) {
+    use crate::tripwire_compat::LockGuarded;
+
     let pending = if callback.is_some() {
         unread_count_holder.lock().ok().map(|mut unread| {
             let n = *unread;
@@ -287,10 +324,14 @@ pub(crate) fn set_service_callback_core(
         None
     };
 
-    if let Ok(mut cb) = callback_holder.lock() {
+    if let Ok(mut cb) = callback_holder
+        .lock_guarded("rmw_zenoh_rs::rmw_service_set_on_new_request_callback::callback")
+    {
         *cb = callback;
     }
-    if let Ok(mut ud) = user_data_holder.lock() {
+    if let Ok(mut ud) = user_data_holder
+        .lock_guarded("rmw_zenoh_rs::rmw_service_set_on_new_request_callback::user_data")
+    {
         // Matches the pre-fix behavior exactly: clearing the callback also
         // zeroes the stored user_data, regardless of what was passed in.
         *ud = if callback.is_some() {
@@ -306,7 +347,10 @@ pub(crate) fn set_service_callback_core(
                 "[rmw_service_set_on_new_request_callback] Invoking callback retroactively for {} unread requests",
                 n
             );
-            unsafe { callback_fn(user_data as *const std::ffi::c_void, n) };
+            crate::guarded_call!(
+                "rmw_zenoh_rs::rmw_service_set_on_new_request_callback::call_out",
+                unsafe { callback_fn(user_data as *const std::ffi::c_void, n) }
+            );
         }
     }
 }
@@ -587,8 +631,9 @@ pub extern "C" fn rmw_client_response_subscription_get_actual_qos(
 
 #[cfg(test)]
 mod service_gil_deadlock_tests {
+    use crate::tripwire_compat::GuardedMutex as Mutex;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     use crate::c_void;
@@ -629,7 +674,7 @@ mod service_gil_deadlock_tests {
             Some(gil_wanting_callback as unsafe extern "C" fn(*const std::ffi::c_void, usize)),
         ));
         let user_data_holder = Arc::new(Mutex::new(0usize));
-        let unread_count_holder = Arc::new(Mutex::new(0usize));
+        let unread_count_holder = Arc::new(std::sync::Mutex::new(0usize));
 
         let notify = super::build_service_notify_callback(
             notifier,
@@ -672,8 +717,9 @@ mod service_gil_deadlock_tests {
 
 #[cfg(test)]
 mod client_gil_deadlock_tests {
+    use crate::tripwire_compat::GuardedMutex as Mutex;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     use crate::c_void;
@@ -714,7 +760,7 @@ mod client_gil_deadlock_tests {
             Some(gil_wanting_callback as unsafe extern "C" fn(*const std::ffi::c_void, usize)),
         ));
         let user_data_holder = Arc::new(Mutex::new(0usize));
-        let unread_count_holder = Arc::new(Mutex::new(0usize));
+        let unread_count_holder = Arc::new(std::sync::Mutex::new(0usize));
 
         let notify = super::build_client_notify_callback(
             notifier,

@@ -537,9 +537,9 @@ pub extern "C" fn rmw_create_subscription(
 
     // Create shared callback and user_data holders that will be populated after SubscriptionImpl is created
     let callback_holder: std::sync::Arc<
-        std::sync::Mutex<crate::ros::rmw_subscription_new_message_callback_t>,
-    > = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let user_data_holder = std::sync::Arc::new(std::sync::Mutex::new(0usize)); // Store pointer as usize for thread safety
+        crate::tripwire_compat::GuardedMutex<crate::ros::rmw_subscription_new_message_callback_t>,
+    > = std::sync::Arc::new(crate::tripwire_compat::GuardedMutex::new(None));
+    let user_data_holder = std::sync::Arc::new(crate::tripwire_compat::GuardedMutex::new(0usize)); // Store pointer as usize for thread safety
     let unread_count_holder = std::sync::Arc::new(std::sync::Mutex::new(0usize)); // Track unread messages
 
     // Create notification callback that will wake up wait sets and invoke user callback
@@ -1015,9 +1015,9 @@ pub extern "C" fn rmw_create_client(
 
     // Create shared callback and user_data holders
     let callback_holder: std::sync::Arc<
-        std::sync::Mutex<crate::ros::rmw_client_new_response_callback_t>,
-    > = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let user_data_holder = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+        crate::tripwire_compat::GuardedMutex<crate::ros::rmw_client_new_response_callback_t>,
+    > = std::sync::Arc::new(crate::tripwire_compat::GuardedMutex::new(None));
+    let user_data_holder = std::sync::Arc::new(crate::tripwire_compat::GuardedMutex::new(0usize));
 
     // Build the client (notification callback will be set per-request in send_request)
     let zclient = match zclient_builder.build() {
@@ -1211,9 +1211,9 @@ pub extern "C" fn rmw_create_service(
 
     // Create shared callback and user_data holders that will be populated after ServiceImpl is created
     let callback_holder: std::sync::Arc<
-        std::sync::Mutex<crate::ros::rmw_service_new_request_callback_t>,
-    > = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let user_data_holder = std::sync::Arc::new(std::sync::Mutex::new(0usize)); // Store pointer as usize for thread safety
+        crate::tripwire_compat::GuardedMutex<crate::ros::rmw_service_new_request_callback_t>,
+    > = std::sync::Arc::new(crate::tripwire_compat::GuardedMutex::new(None));
+    let user_data_holder = std::sync::Arc::new(crate::tripwire_compat::GuardedMutex::new(0usize)); // Store pointer as usize for thread safety
     let unread_count_holder = std::sync::Arc::new(std::sync::Mutex::new(0usize)); // Track unread requests
 
     // Create notification callback that will wake up wait sets and invoke user callback

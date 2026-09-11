@@ -23,6 +23,7 @@ pub mod ros;
 pub mod service;
 #[macro_use]
 pub mod traits;
+pub mod tripwire_compat;
 pub mod type_support;
 pub mod utils;
 pub mod wait_set;
