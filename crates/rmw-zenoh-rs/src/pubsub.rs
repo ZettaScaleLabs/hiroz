@@ -83,17 +83,22 @@ impl PublisherImpl {
 pub(crate) fn build_subscription_notify_callback(
     notifier: std::sync::Arc<crate::utils::Notifier>,
     callback_holder: std::sync::Arc<
-        std::sync::Mutex<crate::ros::rmw_subscription_new_message_callback_t>,
+        crate::tripwire_compat::GuardedMutex<crate::ros::rmw_subscription_new_message_callback_t>,
     >,
-    user_data_holder: std::sync::Arc<std::sync::Mutex<usize>>,
+    user_data_holder: std::sync::Arc<crate::tripwire_compat::GuardedMutex<usize>>,
     unread_count_holder: std::sync::Arc<std::sync::Mutex<usize>>,
 ) -> impl Fn() + Send + Sync + 'static {
+    use crate::tripwire_compat::LockGuarded;
     move || {
         notifier.notify_all();
-        // The `.lock()` temporary is dropped at the end of this statement --
-        // released before any call-out below, unlike a `match`/`if let`
-        // scrutinee, which would extend it across the whole arm.
-        let Ok(callback_fn) = callback_holder.lock().map(|g| *g) else {
+        // The `.lock_guarded()` temporary is dropped at the end of this
+        // statement -- released before any call-out below, unlike a
+        // `match`/`if let` scrutinee, which would extend it across the
+        // whole arm.
+        let Ok(callback_fn) = callback_holder
+            .lock_guarded("rmw_zenoh_rs::pubsub::notify_callback::callback")
+            .map(|g| *g)
+        else {
             return;
         };
         match callback_fn {
@@ -101,9 +106,17 @@ pub(crate) fn build_subscription_notify_callback(
                 // Copied out and the lock released before the call-out --
                 // the setter locks this same mutex, so holding it here
                 // would be a second AB-BA pair alongside `callback_holder`.
-                if let Ok(user_data_usize) = user_data_holder.lock().map(|g| *g) {
+                if let Ok(user_data_usize) = user_data_holder
+                    .lock_guarded("rmw_zenoh_rs::pubsub::notify_callback::user_data")
+                    .map(|g| *g)
+                {
                     let user_data_ptr = user_data_usize as *const std::ffi::c_void;
-                    unsafe { callback_fn(user_data_ptr, 1) }; // 1 new message
+                    // Both locks above are already released -- this asserts
+                    // that stays true even if a future change regresses it.
+                    crate::guarded_call!(
+                        "rmw_zenoh_rs::pubsub::notify_callback::call_out",
+                        unsafe { callback_fn(user_data_ptr, 1) } // 1 new message
+                    );
                 }
             }
             None => {
@@ -122,13 +135,19 @@ pub(crate) fn build_subscription_notify_callback(
 /// stores the new callback, then calls out -- all three locks released
 /// before the call, none held during it.
 pub(crate) fn set_subscription_callback_core(
-    callback_holder: &std::sync::Mutex<crate::ros::rmw_subscription_new_message_callback_t>,
-    user_data_holder: &std::sync::Mutex<usize>,
+    callback_holder: &crate::tripwire_compat::GuardedMutex<
+        crate::ros::rmw_subscription_new_message_callback_t,
+    >,
+    user_data_holder: &crate::tripwire_compat::GuardedMutex<usize>,
     unread_count_holder: &std::sync::Mutex<usize>,
     callback: crate::ros::rmw_subscription_new_message_callback_t,
     user_data: *mut crate::c_void,
 ) {
-    if let Ok(mut ud) = user_data_holder.lock() {
+    use crate::tripwire_compat::LockGuarded;
+
+    if let Ok(mut ud) = user_data_holder
+        .lock_guarded("rmw_zenoh_rs::rmw_subscription_set_on_new_message_callback::user_data")
+    {
         *ud = user_data as usize;
     }
 
@@ -138,7 +157,9 @@ pub(crate) fn set_subscription_callback_core(
     // independently of this lock would make a poisoned callback_holder
     // silently reset progress and still fire the call, which is a real
     // (if narrow) behavior change from before, not just a refactor.
-    let Ok(mut cb) = callback_holder.lock() else {
+    let Ok(mut cb) = callback_holder
+        .lock_guarded("rmw_zenoh_rs::rmw_subscription_set_on_new_message_callback::callback")
+    else {
         return;
     };
     let pending = if callback.is_some() {
@@ -155,7 +176,10 @@ pub(crate) fn set_subscription_callback_core(
 
     if let (Some(callback_fn), Some(n)) = (callback, pending) {
         if n > 0 {
-            unsafe { callback_fn(user_data as *const std::ffi::c_void, n) };
+            crate::guarded_call!(
+                "rmw_zenoh_rs::rmw_subscription_set_on_new_message_callback::call_out",
+                unsafe { callback_fn(user_data as *const std::ffi::c_void, n) }
+            );
         }
     }
 }
@@ -167,9 +191,10 @@ pub struct SubscriptionImpl {
     pub topic: CString,
     pub options: rmw_subscription_options_t,
     pub qos: rmw_qos_profile_t,
-    pub callback:
-        std::sync::Arc<std::sync::Mutex<crate::ros::rmw_subscription_new_message_callback_t>>,
-    pub callback_user_data: std::sync::Arc<std::sync::Mutex<usize>>, // Store pointer as usize for thread safety
+    pub callback: std::sync::Arc<
+        crate::tripwire_compat::GuardedMutex<crate::ros::rmw_subscription_new_message_callback_t>,
+    >,
+    pub callback_user_data: std::sync::Arc<crate::tripwire_compat::GuardedMutex<usize>>, // Store pointer as usize for thread safety
     pub unread_count: std::sync::Arc<std::sync::Mutex<usize>>, // Track messages arrived before callback was set
     pub graph: std::sync::Arc<hiroz::graph::Graph>,
     pub entity: hiroz::entity::EndpointEntity,
@@ -860,11 +885,12 @@ pub extern "C" fn rmw_subscription_get_content_filter(
 
 #[cfg(test)]
 mod gil_deadlock_tests {
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     use crate::c_void;
+    use crate::tripwire_compat::GuardedMutex as Mutex;
 
     // Raw C function pointers carry no captured state, so the handshake
     // between the notify thread and the setter thread has to live in
@@ -915,7 +941,7 @@ mod gil_deadlock_tests {
                 gil_wanting_callback as unsafe extern "C" fn(*const std::ffi::c_void, usize),
             )));
         let user_data_holder = Arc::new(Mutex::new(0usize));
-        let unread_count_holder = Arc::new(Mutex::new(0usize));
+        let unread_count_holder = Arc::new(std::sync::Mutex::new(0usize));
 
         let notify = super::build_subscription_notify_callback(
             notifier,
@@ -982,7 +1008,7 @@ mod gil_deadlock_tests {
         let callback_holder: Arc<Mutex<crate::ros::rmw_subscription_new_message_callback_t>> =
             Arc::new(Mutex::new(None));
         let user_data_holder = Arc::new(Mutex::new(0usize));
-        let unread_count_holder = Arc::new(Mutex::new(0usize));
+        let unread_count_holder = Arc::new(std::sync::Mutex::new(0usize));
 
         super::set_subscription_callback_core(
             &callback_holder,
