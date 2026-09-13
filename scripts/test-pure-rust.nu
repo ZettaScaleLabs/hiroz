@@ -43,6 +43,9 @@ def check-bundled-msgs [] {
     run-cmd "cargo check -p hiroz-msgs --features common_interfaces"
     run-cmd "cargo check -p hiroz-msgs --features all_msgs"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features std_msgs"
+    # `cargo check` alone can't catch over-generation -- assert on the
+    # generated package set directly.
+    run-cmd "cargo test -p hiroz-msgs --no-default-features --features std_msgs --test feature_scoping"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features geometry_msgs"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features sensor_msgs"
     run-cmd "cargo check -p hiroz-msgs --no-default-features --features nav_msgs"
@@ -156,6 +159,14 @@ def check-distro-features [] {
     run-cmd "cargo check -p hiroz --no-default-features --features rolling"
     run-cmd "cargo check -p hiroz --no-default-features --features kilted"
     run-cmd "cargo check -p hiroz --no-default-features --features lyrical"
+
+    # The checks above only cover `hiroz`'s own type-hash/compat features --
+    # `hiroz-msgs`' codegen (a separate distro-gated asset tree) is unchecked
+    # by them. `rolling`/`kilted` have no bundled assets yet, so they're
+    # deliberately left out here rather than pinning a check that can only fail.
+    run-cmd "cargo check -p hiroz-msgs --no-default-features --features core_msgs,humble"
+    run-cmd "cargo check -p hiroz-msgs --no-default-features --features core_msgs,jazzy"
+    run-cmd "cargo check -p hiroz-msgs --no-default-features --features core_msgs,lyrical"
 }
 
 def test-shm [] {

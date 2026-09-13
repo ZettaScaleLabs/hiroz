@@ -9,6 +9,9 @@
         "unique_identifier_msgs"
       ]
     },
+    "action_tutorials_interfaces": {
+      "dependencies": []
+    },
     "builtin_interfaces": {
       "dependencies": []
     },

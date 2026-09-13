@@ -20,15 +20,34 @@ fn main() -> Result<()> {
         println!("cargo:rustc-cfg=ros_humble");
     }
     println!("cargo:warning=target ROS distro: {}", distro.assets_dir());
+    if distro.bundled_dir() != distro.assets_dir() {
+        println!(
+            "cargo:warning=assets/{} has no packages yet — reading assets/{} instead",
+            distro.assets_dir(),
+            distro.bundled_dir()
+        );
+    }
 
     // Re-run if the selected distro's bundled asset tree changes.
-    let codegen_assets = hiroz_codegen::bundled_assets_dir_for(distro.assets_dir());
+    let codegen_assets = hiroz_codegen::bundled_assets_dir_for(distro.bundled_dir());
     if codegen_assets.exists() {
         println!("cargo:rerun-if-changed={}", codegen_assets.display());
     }
 
     // Discover ROS packages by enumerating the selected distro's asset tree.
     let ros_packages = discover_ros_packages(distro)?;
+
+    // Expose the generated package set so tests can assert on it directly --
+    // `cargo check` succeeding doesn't prove the right packages were
+    // generated. See `tests/feature_scoping.rs`.
+    let generated_package_names: Vec<String> = ros_packages
+        .iter()
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    println!(
+        "cargo:rustc-env=HIROZ_MSGS_GENERATED_PACKAGES={}",
+        generated_package_names.join(",")
+    );
 
     println!(
         "cargo:warning=protobuf feature: {}",
@@ -180,23 +199,77 @@ impl Distro {
         }
     }
 
+    /// `assets/humble/` has no real packages yet, so Humble falls back to
+    /// jazzy (a safe superset), same as before #344.
+    fn bundled_dir(self) -> &'static str {
+        match self {
+            Distro::Humble => "jazzy",
+            Distro::Jazzy => "jazzy",
+            Distro::Lyrical => "lyrical",
+        }
+    }
+
     fn is_humble(self) -> bool {
         matches!(self, Distro::Humble)
     }
 }
 
-/// Discover the packages to generate by enumerating the selected distro's
-/// bundled asset tree. Every subdirectory of assets/<distro>/ that contains a
-/// msg/, srv/, or action/ directory is a package. There is no hand-maintained
-/// allow-list: adding a package is just dropping its interface files into the
-/// tree.
+/// Packages requested by enabled Cargo features. Always includes the four
+/// base packages, plus `service_msgs`/`type_description_interfaces` for
+/// non-Humble distros.
+fn selected_package_names(is_humble: bool) -> Vec<&'static str> {
+    let mut names = vec![
+        "builtin_interfaces",
+        "action_msgs",
+        "unique_identifier_msgs",
+        "lifecycle_msgs",
+    ];
+
+    if !is_humble {
+        names.push("service_msgs");
+        names.push("type_description_interfaces");
+    }
+
+    const FEATURE_PACKAGES: &[&str] = &[
+        "std_msgs",
+        "geometry_msgs",
+        "sensor_msgs",
+        "nav_msgs",
+        "example_interfaces",
+        "action_tutorials_interfaces",
+        "test_msgs",
+        "rcl_interfaces",
+        "tf2_msgs",
+        "visualization_msgs",
+        "rosgraph_msgs",
+        "trajectory_msgs",
+        "diagnostic_msgs",
+        "shape_msgs",
+        "stereo_msgs",
+        "statistics_msgs",
+        "composition_interfaces",
+        "std_srvs",
+        "rosbag2_interfaces",
+    ];
+    for &pkg in FEATURE_PACKAGES {
+        if env::var(format!("CARGO_FEATURE_{}", pkg.to_uppercase())).is_ok() {
+            names.push(pkg);
+        }
+    }
+
+    names
+}
+
+/// Resolves `selected_package_names` against the asset tree. A requested
+/// package missing from the tree is a hard error, not a silent omission.
 fn discover_ros_packages(distro: Distro) -> Result<Vec<PathBuf>> {
-    let assets_dir = hiroz_codegen::bundled_assets_dir_for(distro.assets_dir());
+    let assets_dir = hiroz_codegen::bundled_assets_dir_for(distro.bundled_dir());
 
     if !assets_dir.exists() {
         anyhow::bail!(
-            "bundled assets directory not found for distro {}: {:?}",
+            "bundled assets directory not found for distro {} (reading assets/{}): {:?}",
             distro.assets_dir(),
+            distro.bundled_dir(),
             assets_dir
         );
     }
@@ -204,41 +277,33 @@ fn discover_ros_packages(distro: Distro) -> Result<Vec<PathBuf>> {
     // Re-run the build script if the asset tree changes.
     println!("cargo:rerun-if-changed={}", assets_dir.display());
 
-    let mut packages = Vec::new();
-    for entry in std::fs::read_dir(&assets_dir)? {
-        let path = entry?.path();
-        if !path.is_dir() {
-            continue; // skips dependencies.json etc.
-        }
-        let name = match path.file_name().and_then(|n| n.to_str()) {
-            Some(n) => n,
-            None => continue,
-        };
-
-        // Test-fixtures packages are excluded: their BasicTypes/Arrays messages
-        // have wstring fields codegen skips, but Nested*/sequence types still
-        // reference them (and String fields aren't Copy), which fails to compile.
-        // These aren't real shipped message packages.
-        if matches!(name, "test_msgs" | "test_interface_files") {
-            continue;
-        }
-
-        let has_interfaces = path.join("msg").exists()
-            || path.join("srv").exists()
-            || path.join("action").exists();
+    let wanted = selected_package_names(distro.is_humble());
+    let mut packages = Vec::with_capacity(wanted.len());
+    for name in wanted {
+        let path = assets_dir.join(name);
+        let has_interfaces =
+            path.join("msg").exists() || path.join("srv").exists() || path.join("action").exists();
         if !has_interfaces {
-            continue;
+            anyhow::bail!(
+                "feature requested package `{name}` but it was not found in assets/{} \
+                 (distro {}): {path:?}",
+                distro.bundled_dir(),
+                distro.assets_dir(),
+            );
         }
-
         packages.push(path);
     }
 
     if packages.is_empty() {
-        anyhow::bail!("no packages found in assets/{}", distro.assets_dir());
+        anyhow::bail!(
+            "no packages selected for distro {} — enable at least one hiroz-msgs package feature",
+            distro.assets_dir()
+        );
     }
     println!(
-        "cargo:warning=generating {} packages from assets/{}",
+        "cargo:warning=generating {} packages from assets/{} (distro {})",
         packages.len(),
+        distro.bundled_dir(),
         distro.assets_dir()
     );
 
