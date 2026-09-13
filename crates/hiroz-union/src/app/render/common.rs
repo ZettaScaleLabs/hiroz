@@ -24,10 +24,27 @@ fn protocol_qos_to_hiroz(qos: &hiroz_protocol::qos::QosProfile) -> QosProfile {
             hiroz_protocol::qos::QosHistory::KeepLast(depth) => QosHistory::from_depth(depth),
             hiroz_protocol::qos::QosHistory::KeepAll => QosHistory::KeepAll,
         },
-        deadline: QosDuration::INFINITE,
-        lifespan: QosDuration::INFINITE,
-        liveliness: hiroz::qos::QosLiveliness::Automatic,
-        liveliness_lease_duration: QosDuration::INFINITE,
+        deadline: QosDuration {
+            sec: qos.deadline.sec,
+            nsec: qos.deadline.nsec,
+        },
+        lifespan: QosDuration {
+            sec: qos.lifespan.sec,
+            nsec: qos.lifespan.nsec,
+        },
+        liveliness: match qos.liveliness {
+            hiroz_protocol::qos::QosLiveliness::Automatic => hiroz::qos::QosLiveliness::Automatic,
+            hiroz_protocol::qos::QosLiveliness::ManualByNode => {
+                hiroz::qos::QosLiveliness::ManualByNode
+            }
+            hiroz_protocol::qos::QosLiveliness::ManualByTopic => {
+                hiroz::qos::QosLiveliness::ManualByTopic
+            }
+        },
+        liveliness_lease_duration: QosDuration {
+            sec: qos.liveliness_lease_duration.sec,
+            nsec: qos.liveliness_lease_duration.nsec,
+        },
     }
 }
 

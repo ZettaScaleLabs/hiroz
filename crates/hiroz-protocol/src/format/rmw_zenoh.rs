@@ -309,6 +309,7 @@ mod tests {
             reliability: QosReliability::Reliable,
             durability: QosDurability::TransientLocal,
             history: QosHistory::from_depth(10),
+            ..QosProfile::default()
         };
         let encoded = RmwZenohFormatter::encode_qos(&qos, false);
 
@@ -1125,6 +1126,7 @@ mod tests {
             reliability: QosReliability::Reliable,
             durability: QosDurability::TransientLocal,
             history: QosHistory::from_depth(10),
+            ..QosProfile::default()
         };
 
         let entity = EndpointEntity {
@@ -1522,6 +1524,7 @@ mod kani_proofs {
                 reliability: QosReliability::Reliable,
                 durability: QosDurability::Volatile,
                 history: QosHistory::KeepLast(10),
+                ..QosProfile::default()
             },
         };
 

@@ -268,20 +268,13 @@ pub extern "C" fn rmw_create_publisher(
         graph.get_entities_by_topic(hiroz::entity::EndpointKind::Subscription, &entity.topic);
 
     // Track which subscription GIDs we've already checked to avoid double-counting
-    let local_zid = graph.zid;
     let mut checked_gids = std::collections::HashSet::new();
     let mut incompatible_count = 0;
     let mut last_policy_kind = 0u32;
     for sub_entity in &sub_entities {
         if let Some(endpoint) = hiroz::entity::entity_get_endpoint(sub_entity) {
             // Skip Ros2Dds endpoints that carry no node identity
-            let Some(node) = endpoint.node.as_ref() else {
-                continue;
-            };
-
-            // Only check QoS compatibility with entities from the same Zenoh session
-            // This avoids counting subscriptions from previous test cases that used different sessions
-            if node.z_id != local_zid {
+            if endpoint.node.is_none() {
                 continue;
             }
 
@@ -654,20 +647,13 @@ pub extern "C" fn rmw_create_subscription(
         graph.get_entities_by_topic(hiroz::entity::EndpointKind::Publisher, &entity.topic);
 
     // Track which publisher GIDs we've already checked to avoid double-counting
-    let local_zid = graph.zid;
     let mut checked_gids = std::collections::HashSet::new();
     let mut incompatible_count = 0;
     let mut last_policy_kind = 0u32;
     for pub_entity in &pub_entities {
         if let Some(endpoint) = hiroz::entity::entity_get_endpoint(pub_entity) {
             // Skip Ros2Dds endpoints that carry no node identity
-            let Some(node) = endpoint.node.as_ref() else {
-                continue;
-            };
-
-            // Only check QoS compatibility with entities from the same Zenoh session
-            // This avoids counting publishers from previous test cases that used different sessions
-            if node.z_id != local_zid {
+            if endpoint.node.is_none() {
                 continue;
             }
 
@@ -2005,31 +1991,7 @@ pub extern "C" fn rmw_get_publishers_info_by_topic(
             (*endpoint_info).endpoint_gid = gid_data;
 
             // Set QoS profile - convert from protocol QoS to hiroz QoS to rmw QoS
-            let hiroz_qos = hiroz::qos::QosProfile {
-                reliability: match endpoint.qos.reliability {
-                    hiroz_protocol::qos::QosReliability::Reliable => {
-                        hiroz::qos::QosReliability::Reliable
-                    }
-                    hiroz_protocol::qos::QosReliability::BestEffort => {
-                        hiroz::qos::QosReliability::BestEffort
-                    }
-                },
-                durability: match endpoint.qos.durability {
-                    hiroz_protocol::qos::QosDurability::TransientLocal => {
-                        hiroz::qos::QosDurability::TransientLocal
-                    }
-                    hiroz_protocol::qos::QosDurability::Volatile => {
-                        hiroz::qos::QosDurability::Volatile
-                    }
-                },
-                history: match endpoint.qos.history {
-                    hiroz_protocol::qos::QosHistory::KeepLast(depth) => {
-                        hiroz::qos::QosHistory::from_depth(depth)
-                    }
-                    hiroz_protocol::qos::QosHistory::KeepAll => hiroz::qos::QosHistory::KeepAll,
-                },
-                ..Default::default()
-            };
+            let hiroz_qos = crate::pubsub::protocol_qos_to_hiroz_qos(&endpoint.qos);
             (*endpoint_info).qos_profile = crate::qos::hiroz_qos_to_rmw_qos(&hiroz_qos);
         }
     }
@@ -3552,31 +3514,7 @@ pub extern "C" fn rmw_get_subscriptions_info_by_topic(
             (*endpoint_info).endpoint_gid = gid_data;
 
             // Set QoS profile - convert from protocol QoS to hiroz QoS to rmw QoS
-            let hiroz_qos = hiroz::qos::QosProfile {
-                reliability: match endpoint.qos.reliability {
-                    hiroz_protocol::qos::QosReliability::Reliable => {
-                        hiroz::qos::QosReliability::Reliable
-                    }
-                    hiroz_protocol::qos::QosReliability::BestEffort => {
-                        hiroz::qos::QosReliability::BestEffort
-                    }
-                },
-                durability: match endpoint.qos.durability {
-                    hiroz_protocol::qos::QosDurability::TransientLocal => {
-                        hiroz::qos::QosDurability::TransientLocal
-                    }
-                    hiroz_protocol::qos::QosDurability::Volatile => {
-                        hiroz::qos::QosDurability::Volatile
-                    }
-                },
-                history: match endpoint.qos.history {
-                    hiroz_protocol::qos::QosHistory::KeepLast(depth) => {
-                        hiroz::qos::QosHistory::from_depth(depth)
-                    }
-                    hiroz_protocol::qos::QosHistory::KeepAll => hiroz::qos::QosHistory::KeepAll,
-                },
-                ..Default::default()
-            };
+            let hiroz_qos = crate::pubsub::protocol_qos_to_hiroz_qos(&endpoint.qos);
             (*endpoint_info).qos_profile = crate::qos::hiroz_qos_to_rmw_qos(&hiroz_qos);
         }
     }

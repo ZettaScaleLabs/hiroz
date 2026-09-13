@@ -48,6 +48,32 @@ fn is_valid_topic_component(component: &str) -> bool {
         .all(|&b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
+/// Validate every `/`-separated component of `path`.
+///
+/// `path` must already have any leading `/` stripped, so that an empty
+/// component always means a genuine `//` or a trailing `/` rather than the
+/// leading separator of an absolute name.
+///
+/// Empty components are **rejected**, not skipped. Skipping them let `//a//b`
+/// pass ROS validation and fail later inside zenoh's key-expression parser,
+/// with an error that cites a dependency path and never names the offending
+/// topic.
+fn validate_topic_components(path: &str, context: &str) -> Result<(), TopicNameError> {
+    for part in path.split('/') {
+        if part.is_empty() {
+            return Err(TopicNameError::InvalidCharacters(format!(
+                "empty component in {context}: '//' and a trailing '/' are not valid ROS 2 names"
+            )));
+        }
+        if !is_valid_topic_component(part) {
+            return Err(TopicNameError::InvalidCharacters(format!(
+                "invalid component '{part}' in {context}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Validate a namespace string
 /// Namespaces can be empty, "/", or a series of valid components separated by "/"
 fn validate_namespace(namespace: &str) -> Result<(), TopicNameError> {
@@ -61,9 +87,19 @@ fn validate_namespace(namespace: &str) -> Result<(), TopicNameError> {
         ));
     }
 
-    for part in namespace.split('/') {
+    // Strip exactly one leading slash -- that one is the separator. Every
+    // remaining component must be non-empty: skipping them (as this used to)
+    // let `//ns` validate, and the namespace is concatenated verbatim into the
+    // qualified name below, so `//ns` + `chatter` produced `//ns/chatter` --
+    // the very `//` form topic validation rejects, reaching zenoh's
+    // key-expression parser with the same opaque error this module exists to
+    // prevent. Namespaces are user-supplied, so that path is reachable.
+    let body = namespace.strip_prefix('/').unwrap_or(namespace);
+    for part in body.split('/') {
         if part.is_empty() {
-            continue; // Leading slash creates empty first component
+            return Err(TopicNameError::InvalidNamespace(
+                "empty component: '//' is not a valid namespace".to_string(),
+            ));
         }
         if !is_valid_topic_component(part) {
             return Err(TopicNameError::InvalidNamespace(format!(
@@ -96,7 +132,7 @@ fn validate_node_name(node_name: &str) -> Result<(), TopicNameError> {
 /// This function takes a topic name and qualifies it based on the node's namespace and name.
 ///
 /// Rules:
-/// - Absolute topics (starting with '/') are returned as-is (with trailing slash removed if present)
+/// - Absolute topics (starting with '/') are validated and returned (with trailing slash removed if present)
 /// - Private topics (starting with '~') are expanded to /<namespace>/<node_name>/<topic>
 /// - Relative topics are expanded to /<namespace>/<topic>
 /// - Empty namespace is treated as "/"
@@ -150,29 +186,45 @@ pub fn qualify_topic_name(
 
     // Handle different topic name types
     let qualified = if topic.starts_with('/') {
-        // Absolute topic - use as-is, but remove trailing slash if present
+        // Absolute topic - validated, with a trailing slash removed if present
         let topic = topic.strip_suffix('/').unwrap_or(topic);
         if topic.is_empty() || topic == "/" {
             return Err(TopicNameError::InvalidCharacters(
                 "topic cannot be just '/'".to_string(),
             ));
         }
+        // This branch used to return unchecked, so an absolute name reached
+        // zenoh with no component validation at all -- `create_client("/bad
+        // name", ..)` was accepted and failed later, or silently never matched.
+        // `strip_prefix`, not `trim_start_matches`: exactly one leading slash is
+        // the separator. Trimming all of them would turn `//a` into `a` and
+        // accept it, which is the very form this is meant to reject.
+        let body = topic.strip_prefix('/').unwrap_or(topic);
+        validate_topic_components(body, "absolute topic")?;
         topic.to_string()
     } else if topic.starts_with('~') {
         // Private topic - expand with namespace and node name
         let topic_suffix = topic.strip_prefix('~').unwrap();
         let topic_suffix = topic_suffix.strip_prefix('/').unwrap_or(topic_suffix);
+        // Strip a trailing slash here too. The absolute and relative branches
+        // both normalize `a/` -> `a`; without this, `~/a/` alone was rejected,
+        // an asymmetry with no justification.
+        //
+        // `~` and `~/` legitimately denote the node itself and leave an empty
+        // suffix. `~//` must not: stripping its trailing slash also empties it,
+        // which would skip validation below and silently alias it to `~`
+        // (qualifying to `/ns/node`). Catch that before the emptiness test.
+        let had_suffix = !topic_suffix.is_empty();
+        let topic_suffix = topic_suffix.strip_suffix('/').unwrap_or(topic_suffix);
+        if had_suffix && topic_suffix.is_empty() {
+            return Err(TopicNameError::InvalidCharacters(
+                "empty component in private topic: '~//' is not a valid ROS 2 name".to_string(),
+            ));
+        }
 
         // Validate the topic suffix
         if !topic_suffix.is_empty() {
-            for part in topic_suffix.split('/') {
-                if !part.is_empty() && !is_valid_topic_component(part) {
-                    return Err(TopicNameError::InvalidCharacters(format!(
-                        "invalid component '{}' in private topic",
-                        part
-                    )));
-                }
-            }
+            validate_topic_components(topic_suffix, "private topic")?;
         }
 
         if namespace.is_empty() || namespace == "/" {
@@ -191,14 +243,7 @@ pub fn qualify_topic_name(
         let topic = topic.strip_suffix('/').unwrap_or(topic);
 
         // Validate topic components
-        for part in topic.split('/') {
-            if !part.is_empty() && !is_valid_topic_component(part) {
-                return Err(TopicNameError::InvalidCharacters(format!(
-                    "invalid component '{}'",
-                    part
-                )));
-            }
-        }
+        validate_topic_components(topic, "topic")?;
 
         if namespace.is_empty() || namespace == "/" {
             format!("/{}", topic)
@@ -358,5 +403,139 @@ mod tests {
             qualify_service_name("~my_service", "/ns", "node").unwrap(),
             "/ns/node/my_service"
         );
+    }
+
+    /// The absolute branch used to return unchecked, so these all succeeded.
+    ///
+    /// `create_client("/bad name", ..)` was accepted at construction and then
+    /// failed inside zenoh's key-expression parser -- or worse, resolved to a
+    /// name that could never match a peer. Table-driven so the rejected forms
+    /// are visible as a set rather than buried in assertions.
+    #[test]
+    fn absolute_names_reject_invalid_components() {
+        for bad in [
+            "/bad name", // space
+            "/a/b c",    // space in a later component
+            "/1abc",     // must not start with a digit
+            "/a/2b",     // ditto, later component
+            "/a-b",      // hyphen is not a valid component character
+            "/a.b",      // nor is a dot
+            "/a//b",     // empty component
+            "//a",       // empty leading component
+            "/a/b//",    // empty component after trailing-slash strip
+        ] {
+            assert!(
+                qualify_topic_name(bad, "/ns", "node").is_err(),
+                "expected `{bad}` to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn absolute_names_still_accept_valid_components() {
+        for good in [
+            "/chatter",
+            "/a/b/c",
+            "/_private",
+            "/a_1/b_2",
+            "/chatter/", // trailing slash is stripped, not rejected
+        ] {
+            assert!(
+                qualify_topic_name(good, "/ns", "node").is_ok(),
+                "expected `{good}` to be accepted"
+            );
+        }
+    }
+
+    /// Empty components were previously *skipped* rather than rejected, on
+    /// every branch, so `//a//b` passed ROS validation.
+    #[test]
+    fn empty_components_are_rejected_on_every_branch() {
+        assert!(
+            qualify_topic_name("/a//b", "/ns", "node").is_err(),
+            "absolute"
+        );
+        assert!(
+            qualify_topic_name("a//b", "/ns", "node").is_err(),
+            "relative"
+        );
+        assert!(
+            qualify_topic_name("~/a//b", "/ns", "node").is_err(),
+            "private"
+        );
+    }
+
+    /// The namespace is concatenated verbatim into the qualified name, so it
+    /// needs the same rejection the topic gets. `//ns` used to validate --
+    /// `validate_namespace` skipped empty components -- and produced
+    /// `//ns/chatter`, the exact form the topic branch rejects.
+    #[test]
+    fn namespaces_reject_empty_components() {
+        assert!(
+            qualify_topic_name("chatter", "//ns", "node").is_err(),
+            "//ns"
+        );
+        assert!(
+            qualify_topic_name("chatter", "/ns//sub", "node").is_err(),
+            "/ns//sub"
+        );
+        assert!(
+            qualify_topic_name("chatter", "/ns/", "node").is_err(),
+            "trailing slash"
+        );
+        // Still accepted: the single leading slash is the separator, not an
+        // empty component, and a bare namespace needs no slash at all.
+        assert!(qualify_topic_name("chatter", "/ns", "node").is_ok(), "/ns");
+        assert!(qualify_topic_name("chatter", "ns", "node").is_ok(), "ns");
+        assert!(qualify_topic_name("chatter", "/", "node").is_ok(), "/");
+        assert!(qualify_topic_name("chatter", "", "node").is_ok(), "empty");
+    }
+
+    /// A trailing slash is normalized on all three branches, not two.
+    ///
+    /// The absolute and relative branches strip it before validating; the
+    /// private branch did not, so `~/a/` alone was rejected while `/a/` and
+    /// `a/` were accepted and normalized.
+    #[test]
+    fn trailing_slash_is_normalized_on_every_branch() {
+        assert_eq!(qualify_topic_name("/a/", "/ns", "node").unwrap(), "/a");
+        assert_eq!(qualify_topic_name("a/", "/ns", "node").unwrap(), "/ns/a");
+        assert_eq!(
+            qualify_topic_name("~/a/", "/ns", "node").unwrap(),
+            "/ns/node/a"
+        );
+    }
+
+    /// `~` and `~/` mean the node itself; `~//` is malformed and must not
+    /// silently alias them.
+    #[test]
+    fn private_slash_only_suffixes_are_rejected() {
+        assert_eq!(qualify_topic_name("~", "/ns", "node").unwrap(), "/ns/node");
+        assert_eq!(qualify_topic_name("~/", "/ns", "node").unwrap(), "/ns/node");
+        for bad in ["~//", "~///", "~//a"] {
+            assert!(
+                qualify_topic_name(bad, "/ns", "node").is_err(),
+                "expected `{bad}` to be rejected, not aliased to `~`"
+            );
+        }
+    }
+
+    /// The "just slashes" family: only `//` had any assertion before.
+    #[test]
+    fn slash_only_names_are_rejected() {
+        for bad in ["/", "//", "///"] {
+            assert!(
+                qualify_topic_name(bad, "/ns", "node").is_err(),
+                "expected `{bad}` to be rejected"
+            );
+        }
+    }
+
+    /// Services and actions route through the same function, so the fix must
+    /// reach them too -- the issue's reproduction is a client, not a topic.
+    #[test]
+    fn service_names_reject_invalid_absolute_components() {
+        assert!(qualify_service_name("/bad name", "/ns", "node").is_err());
+        assert!(qualify_service_name("/add_two_ints", "/ns", "node").is_ok());
     }
 }

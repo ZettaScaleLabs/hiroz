@@ -151,10 +151,10 @@ fn duration_to_rmw_time(dur: &hiroz::qos::QosDuration) -> rmw_time_t {
 }
 
 /// Convert rmw_time_t to hiroz Duration.
-/// RMW_DURATION_INFINITE maps back to hiroz {0, 0} (infinite).
+/// RMW_DURATION_INFINITE maps back to `QosDuration::INFINITE`.
 fn rmw_time_to_duration(time: &rmw_time_t) -> hiroz::qos::QosDuration {
     if time.sec == 9223372036 && time.nsec == 854775807 {
-        hiroz::qos::QosDuration { sec: 0, nsec: 0 }
+        hiroz::qos::QosDuration::INFINITE
     } else {
         hiroz::qos::QosDuration {
             sec: time.sec,
@@ -331,4 +331,30 @@ pub extern "C" fn rmw_qos_profile_check_compatible(
         *compatibility = rmw_qos_compatibility_type_t::RMW_QOS_COMPATIBILITY_OK;
     }
     RMW_RET_OK as _
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rmw_duration_infinite_round_trips_to_hiroz_infinite() {
+        let infinite = rmw_time_t {
+            sec: 9223372036,
+            nsec: 854775807,
+        };
+        assert_eq!(
+            rmw_time_to_duration(&infinite),
+            hiroz::qos::QosDuration::INFINITE
+        );
+    }
+
+    #[test]
+    fn rmw_duration_finite_round_trips_verbatim() {
+        let finite = rmw_time_t { sec: 5, nsec: 42 };
+        assert_eq!(
+            rmw_time_to_duration(&finite),
+            hiroz::qos::QosDuration { sec: 5, nsec: 42 }
+        );
+    }
 }

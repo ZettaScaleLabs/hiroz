@@ -3,8 +3,8 @@
 //! sub-fields it did not set explicitly.
 
 use hiroz_protocol::qos::{
-    QosDecodeError, QosDurability, QosHistory, QosProfile, QosReliability,
-    RMW_ZENOH_DEFAULT_HISTORY_DEPTH,
+    QosDecodeError, QosDurability, QosDuration, QosHistory, QosLiveliness, QosProfile,
+    QosReliability, RMW_ZENOH_DEFAULT_HISTORY_DEPTH,
 };
 
 #[test]
@@ -61,10 +61,31 @@ fn qos_round_trip() {
             reliability: QosReliability::BestEffort,
             durability: QosDurability::TransientLocal,
             history: QosHistory::KeepLast(5),
+            ..QosProfile::default()
         },
         QosProfile {
             history: QosHistory::KeepAll,
             ..QosProfile::default()
+        },
+        QosProfile {
+            deadline: QosDuration {
+                sec: 1,
+                nsec: 500_000,
+            },
+            lifespan: QosDuration { sec: 2, nsec: 0 },
+            liveliness: QosLiveliness::ManualByTopic,
+            liveliness_lease_duration: QosDuration { sec: 3, nsec: 250 },
+            ..QosProfile::default()
+        },
+        // Every field non-default at once.
+        QosProfile {
+            reliability: QosReliability::BestEffort,
+            durability: QosDurability::TransientLocal,
+            history: QosHistory::KeepAll,
+            deadline: QosDuration { sec: 10, nsec: 1 },
+            lifespan: QosDuration { sec: 20, nsec: 2 },
+            liveliness: QosLiveliness::ManualByNode,
+            liveliness_lease_duration: QosDuration { sec: 30, nsec: 3 },
         },
     ];
 
@@ -82,4 +103,16 @@ fn reject_invalid_history() {
             "{encoded}"
         );
     }
+}
+
+#[test]
+fn reject_invalid_duration_and_liveliness() {
+    assert_eq!(
+        QosProfile::decode("::,:notanumber,:,,"),
+        Err(QosDecodeError::InvalidDuration),
+    );
+    assert_eq!(
+        QosProfile::decode("::,:,:,:9,,"),
+        Err(QosDecodeError::InvalidLiveliness),
+    );
 }
