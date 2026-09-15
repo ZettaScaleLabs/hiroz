@@ -158,6 +158,24 @@ pub struct PyZNode {
     next_sub_id: u64,
 }
 
+impl Drop for PyZNode {
+    fn drop(&mut self) {
+        // Same hazard as `destroy_subscriber`, reached a different way: `del
+        // node` and interpreter shutdown run `tp_dealloc` with the GIL held.
+        //
+        // Dropping a `ZSub` no longer joins its delivery thread (it detaches --
+        // see `CallbackDispatcher::drop`), so this wrapper is belt-and-braces
+        // rather than load-bearing. It is kept because it costs nothing and it
+        // documents the hazard for anyone who adds a barrier here later.
+        // Take the subscribers out and drop them with the GIL released.
+        if self.owned_subs.is_empty() {
+            return;
+        }
+        let subs = std::mem::take(&mut self.owned_subs);
+        Python::with_gil(move |py| py.allow_threads(move || drop(subs)));
+    }
+}
+
 #[allow(unsafe_op_in_unsafe_fn)]
 #[pymethods]
 impl PyZNode {
@@ -410,14 +428,26 @@ impl PyZNode {
     ///
     /// Matches rclpy's `Node.destroy_subscription()`. Has no effect on queue-based
     /// subscribers (those are owned by the caller and dropped when they go out of scope).
-    fn destroy_subscriber(&mut self, sub: &PyZSubscriber) -> PyResult<()> {
+    fn destroy_subscriber(&mut self, py: Python<'_>, sub: &PyZSubscriber) -> PyResult<()> {
         let Some(id) = sub.owned_id else {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "destroy_subscriber only applies to callback-based subscribers",
             ));
         };
         if let Some(pos) = self.owned_subs.iter().position(|(sid, _)| *sid == id) {
-            self.owned_subs.swap_remove(pos);
+            let owned = self.owned_subs.swap_remove(pos);
+            // Drop with the GIL released.
+            //
+            // Dropping a `ZSub` no longer joins its delivery thread -- it
+            // detaches, see `CallbackDispatcher::drop` -- so this wrapper is
+            // belt-and-braces rather than load-bearing. It is kept because it
+            // costs nothing and it documents the hazard it used to prevent:
+            // that thread's callback body is `Python::with_gil`, a
+            // `#[pymethods]` fn runs with the GIL held, and any barrier added
+            // here would wait for a thread that is waiting for the GIL we hold.
+            // The interpreter would freeze with no exception and no traceback.
+            // Anyone reaching for `ZSub::close` here must keep this wrapper.
+            py.allow_threads(move || drop(owned));
         }
         Ok(())
     }
