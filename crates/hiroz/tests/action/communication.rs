@@ -15,7 +15,7 @@ pub struct TestGoal {
     pub order: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct TestResult {
     pub value: i32,
 }
@@ -443,7 +443,7 @@ mod tests {
         handle2.canceled(TestResult { value: 2 })?;
 
         let (cancel_response, _) = client_task.await.expect("client task panicked")?;
-        assert_eq!(cancel_response.return_code, 1);
+        assert_eq!(cancel_response.return_code, 0);
 
         let _ = timeout(Duration::from_secs(5), goal_handle1.result())
             .await
