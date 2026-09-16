@@ -853,7 +853,7 @@ impl ZNode {
         let get_result_client =
             self.create_raw_service_client(&get_result_service, &get_result_type, result_hash)?;
         let cancel_goal_client =
-            self.create_raw_service_client(&cancel_goal_service, &cancel_goal_type, "")?;
+            self.create_raw_service_client(&cancel_goal_service, &cancel_goal_type, CANCEL_GOAL_TYPE_HASH)?;
 
         // Feedback subscriber (no-op callback for now; Go handles via polling or separate mechanism)
         let feedback_sub =
@@ -904,7 +904,7 @@ impl ZNode {
         let get_result_server =
             self.create_raw_service_server(&get_result_service, &get_result_type, result_hash)?;
         let cancel_goal_server =
-            self.create_raw_service_server(&cancel_goal_service, &cancel_goal_type, "")?;
+            self.create_raw_service_server(&cancel_goal_service, &cancel_goal_type, CANCEL_GOAL_TYPE_HASH)?;
 
         let feedback_pub =
             self.create_raw_publisher(&feedback_topic, &feedback_type_dds, feedback_hash)?;
@@ -1367,6 +1367,12 @@ impl ZNode {
         }
     }
 }
+
+/// ROS 2 Humble/Jazzy RIHS01 type hash for `action_msgs/srv/CancelGoal`.
+/// Must match rmw_zenoh keyexpr hashing or cancel requests never reach the server.
+#[cfg(feature = "ffi")]
+const CANCEL_GOAL_TYPE_HASH: &str =
+    "RIHS01_573d8b0a534451d7bc2ac8c5ffde8ac14b8593b7001175d0cd6516dcbeb8689a";
 
 /// Parse an action type string like `"example_interfaces/action/Fibonacci"` into
 /// `(package, action_name)` — i.e., `("example_interfaces", "Fibonacci")`.
