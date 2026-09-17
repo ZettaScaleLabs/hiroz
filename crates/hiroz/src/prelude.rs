@@ -23,7 +23,7 @@ pub use crate::Builder;
 /// Core runtime types.
 pub use crate::context::{ZContext, ZContextBuilder};
 pub use crate::node::ZNode;
-pub use crate::pubsub::{ZPub, ZSub};
+pub use crate::pubsub::{CloseOutcome, ZPub, ZSub};
 pub use crate::service::{RequestId, ServiceReply, ServiceRequest, ZClient, ZServer};
 
 pub use crate::action::server::{Accepted, Executing, Requested};
