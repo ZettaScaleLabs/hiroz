@@ -363,50 +363,25 @@ pub extern "C" fn rmw_init(
     zenoh::init_log_from_env_or("error");
 
     // Stop glibc returning the payload heap to the kernel between messages.
+    // See #349 for the mechanism and the measurements. At 1 MiB and 200 Hz
+    // this costs 33% of round-trip latency.
     //
-    // This RMW sizes its deserialisation buffer to the payload. glibc adapts
-    // M_MMAP_THRESHOLD upward as it frees large blocks, and ties
-    // M_TRIM_THRESHOLD to twice that value. In our measurements, a process
-    // handling 1 MiB payloads settled with a trim threshold around 4 MiB --
-    // that is a measured figure for this workload, not a general glibc
-    // guarantee, and it depends on prior allocation history. An rclpy node's
-    // heap swings 6-9 MB per message at 1 MiB payloads, which exceeds that
-    // threshold: the heap is handed back with brk() on every free and
-    // re-faulted on the next message. Measured at 1 MiB / 200 Hz: 12,028 brk
-    // calls and 2.3M page faults in 18 s, costing 33% of round-trip latency
-    // and making the arm bimodal between runs.
+    // This fix needs both calls together. `mallopt()` on either parameter
+    // disables glibc's automatic adjustment of both (see `mallopt(3)`).
+    // Pinning `M_TRIM_THRESHOLD` alone freezes `M_MMAP_THRESHOLD` at its 128
+    // KiB default. Every payload-sized buffer then routes through `mmap()`
+    // instead of the heap. That measures worse than doing nothing. Do not
+    // simplify this to one call.
     //
-    // Both calls below are required together, not as a stronger/weaker pair.
-    // mallopt() on EITHER parameter disables glibc's automatic threshold
-    // adaptation for BOTH of them (see mallopt(3), "dynamic adjustment ...
-    // is disabled if any of M_TRIM_THRESHOLD, M_TOP_PAD, M_MMAP_THRESHOLD or
-    // M_MMAP_MAX is set"). Pinning M_TRIM_THRESHOLD alone freezes
-    // M_MMAP_THRESHOLD at its 128 KiB default, so every payload-sized buffer
-    // would then be served by mmap() instead of the heap -- measured to be
-    // *worse* than doing nothing at all, not merely ineffective. Raising
-    // M_MMAP_THRESHOLD in lockstep is what keeps the buffer heap-served, and
-    // M_TRIM_THRESHOLD is then what decides whether that heap is trimmed
-    // between messages.
+    // 64 MiB means something different for each parameter. glibc's own
+    // `M_MMAP_THRESHOLD` ceiling is about 32 MiB (`DEFAULT_MMAP_THRESHOLD_MAX`).
+    // Pinning it to 64 MiB is a deliberate override glibc would never reach
+    // on its own. `M_TRIM_THRESHOLD`'s dynamic ceiling is twice the mmap
+    // value, so 64 MiB is exactly its own maximum.
     //
-    // An implementation that over-allocates its buffer avoids this by
-    // accident, because freeing a larger block raises the threshold anyway.
-    // Setting it explicitly gives the same protection without the waste.
-    //
-    // 64 MiB is a bound, not a tuned value: it must exceed both the largest
-    // message this pins for and the working-set swing of several live
-    // payload-sized buffers. It is NOT "inside glibc's own envelope" for
-    // both parameters equally, and the two should not be read as matching
-    // the same ceiling: glibc's *dynamic* M_MMAP_THRESHOLD adjustment caps
-    // itself at DEFAULT_MMAP_THRESHOLD_MAX (typically 32 MiB on 64-bit), so
-    // pinning M_MMAP_THRESHOLD to 64 MiB is deliberately larger than glibc's
-    // own adjustment would ever choose for that parameter -- an explicit
-    // override, not a value glibc would arrive at on its own. M_TRIM_THRESHOLD
-    // is different: glibc ties its dynamic value to twice the mmap threshold,
-    // so 64 MiB is exactly the largest value its own adjustment could ever
-    // reach for THIS parameter.
-    //
-    // Deliberately skipped when the operator has set the glibc environment
-    // variables, so an explicit deployment choice is not silently overridden.
+    // This fix skips both calls when the operator has already set the glibc
+    // environment variables. An explicit deployment choice is never
+    // overridden.
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
         const M_TRIM_THRESHOLD: core::ffi::c_int = -1;
