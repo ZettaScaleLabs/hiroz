@@ -38,10 +38,17 @@ impl NodeImpl {
         let fq_name_cstr =
             CString::new(fq_name).map_err(|e| format!("Invalid fully qualified name: {}", e))?;
 
-        // Use ZContext's create_node method
+        // rclcpp always drives this node. rclcpp::Node's constructor already
+        // creates the standard six parameter services, unless the application
+        // calls NodeOptions::start_parameter_services(false).
+        //
+        // .without_parameters() stops hiroz from creating its own copy of the
+        // same six services. Without this call, two Queryables answered each
+        // service name. See tests/no_parameter_services.rs.
         let inner = zcontext
             .create_node(name)
             .with_namespace(namespace)
+            .without_parameters()
             .build()
             .map_err(|e| format!("Failed to build node: {}", e))?;
 
