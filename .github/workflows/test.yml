@@ -162,6 +162,23 @@ jobs:
             ros-${{ matrix.distro }}-nav-msgs \
             protobuf-compiler
 
+          # #303's fix named one drifted package: rclcpp. The drift then moved
+          # to a different one. example_interfaces (rebuilt for a new field
+          # on service_msgs/ServiceEventInfo) failed the same way against the
+          # image's stale service_msgs. Naming service_msgs alone only moved
+          # the failure one level further down the same interfaces: first to
+          # builtin_interfaces, then to unique_identifier_msgs.
+          #
+          # Naming interface packages one at a time chases a moving target.
+          # Upgrade every already-installed package instead, so every
+          # transitively pulled interface package matches the repository, not
+          # only the one that happens to have failed most recently.
+          #
+          # Confirmed in a stock container with no hiroz process:
+          # `add_two_ints_client` aborts with a symbol-lookup error before
+          # this step, and prints `Result of add_two_ints: 5` after it.
+          scripts/ci/apt-retry.sh apt-get upgrade -y
+
       # An interop run tests hiroz against a specific set of ROS binaries.
       # Nothing recorded which ones.
       #
