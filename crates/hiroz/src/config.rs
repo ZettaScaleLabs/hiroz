@@ -350,7 +350,12 @@ pub fn session_config() -> zenoh::Result<zenoh::Config> {
 /// Useful for generating reference configuration files.
 ///
 /// # Example
-/// ```rust
+// `no_run`, not `rust`: this example writes a file, and doctests run with the
+// crate directory as their working directory. Executed, it drops
+// `crates/hiroz/router_config.json5` into the source tree on every run --
+// including CI's, now that doctests run there. Compiling it is what this
+// example is worth; running it is only a side effect.
+/// ```no_run
 /// # use hiroz::config::{generate_json5, router_overrides};
 /// let json5 = generate_json5(&router_overrides(), "Router Config");
 /// std::fs::write("router_config.json5", json5)?;
