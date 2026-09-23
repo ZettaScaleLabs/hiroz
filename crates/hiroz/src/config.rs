@@ -7,7 +7,7 @@
 //! # Architecture
 //! - Common overrides: 10 settings shared between router and session
 //! - Router-specific: 5 settings unique to router mode
-//! - Session-specific: 6 settings unique to peer mode
+//! - Session-specific: 8 settings unique to peer mode
 //!
 //! # Example
 //! ```no_run
@@ -230,7 +230,7 @@ fn router_specific_overrides() -> &'static [ConfigOverride] {
     &ROUTER_SPECIFIC
 }
 
-/// Session-specific overrides (6 settings)
+/// Session-specific overrides (8 settings)
 fn session_specific_overrides() -> &'static [ConfigOverride] {
     static SESSION_SPECIFIC: LazyLock<Vec<ConfigOverride>> = LazyLock::new(|| {
         vec![
@@ -243,6 +243,24 @@ fn session_specific_overrides() -> &'static [ConfigOverride] {
                 key: "connect/endpoints",
                 value: serde_json::json!(["tcp/localhost:7447"]),
                 reason: "Connect to Zenoh router on localhost at standard ROS 2 port 7447",
+            },
+            // These two settings had no value here before. Each one used
+            // Zenoh's own default instead of rmw_zenoh_cpp's ROS setting
+            // (DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5). When no router is
+            // present, a peer's connect attempt has no target to reach. No
+            // test checked Zenoh's default behavior for that case: the
+            // retry duration, and whether it blocks session start. In
+            // rmw_zenoh_cpp, a failed peer connect does not stop the
+            // session and does not block it.
+            ConfigOverride {
+                key: "connect/timeout_ms",
+                value: serde_json::json!({"router": -1, "peer": -1, "client": 0}),
+                reason: "Matches rmw_zenoh_cpp's default: -1 for peer and router means the connect does not block session start, not that it waits forever",
+            },
+            ConfigOverride {
+                key: "connect/exit_on_failure",
+                value: serde_json::json!({"router": false, "peer": false, "client": true}),
+                reason: "Matches rmw_zenoh_cpp's default: a peer with no reachable router must not fail session creation; only a client, which needs one, does",
             },
             ConfigOverride {
                 key: "listen/endpoints",
