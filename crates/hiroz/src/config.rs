@@ -244,14 +244,6 @@ fn session_specific_overrides() -> &'static [ConfigOverride] {
                 value: serde_json::json!(["tcp/localhost:7447"]),
                 reason: "Connect to Zenoh router on localhost at standard ROS 2 port 7447",
             },
-            // These two settings had no value here before. Each one used
-            // Zenoh's own default instead of rmw_zenoh_cpp's ROS setting
-            // (DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5). When no router is
-            // present, a peer's connect attempt has no target to reach. No
-            // test checked Zenoh's default behavior for that case: the
-            // retry duration, and whether it blocks session start. In
-            // rmw_zenoh_cpp, a failed peer connect does not stop the
-            // session and does not block it.
             ConfigOverride {
                 key: "connect/timeout_ms",
                 value: serde_json::json!({"router": -1, "peer": -1, "client": 0}),
