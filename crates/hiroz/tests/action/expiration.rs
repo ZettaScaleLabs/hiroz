@@ -23,7 +23,7 @@ struct TestGoal {
     order: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct TestResult {
     sequence: Vec<i32>,
 }
@@ -160,6 +160,7 @@ async fn test_accepted_goal_expiration_with_timeout() -> Result<()> {
             goal_id,
             ServerGoalState::Accepted {
                 goal: TestGoal { order: 5 },
+                cancel_flag: Arc::new(AtomicBool::new(false)),
                 timestamp: now,
                 expires_at: Some(now + Duration::from_secs(1)),
             },
@@ -273,6 +274,7 @@ async fn test_multiple_goals_expiration() -> Result<()> {
             goal_id3,
             ServerGoalState::Accepted {
                 goal: TestGoal { order: 2 },
+                cancel_flag: Arc::new(AtomicBool::new(false)),
                 timestamp: now,
                 expires_at: Some(expires),
             },
