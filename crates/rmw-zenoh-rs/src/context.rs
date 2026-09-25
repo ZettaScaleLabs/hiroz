@@ -405,12 +405,15 @@ pub extern "C" fn rmw_init(
                 tracing::warn!(
                     "glibc rejected the allocator threshold pin (mallopt rc: mmap={}, trim={}); \
                      large 1 MiB-class messages may show the heap-trim latency regression this call exists to avoid",
-                    mmap_rc, trim_rc
+                    mmap_rc,
+                    trim_rc
                 );
             } else {
                 tracing::debug!(
                     "glibc thresholds pinned at {} MiB (mallopt rc: mmap={}, trim={})",
-                    THRESHOLD >> 20, mmap_rc, trim_rc
+                    THRESHOLD >> 20,
+                    mmap_rc,
+                    trim_rc
                 );
             }
         }

@@ -36,7 +36,8 @@ fn parse_duration_component(s: &str, default_value: u64) -> Result<u64, QosDecod
     if s.is_empty() {
         Ok(default_value)
     } else {
-        s.parse::<u64>().map_err(|_| QosDecodeError::InvalidDuration)
+        s.parse::<u64>()
+            .map_err(|_| QosDecodeError::InvalidDuration)
     }
 }
 
@@ -238,7 +239,10 @@ impl QosProfile {
                 };
                 (kind, lease)
             }
-            _ => (default_qos.liveliness, default_qos.liveliness_lease_duration),
+            _ => (
+                default_qos.liveliness,
+                default_qos.liveliness_lease_duration,
+            ),
         };
 
         Ok(QosProfile {
