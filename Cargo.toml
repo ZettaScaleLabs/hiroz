@@ -94,6 +94,7 @@ syn = "2.0"
 proc-macro2 = "1.0"
 anyhow = "1.0"
 glob = "0.3"
+t4_idl_parser = { git = "https://github.com/tylerjw/idl_parser.git", rev = "601a3a3c1c664e9a47fb3567b60d476d5bbfb352" }
 
 # Protobuf (optional)
 prost = "0.14"

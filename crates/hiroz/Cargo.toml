@@ -80,7 +80,7 @@ flatbuffers = []
 python = ["pyo3"]
 rmw = []
 # Dynamic message schema loading from .msg files (optional)
-dynamic-schema-loader = ["hiroz-codegen"]
+dynamic-schema-loader = ["hiroz-codegen", "hiroz-codegen/idl"]
 
 # Key expression format selection
 # rmw-zenoh: Compatible with rmw_zenoh_cpp (domain/topic/type/hash format)

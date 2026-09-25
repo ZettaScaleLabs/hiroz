@@ -39,6 +39,7 @@ hex = { workspace = true }
 sha2 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+t4_idl_parser = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3.0"
@@ -50,3 +51,4 @@ insta = "1"
 [features]
 default = []
 protobuf = ["prost-build"]
+idl = ["dep:t4_idl_parser"]

@@ -5,7 +5,7 @@ use std::fmt;
 /// Errors that can occur during dynamic message operations.
 #[derive(Debug)]
 pub enum DynamicError {
-    /// Invalid type name format (should be "package/msg/Name")
+    /// Invalid canonical ROS type name.
     InvalidTypeName(String),
 
     /// Field not found in message schema
@@ -77,7 +77,7 @@ impl fmt::Display for DynamicError {
             DynamicError::InvalidTypeName(name) => {
                 write!(
                     f,
-                    "Invalid type name '{}': expected format 'package/msg/Name'",
+                    "Invalid type name '{}': expected 'package/{{msg,srv,action}}/Name'",
                     name
                 )
             }
