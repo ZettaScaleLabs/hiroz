@@ -221,6 +221,156 @@ fn test_message_equality() {
 }
 
 #[test]
+fn assignment_rejects_wrong_shapes_bounds_and_value_kinds() {
+    let child = MessageSchema::builder("test_msgs/msg/Child")
+        .field("value", FieldType::Int32)
+        .build()
+        .unwrap();
+    let schema = MessageSchema::builder("test_msgs/msg/Validated")
+        .field("fixed", FieldType::Array(Box::new(FieldType::Int32), 2))
+        .field(
+            "bounded",
+            FieldType::BoundedSequence(Box::new(FieldType::Int32), 2),
+        )
+        .field("name", FieldType::BoundedString(4))
+        .field("child", FieldType::Message(child.clone()))
+        .build()
+        .unwrap();
+    let mut message = DynamicMessage::new(&schema);
+
+    for values in [
+        vec![DynamicValue::Int32(1)],
+        vec![
+            DynamicValue::Int32(1),
+            DynamicValue::Int32(2),
+            DynamicValue::Int32(3),
+        ],
+    ] {
+        assert!(matches!(
+            message.set_dynamic("fixed", DynamicValue::Array(values)),
+            Err(DynamicError::WrongArrayLength { path, .. }) if path == "fixed"
+        ));
+    }
+
+    message.set("bounded", vec![1_i32, 2]).unwrap();
+    assert!(matches!(
+        message.set("bounded", vec![1_i32, 2, 3]),
+        Err(DynamicError::FieldBoundExceeded { path, .. }) if path == "bounded"
+    ));
+    message.set("name", "éé").unwrap();
+    assert!(matches!(
+        message.set("name", "ééé"),
+        Err(DynamicError::FieldBoundExceeded {
+            path,
+            max: 4,
+            actual: 6
+        }) if path == "name"
+    ));
+    assert!(matches!(
+        message.set("name", "a\0b"),
+        Err(DynamicError::InvalidString { path, .. }) if path == "name"
+    ));
+    assert!(matches!(
+        message.set("fixed", "not an array"),
+        Err(DynamicError::TypeMismatch { path, .. }) if path == "fixed"
+    ));
+
+    let wrong_child_schema = MessageSchema::builder("test_msgs/msg/Child")
+        .field("value", FieldType::Uint32)
+        .build()
+        .unwrap();
+    assert!(matches!(
+        message.set_dynamic(
+            "child",
+            DynamicValue::Message(Box::new(DynamicMessage::new(&wrong_child_schema)))
+        ),
+        Err(DynamicError::TypeMismatch { path, .. }) if path == "child"
+    ));
+
+    let mut invalid_child = DynamicMessage::new(&child);
+    invalid_child.values_mut()[0] = DynamicValue::String("wrong".into());
+    assert!(matches!(
+        message.set_dynamic("child", DynamicValue::Message(Box::new(invalid_child))),
+        Err(DynamicError::TypeMismatch { path, .. }) if path == "child.value"
+    ));
+
+    let mut short_child = DynamicMessage::new(&child);
+    short_child.values_mut().clear();
+    assert!(matches!(
+        message.set_dynamic("child", DynamicValue::Message(Box::new(short_child))),
+        Err(DynamicError::WrongArrayLength { path, .. }) if path == "child"
+    ));
+}
+
+#[test]
+fn malformed_value_cardinality_returns_errors_instead_of_panicking() {
+    let schema = create_point_schema();
+    let mut short = DynamicMessage::new(&schema);
+    short.values_mut().clear();
+    assert!(matches!(
+        short.set("x", 1.0_f64),
+        Err(DynamicError::WrongArrayLength {
+            expected: 3,
+            actual: 0,
+            ..
+        })
+    ));
+    assert!(matches!(
+        short.set_by_index(0, 1.0_f64),
+        Err(DynamicError::WrongArrayLength { .. })
+    ));
+    assert!(matches!(
+        short.get::<f64>("x"),
+        Err(DynamicError::WrongArrayLength { .. })
+    ));
+    assert!(matches!(
+        short.get_by_index::<f64>(0),
+        Err(DynamicError::WrongArrayLength { .. })
+    ));
+
+    let mut long = DynamicMessage::new(&schema);
+    long.values_mut().push(DynamicValue::Float64(4.0));
+    assert!(matches!(
+        long.set_by_index(3, 5.0_f64),
+        Err(DynamicError::WrongArrayLength {
+            expected: 3,
+            actual: 4,
+            ..
+        })
+    ));
+
+    let twist_schema = create_twist_schema();
+    let mut twist = DynamicMessage::new(&twist_schema);
+    twist.values_mut()[0]
+        .as_message_mut()
+        .unwrap()
+        .values_mut()
+        .clear();
+    assert!(matches!(
+        twist.set("linear.x", 1.0_f64),
+        Err(DynamicError::WrongArrayLength { path, .. }) if path == "linear"
+    ));
+}
+
+#[test]
+fn dotted_field_paths_have_a_depth_limit() {
+    let schema = create_point_schema();
+    let mut message = DynamicMessage::new(&schema);
+    let path = std::iter::repeat("x")
+        .take(130)
+        .collect::<Vec<_>>()
+        .join(".");
+    assert!(matches!(
+        message.set(&path, 1.0_f64),
+        Err(DynamicError::ResourceLimitExceeded(_))
+    ));
+    assert!(matches!(
+        message.get::<f64>(&path),
+        Err(DynamicError::ResourceLimitExceeded(_))
+    ));
+}
+
+#[test]
 fn test_schema_access() {
     let schema = create_point_schema();
     let msg = DynamicMessage::new(&schema);

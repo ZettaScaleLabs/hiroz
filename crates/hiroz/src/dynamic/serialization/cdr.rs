@@ -10,7 +10,9 @@ use hiroz_cdr::{BigEndian, CdrReader, CdrWriter, LittleEndian};
 use zenoh_buffers::ZBuf;
 
 use crate::dynamic::error::DynamicError;
-use crate::dynamic::message::DynamicMessage;
+use crate::dynamic::message::{
+    DynamicMessage, MAX_DYNAMIC_DEPTH, MAX_DYNAMIC_VALUES, validate_message,
+};
 use crate::dynamic::schema::{FieldType, MessageSchema};
 use crate::dynamic::value::DynamicValue;
 
@@ -18,6 +20,7 @@ use super::CDR_HEADER_LE;
 
 /// Serialize a dynamic message to CDR bytes.
 pub fn serialize_cdr(msg: &DynamicMessage) -> Result<Vec<u8>, DynamicError> {
+    validate_message(msg)?;
     let mut buffer = Vec::with_capacity(256);
     buffer.extend_from_slice(&CDR_HEADER_LE);
 
@@ -59,7 +62,11 @@ fn deserialize_payload<BO: ByteOrder>(
     schema: &Arc<MessageSchema>,
 ) -> Result<DynamicMessage, DynamicError> {
     let mut reader = CdrReader::<BO>::new(payload);
-    deserialize_message(schema, &mut reader)
+    let mut budget = DecodeBudget {
+        remaining_values: MAX_DYNAMIC_VALUES,
+        remaining_schema_nodes: MAX_DYNAMIC_VALUES,
+    };
+    deserialize_message(schema, &mut reader, "$", 0, &mut budget)
 }
 
 fn serialize_message(
@@ -94,9 +101,8 @@ fn serialize_value(
         (DynamicValue::Float64(v), FieldType::Float64) => writer.write_f64(*v),
         (DynamicValue::String(v), FieldType::String) => writer.write_string(v),
         (DynamicValue::String(v), FieldType::BoundedString(_)) => writer.write_string(v),
-        (DynamicValue::String(v), FieldType::WString) => write_wstring(v, None, writer)?,
-        (DynamicValue::String(v), FieldType::BoundedWString(max)) => {
-            write_wstring(v, Some(*max), writer)?;
+        (DynamicValue::String(v), FieldType::WString | FieldType::BoundedWString(_)) => {
+            write_wstring(v, writer)?;
         }
 
         // Fixed-size array (no length prefix)
@@ -131,6 +137,14 @@ fn serialize_value(
         {
             writer.write_bytes(bytes);
         }
+        (DynamicValue::Bytes(bytes), FieldType::BoundedSequence(inner, _))
+            if matches!(
+                **inner,
+                FieldType::Uint8 | FieldType::Char | FieldType::Byte
+            ) =>
+        {
+            writer.write_bytes(bytes);
+        }
 
         // Nested message
         (DynamicValue::Message(nested), FieldType::Message(_)) => {
@@ -138,10 +152,9 @@ fn serialize_value(
         }
 
         _ => {
-            return Err(DynamicError::SerializationError(format!(
-                "Type mismatch: cannot serialize {:?} as {:?}",
-                value, field_type
-            )));
+            return Err(DynamicError::SerializationError(
+                "validated dynamic value did not match its schema".into(),
+            ));
         }
     }
     Ok(())
@@ -150,11 +163,19 @@ fn serialize_value(
 fn deserialize_message<BO: ByteOrder>(
     schema: &Arc<MessageSchema>,
     reader: &mut CdrReader<BO>,
+    path: &str,
+    depth: usize,
+    budget: &mut DecodeBudget,
 ) -> Result<DynamicMessage, DynamicError> {
+    check_decode_depth(depth)?;
+    if schema.fields.len() > budget.remaining_values {
+        return Err(value_budget_error());
+    }
     let mut values = Vec::with_capacity(schema.fields.len());
 
     for field in &schema.fields {
-        let value = deserialize_value(&field.field_type, reader)?;
+        let field_path = join_path(path, &field.name);
+        let value = deserialize_value(&field.field_type, reader, &field_path, depth, budget)?;
         values.push(value);
     }
 
@@ -164,7 +185,12 @@ fn deserialize_message<BO: ByteOrder>(
 fn deserialize_value<BO: ByteOrder>(
     field_type: &FieldType,
     reader: &mut CdrReader<BO>,
+    path: &str,
+    depth: usize,
+    budget: &mut DecodeBudget,
 ) -> Result<DynamicValue, DynamicError> {
+    check_decode_depth(depth)?;
+    budget.consume()?;
     match field_type {
         FieldType::Bool => Ok(DynamicValue::Bool(reader.read_bool().map_err(map_cdr_err)?)),
         FieldType::Int8 => Ok(DynamicValue::Int8(reader.read_i8().map_err(map_cdr_err)?)),
@@ -189,19 +215,27 @@ fn deserialize_value<BO: ByteOrder>(
         FieldType::Float64 => Ok(DynamicValue::Float64(
             reader.read_f64().map_err(map_cdr_err)?,
         )),
-        FieldType::String | FieldType::BoundedString(_) => Ok(DynamicValue::String(
-            reader.read_string().map_err(map_cdr_err)?,
-        )),
-        FieldType::WString => read_wstring(reader, None).map(DynamicValue::String),
+        FieldType::String => read_string(reader, None, path).map(DynamicValue::String),
+        FieldType::BoundedString(max) => {
+            read_string(reader, Some(*max), path).map(DynamicValue::String)
+        }
+        FieldType::WString => read_wstring(reader, None, path).map(DynamicValue::String),
         FieldType::BoundedWString(max) => {
-            read_wstring(reader, Some(*max)).map(DynamicValue::String)
+            read_wstring(reader, Some(*max), path).map(DynamicValue::String)
         }
 
         // Fixed-size array
         FieldType::Array(inner, len) => {
+            ensure_collection_feasible(*len, inner, reader, budget, depth + 1, path)?;
             let mut values = Vec::with_capacity(*len);
-            for _ in 0..*len {
-                values.push(deserialize_value(inner, reader)?);
+            for index in 0..*len {
+                values.push(deserialize_value(
+                    inner,
+                    reader,
+                    &format!("{path}[{index}]"),
+                    depth + 1,
+                    budget,
+                )?);
             }
             Ok(DynamicValue::Array(values))
         }
@@ -213,59 +247,244 @@ fn deserialize_value<BO: ByteOrder>(
                 **inner,
                 FieldType::Uint8 | FieldType::Char | FieldType::Byte
             ) {
-                let bytes = reader.read_byte_sequence().map_err(map_cdr_err)?.to_vec();
+                let len = reader.read_sequence_length().map_err(map_cdr_err)?;
+                if len > reader.remaining() {
+                    return Err(DynamicError::DeserializationError(format!(
+                        "byte sequence at '{path}' exceeds remaining payload"
+                    )));
+                }
+                let bytes = reader.read_bytes(len).map_err(map_cdr_err)?.to_vec();
                 return Ok(DynamicValue::Bytes(bytes));
             }
 
             let len = reader.read_sequence_length().map_err(map_cdr_err)?;
+            ensure_collection_feasible(len, inner, reader, budget, depth + 1, path)?;
             let mut values = Vec::with_capacity(len);
-            for _ in 0..len {
-                values.push(deserialize_value(inner, reader)?);
+            for index in 0..len {
+                values.push(deserialize_value(
+                    inner,
+                    reader,
+                    &format!("{path}[{index}]"),
+                    depth + 1,
+                    budget,
+                )?);
             }
             Ok(DynamicValue::Array(values))
         }
 
         // Bounded sequence
-        FieldType::BoundedSequence(inner, _max) => {
+        FieldType::BoundedSequence(inner, max) => {
             // Same handling as unbounded sequence for deserialization
             if matches!(
                 **inner,
                 FieldType::Uint8 | FieldType::Char | FieldType::Byte
             ) {
-                let bytes = reader.read_byte_sequence().map_err(map_cdr_err)?.to_vec();
+                let len = reader.read_sequence_length().map_err(map_cdr_err)?;
+                check_bound(len, *max, path)?;
+                if len > reader.remaining() {
+                    return Err(DynamicError::DeserializationError(format!(
+                        "byte sequence at '{path}' exceeds remaining payload"
+                    )));
+                }
+                let bytes = reader.read_bytes(len).map_err(map_cdr_err)?.to_vec();
                 return Ok(DynamicValue::Bytes(bytes));
             }
 
             let len = reader.read_sequence_length().map_err(map_cdr_err)?;
+            check_bound(len, *max, path)?;
+            ensure_collection_feasible(len, inner, reader, budget, depth + 1, path)?;
             let mut values = Vec::with_capacity(len);
-            for _ in 0..len {
-                values.push(deserialize_value(inner, reader)?);
+            for index in 0..len {
+                values.push(deserialize_value(
+                    inner,
+                    reader,
+                    &format!("{path}[{index}]"),
+                    depth + 1,
+                    budget,
+                )?);
             }
             Ok(DynamicValue::Array(values))
         }
 
         // Nested message
         FieldType::Message(schema) => {
-            let msg = deserialize_message(schema, reader)?;
+            let msg = deserialize_message(schema, reader, path, depth + 1, budget)?;
             Ok(DynamicValue::Message(Box::new(msg)))
         }
     }
 }
 
-fn write_wstring(
-    value: &str,
-    max_units: Option<usize>,
-    writer: &mut CdrWriter<LittleEndian>,
+struct DecodeBudget {
+    remaining_values: usize,
+    remaining_schema_nodes: usize,
+}
+
+impl DecodeBudget {
+    fn consume(&mut self) -> Result<(), DynamicError> {
+        self.remaining_values = self
+            .remaining_values
+            .checked_sub(1)
+            .ok_or_else(value_budget_error)?;
+        Ok(())
+    }
+
+    fn consume_schema_node(&mut self) -> Result<(), DynamicError> {
+        self.remaining_schema_nodes =
+            self.remaining_schema_nodes.checked_sub(1).ok_or_else(|| {
+                DynamicError::ResourceLimitExceeded(format!(
+                    "schema traversal contains more than {MAX_DYNAMIC_VALUES} nodes"
+                ))
+            })?;
+        Ok(())
+    }
+}
+
+fn value_budget_error() -> DynamicError {
+    DynamicError::ResourceLimitExceeded(format!(
+        "message contains more than {MAX_DYNAMIC_VALUES} values"
+    ))
+}
+
+fn check_decode_depth(depth: usize) -> Result<(), DynamicError> {
+    if depth > MAX_DYNAMIC_DEPTH {
+        return Err(DynamicError::ResourceLimitExceeded(format!(
+            "nesting exceeds {MAX_DYNAMIC_DEPTH} levels"
+        )));
+    }
+    Ok(())
+}
+
+fn ensure_collection_feasible<BO: ByteOrder>(
+    len: usize,
+    inner: &FieldType,
+    reader: &CdrReader<BO>,
+    budget: &mut DecodeBudget,
+    depth: usize,
+    path: &str,
 ) -> Result<(), DynamicError> {
-    let unit_count = value.encode_utf16().count();
-    if let Some(max) = max_units
-        && unit_count > max
-    {
-        return Err(DynamicError::BoundExceeded {
-            max,
-            actual: unit_count,
+    check_decode_depth(depth)?;
+    if len > budget.remaining_values {
+        return Err(value_budget_error());
+    }
+    let minimum = minimum_wire_size(inner, depth, budget)?
+        .checked_mul(len)
+        .ok_or_else(|| {
+            DynamicError::DeserializationError(format!(
+                "collection at '{path}' has a byte length overflow"
+            ))
+        })?;
+    if minimum > reader.remaining() {
+        return Err(DynamicError::DeserializationError(format!(
+            "collection at '{path}' exceeds remaining payload"
+        )));
+    }
+    Ok(())
+}
+
+fn minimum_wire_size(
+    field_type: &FieldType,
+    depth: usize,
+    budget: &mut DecodeBudget,
+) -> Result<usize, DynamicError> {
+    check_decode_depth(depth)?;
+    budget.consume_schema_node()?;
+    let size = match field_type {
+        FieldType::Bool
+        | FieldType::Int8
+        | FieldType::Uint8
+        | FieldType::Char
+        | FieldType::Byte => 1,
+        FieldType::Int16 | FieldType::Uint16 | FieldType::WChar => 2,
+        FieldType::Int32 | FieldType::Uint32 | FieldType::Float32 => 4,
+        FieldType::Int64 | FieldType::Uint64 | FieldType::Float64 => 8,
+        FieldType::String | FieldType::BoundedString(_) => 5,
+        FieldType::WString | FieldType::BoundedWString(_) => 4,
+        FieldType::Array(inner, len) => minimum_wire_size(inner, depth + 1, budget)?
+            .checked_mul(*len)
+            .ok_or_else(|| {
+                DynamicError::DeserializationError("array byte length overflow".into())
+            })?,
+        FieldType::Sequence(_) | FieldType::BoundedSequence(_, _) => 4,
+        FieldType::Message(schema) => {
+            let mut total = 0usize;
+            for field in &schema.fields {
+                total = total
+                    .checked_add(minimum_wire_size(&field.field_type, depth + 1, budget)?)
+                    .ok_or_else(|| {
+                        DynamicError::DeserializationError(
+                            "nested message byte length overflow".into(),
+                        )
+                    })?;
+            }
+            total
+        }
+    };
+    Ok(size)
+}
+
+fn read_string<BO: ByteOrder>(
+    reader: &mut CdrReader<BO>,
+    max_bytes: Option<usize>,
+    path: &str,
+) -> Result<String, DynamicError> {
+    let wire_len = reader.read_u32().map_err(map_cdr_err)? as usize;
+    if wire_len == 0 {
+        return Err(DynamicError::InvalidString {
+            path: path.to_string(),
+            reason: "CDR length must include a NUL terminator".into(),
         });
     }
+    if wire_len > reader.remaining() {
+        return Err(DynamicError::DeserializationError(format!(
+            "string at '{path}' exceeds remaining payload"
+        )));
+    }
+    let bytes = reader.read_bytes(wire_len).map_err(map_cdr_err)?;
+    if bytes.last() != Some(&0) {
+        return Err(DynamicError::InvalidString {
+            path: path.to_string(),
+            reason: "missing CDR NUL terminator".into(),
+        });
+    }
+    let text_bytes = &bytes[..bytes.len() - 1];
+    if text_bytes.contains(&0) {
+        return Err(DynamicError::InvalidString {
+            path: path.to_string(),
+            reason: "contains an embedded NUL byte".into(),
+        });
+    }
+    if let Some(max) = max_bytes {
+        check_bound(text_bytes.len(), max, path)?;
+    }
+    std::str::from_utf8(text_bytes)
+        .map(str::to_owned)
+        .map_err(|error| DynamicError::InvalidString {
+            path: path.to_string(),
+            reason: format!("invalid UTF-8: {error}"),
+        })
+}
+
+fn check_bound(actual: usize, max: usize, path: &str) -> Result<(), DynamicError> {
+    if actual > max {
+        return Err(DynamicError::FieldBoundExceeded {
+            path: path.to_string(),
+            max,
+            actual,
+        });
+    }
+    Ok(())
+}
+
+fn join_path(prefix: &str, field: &str) -> String {
+    if prefix.is_empty() {
+        field.to_string()
+    } else {
+        format!("{prefix}.{field}")
+    }
+}
+
+fn write_wstring(value: &str, writer: &mut CdrWriter<LittleEndian>) -> Result<(), DynamicError> {
+    let unit_count = value.encode_utf16().count();
     let wire_len = u32::try_from(unit_count).map_err(|_| {
         DynamicError::SerializationError("wide string length exceeds uint32".into())
     })?;
@@ -279,36 +498,47 @@ fn write_wstring(
 fn read_wstring<BO: ByteOrder>(
     reader: &mut CdrReader<BO>,
     max_units: Option<usize>,
+    path: &str,
 ) -> Result<String, DynamicError> {
     let unit_count = reader.read_sequence_length().map_err(map_cdr_err)?;
     if let Some(max) = max_units
         && unit_count > max
     {
-        return Err(DynamicError::BoundExceeded {
+        return Err(DynamicError::FieldBoundExceeded {
+            path: path.to_string(),
             max,
             actual: unit_count,
         });
     }
     let byte_count = unit_count.checked_mul(4).ok_or_else(|| {
-        DynamicError::DeserializationError("wide string byte length overflow".into())
+        DynamicError::DeserializationError(format!(
+            "wide string at '{path}' has a byte length overflow"
+        ))
     })?;
     if byte_count > reader.remaining() {
-        return Err(DynamicError::DeserializationError(
-            "wide string length exceeds remaining payload".into(),
-        ));
+        return Err(DynamicError::DeserializationError(format!(
+            "wide string at '{path}' exceeds remaining payload"
+        )));
     }
 
     let mut units = Vec::with_capacity(unit_count);
     for _ in 0..unit_count {
         let value = reader.read_u32().map_err(map_cdr_err)?;
-        units.push(u16::try_from(value).map_err(|_| {
-            DynamicError::DeserializationError(format!(
-                "wide string code unit exceeds uint16: {value:#x}"
-            ))
-        })?);
+        let unit = u16::try_from(value).map_err(|_| DynamicError::InvalidString {
+            path: path.to_string(),
+            reason: format!("code unit exceeds uint16: {value:#x}"),
+        })?;
+        if unit == 0 {
+            return Err(DynamicError::InvalidString {
+                path: path.to_string(),
+                reason: "contains an embedded NUL word".into(),
+            });
+        }
+        units.push(unit);
     }
-    String::from_utf16(&units).map_err(|error| {
-        DynamicError::DeserializationError(format!("invalid UTF-16 wide string: {error}"))
+    String::from_utf16(&units).map_err(|error| DynamicError::InvalidString {
+        path: path.to_string(),
+        reason: format!("invalid UTF-16: {error}"),
     })
 }
 
@@ -424,13 +654,21 @@ mod tests {
         let mut rejected = DynamicMessage::new(&schema);
         assert!(matches!(
             rejected.set("data", "😀a"),
-            Err(DynamicError::BoundExceeded { max: 2, actual: 3 })
+            Err(DynamicError::FieldBoundExceeded {
+                max: 2,
+                actual: 3,
+                ..
+            })
         ));
 
         let over_bound = cdr_words(false, &[3, 0xd83d, 0xde00, 0x61]);
         assert!(matches!(
             deserialize_cdr(&over_bound, &schema),
-            Err(DynamicError::BoundExceeded { max: 2, actual: 3 })
+            Err(DynamicError::FieldBoundExceeded {
+                max: 2,
+                actual: 3,
+                ..
+            })
         ));
     }
 
@@ -487,6 +725,7 @@ mod tests {
             vec![1, 0x1_0000],
             vec![1, 0xd800],
             vec![1, 0xdc00],
+            vec![1, 0],
             vec![2, 0xd800, 0x41],
         ] {
             assert!(deserialize_cdr(&cdr_words(false, &words), &schema).is_err());
@@ -498,11 +737,155 @@ mod tests {
 
     #[test]
     fn native_wchar_uses_the_ros_fast_cdr_u16_wire_width() {
+        let zero = message(FieldType::WChar, DynamicValue::Uint16(0));
+        assert_eq!(serialize_cdr(&zero).unwrap(), [0, 1, 0, 0, 0, 0]);
+
         let value = message(FieldType::WChar, DynamicValue::Uint16(0x6c34));
         assert_eq!(serialize_cdr(&value).unwrap(), [0, 1, 0, 0, 0x34, 0x6c]);
 
         let schema = schema(FieldType::WChar);
         let decoded = deserialize_cdr(&[0, 0, 0, 0, 0x6c, 0x34], &schema).unwrap();
         assert_eq!(decoded.get::<u16>("data").unwrap(), 0x6c34);
+    }
+
+    #[test]
+    fn malformed_narrow_strings_are_rejected() {
+        fn payload(declared: u32, bytes: &[u8]) -> Vec<u8> {
+            let mut payload = CDR_HEADER_LE.to_vec();
+            payload.extend_from_slice(&declared.to_le_bytes());
+            payload.extend_from_slice(bytes);
+            payload
+        }
+
+        let string_schema = schema(FieldType::String);
+        for bytes in [
+            payload(0, &[]),
+            payload(2, b"a"),
+            payload(2, b"ab"),
+            payload(4, b"a\0b\0"),
+            payload(2, &[0xff, 0]),
+        ] {
+            assert!(deserialize_cdr(&bytes, &string_schema).is_err());
+        }
+        let decoded = deserialize_cdr(&payload(2, b"a\0"), &string_schema).unwrap();
+        assert_eq!(decoded.get::<String>("data").unwrap(), "a");
+
+        let bounded = schema(FieldType::BoundedString(1));
+        assert!(matches!(
+            deserialize_cdr(&payload(3, b"ab\0"), &bounded),
+            Err(DynamicError::FieldBoundExceeded {
+                path,
+                max: 1,
+                actual: 2
+            }) if path == "$.data"
+        ));
+    }
+
+    #[test]
+    fn exact_bounds_keep_canonical_cdr_bytes() {
+        let string = message(
+            FieldType::BoundedString(4),
+            DynamicValue::String("éé".into()),
+        );
+        assert_eq!(
+            serialize_cdr(&string).unwrap(),
+            [0, 1, 0, 0, 5, 0, 0, 0, 0xc3, 0xa9, 0xc3, 0xa9, 0]
+        );
+
+        let sequence = message(
+            FieldType::BoundedSequence(Box::new(FieldType::Uint32), 2),
+            DynamicValue::Array(vec![DynamicValue::Uint32(1), DynamicValue::Uint32(2)]),
+        );
+        assert_eq!(
+            serialize_cdr(&sequence).unwrap(),
+            [0, 1, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0]
+        );
+    }
+
+    #[test]
+    fn bounded_sequence_decode_checks_bound_and_payload_before_allocation() {
+        let bounded = schema(FieldType::BoundedSequence(Box::new(FieldType::Uint64), 2));
+        assert!(matches!(
+            deserialize_cdr(&cdr_words(false, &[3]), &bounded),
+            Err(DynamicError::FieldBoundExceeded {
+                path,
+                max: 2,
+                actual: 3
+            }) if path == "$.data"
+        ));
+
+        let sequence = schema(FieldType::Sequence(Box::new(FieldType::Uint64)));
+        assert!(deserialize_cdr(&cdr_words(false, &[1]), &sequence).is_err());
+
+        let empty = MessageSchema::builder("test_msgs/msg/Empty")
+            .build()
+            .unwrap();
+        let zero_width = schema(FieldType::Sequence(Box::new(FieldType::Message(empty))));
+        assert!(matches!(
+            deserialize_cdr(
+                &cdr_words(false, &[(MAX_DYNAMIC_VALUES as u32) + 1]),
+                &zero_width
+            ),
+            Err(DynamicError::ResourceLimitExceeded(_))
+        ));
+    }
+
+    #[test]
+    fn byte_buffers_are_bounded_by_payload_not_dynamic_value_count() {
+        let schema = schema(FieldType::Sequence(Box::new(FieldType::Uint8)));
+        let mut message = DynamicMessage::new(&schema);
+        let bytes = vec![0x5a; MAX_DYNAMIC_VALUES + 1];
+        message.values_mut()[0] = DynamicValue::Bytes(bytes.clone());
+        let encoded = serialize_cdr(&message).unwrap();
+        let decoded = deserialize_cdr(&encoded, &schema).unwrap();
+        assert_eq!(
+            decoded.get_dynamic("data").unwrap(),
+            DynamicValue::Bytes(bytes)
+        );
+    }
+
+    #[test]
+    fn excessive_nested_decode_fails_closed() {
+        let mut nested = MessageSchema::builder("test_msgs/msg/Leaf")
+            .build()
+            .unwrap();
+        for index in 0..=MAX_DYNAMIC_DEPTH {
+            nested = MessageSchema::builder(&format!("test_msgs/msg/Level{index}"))
+                .field("child", FieldType::Message(nested))
+                .build()
+                .unwrap();
+        }
+        assert!(matches!(
+            deserialize_cdr(&CDR_HEADER_LE, &nested),
+            Err(DynamicError::ResourceLimitExceeded(_))
+        ));
+    }
+
+    #[test]
+    fn serialization_revalidates_mutably_accessible_values() {
+        let schema = MessageSchema::builder("test_msgs/msg/Shapes")
+            .field("fixed", FieldType::Array(Box::new(FieldType::Int32), 2))
+            .field(
+                "bounded_bytes",
+                FieldType::BoundedSequence(Box::new(FieldType::Byte), 2),
+            )
+            .build()
+            .unwrap();
+        let mut message = DynamicMessage::new(&schema);
+        message.values_mut()[0] = DynamicValue::Array(vec![DynamicValue::Int32(1)]);
+        assert!(matches!(
+            serialize_cdr(&message),
+            Err(DynamicError::WrongArrayLength { path, .. }) if path == "$.fixed"
+        ));
+
+        message.values_mut()[0] =
+            DynamicValue::Array(vec![DynamicValue::Int32(1), DynamicValue::Int32(2)]);
+        message.values_mut()[1] = DynamicValue::Bytes(vec![1, 2]);
+        assert!(serialize_cdr(&message).is_ok());
+        message.values_mut()[1] = DynamicValue::Bytes(vec![1, 2, 3]);
+        assert!(matches!(
+            serialize_cdr(&message),
+            Err(DynamicError::FieldBoundExceeded { path, .. }) if path == "$.bounded_bytes"
+        ));
     }
 }

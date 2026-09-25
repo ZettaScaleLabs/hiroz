@@ -47,8 +47,28 @@ pub enum DynamicError {
     /// Invalid default value for field type
     InvalidDefaultValue { field: String, reason: String },
 
-    /// Bounded string/sequence exceeded maximum size
+    /// A fixed array does not contain exactly the declared number of elements.
+    WrongArrayLength {
+        path: String,
+        expected: usize,
+        actual: usize,
+    },
+
+    /// Bounded string/sequence exceeded maximum size.
     BoundExceeded { max: usize, actual: usize },
+
+    /// A field-specific bounded string/sequence exceeded its maximum size.
+    FieldBoundExceeded {
+        path: String,
+        max: usize,
+        actual: usize,
+    },
+
+    /// A string violates the CDR string contract.
+    InvalidString { path: String, reason: String },
+
+    /// Dynamic traversal exceeded its resource budget.
+    ResourceLimitExceeded(String),
 }
 
 impl fmt::Display for DynamicError {
@@ -120,12 +140,36 @@ impl fmt::Display for DynamicError {
             DynamicError::InvalidDefaultValue { field, reason } => {
                 write!(f, "Invalid default value for field '{}': {}", field, reason)
             }
+            DynamicError::WrongArrayLength {
+                path,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "Array at '{}' requires {} elements, got {}",
+                    path, expected, actual
+                )
+            }
             DynamicError::BoundExceeded { max, actual } => {
                 write!(
                     f,
                     "Bounded type exceeded maximum size: max={}, actual={}",
                     max, actual
                 )
+            }
+            DynamicError::FieldBoundExceeded { path, max, actual } => {
+                write!(
+                    f,
+                    "Bounded value at '{}' exceeded maximum size: max={}, actual={}",
+                    path, max, actual
+                )
+            }
+            DynamicError::InvalidString { path, reason } => {
+                write!(f, "Invalid string at '{}': {}", path, reason)
+            }
+            DynamicError::ResourceLimitExceeded(reason) => {
+                write!(f, "Dynamic value resource limit exceeded: {}", reason)
             }
         }
     }
