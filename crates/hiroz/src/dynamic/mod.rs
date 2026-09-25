@@ -77,8 +77,9 @@ pub use message::{DynamicMessage, DynamicMessageBuilder};
 pub use registry::{SchemaRegistry, get_schema, has_schema, register_schema};
 #[cfg(feature = "dynamic-schema-loader")]
 pub use registry::{
-    load_schema, parsed_action_to_schemas, parsed_idl_message_to_schema, parsed_idl_to_schemas,
-    parsed_message_to_schema, parsed_message_to_schema_named, parsed_service_to_schemas,
+    load_schema, parsed_action_to_schemas, parsed_action_to_wire_schemas,
+    parsed_idl_message_to_schema, parsed_idl_to_schemas, parsed_message_to_schema,
+    parsed_message_to_schema_named, parsed_service_to_schemas, parsed_service_to_wire_schemas,
 };
 // Exported next to `load_schema`: the two are used as a pair -- demangle a
 // graph-reported type name, then load its schema.

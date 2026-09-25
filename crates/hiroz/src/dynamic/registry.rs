@@ -177,6 +177,25 @@ pub fn parsed_service_to_schemas(
     ))
 }
 
+/// Convert every schema synthesized from a parsed service definition.
+///
+/// The returned schemas are the request, response, event, and service
+/// description, in that order. ROS generates the latter two even though they
+/// are absent from the source `.srv` file.
+#[cfg(feature = "dynamic-schema-loader")]
+pub fn parsed_service_to_wire_schemas(
+    service: &hiroz_codegen::types::ParsedService,
+    resolver: &impl Fn(&str) -> Option<Arc<MessageSchema>>,
+) -> Result<Vec<Arc<MessageSchema>>, DynamicError> {
+    let (request, response) = parsed_service_to_schemas(service, resolver)?;
+    service_schema_set(
+        &format!("{}/srv/{}", service.package, service.name),
+        request,
+        response,
+        resolver,
+    )
+}
+
 /// Convert the goal, result, and feedback messages from a parsed action.
 #[cfg(feature = "dynamic-schema-loader")]
 pub fn parsed_action_to_schemas(
@@ -204,6 +223,171 @@ pub fn parsed_action_to_schemas(
         )?);
     }
     Ok(schemas)
+}
+
+/// Convert every schema synthesized from a parsed action definition.
+///
+/// This includes the goal, result, and feedback messages plus the SendGoal and
+/// GetResult service schema sets, FeedbackMessage, and the action description.
+#[cfg(feature = "dynamic-schema-loader")]
+pub fn parsed_action_to_wire_schemas(
+    action: &hiroz_codegen::types::ParsedAction,
+    resolver: &impl Fn(&str) -> Option<Arc<MessageSchema>>,
+) -> Result<Vec<Arc<MessageSchema>>, DynamicError> {
+    let prefix = format!("{}/action/{}", action.package, action.name);
+    let mut schemas = parsed_action_to_schemas(action, resolver)?;
+    let goal = schema_named(&schemas, &format!("{prefix}_Goal"))?;
+    let result = schema_named(&schemas, &format!("{prefix}_Result"))?;
+    let feedback = schema_named(&schemas, &format!("{prefix}_Feedback"))?;
+    let uuid = resolve_required("unique_identifier_msgs/msg/UUID", resolver)?;
+    let time = resolve_required("builtin_interfaces/msg/Time", resolver)?;
+
+    let send_goal_request = synthetic_schema(
+        &format!("{prefix}_SendGoal_Request"),
+        vec![
+            FieldSchema::new("goal_id", FieldType::Message(uuid.clone())),
+            FieldSchema::new("goal", FieldType::Message(goal.clone())),
+        ],
+    )?;
+    let send_goal_response = synthetic_schema(
+        &format!("{prefix}_SendGoal_Response"),
+        vec![
+            FieldSchema::new("accepted", FieldType::Bool),
+            FieldSchema::new("stamp", FieldType::Message(time)),
+        ],
+    )?;
+    let mut send_goal = service_schema_set(
+        &format!("{prefix}_SendGoal"),
+        send_goal_request,
+        send_goal_response,
+        resolver,
+    )?;
+    let send_goal_service = send_goal
+        .last()
+        .cloned()
+        .ok_or_else(|| DynamicError::SchemaNotFound(format!("{prefix}_SendGoal")))?;
+
+    let get_result_request = synthetic_schema(
+        &format!("{prefix}_GetResult_Request"),
+        vec![FieldSchema::new(
+            "goal_id",
+            FieldType::Message(uuid.clone()),
+        )],
+    )?;
+    let get_result_response = synthetic_schema(
+        &format!("{prefix}_GetResult_Response"),
+        vec![
+            FieldSchema::new("status", FieldType::Int8),
+            FieldSchema::new("result", FieldType::Message(result.clone())),
+        ],
+    )?;
+    let mut get_result = service_schema_set(
+        &format!("{prefix}_GetResult"),
+        get_result_request,
+        get_result_response,
+        resolver,
+    )?;
+    let get_result_service = get_result
+        .last()
+        .cloned()
+        .ok_or_else(|| DynamicError::SchemaNotFound(format!("{prefix}_GetResult")))?;
+
+    let feedback_message = synthetic_schema(
+        &format!("{prefix}_FeedbackMessage"),
+        vec![
+            FieldSchema::new("goal_id", FieldType::Message(uuid)),
+            FieldSchema::new("feedback", FieldType::Message(feedback.clone())),
+        ],
+    )?;
+    let action_schema = synthetic_schema(
+        &prefix,
+        vec![
+            FieldSchema::new("goal", FieldType::Message(goal)),
+            FieldSchema::new("result", FieldType::Message(result)),
+            FieldSchema::new("feedback", FieldType::Message(feedback)),
+            FieldSchema::new("send_goal_service", FieldType::Message(send_goal_service)),
+            FieldSchema::new("get_result_service", FieldType::Message(get_result_service)),
+            FieldSchema::new(
+                "feedback_message",
+                FieldType::Message(feedback_message.clone()),
+            ),
+        ],
+    )?;
+
+    schemas.append(&mut send_goal);
+    schemas.append(&mut get_result);
+    schemas.push(feedback_message);
+    schemas.push(action_schema);
+    Ok(schemas)
+}
+
+#[cfg(feature = "dynamic-schema-loader")]
+fn service_schema_set(
+    prefix: &str,
+    request: Arc<MessageSchema>,
+    response: Arc<MessageSchema>,
+    resolver: &impl Fn(&str) -> Option<Arc<MessageSchema>>,
+) -> Result<Vec<Arc<MessageSchema>>, DynamicError> {
+    let event_info = resolve_required("service_msgs/msg/ServiceEventInfo", resolver)?;
+    let event = synthetic_schema(
+        &format!("{prefix}_Event"),
+        vec![
+            FieldSchema::new("info", FieldType::Message(event_info)),
+            FieldSchema::new(
+                "request",
+                FieldType::BoundedSequence(Box::new(FieldType::Message(request.clone())), 1),
+            ),
+            FieldSchema::new(
+                "response",
+                FieldType::BoundedSequence(Box::new(FieldType::Message(response.clone())), 1),
+            ),
+        ],
+    )?;
+    let service = synthetic_schema(
+        prefix,
+        vec![
+            FieldSchema::new("request_message", FieldType::Message(request.clone())),
+            FieldSchema::new("response_message", FieldType::Message(response.clone())),
+            FieldSchema::new("event_message", FieldType::Message(event.clone())),
+        ],
+    )?;
+    Ok(vec![request, response, event, service])
+}
+
+#[cfg(feature = "dynamic-schema-loader")]
+fn synthetic_schema(
+    type_name: &str,
+    fields: Vec<FieldSchema>,
+) -> Result<Arc<MessageSchema>, DynamicError> {
+    let (package, _, name) = hiroz_schema::split_canonical(type_name)
+        .ok_or_else(|| DynamicError::InvalidTypeName(type_name.to_string()))?;
+    Ok(Arc::new(MessageSchema {
+        type_name: type_name.to_string(),
+        package: package.to_string(),
+        name: name.to_string(),
+        fields,
+        type_hash: None,
+    }))
+}
+
+#[cfg(feature = "dynamic-schema-loader")]
+fn resolve_required(
+    type_name: &str,
+    resolver: &impl Fn(&str) -> Option<Arc<MessageSchema>>,
+) -> Result<Arc<MessageSchema>, DynamicError> {
+    resolver(type_name).ok_or_else(|| DynamicError::SchemaNotFound(type_name.to_string()))
+}
+
+#[cfg(feature = "dynamic-schema-loader")]
+fn schema_named(
+    schemas: &[Arc<MessageSchema>],
+    type_name: &str,
+) -> Result<Arc<MessageSchema>, DynamicError> {
+    schemas
+        .iter()
+        .find(|schema| schema.type_name == type_name)
+        .cloned()
+        .ok_or_else(|| DynamicError::SchemaNotFound(type_name.to_string()))
 }
 
 /// Convert every struct from a parsed ROS IDL file.
@@ -633,6 +817,111 @@ mod embedded_tests {
                 "demo_interfaces/action/Count_Feedback",
             ]
         );
+    }
+
+    fn protocol_dependencies() -> HashMap<String, Arc<MessageSchema>> {
+        let mut schemas = HashMap::new();
+        for (package, name) in [
+            ("builtin_interfaces", "Time"),
+            ("unique_identifier_msgs", "UUID"),
+            ("service_msgs", "ServiceEventInfo"),
+        ] {
+            let type_name = format!("{package}/msg/{name}");
+            let parsed = hiroz_codegen::parser::msg::parse_msg_string(
+                embedded_msg_source(package, name).unwrap(),
+                package,
+                std::path::Path::new(name),
+            )
+            .unwrap();
+            let schema = parsed_message_to_schema_named(&parsed, &type_name, &|dependency| {
+                schemas.get(dependency).cloned()
+            })
+            .unwrap();
+            schemas.insert(type_name, schema);
+        }
+        schemas
+    }
+
+    #[test]
+    fn complete_service_schemas_match_ros_hashes() {
+        use crate::dynamic::MessageSchemaTypeDescription;
+
+        let dependencies = protocol_dependencies();
+        let service = hiroz_codegen::parser::srv::parse_srv_string(
+            "---\nbool success\nstring message\n",
+            "std_srvs",
+            std::path::Path::new("Trigger.srv"),
+        )
+        .unwrap();
+        let schemas =
+            parsed_service_to_wire_schemas(&service, &|name| dependencies.get(name).cloned())
+                .unwrap();
+        let expected = [
+            (
+                "std_srvs/srv/Trigger_Request",
+                "RIHS01_d010825374ce8918e72bfd826c82603e60f45419e932ea976f807b74a863a199",
+            ),
+            (
+                "std_srvs/srv/Trigger_Response",
+                "RIHS01_2d946c21e2fc3f1e9ca6986a8191d85fcc70097a8bb7771a053564bc47009cdf",
+            ),
+            (
+                "std_srvs/srv/Trigger_Event",
+                "RIHS01_ec4a1d26b0575e61906890342aba9523a2360e9845857c5590fa6e23bc39e1c2",
+            ),
+            (
+                "std_srvs/srv/Trigger",
+                "RIHS01_eeff2cd6fa5ad9d27cdf4dec64818317839b62f212a91e6b5304b634b2062c5f",
+            ),
+        ];
+        assert_eq!(schemas.len(), expected.len());
+        for (schema, (name, hash)) in schemas.iter().zip(expected) {
+            assert_eq!(schema.type_name, name);
+            assert_eq!(schema.compute_type_hash().unwrap().to_rihs_string(), hash);
+        }
+    }
+
+    #[test]
+    fn complete_action_schemas_match_ros_hashes() {
+        use crate::dynamic::MessageSchemaTypeDescription;
+
+        let dependencies = protocol_dependencies();
+        let action = hiroz_codegen::parser::action::parse_action(
+            "int32 order\n---\nint32[] sequence\n---\nint32[] sequence\n",
+            "Fibonacci",
+            "example_interfaces",
+            std::path::Path::new("Fibonacci.action"),
+        )
+        .unwrap();
+        let schemas =
+            parsed_action_to_wire_schemas(&action, &|name| dependencies.get(name).cloned())
+                .unwrap();
+        let expected = HashMap::from([
+            (
+                "example_interfaces/action/Fibonacci_FeedbackMessage",
+                "RIHS01_c1de71afd52e49a89c53d8262366884185bc0a02f78ce051c4e46b0a7fe59bb2",
+            ),
+            (
+                "example_interfaces/action/Fibonacci_SendGoal",
+                "RIHS01_d1a57fb2a4afe8c21e34fb10db206f16ce6729b28531141472df92277c55b557",
+            ),
+            (
+                "example_interfaces/action/Fibonacci_GetResult",
+                "RIHS01_1b0de0d5d29dc955d92f546706568428632771db13ec84c15ec1c1a59f424a57",
+            ),
+            (
+                "example_interfaces/action/Fibonacci",
+                "RIHS01_9508051da1ea4658de144b09bd0690ff3de52104683d847aed764d2915906f51",
+            ),
+        ]);
+        assert_eq!(schemas.len(), 13);
+        for (name, hash) in expected {
+            let schema = schemas
+                .iter()
+                .find(|schema| schema.type_name == name)
+                .unwrap();
+            assert_eq!(schema.compute_type_hash().unwrap().to_rihs_string(), hash);
+        }
     }
 
     #[test]
