@@ -419,22 +419,17 @@ impl<A: ZAction> ZActionClient<A> {
                 status_tx,
             },
         );
+        // If this future is dropped while the request is pending, remove only
+        // the local routing state. The remote request may still have arrived.
+        let registration = GoalBoardRegistration::new(self.goal_board.clone(), goal_id);
 
         // 3. Send goal request via service client
         let request = SendGoalRequest { goal_id, goal };
         tracing::debug!("Sending goal request for goal_id: {:?}", goal_id);
-        let response = match self.goal_client.call(&request).await {
-            Ok(response) => response,
-            Err(error) => {
-                self.goal_board.active_goals.remove(&goal_id);
-                return Err(error);
-            }
-        };
+        let response = self.goal_client.call(&request).await?;
 
         // 5. Check if accepted
         if !response.accepted {
-            // Cleanup on rejection
-            self.goal_board.active_goals.remove(&goal_id);
             return Err(zenoh::Error::from("Goal rejected".to_string()));
         }
 
@@ -456,6 +451,7 @@ impl<A: ZAction> ZActionClient<A> {
                 }
             });
         }
+        registration.disarm();
 
         // 7. Return typed handle in Active state
         Ok(GoalHandle {
@@ -506,11 +502,16 @@ impl<A: ZAction> ZActionClient<A> {
     }
 
     pub async fn get_result(&self, goal_id: GoalId) -> Result<A::Result> {
+        Ok(self.get_result_with_status(goal_id).await?.result)
+    }
+
+    /// Gets the action result together with the status returned by the server.
+    ///
+    /// The response status is authoritative for this result. A separately
+    /// observed status-topic value may arrive earlier or later.
+    pub async fn get_result_with_status(&self, goal_id: GoalId) -> Result<GetResultResponse<A>> {
         let request = GetResultRequest { goal_id };
-
-        let response: GetResultResponse<A> = self.result_client.call(&request).await?;
-
-        Ok(response.result)
+        self.result_client.call(&request).await
     }
 }
 
@@ -524,6 +525,34 @@ struct GoalBoard<A: ZAction> {
 struct GoalChannels<A: ZAction> {
     feedback_tx: mpsc::UnboundedSender<A::Feedback>,
     status_tx: watch::Sender<GoalStatus>,
+}
+
+struct GoalBoardRegistration<A: ZAction> {
+    goal_board: Arc<GoalBoard<A>>,
+    goal_id: GoalId,
+    armed: bool,
+}
+
+impl<A: ZAction> GoalBoardRegistration<A> {
+    fn new(goal_board: Arc<GoalBoard<A>>, goal_id: GoalId) -> Self {
+        Self {
+            goal_board,
+            goal_id,
+            armed: true,
+        }
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl<A: ZAction> Drop for GoalBoardRegistration<A> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.goal_board.active_goals.remove(&self.goal_id);
+        }
+    }
 }
 
 /// Handle for monitoring and controlling an active goal.
@@ -608,6 +637,14 @@ impl<A: ZAction> GoalHandle<A, goal_state::Active> {
     ///
     /// The result of the action once it completes.
     pub async fn result(self) -> Result<A::Result> {
+        Ok(self.result_with_status().await?.result)
+    }
+
+    /// Consumes the handle and returns the result with its authoritative ROS status.
+    ///
+    /// Dropping this future removes the local feedback and status registration.
+    /// It does not cancel the remote goal or make retrying the request safe.
+    pub async fn result_with_status(self) -> Result<GetResultResponse<A>> {
         // Skip status wait — go directly to get_result. The get_result
         // queryable handles both cases (returns immediately if the goal is
         // already terminated, or blocks until done). Relying on the status
@@ -618,12 +655,10 @@ impl<A: ZAction> GoalHandle<A, goal_state::Active> {
         // Fetch result. The server's get_result handler will either:
         // - Return immediately if the goal is already terminated
         // - Block until termination otherwise
-        let res = self.client.get_result(self.id).await;
-
-        // Cleanup Board (Crucial for Memory Safety)
-        self.client.goal_board.active_goals.remove(&self.id);
-
-        res
+        let registration = GoalBoardRegistration::new(self.client.goal_board.clone(), self.id);
+        let result = self.client.get_result_with_status(self.id).await;
+        drop(registration);
+        result
     }
 
     /// Consumes the Active handle and waits for the result, failing if it does
@@ -641,14 +676,25 @@ impl<A: ZAction> GoalHandle<A, goal_state::Active> {
     ///
     /// The result of the action once it completes, or a timeout error.
     pub async fn result_with_timeout(self, timeout: std::time::Duration) -> Result<A::Result> {
-        let res = match tokio::time::timeout(timeout, self.client.get_result(self.id)).await {
-            Ok(res) => res,
+        Ok(self.result_with_status_timeout(timeout).await?.result)
+    }
+
+    /// Bounded counterpart to [`result_with_status`](Self::result_with_status).
+    pub async fn result_with_status_timeout(
+        self,
+        timeout: std::time::Duration,
+    ) -> Result<GetResultResponse<A>> {
+        let registration = GoalBoardRegistration::new(self.client.goal_board.clone(), self.id);
+        let result = match tokio::time::timeout(
+            timeout,
+            self.client.get_result_with_status(self.id),
+        )
+        .await
+        {
+            Ok(result) => result,
             Err(_) => Err(crate::error::Error::timeout(timeout)),
         };
-
-        // Cleanup Board (Crucial for Memory Safety)
-        self.client.goal_board.active_goals.remove(&self.id);
-
-        res
+        drop(registration);
+        result
     }
 }

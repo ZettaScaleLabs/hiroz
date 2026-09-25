@@ -151,6 +151,36 @@ mod tests {
 
     #[serial]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn canceled_send_goal_future_removes_the_local_registration() -> Result<()> {
+        let ctx = ZContextBuilder::default().build()?;
+        let node = ctx.create_node("canceled_send_goal").build()?;
+        let client = Arc::new(
+            node.create_action_client::<TestAction>("/canceled_send_goal")
+                .build()?,
+        );
+        let server = node
+            .create_action_server::<TestAction>("/canceled_send_goal")
+            .build()?;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let pending_client = client.clone();
+        let send_task =
+            tokio::spawn(async move { pending_client.send_goal(TestGoal { order: 10 }).await });
+        let requested = tokio::time::timeout(std::time::Duration::from_secs(2), server.recv_goal())
+            .await
+            .expect("server did not receive goal")?;
+        let goal_id = requested.info().goal_id;
+        assert!(client.status_watch(goal_id).is_some());
+
+        send_task.abort();
+        assert!(matches!(send_task.await, Err(error) if error.is_cancelled()));
+        assert!(client.status_watch(goal_id).is_none());
+        requested.reject()?;
+        Ok(())
+    }
+
+    #[serial]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_action_client_wait_for_server() -> Result<()> {
         let ctx = ZContextBuilder::default().build()?;
         let client_node = ctx.create_node("action_wait_client").build()?;

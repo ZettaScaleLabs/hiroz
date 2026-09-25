@@ -54,6 +54,7 @@ async fn setup_test() -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hiroz::action::GoalStatus;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_goal_handle_creation() -> Result<()> {
@@ -103,6 +104,71 @@ mod tests {
             .expect("timeout waiting for result")?;
         assert_eq!(result.value, 42);
 
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn result_with_status_preserves_aborted_status_and_payload() -> Result<()> {
+        let (_node, client, server) = setup_test().await?;
+        let _server_handle = server.clone().with_handler(|executing| async move {
+            executing.abort(TestResult { value: 42 }).unwrap();
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let goal_handle = client.send_goal(TestGoal { order: 10 }).await?;
+        let response = goal_handle
+            .result_with_status_timeout(std::time::Duration::from_secs(2))
+            .await?;
+
+        assert_eq!(response.status, i8::from(GoalStatus::Aborted));
+        assert_eq!(response.result.value, 42);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn canceled_result_future_removes_the_local_registration() -> Result<()> {
+        let (_node, client, server) = setup_test().await?;
+        let _server_handle = server.clone().with_handler(|executing| async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            executing.succeed(TestResult { value: 42 }).unwrap();
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let goal_handle = client.send_goal(TestGoal { order: 10 }).await?;
+        let goal_id = goal_handle.id();
+        assert!(client.status_watch(goal_id).is_some());
+
+        let timed_out = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            goal_handle.result_with_status(),
+        )
+        .await;
+        assert!(timed_out.is_err());
+        assert!(client.status_watch(goal_id).is_none());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn zero_result_timeout_removes_the_local_registration() -> Result<()> {
+        let (_node, client, server) = setup_test().await?;
+        let _server_handle = server.clone().with_handler(|executing| async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            executing.succeed(TestResult { value: 42 }).unwrap();
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let goal_handle = client.send_goal(TestGoal { order: 10 }).await?;
+        let goal_id = goal_handle.id();
+        let result = goal_handle
+            .result_with_status_timeout(std::time::Duration::ZERO)
+            .await;
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("zero timeout unexpectedly returned a result"),
+        };
+
+        assert!(hiroz::error::is_timeout(&*error));
+        assert!(client.status_watch(goal_id).is_none());
         Ok(())
     }
 

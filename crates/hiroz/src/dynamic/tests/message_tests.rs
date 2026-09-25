@@ -356,10 +356,7 @@ fn malformed_value_cardinality_returns_errors_instead_of_panicking() {
 fn dotted_field_paths_have_a_depth_limit() {
     let schema = create_point_schema();
     let mut message = DynamicMessage::new(&schema);
-    let path = std::iter::repeat("x")
-        .take(130)
-        .collect::<Vec<_>>()
-        .join(".");
+    let path = std::iter::repeat_n("x", 130).collect::<Vec<_>>().join(".");
     assert!(matches!(
         message.set(&path, 1.0_f64),
         Err(DynamicError::ResourceLimitExceeded(_))
