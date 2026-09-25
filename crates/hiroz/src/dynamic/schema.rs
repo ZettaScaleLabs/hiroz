@@ -225,6 +225,9 @@ impl MessageSchema {
 
     /// Fixed CDR size if all fields are fixed-size.
     pub fn fixed_cdr_size(&self) -> Option<usize> {
+        if self.fields.is_empty() {
+            return Some(1);
+        }
         let mut size = 0usize;
         for field in &self.fields {
             let field_size = field.field_type.fixed_size()?;

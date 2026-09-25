@@ -112,6 +112,11 @@ pub fn compute_plain_types(messages: &[ResolvedMessage]) -> HashSet<String> {
             if plain.contains(&key) {
                 continue;
             }
+            // Empty ROS messages carry a synthetic byte on the wire, so their
+            // zero-sized Rust representation cannot use the POD fast path.
+            if msg.parsed.fields.is_empty() {
+                continue;
+            }
             // All fields must individually be plain.
             if !msg
                 .parsed
@@ -163,6 +168,7 @@ fn generate_cdr_impls(
         .iter()
         .map(|f| generate_cdr_serialize_field(f, pkg, plain_types, ctx))
         .collect::<Result<Vec<_>>>()?;
+    let empty_ser = fields.is_empty().then(|| quote! { __w.write_u8(0); });
 
     let ser_impl = quote! {
         impl ::hiroz_cdr::CdrSerialize for #name {
@@ -174,6 +180,7 @@ fn generate_cdr_impls(
                 BO: ::byteorder::ByteOrder,
                 B: ::hiroz_cdr::CdrBuffer,
             {
+                #empty_ser
                 #(#ser_fields)*
             }
         }
@@ -186,6 +193,9 @@ fn generate_cdr_impls(
         .collect();
 
     let field_idents: Vec<Ident> = fields.iter().map(|f| escape_field_name(&f.name)).collect();
+    let empty_de = fields
+        .is_empty()
+        .then(|| quote! { let _ = __r.read_u8()?; });
 
     let de_impl = quote! {
         impl ::hiroz_cdr::CdrDeserialize for #name {
@@ -195,6 +205,7 @@ fn generate_cdr_impls(
             where
                 BO: ::byteorder::ByteOrder,
             {
+                #empty_de
                 #(#de_fields)*
                 Ok(Self { #(#field_idents),* })
             }
@@ -206,11 +217,15 @@ fn generate_cdr_impls(
         .iter()
         .map(|f| generate_cdr_size_field(f, pkg, plain_types, ctx))
         .collect::<Result<Vec<_>>>()?;
+    let empty_size = fields.is_empty().then(|| {
+        quote! { __p = ::hiroz_cdr::CdrSerializedSize::cdr_serialized_size(&0u8, __p); }
+    });
 
     let size_impl = quote! {
         impl ::hiroz_cdr::CdrSerializedSize for #name {
             fn cdr_serialized_size(&self, __pos: usize) -> usize {
                 let mut __p = __pos;
+                #empty_size
                 #(#size_fields)*
                 __p
             }
@@ -1373,6 +1388,43 @@ mod tests {
 
     use super::*;
     use crate::types::{ParsedMessage, TypeHash};
+
+    fn resolved_message(name: &str, fields: Vec<Field>) -> ResolvedMessage {
+        ResolvedMessage {
+            parsed: ParsedMessage {
+                name: name.to_string(),
+                package: "test_msgs".to_string(),
+                fields,
+                constants: vec![],
+                source: String::new(),
+                path: PathBuf::new(),
+            },
+            type_hash: TypeHash([0u8; 32]),
+            definition: String::new(),
+        }
+    }
+
+    #[test]
+    fn empty_messages_and_their_containers_are_not_plain() {
+        let empty = resolved_message("Empty", vec![]);
+        let wrapper = resolved_message(
+            "EmptyArray",
+            vec![Field {
+                name: "values".to_string(),
+                field_type: FieldType {
+                    base_type: "Empty".to_string(),
+                    package: Some("test_msgs".to_string()),
+                    array: ArrayType::Fixed(2),
+                    string_bound: None,
+                },
+                default: None,
+            }],
+        );
+
+        let plain = compute_plain_types(&[empty, wrapper]);
+        assert!(!plain.contains("test_msgs::Empty"));
+        assert!(!plain.contains("test_msgs::EmptyArray"));
+    }
 
     #[test]
     fn test_is_zbuf_field() {

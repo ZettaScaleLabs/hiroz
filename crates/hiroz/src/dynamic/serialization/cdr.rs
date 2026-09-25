@@ -73,6 +73,10 @@ fn serialize_message(
     msg: &DynamicMessage,
     writer: &mut CdrWriter<LittleEndian>,
 ) -> Result<(), DynamicError> {
+    if msg.schema().fields.is_empty() {
+        writer.write_u8(0);
+        return Ok(());
+    }
     for (field, value) in msg.schema().fields.iter().zip(msg.values().iter()) {
         serialize_value(value, &field.field_type, writer)?;
     }
@@ -168,6 +172,10 @@ fn deserialize_message<BO: ByteOrder>(
     budget: &mut DecodeBudget,
 ) -> Result<DynamicMessage, DynamicError> {
     check_decode_depth(depth)?;
+    if schema.fields.is_empty() {
+        reader.read_u8().map_err(map_cdr_err)?;
+        return Ok(DynamicMessage::from_values(schema, Vec::new()));
+    }
     if schema.fields.len() > budget.remaining_values {
         return Err(value_budget_error());
     }
@@ -406,6 +414,9 @@ fn minimum_wire_size(
             })?,
         FieldType::Sequence(_) | FieldType::BoundedSequence(_, _) => 4,
         FieldType::Message(schema) => {
+            if schema.fields.is_empty() {
+                return Ok(1);
+            }
             let mut total = 0usize;
             for field in &schema.fields {
                 total = total
@@ -550,6 +561,77 @@ fn map_cdr_err(e: hiroz_cdr::Error) -> DynamicError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_message_matches_ros_cdr_and_roundtrips() {
+        let schema = MessageSchema::builder("std_msgs/msg/Empty")
+            .build()
+            .unwrap();
+        let message = DynamicMessage::new(&schema);
+
+        let bytes = serialize_cdr(&message).unwrap();
+        assert_eq!(bytes, [0, 1, 0, 0, 0]);
+        assert!(
+            deserialize_cdr(&bytes, &schema)
+                .unwrap()
+                .values()
+                .is_empty()
+        );
+        assert!(deserialize_cdr(&CDR_HEADER_LE, &schema).is_err());
+    }
+
+    #[test]
+    fn nested_empty_consumes_its_synthetic_byte() {
+        let empty = MessageSchema::builder("std_msgs/msg/Empty")
+            .build()
+            .unwrap();
+        let schema = MessageSchema::builder("test_msgs/msg/EmptyThenByte")
+            .field("empty", FieldType::Message(empty.clone()))
+            .field("tail", FieldType::Uint8)
+            .build()
+            .unwrap();
+        let mut message = DynamicMessage::new(&schema);
+        message.set("tail", 0x7fu8).unwrap();
+
+        let bytes = serialize_cdr(&message).unwrap();
+        assert_eq!(bytes, [0, 1, 0, 0, 0, 0x7f]);
+        let decoded = deserialize_cdr(&bytes, &schema).unwrap();
+        assert_eq!(decoded.get::<u8>("tail").unwrap(), 0x7f);
+        assert_eq!(empty.fixed_cdr_size(), Some(1));
+    }
+
+    #[test]
+    fn empty_collections_keep_one_byte_per_element() {
+        let empty = MessageSchema::builder("std_msgs/msg/Empty")
+            .build()
+            .unwrap();
+        let schema = MessageSchema::builder("test_msgs/msg/EmptyCollections")
+            .field(
+                "fixed",
+                FieldType::Array(Box::new(FieldType::Message(empty.clone())), 2),
+            )
+            .field(
+                "sequence",
+                FieldType::Sequence(Box::new(FieldType::Message(empty.clone()))),
+            )
+            .build()
+            .unwrap();
+        let mut message = DynamicMessage::new(&schema);
+        message
+            .set_dynamic(
+                "sequence",
+                DynamicValue::Array(vec![
+                    DynamicValue::Message(Box::new(DynamicMessage::new(&empty))),
+                    DynamicValue::Message(Box::new(DynamicMessage::new(&empty))),
+                ]),
+            )
+            .unwrap();
+
+        assert_eq!(
+            serialize_cdr(&message).unwrap(),
+            [0, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0]
+        );
+    }
 
     fn schema(field_type: FieldType) -> Arc<MessageSchema> {
         MessageSchema::builder("test_msgs/msg/Wide")

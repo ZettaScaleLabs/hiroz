@@ -66,11 +66,14 @@ impl MessageSchemaTypeDescription for MessageSchema {
     }
 
     fn to_type_description(&self) -> Result<TypeDescription, DynamicError> {
-        let fields = self
-            .fields
-            .iter()
-            .map(field_schema_to_description)
-            .collect::<Result<Vec<_>, _>>()?;
+        let fields = if self.fields.is_empty() {
+            vec![empty_placeholder_description()]
+        } else {
+            self.fields
+                .iter()
+                .map(field_schema_to_description)
+                .collect::<Result<Vec<_>, _>>()?
+        };
 
         Ok(TypeDescription {
             type_name: self.type_name.clone(),
@@ -82,6 +85,24 @@ impl MessageSchemaTypeDescription for MessageSchema {
         let msg = self.to_type_description_msg()?;
         Ok(calculate_hash(&msg))
     }
+}
+
+fn empty_placeholder_description() -> FieldDescription {
+    FieldDescription {
+        name: "structure_needs_at_least_one_member".to_string(),
+        field_type: FieldTypeDescription::primitive(TypeId::UINT8),
+        default_value: String::new(),
+    }
+}
+
+fn is_empty_placeholder(fields: &[FieldDescription]) -> bool {
+    fields.len() == 1
+        && fields[0].name == "structure_needs_at_least_one_member"
+        && fields[0].field_type.type_id == TypeId::UINT8
+        && fields[0].field_type.capacity == 0
+        && fields[0].field_type.string_capacity == 0
+        && fields[0].field_type.nested_type_name.is_empty()
+        && fields[0].default_value.is_empty()
 }
 
 /// Collect all referenced (nested) type descriptions recursively.
@@ -331,11 +352,14 @@ fn type_description_to_schema_full(
         return Err(DynamicError::InvalidTypeName(td.type_name.clone()));
     }
 
-    let fields = td
-        .fields
-        .iter()
-        .map(|fd| field_description_to_schema(fd, type_map))
-        .collect::<Result<Vec<_>, _>>()?;
+    let fields = if is_empty_placeholder(&td.fields) {
+        Vec::new()
+    } else {
+        td.fields
+            .iter()
+            .map(|fd| field_description_to_schema(fd, type_map))
+            .collect::<Result<Vec<_>, _>>()?
+    };
 
     Ok(MessageSchema {
         type_name: td.type_name.clone(),
@@ -424,6 +448,48 @@ fn field_type_description_to_type(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_schema_uses_the_ros_synthetic_member_and_hash() {
+        let schema = MessageSchema::builder("std_msgs/msg/Empty")
+            .build()
+            .unwrap();
+        let description = schema.to_type_description().unwrap();
+
+        assert!(is_empty_placeholder(&description.fields));
+        assert_eq!(
+            schema.compute_type_hash().unwrap().to_rihs_string(),
+            "RIHS01_20b625256f32d5dbc0d04fee44f43c41e51c70d3502f84b4a08e7a9c26a96312"
+        );
+
+        let restored =
+            type_description_msg_to_schema(&schema.to_type_description_msg().unwrap()).unwrap();
+        assert!(restored.fields.is_empty());
+    }
+
+    #[test]
+    fn nested_empty_description_preserves_the_standard_reference_hash() {
+        let empty = MessageSchema::builder("std_msgs/msg/Empty")
+            .build()
+            .unwrap();
+        let wrapper = MessageSchema::builder("test_msgs/msg/EmptyWrapper")
+            .field("empty", FieldType::Message(empty))
+            .build()
+            .unwrap();
+
+        let message = wrapper.to_type_description_msg().unwrap();
+        assert_eq!(message.referenced_type_descriptions.len(), 1);
+        let reference = &message.referenced_type_descriptions[0];
+        assert!(is_empty_placeholder(&reference.fields));
+        let reference_message = TypeDescriptionMsg {
+            type_description: reference.clone(),
+            referenced_type_descriptions: Vec::new(),
+        };
+        assert_eq!(
+            calculate_hash(&reference_message).to_rihs_string(),
+            "RIHS01_20b625256f32d5dbc0d04fee44f43c41e51c70d3502f84b4a08e7a9c26a96312"
+        );
+    }
 
     #[test]
     fn test_primitive_type_to_description() {
