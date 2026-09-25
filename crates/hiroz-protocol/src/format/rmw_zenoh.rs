@@ -6,7 +6,8 @@
 //! - Topic: `<domain_id>/<topic>/<type>/<hash>`
 //! - Liveliness: `@ros2_lv/<domain_id>/<zid>/<nid>/<eid>/<kind>/<enclave>/<ns>/<name>[/<topic>/<type>/<hash>/<qos>]`
 
-use zenoh::{key_expr::KeyExpr, session::ZenohId, Result};
+use alloc::vec::Vec;
+use zenoh::{Result, key_expr::KeyExpr, session::ZenohId};
 
 use crate::{
     entity::{
@@ -41,8 +42,49 @@ pub use hiroz_schema::type_name::dds_from_namespace as dds_type_name;
 /// the result up in the schema registry.
 pub use hiroz_schema::type_name::ros_from_dds_strict as ros_type_name;
 
+/// Identity carried by an rmw_zenoh topic data key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopicKey {
+    pub domain_id: usize,
+    pub topic: String,
+    pub dds_type_name: String,
+    pub type_name: String,
+    pub type_hash: TypeHash,
+}
+
 /// rmw_zenoh compatible backend.
 pub struct RmwZenohFormatter;
+
+impl RmwZenohFormatter {
+    /// Parse an rmw_zenoh topic data key.
+    ///
+    /// Topic names may contain slashes, so the type and hash are read from the
+    /// right. Other Zenoh keys return `None`.
+    pub fn parse_topic_key(key: &str) -> Option<TopicKey> {
+        let parts: Vec<_> = key.split('/').collect();
+        if parts.len() < 4 {
+            return None;
+        }
+        let type_hash = TypeHash::from_rihs_string(parts.last()?)?;
+        let dds_type_name = *parts.get(parts.len() - 2)?;
+        let type_name = ros_type_name(dds_type_name);
+        if type_name == dds_type_name {
+            return None;
+        }
+        let domain_id = parts.first()?.parse().ok()?;
+        let topic = parts.get(1..parts.len() - 2)?.join("/");
+        if topic.is_empty() {
+            return None;
+        }
+        Some(TopicKey {
+            domain_id,
+            topic: format!("/{topic}"),
+            dds_type_name: dds_type_name.to_string(),
+            type_name,
+            type_hash,
+        })
+    }
+}
 
 impl KeyExprFormatter for RmwZenohFormatter {
     const ESCAPE_CHAR: char = '%';
@@ -276,6 +318,38 @@ impl KeyExprFormatter for RmwZenohFormatter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_a_real_topic_data_key() {
+        let key = "7/robot1/chatter/std_msgs::msg::dds_::String_/\
+            RIHS01_0000000000000000000000000000000000000000000000000000000000000000";
+        let parsed = RmwZenohFormatter::parse_topic_key(key).unwrap();
+
+        assert_eq!(parsed.domain_id, 7);
+        assert_eq!(parsed.topic, "/robot1/chatter");
+        assert_eq!(parsed.dds_type_name, "std_msgs::msg::dds_::String_");
+        assert_eq!(parsed.type_name, "std_msgs/msg/String");
+        assert_eq!(parsed.type_hash, TypeHash::zero());
+    }
+
+    #[test]
+    fn rejects_non_topic_and_extended_keys() {
+        assert!(RmwZenohFormatter::parse_topic_key("plain/zenoh/key").is_none());
+        assert!(
+            RmwZenohFormatter::parse_topic_key(
+                "0/chatter/not_a_ros_type/\
+                 RIHS01_0000000000000000000000000000000000000000000000000000000000000000"
+            )
+            .is_none()
+        );
+        assert!(
+            RmwZenohFormatter::parse_topic_key(
+                "0/chatter/std_msgs::msg::dds_::String_/\
+                 RIHS01_0000000000000000000000000000000000000000000000000000000000000000/extra"
+            )
+            .is_none()
+        );
+    }
     use crate::entity::{EndpointEntity, EndpointKind, NodeEntity, TypeInfo};
     use crate::qos::{QosDurability, QosHistory, QosProfile, QosReliability};
 
