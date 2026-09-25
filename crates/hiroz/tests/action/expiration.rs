@@ -23,7 +23,7 @@ struct TestGoal {
     order: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct TestResult {
     sequence: Vec<i32>,
 }
@@ -66,6 +66,7 @@ async fn test_terminated_goal_expiration() -> Result<()> {
                     sequence: vec![0, 1, 1, 2, 3, 5],
                 },
                 status: GoalStatus::Succeeded,
+                accepted_at: Time::now(),
                 timestamp: now,
                 expires_at: Some(now + Duration::from_secs(1)),
             },
@@ -114,6 +115,7 @@ async fn test_executing_goal_expiration_with_timeout() -> Result<()> {
             ServerGoalState::Executing {
                 goal: TestGoal { order: 5 },
                 cancel_flag: Arc::new(AtomicBool::new(false)),
+                accepted_at: Time::now(),
                 expires_at: Some(now + Duration::from_secs(1)),
             },
         );
@@ -160,7 +162,8 @@ async fn test_accepted_goal_expiration_with_timeout() -> Result<()> {
             goal_id,
             ServerGoalState::Accepted {
                 goal: TestGoal { order: 5 },
-                timestamp: now,
+                cancel_flag: Arc::new(AtomicBool::new(false)),
+                accepted_at: Time::now(),
                 expires_at: Some(now + Duration::from_secs(1)),
             },
         );
@@ -206,6 +209,7 @@ async fn test_no_expiration_without_timeout() -> Result<()> {
             ServerGoalState::Executing {
                 goal: TestGoal { order: 5 },
                 cancel_flag: Arc::new(AtomicBool::new(false)),
+                accepted_at: Time::now(),
                 expires_at: None, // No expiration
             },
         );
@@ -255,6 +259,7 @@ async fn test_multiple_goals_expiration() -> Result<()> {
                     sequence: vec![0, 1],
                 },
                 status: GoalStatus::Succeeded,
+                accepted_at: Time::now(),
                 timestamp: now,
                 expires_at: Some(expires),
             },
@@ -265,6 +270,7 @@ async fn test_multiple_goals_expiration() -> Result<()> {
             ServerGoalState::Executing {
                 goal: TestGoal { order: 3 },
                 cancel_flag: Arc::new(AtomicBool::new(false)),
+                accepted_at: Time::now(),
                 expires_at: Some(expires),
             },
         );
@@ -273,7 +279,8 @@ async fn test_multiple_goals_expiration() -> Result<()> {
             goal_id3,
             ServerGoalState::Accepted {
                 goal: TestGoal { order: 2 },
-                timestamp: now,
+                cancel_flag: Arc::new(AtomicBool::new(false)),
+                accepted_at: Time::now(),
                 expires_at: Some(expires),
             },
         );

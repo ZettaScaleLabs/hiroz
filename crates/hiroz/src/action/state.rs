@@ -8,7 +8,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::{GoalId, GoalStatus, ZAction};
+use super::{GoalId, GoalStatus, Time, ZAction};
 
 /// Thread-safe goal state manager with compile-time deadlock prevention.
 ///
@@ -79,20 +79,26 @@ pub struct GoalManagerInternal<A: ZAction> {
 pub enum ServerGoalState<A: ZAction> {
     Accepted {
         goal: A::Goal,
-        timestamp: Instant,
+        cancel_flag: Arc<AtomicBool>,
+        accepted_at: Time,
         expires_at: Option<Instant>,
     },
     Executing {
         goal: A::Goal,
         cancel_flag: Arc<AtomicBool>,
+        accepted_at: Time,
         expires_at: Option<Instant>,
     },
     Canceling {
         goal: A::Goal,
+        cancel_flag: Arc<AtomicBool>,
+        accepted_at: Time,
+        expires_at: Option<Instant>,
     },
     Terminated {
         result: A::Result,
         status: GoalStatus,
+        accepted_at: Time,
         timestamp: Instant,
         expires_at: Option<Instant>,
     },

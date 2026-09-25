@@ -1,8 +1,4 @@
-//! Unified driver loop for action server event handling.
-//!
-//! This module provides a single event loop that handles all server-side
-//! action protocol events (goal requests, cancel requests, result requests)
-//! in a sequential, race-condition-free manner.
+//! Action server event handling.
 
 use std::{
     future::Future,
@@ -23,10 +19,7 @@ use super::{
 };
 use crate::{attachment::Attachment, msg::ZMessage};
 
-/// Runs the unified driver loop for an action server with automatic goal handling.
-///
-/// This function consolidates all protocol logic into a single event loop,
-/// eliminating race conditions and reducing task overhead.
+/// Runs the driver loop for an action server with automatic goal handling.
 ///
 /// # Arguments
 ///
@@ -56,21 +49,18 @@ pub(crate) async fn run_driver_loop<A, F, Fut>(
     let mut expiration_timer = time::interval(Duration::from_secs(1));
     expiration_timer.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
-    // STRUCTURED CONCURRENCY: Track all spawned goal tasks here
+    // Track request tasks so shutdown can abort and join them.
     let mut goal_tasks = JoinSet::new();
 
     loop {
         tokio::select! {
-            // 1. Priority: Shutdown
             _ = shutdown.cancelled() => {
                 tracing::debug!("Shutdown signal received. Aborting all goal tasks.");
-                // This sends a cancellation signal to all running futures in the set
                 goal_tasks.abort_all();
                 break;
             }
 
-            // 2. Reap Finished Tasks (Zombie Prevention)
-            // This line is crucial. It removes finished tasks from memory.
+            // Reap finished request tasks.
             Some(res) = goal_tasks.join_next() => {
                 if let Err(e) = res {
                     if e.is_cancelled() {
@@ -81,7 +71,6 @@ pub(crate) async fn run_driver_loop<A, F, Fut>(
                 }
             }
 
-            // 3. Goal Expiration Timer
             _ = expiration_timer.tick() => {
                 // Check for expired goals and clean them up
                 let server = ZActionServer::from_inner(Arc::clone(&inner));
@@ -91,31 +80,34 @@ pub(crate) async fn run_driver_loop<A, F, Fut>(
                 }
             }
 
-            // 4. New Goal Requests
             query = inner.goal_server.queue().recv_async() => {
                 let inner = inner.clone();
                 let handler = handler.clone();
 
-                // Spawn into the SET, not globally detached
                 goal_tasks.spawn(async move {
-                    // This is now safe. If it hangs, abort_all() kills it.
                     handle_goal_request(inner, query, handler).await;
                 });
             }
 
-            // 5. Cancel Requests
+            // Keep receiving while a result request waits for goal completion.
             query = inner.cancel_server.queue().recv_async() => {
-                handle_cancel_request(&inner, query).await;
+                let inner = inner.clone();
+                goal_tasks.spawn(async move {
+                    handle_cancel_request(&inner, query).await;
+                });
             }
 
-            // 6. Result Requests
+            // Result requests may remain open for the lifetime of a goal.
             query = inner.result_server.queue().recv_async() => {
-                handle_result_request(&inner, query).await;
+                let inner = inner.clone();
+                goal_tasks.spawn(async move {
+                    handle_result_request(&inner, query).await;
+                });
             }
         }
     }
 
-    // Ensure everything is dead before we exit
+    // Join canceled request tasks before returning.
     while goal_tasks.join_next().await.is_some() {}
     tracing::debug!("Action Server Driver Loop Stopped");
 }
@@ -140,26 +132,27 @@ async fn handle_goal_request<A, F, Fut>(
         }
     };
 
-    // Create a temporary ZActionServer handle for the goal handle
-    // This is safe because we're just passing it to the goal handler
     let server = ZActionServer::from_inner(Arc::clone(&inner));
 
     let requested = GoalHandle {
         goal: request.goal,
         info: GoalInfo::new(request.goal_id),
-        server,
-        query: Some(query),
+        server: server.clone(),
         cancel_flag: None,
-        cancel_rx: None,
+        cleanup: crate::action::server::GoalCleanup::new(request.goal_id, server, Some(query)),
         _state: PhantomData::<Requested>,
     };
 
-    let accepted = requested.accept();
+    // The reply path blocks, so keep it off the async worker.
+    let accepted = match tokio::task::spawn_blocking(move || requested.accept()).await {
+        Ok(accepted) => accepted,
+        Err(e) => {
+            tracing::error!("send_goal accept task failed: {e}");
+            return;
+        }
+    };
     let executing = accepted.execute();
 
-    // Execute the user's handler
-    // No tokio::select! needed anymore. If the driver loop aborts this task,
-    // this await simply acts as a cancellation point.
     handler(executing).await;
 }
 
@@ -178,35 +171,19 @@ async fn handle_cancel_request<A: ZAction>(
         }
     };
 
-    // Mark goal as canceling using the atomic flag
-    let cancelled = inner.goal_manager.read(|manager| {
-        if let Some(ServerGoalState::Executing { cancel_flag, .. }) =
-            manager.goals.get(&request.goal_info.goal_id)
-        {
-            cancel_flag.store(true, std::sync::atomic::Ordering::Relaxed);
-            true
-        } else {
-            false
-        }
-    });
-
-    // Send response
-    let response = CancelGoalServiceResponse {
-        return_code: if cancelled { 0 } else { 1 },
-        goals_canceling: if cancelled {
-            vec![request.goal_info]
-        } else {
-            vec![]
-        },
-    };
+    let server = ZActionServer::from_inner(Arc::clone(inner));
+    let response = server.process_cancel_request(&request.goal_info);
 
     let response_bytes = <CancelGoalServiceResponse as ZMessage>::serialize(&response);
     let attachment: Attachment = query.attachment().unwrap().try_into().unwrap();
-    // FIXME: address the result
-    let _ = query
-        .reply(query.key_expr().clone(), response_bytes)
-        .attachment(attachment)
-        .wait();
+    // Keep the blocking reply off the async worker.
+    let _ = tokio::task::spawn_blocking(move || {
+        let _ = query
+            .reply(query.key_expr().clone(), response_bytes)
+            .attachment(attachment)
+            .wait();
+    })
+    .await;
 
     tracing::debug!("Sent cancel response");
 }
@@ -276,14 +253,17 @@ async fn handle_result_request<A: ZAction>(
                     (r, s)
                 }
                 Err(_) => {
-                    tracing::warn!("Result future cancelled for goal {:?}", request.goal_id);
-                    return; // Don't send response
+                    tracing::warn!(
+                        "Result future cancelled for goal {:?}; replying Aborted",
+                        request.goal_id
+                    );
+                    ((inner.default_result)(), super::GoalStatus::Aborted)
                 }
             }
         }
         ResultState::NotFound => {
-            tracing::warn!("Goal {:?} not found", request.goal_id);
-            return; // Don't send response
+            tracing::warn!("Goal {:?} not found; replying Unknown", request.goal_id);
+            ((inner.default_result)(), super::GoalStatus::Unknown)
         }
     };
 
@@ -294,9 +274,12 @@ async fn handle_result_request<A: ZAction>(
     };
     let response_bytes = <GetResultResponse<A> as ZMessage>::serialize(&response);
     let attachment: Attachment = query.attachment().unwrap().try_into().unwrap();
-    let _ = query
-        .reply(query.key_expr().clone(), response_bytes)
-        .attachment(attachment)
-        .wait();
+    let _ = tokio::task::spawn_blocking(move || {
+        let _ = query
+            .reply(query.key_expr().clone(), response_bytes)
+            .attachment(attachment)
+            .wait();
+    })
+    .await;
     tracing::debug!("Sent result response");
 }

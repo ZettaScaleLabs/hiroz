@@ -274,7 +274,7 @@ pub struct GoalInfo {
 }
 
 /// ROS2 Time structure from builtin_interfaces/msg/Time
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Time {
     /// Seconds component of the timestamp
     pub sec: i32,

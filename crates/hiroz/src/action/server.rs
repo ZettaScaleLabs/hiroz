@@ -5,7 +5,6 @@
 //! provide feedback, and return results.
 
 use std::{
-    collections::HashMap,
     marker::PhantomData,
     sync::{
         Arc,
@@ -27,63 +26,42 @@ use crate::{
     topic_name::qualify_topic_name,
 };
 
-/// Routes cancel requests from the shared cancel service queue to per-goal channels.
-///
-/// Follows zenoh-python's per-entity queue pattern: each executing goal registers
-/// a dedicated channel. `drain()` reads the shared queue and routes by goal ID.
-pub(crate) struct CancelDispatcher {
-    routes: parking_lot::Mutex<HashMap<GoalId, flume::Sender<zenoh::query::Query>>>,
-}
+/// Processes queued cancel requests in manual polling mode.
+pub(crate) struct CancelDispatcher;
 
 impl CancelDispatcher {
     pub(crate) fn new() -> Self {
-        Self {
-            routes: parking_lot::Mutex::new(HashMap::new()),
+        Self
+    }
+
+    fn reply_cancel(query: zenoh::query::Query, response: CancelGoalServiceResponse) {
+        let response_bytes = <CancelGoalServiceResponse as ZMessage>::serialize(&response);
+        if let Some(raw_attachment) = query.attachment()
+            && let Ok(attachment) = Attachment::try_from(raw_attachment)
+        {
+            let _ = query
+                .reply(query.key_expr().clone(), response_bytes)
+                .attachment(attachment)
+                .wait();
         }
     }
 
-    /// Register a goal; returns the per-goal receiver.
-    pub(crate) fn register(&self, goal_id: GoalId) -> flume::Receiver<zenoh::query::Query> {
-        let (tx, rx) = flume::bounded(4);
-        self.routes.lock().insert(goal_id, tx);
-        rx
-    }
-
-    /// Deregister a goal (call when goal terminates).
-    pub(crate) fn deregister(&self, goal_id: GoalId) {
-        self.routes.lock().remove(&goal_id);
-    }
-
-    /// Drain the shared cancel queue, routing each request to the appropriate per-goal channel.
-    /// Messages for goals with no registered handle are logged and dropped.
-    pub(crate) fn drain(&self, queue: &Arc<crate::queue::BoundedQueue<zenoh::query::Query>>) {
-        while let Some(query) = queue.try_recv() {
+    pub(crate) fn drain<A: ZAction>(&self, server: &ZActionServer<A>) {
+        while let Some(query) = server.cancel_server().queue().try_recv() {
             let Some(payload) = query.payload() else {
                 tracing::warn!("CancelDispatcher: cancel query has no payload");
                 continue;
             };
-            let goal_id =
+            let request =
                 match <CancelGoalServiceRequest as ZMessage>::deserialize(&payload.to_bytes()) {
-                    Ok(r) => r.goal_info.goal_id,
+                    Ok(request) => request,
                     Err(e) => {
                         tracing::warn!("CancelDispatcher: failed to parse cancel request: {}", e);
                         continue;
                     }
                 };
-            let routes = self.routes.lock();
-            if let Some(tx) = routes.get(&goal_id) {
-                if tx.try_send(query).is_err() {
-                    tracing::warn!(
-                        "CancelDispatcher: per-goal channel full for goal {:?}",
-                        goal_id
-                    );
-                }
-            } else {
-                tracing::warn!(
-                    "CancelDispatcher: no handle registered for goal {:?}",
-                    goal_id
-                );
-            }
+
+            Self::reply_cancel(query, server.process_cancel_request(&request.goal_info));
         }
     }
 }
@@ -99,6 +77,7 @@ pub(crate) struct InnerServer<A: ZAction> {
     pub(crate) status_pub:
         Arc<crate::pubsub::ZPub<StatusMessage, <StatusMessage as ZMessage>::Serdes>>,
     pub(crate) goal_manager: Arc<SafeGoalManager<A>>,
+    pub(crate) default_result: fn() -> A::Result,
     /// Token to cancel the default result handler when switching to full driver mode
     pub(crate) result_handler_token: CancellationToken,
     pub(crate) cancel_dispatcher: Arc<CancelDispatcher>,
@@ -270,17 +249,20 @@ async fn handle_result_requests_legacy_inner<A: ZAction>(
 
     let goal_id = request.goal_id;
 
-    // Either extract the result immediately (goal already terminated) or register
-    // a oneshot channel so `ExecutingGoal::terminate` can notify us later.
+    // Either extract the result immediately (goal already terminated / unknown) or
+    // register a oneshot channel so `ExecutingGoal::terminate` can notify us later.
     let (result_data, maybe_rx) = inner.goal_manager.modify(|manager| {
         if let Some(ServerGoalState::Terminated { result, status, .. }) =
             manager.goals.get(&goal_id)
         {
             (Some((result.clone(), *status)), None)
-        } else {
+        } else if manager.goals.contains_key(&goal_id) {
             let (tx, rx) = tokio::sync::oneshot::channel();
             manager.result_futures.entry(goal_id).or_default().push(tx);
             (None, Some(rx))
+        } else {
+            // Unknown goal — reply STATUS_UNKNOWN so the client does not hang.
+            (Some(((inner.default_result)(), GoalStatus::Unknown)), None)
         }
     });
 
@@ -288,6 +270,7 @@ async fn handle_result_requests_legacy_inner<A: ZAction>(
         tracing::debug!("Goal {:?} already terminated ({:?})", goal_id, status);
         reply_result::<A>(query, result, status);
     } else if let Some(rx) = maybe_rx {
+        let default_result = inner.default_result;
         // Goal not yet terminal — spawn a task so the result loop stays responsive.
         tokio::spawn(async move {
             match rx.await {
@@ -300,14 +283,21 @@ async fn handle_result_requests_legacy_inner<A: ZAction>(
                     reply_result::<A>(query, result, status);
                 }
                 Err(_) => {
-                    tracing::warn!("Result future dropped for goal {:?}", goal_id);
+                    tracing::warn!(
+                        "Result future dropped for goal {:?}; replying Aborted",
+                        goal_id
+                    );
+                    reply_result::<A>(query, default_result(), GoalStatus::Aborted);
                 }
             }
         });
     }
 }
 
-impl<'a, A: ZAction> Builder for ZActionServerBuilder<'a, A> {
+impl<'a, A: ZAction> Builder for ZActionServerBuilder<'a, A>
+where
+    A::Result: Default,
+{
     type Output = ZActionServer<A>;
 
     fn build(self) -> Result<Self::Output> {
@@ -415,6 +405,7 @@ impl<'a, A: ZAction> Builder for ZActionServerBuilder<'a, A> {
             feedback_pub: Arc::new(feedback_pub),
             status_pub: Arc::new(status_pub),
             goal_manager,
+            default_result: A::Result::default,
             result_handler_token: result_handler_token.clone(),
             cancel_dispatcher: Arc::new(CancelDispatcher::new()),
         });
@@ -552,14 +543,27 @@ impl<A: ZAction> ZActionServer<A> {
                 .goals
                 .iter()
                 .map(|(goal_id, state)| {
-                    let status = match state {
-                        ServerGoalState::Accepted { .. } => GoalStatus::Accepted,
-                        ServerGoalState::Executing { .. } => GoalStatus::Executing,
-                        ServerGoalState::Canceling { .. } => GoalStatus::Canceling,
-                        ServerGoalState::Terminated { status, .. } => *status,
+                    let (status, stamp) = match state {
+                        ServerGoalState::Accepted { accepted_at, .. } => {
+                            (GoalStatus::Accepted, *accepted_at)
+                        }
+                        ServerGoalState::Executing { accepted_at, .. } => {
+                            (GoalStatus::Executing, *accepted_at)
+                        }
+                        ServerGoalState::Canceling { accepted_at, .. } => {
+                            (GoalStatus::Canceling, *accepted_at)
+                        }
+                        ServerGoalState::Terminated {
+                            status,
+                            accepted_at,
+                            ..
+                        } => (*status, *accepted_at),
                     };
                     GoalStatusInfo {
-                        goal_info: GoalInfo::new(*goal_id),
+                        goal_info: GoalInfo {
+                            goal_id: *goal_id,
+                            stamp,
+                        },
                         status,
                     }
                 })
@@ -582,9 +586,8 @@ impl<A: ZAction> ZActionServer<A> {
             goal: request.goal,
             info: GoalInfo::new(request.goal_id),
             server: self.clone(),
-            query: Some(query),
             cancel_flag: None,
-            cancel_rx: None,
+            cleanup: GoalCleanup::new(request.goal_id, self.clone(), Some(query)),
             _state: PhantomData,
         })
     }
@@ -601,19 +604,97 @@ impl<A: ZAction> ZActionServer<A> {
         !self.cancel_server().queue().is_empty()
     }
 
-    /// Marks a goal as canceling by setting its atomic cancel flag.
-    /// This is a lock-free operation that can be called from any thread.
+    /// Marks an active goal as canceling.
     pub fn request_cancel(&self, goal_id: GoalId) -> bool {
-        self.goal_manager().read(|manager| {
-            if let Some(ServerGoalState::Executing { cancel_flag, .. }) =
-                manager.goals.get(&goal_id)
-            {
+        let response = self.process_cancel_request(&GoalInfo {
+            goal_id,
+            stamp: super::Time::zero(),
+        });
+        !response.goals_canceling.is_empty()
+    }
+
+    pub(crate) fn process_cancel_request(&self, requested: &GoalInfo) -> CancelGoalServiceResponse {
+        let specific = requested.goal_id.is_valid();
+        let has_timestamp = requested.stamp != super::Time::zero();
+        let (goals_canceling, requested_state) = self.goal_manager().modify(|manager| {
+            let requested_state = manager.goals.get(&requested.goal_id).map(|state| {
+                if matches!(state, ServerGoalState::Terminated { .. }) {
+                    3
+                } else {
+                    1
+                }
+            });
+            let candidates: Vec<GoalId> = manager
+                .goals
+                .iter()
+                .filter_map(|(goal_id, state)| {
+                    let accepted_at = match state {
+                        ServerGoalState::Accepted { accepted_at, .. }
+                        | ServerGoalState::Executing { accepted_at, .. } => *accepted_at,
+                        ServerGoalState::Canceling { .. } | ServerGoalState::Terminated { .. } => {
+                            return None;
+                        }
+                    };
+                    let selected_by_id = specific && *goal_id == requested.goal_id;
+                    let selected_by_time = has_timestamp && accepted_at <= requested.stamp;
+                    ((!specific && !has_timestamp) || selected_by_id || selected_by_time)
+                        .then_some(*goal_id)
+                })
+                .collect();
+
+            let mut goals_canceling = Vec::with_capacity(candidates.len());
+            for goal_id in candidates {
+                let Some(state) = manager.goals.remove(&goal_id) else {
+                    continue;
+                };
+                let (goal, cancel_flag, accepted_at, expires_at) = match state {
+                    ServerGoalState::Accepted {
+                        goal,
+                        cancel_flag,
+                        accepted_at,
+                        expires_at,
+                    }
+                    | ServerGoalState::Executing {
+                        goal,
+                        cancel_flag,
+                        accepted_at,
+                        expires_at,
+                    } => (goal, cancel_flag, accepted_at, expires_at),
+                    other => {
+                        manager.goals.insert(goal_id, other);
+                        continue;
+                    }
+                };
                 cancel_flag.store(true, Ordering::Relaxed);
-                true
-            } else {
-                false
+                manager.goals.insert(
+                    goal_id,
+                    ServerGoalState::Canceling {
+                        goal,
+                        cancel_flag,
+                        accepted_at,
+                        expires_at,
+                    },
+                );
+                goals_canceling.push(GoalInfo {
+                    goal_id,
+                    stamp: accepted_at,
+                });
             }
-        })
+            (goals_canceling, requested_state)
+        });
+
+        if !goals_canceling.is_empty() {
+            self.publish_status();
+        }
+        let return_code = if !goals_canceling.is_empty() || !specific {
+            0
+        } else {
+            requested_state.unwrap_or(2)
+        };
+        CancelGoalServiceResponse {
+            return_code,
+            goals_canceling,
+        }
     }
 
     pub async fn recv_result_request(&self) -> Result<(GoalId, zenoh::query::Query)> {
@@ -742,31 +823,42 @@ impl<A: ZAction> ZActionServer<A> {
     /// println!("Expired {} goals", expired.len());
     /// ```
     pub fn expire_goals(&self) -> Vec<GoalId> {
-        let expired = self.goal_manager().modify(|manager| {
+        let (expired, waiters) = self.goal_manager().modify(|manager| {
             let now = Instant::now();
             let mut expired = Vec::new();
+            let mut waiters = Vec::new();
 
-            // Find goals that have passed their expiration time
-            manager.goals.retain(|goal_id, state| {
-                let should_expire = match state {
-                    ServerGoalState::Accepted { expires_at, .. }
-                    | ServerGoalState::Executing { expires_at, .. }
-                    | ServerGoalState::Terminated { expires_at, .. } => {
-                        expires_at.is_some_and(|exp| now >= exp)
-                    }
-                    ServerGoalState::Canceling { .. } => false,
-                };
+            let to_expire: Vec<GoalId> = manager
+                .goals
+                .iter()
+                .filter_map(|(goal_id, state)| {
+                    let should_expire = match state {
+                        ServerGoalState::Accepted { expires_at, .. }
+                        | ServerGoalState::Executing { expires_at, .. }
+                        | ServerGoalState::Canceling { expires_at, .. }
+                        | ServerGoalState::Terminated { expires_at, .. } => {
+                            expires_at.is_some_and(|exp| now >= exp)
+                        }
+                    };
+                    should_expire.then_some(*goal_id)
+                })
+                .collect();
 
-                if should_expire {
-                    expired.push(*goal_id);
-                    false // Remove this goal
-                } else {
-                    true // Keep this goal
+            for goal_id in to_expire {
+                manager.goals.remove(&goal_id);
+                if let Some(txs) = manager.result_futures.remove(&goal_id) {
+                    waiters.extend(txs);
                 }
-            });
+                expired.push(goal_id);
+            }
 
-            expired
+            (expired, waiters)
         }); // Lock released here
+
+        // Wake any get_result waiters so clients do not hang after expiration.
+        for tx in waiters {
+            let _ = tx.send(((self.inner.default_result)(), GoalStatus::Aborted));
+        }
 
         // Publish updated status if any goals were expired
         if !expired.is_empty() {
@@ -863,11 +955,114 @@ pub struct GoalHandle<A: ZAction, State> {
     /// The goal metadata.
     pub info: GoalInfo,
     pub(crate) server: ZActionServer<A>,
-    pub(crate) query: Option<zenoh::query::Query>,
     pub(crate) cancel_flag: Option<Arc<AtomicBool>>,
-    /// Per-goal cancel channel registered with the CancelDispatcher (Some only in Executing state).
-    pub(crate) cancel_rx: Option<flume::Receiver<zenoh::query::Query>>,
+    /// Drop cleanup; disarmed on `accept`/`execute` so type-state moves do not abort.
+    pub(crate) cleanup: GoalCleanup<A>,
     pub(crate) _state: PhantomData<State>,
+}
+
+/// Aborts non-terminal goals (and rejects unanswered send_goal) if the handle is
+/// dropped without an explicit terminal transition. Disarmed when ownership is
+/// transferred via `accept` / `execute`.
+pub(crate) struct GoalCleanup<A: ZAction> {
+    pub(crate) goal_id: GoalId,
+    pub(crate) server: ZActionServer<A>,
+    pub(crate) query: Option<zenoh::query::Query>,
+    pub(crate) armed: bool,
+}
+
+impl<A: ZAction> GoalCleanup<A> {
+    pub(crate) fn new(
+        goal_id: GoalId,
+        server: ZActionServer<A>,
+        query: Option<zenoh::query::Query>,
+    ) -> Self {
+        Self {
+            goal_id,
+            server,
+            query,
+            armed: true,
+        }
+    }
+
+    pub(crate) fn disarm(&mut self) {
+        self.armed = false;
+        self.query = None;
+    }
+}
+
+impl<A: ZAction> Drop for GoalCleanup<A> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+
+        if let Some(query) = self.query.take() {
+            let response = GoalResponse {
+                accepted: false,
+                stamp_sec: 0,
+                stamp_nanosec: 0,
+            };
+            let response_bytes = <GoalResponse as ZMessage>::serialize(&response);
+            if let Some(raw) = query.attachment()
+                && let Ok(attachment) = Attachment::try_from(raw)
+            {
+                let _ = query
+                    .reply(query.key_expr().clone(), response_bytes)
+                    .attachment(attachment)
+                    .wait();
+            }
+            return;
+        }
+
+        let aborted =
+            self.server
+                .goal_manager()
+                .modify(|manager| match manager.goals.get(&self.goal_id) {
+                    Some(
+                        state @ (ServerGoalState::Accepted { .. }
+                        | ServerGoalState::Executing { .. }
+                        | ServerGoalState::Canceling { .. }),
+                    ) => {
+                        let accepted_at = match state {
+                            ServerGoalState::Accepted { accepted_at, .. }
+                            | ServerGoalState::Executing { accepted_at, .. }
+                            | ServerGoalState::Canceling { accepted_at, .. } => *accepted_at,
+                            ServerGoalState::Terminated { .. } => unreachable!(),
+                        };
+                        let now = Instant::now();
+                        let expires_at = Some(now + manager.result_timeout);
+                        manager.goals.insert(
+                            self.goal_id,
+                            ServerGoalState::Terminated {
+                                result: (self.server.inner.default_result)(),
+                                status: GoalStatus::Aborted,
+                                accepted_at,
+                                timestamp: now,
+                                expires_at,
+                            },
+                        );
+                        Some(
+                            manager
+                                .result_futures
+                                .remove(&self.goal_id)
+                                .unwrap_or_default(),
+                        )
+                    }
+                    _ => None,
+                });
+
+        if let Some(waiters) = aborted {
+            tracing::warn!(
+                goal_id = %self.goal_id,
+                "GoalHandle dropped without succeed/abort/canceled; aborting"
+            );
+            for tx in waiters {
+                let _ = tx.send(((self.server.inner.default_result)(), GoalStatus::Aborted));
+            }
+            self.server.publish_status();
+        }
+    }
 }
 
 // --- State-specific implementations ---
@@ -888,14 +1083,17 @@ impl<A: ZAction> GoalHandle<A, Requested> {
     ///
     /// This sends an acceptance response to the client and updates the server state.
     pub fn accept(mut self) -> GoalHandle<A, Accepted> {
-        // Insert before replying — client may fire get_result before we'd register the goal.
+        self.info.stamp = super::Time::now();
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        // Insert before replying because a client may request the result immediately.
         self.server.goal_manager().modify(|manager| {
             let expires_at = manager.goal_timeout.map(|timeout| Instant::now() + timeout);
             manager.goals.insert(
                 self.info.goal_id,
                 ServerGoalState::Accepted {
                     goal: self.goal.clone(),
-                    timestamp: Instant::now(),
+                    cancel_flag: cancel_flag.clone(),
+                    accepted_at: self.info.stamp,
                     expires_at,
                 },
             );
@@ -910,7 +1108,7 @@ impl<A: ZAction> GoalHandle<A, Requested> {
         };
         let response_bytes = <SendGoalResponse as ZMessage>::serialize(&response);
 
-        if let Some(query) = self.query.take() {
+        if let Some(query) = self.cleanup.query.take() {
             let attachment: Attachment = query.attachment().unwrap().try_into().unwrap();
             // FIXME: address the result
             let _ = query
@@ -922,13 +1120,17 @@ impl<A: ZAction> GoalHandle<A, Requested> {
         // Publish status update
         self.server.publish_status();
 
+        // Disarm so Drop of this Requested handle does not abort the Accepted goal.
+        let goal_id = self.info.goal_id;
+        let server = self.server.clone();
+        self.cleanup.disarm();
+
         GoalHandle {
             goal: self.goal,
             info: self.info,
-            server: self.server,
-            query: None,
-            cancel_flag: None,
-            cancel_rx: None,
+            server: server.clone(),
+            cancel_flag: Some(cancel_flag),
+            cleanup: GoalCleanup::new(goal_id, server, None),
             _state: PhantomData,
         }
     }
@@ -945,7 +1147,7 @@ impl<A: ZAction> GoalHandle<A, Requested> {
         };
         let response_bytes = <GoalResponse as ZMessage>::serialize(&response);
 
-        if let Some(query) = self.query.take() {
+        if let Some(query) = self.cleanup.query.take() {
             // FIXME: Address the unwrap usage
             let attachment: Attachment = query.attachment().unwrap().try_into().unwrap();
             let _ = query
@@ -953,6 +1155,7 @@ impl<A: ZAction> GoalHandle<A, Requested> {
                 .attachment(attachment)
                 .wait();
         }
+        self.cleanup.disarm();
         Ok(())
     }
 }
@@ -969,38 +1172,55 @@ impl<A: ZAction> GoalHandle<A, Accepted> {
         &self.info
     }
 
+    /// Processes queued cancel requests before execution starts.
+    pub fn try_process_cancel(&self) -> bool {
+        self.server.cancel_dispatcher().drain(&self.server);
+        self.cancel_flag
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+    }
+
     /// Begin executing this goal and transition to the "Executing" state.
     ///
     /// This updates the server state to executing and publishes a status update.
-    pub fn execute(self) -> GoalHandle<A, Executing> {
-        // Create cancel flag
-        let cancel_flag = Arc::new(AtomicBool::new(false));
-
-        // Register with the cancel dispatcher to get a dedicated per-goal channel
-        let cancel_rx = self.server.cancel_dispatcher().register(self.info.goal_id);
-
-        // Transition to EXECUTING
+    pub fn execute(mut self) -> GoalHandle<A, Executing> {
+        self.server.cancel_dispatcher().drain(&self.server);
+        let cancel_flag = self
+            .cancel_flag
+            .clone()
+            .unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
         self.server.goal_manager().modify(|manager| {
-            let expires_at = manager.goal_timeout.map(|timeout| Instant::now() + timeout);
-            manager.goals.insert(
-                self.info.goal_id,
-                ServerGoalState::Executing {
-                    goal: self.goal.clone(),
-                    cancel_flag: cancel_flag.clone(),
-                    expires_at,
-                },
-            );
+            if let Some(state) = manager.goals.remove(&self.info.goal_id) {
+                let state = match state {
+                    ServerGoalState::Accepted {
+                        goal,
+                        cancel_flag,
+                        accepted_at,
+                        expires_at,
+                    } => ServerGoalState::Executing {
+                        goal,
+                        cancel_flag,
+                        accepted_at,
+                        expires_at,
+                    },
+                    other => other,
+                };
+                manager.goals.insert(self.info.goal_id, state);
+            }
         });
 
         self.server.publish_status();
 
+        let goal_id = self.info.goal_id;
+        let server = self.server.clone();
+        self.cleanup.disarm();
+
         GoalHandle {
             goal: self.goal,
             info: self.info,
-            server: self.server,
-            query: None,
+            server: server.clone(),
             cancel_flag: Some(cancel_flag),
-            cancel_rx: Some(cancel_rx),
+            cleanup: GoalCleanup::new(goal_id, server, None),
             _state: PhantomData,
         }
     }
@@ -1063,56 +1283,14 @@ impl<A: ZAction> GoalHandle<A, Executing> {
 
     /// Check for and process any pending cancel request for this goal (polling mode).
     ///
-    /// This is a non-blocking operation that drains the shared cancel queue via the
-    /// `CancelDispatcher`, routing each message to the appropriate per-goal channel.
-    /// Returns `true` if a cancel was requested for this goal (either via the flag
-    /// already set, or a newly routed request processed here).
-    ///
-    /// Fixes the silent-drop bug where a cancel for goal B would be lost if goal A's
-    /// handle polled first and found a goal ID mismatch. Each goal now has its own
-    /// dedicated channel; `drain()` routes all pending messages before we check ours.
+    /// This is a non-blocking operation that drains queued cancel requests and
+    /// applies the ROS cancellation selection rules to all goals.
     pub fn try_process_cancel(&self) -> bool {
-        // Fast path: cancel flag already set (e.g. driver mode set it)
         if self.is_cancel_requested() {
             return true;
         }
-        // Drain shared cancel queue into per-goal channels
-        self.server
-            .cancel_dispatcher()
-            .drain(self.server.cancel_server().queue());
-        // Check our own per-goal channel
-        let Some(cancel_rx) = &self.cancel_rx else {
-            return false;
-        };
-        if let Ok(query) = cancel_rx.try_recv() {
-            let payload = match query.payload() {
-                Some(p) => p.to_bytes(),
-                None => return false,
-            };
-            let request = match <CancelGoalServiceRequest as ZMessage>::deserialize(&payload) {
-                Ok(r) => r,
-                Err(e) => {
-                    tracing::error!("try_process_cancel: deserialize error: {}", e);
-                    return false;
-                }
-            };
-            self.server.request_cancel(self.info.goal_id);
-            let response = CancelGoalServiceResponse {
-                return_code: 1,
-                goals_canceling: vec![request.goal_info],
-            };
-            let response_bytes = <CancelGoalServiceResponse as ZMessage>::serialize(&response);
-            if let Some(raw_attachment) = query.attachment()
-                && let Ok(attachment) = Attachment::try_from(raw_attachment)
-            {
-                let _ = query
-                    .reply(query.key_expr().clone(), response_bytes)
-                    .attachment(attachment)
-                    .wait();
-            }
-            return true;
-        }
-        false
+        self.server.cancel_dispatcher().drain(&self.server);
+        self.is_cancel_requested()
     }
 
     /// Mark this goal as succeeded with the given result.
@@ -1136,14 +1314,17 @@ impl<A: ZAction> GoalHandle<A, Executing> {
         self.terminate(result, GoalStatus::Canceled)
     }
 
-    fn terminate(self, result: A::Result, status: GoalStatus) -> Result<()> {
-        // Deregister from the cancel dispatcher so no more cancel messages are routed here
-        self.server
-            .cancel_dispatcher()
-            .deregister(self.info.goal_id);
+    fn terminate(mut self, result: A::Result, status: GoalStatus) -> Result<()> {
+        // Ownership of termination; disarm so Drop does not double-abort.
+        self.cleanup.disarm();
 
-        // Notify any waiting result futures
         let futures_to_notify = self.server.goal_manager().modify(|manager| {
+            let accepted_at = match manager.goals.get(&self.info.goal_id) {
+                Some(ServerGoalState::Accepted { accepted_at, .. })
+                | Some(ServerGoalState::Executing { accepted_at, .. })
+                | Some(ServerGoalState::Canceling { accepted_at, .. }) => *accepted_at,
+                _ => return None,
+            };
             let now = Instant::now();
             let expires_at = Some(now + manager.result_timeout);
             manager.goals.insert(
@@ -1151,17 +1332,24 @@ impl<A: ZAction> GoalHandle<A, Executing> {
                 ServerGoalState::Terminated {
                     result: result.clone(),
                     status,
+                    accepted_at,
                     timestamp: now,
                     expires_at,
                 },
             );
 
             // Take all waiting result futures for this goal
-            manager
-                .result_futures
-                .remove(&self.info.goal_id)
-                .unwrap_or_default()
+            Some(
+                manager
+                    .result_futures
+                    .remove(&self.info.goal_id)
+                    .unwrap_or_default(),
+            )
         }); // Drop the lock before notifying futures and publishing status
+
+        let Some(futures_to_notify) = futures_to_notify else {
+            return Err(zenoh::Error::from("goal is no longer active"));
+        };
 
         // Notify all waiting result futures
         for tx in futures_to_notify {

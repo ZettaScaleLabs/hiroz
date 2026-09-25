@@ -15,7 +15,7 @@ pub struct TestGoal {
     pub order: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct TestResult {
     pub value: i32,
 }

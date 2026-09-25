@@ -94,7 +94,7 @@ impl ZService for RawBytesService {
 ///
 /// Wire format: [4-byte CDR length][bytes] — the length prefix is transparent
 /// to Python users who always work with standard CDR bytes (with header).
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct DynActionMessage(pub Vec<u8>);
 
 impl serde::Serialize for DynActionMessage {
