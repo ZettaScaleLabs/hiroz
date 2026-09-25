@@ -695,6 +695,11 @@ impl std::fmt::Debug for ZContext {
 }
 
 impl ZContext {
+    /// Get the Zenoh session shared by this context and its nodes.
+    pub fn session(&self) -> &Arc<Session> {
+        &self.session
+    }
+
     /// Create a builder for a new ROS 2 node within this context.
     ///
     /// Create a lifecycle node builder.

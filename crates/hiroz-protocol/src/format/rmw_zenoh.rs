@@ -7,7 +7,7 @@
 //! - Liveliness: `@ros2_lv/<domain_id>/<zid>/<nid>/<eid>/<kind>/<enclave>/<ns>/<name>[/<topic>/<type>/<hash>/<qos>]`
 
 use alloc::vec::Vec;
-use zenoh::{Result, key_expr::KeyExpr, session::ZenohId};
+use zenoh::{key_expr::KeyExpr, session::ZenohId, Result};
 
 use crate::{
     entity::{
@@ -335,20 +335,16 @@ mod tests {
     #[test]
     fn rejects_non_topic_and_extended_keys() {
         assert!(RmwZenohFormatter::parse_topic_key("plain/zenoh/key").is_none());
-        assert!(
-            RmwZenohFormatter::parse_topic_key(
-                "0/chatter/not_a_ros_type/\
+        assert!(RmwZenohFormatter::parse_topic_key(
+            "0/chatter/not_a_ros_type/\
                  RIHS01_0000000000000000000000000000000000000000000000000000000000000000"
-            )
-            .is_none()
-        );
-        assert!(
-            RmwZenohFormatter::parse_topic_key(
-                "0/chatter/std_msgs::msg::dds_::String_/\
+        )
+        .is_none());
+        assert!(RmwZenohFormatter::parse_topic_key(
+            "0/chatter/std_msgs::msg::dds_::String_/\
                  RIHS01_0000000000000000000000000000000000000000000000000000000000000000/extra"
-            )
-            .is_none()
-        );
+        )
+        .is_none());
     }
     use crate::entity::{EndpointEntity, EndpointKind, NodeEntity, TypeInfo};
     use crate::qos::{QosDurability, QosHistory, QosProfile, QosReliability};
