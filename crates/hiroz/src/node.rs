@@ -845,15 +845,17 @@ impl ZNode {
         let send_goal_type = dds_from_namespace(&action_ns, &format!("{aname}_SendGoal"));
         let get_result_type = dds_from_namespace(&action_ns, &format!("{aname}_GetResult"));
         let cancel_goal_type = dds_from_namespace("action_msgs::srv", "CancelGoal");
-        let feedback_type_dds =
-            dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
+        let feedback_type_dds = dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
 
         let send_goal_client =
             self.create_raw_service_client(&send_goal_service, &send_goal_type, goal_hash)?;
         let get_result_client =
             self.create_raw_service_client(&get_result_service, &get_result_type, result_hash)?;
-        let cancel_goal_client =
-            self.create_raw_service_client(&cancel_goal_service, &cancel_goal_type, CANCEL_GOAL_TYPE_HASH)?;
+        let cancel_goal_client = self.create_raw_service_client(
+            &cancel_goal_service,
+            &cancel_goal_type,
+            CANCEL_GOAL_TYPE_HASH,
+        )?;
 
         // Feedback subscriber (no-op callback for now; Go handles via polling or separate mechanism)
         let feedback_sub =
@@ -895,16 +897,18 @@ impl ZNode {
         let send_goal_type = dds_from_namespace(&action_ns, &format!("{aname}_SendGoal"));
         let get_result_type = dds_from_namespace(&action_ns, &format!("{aname}_GetResult"));
         let cancel_goal_type = dds_from_namespace("action_msgs::srv", "CancelGoal");
-        let feedback_type_dds =
-            dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
+        let feedback_type_dds = dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
         let status_type_dds = dds_from_namespace("action_msgs::msg", "GoalStatusArray");
 
         let send_goal_server =
             self.create_raw_service_server(&send_goal_service, &send_goal_type, goal_hash)?;
         let get_result_server =
             self.create_raw_service_server(&get_result_service, &get_result_type, result_hash)?;
-        let cancel_goal_server =
-            self.create_raw_service_server(&cancel_goal_service, &cancel_goal_type, CANCEL_GOAL_TYPE_HASH)?;
+        let cancel_goal_server = self.create_raw_service_server(
+            &cancel_goal_service,
+            &cancel_goal_type,
+            CANCEL_GOAL_TYPE_HASH,
+        )?;
 
         let feedback_pub =
             self.create_raw_publisher(&feedback_topic, &feedback_type_dds, feedback_hash)?;
