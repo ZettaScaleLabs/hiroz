@@ -692,11 +692,11 @@ fn json_to_dynamic_value(
                 .map_err(|_| "value out of range for i32")?,
         )),
         FieldType::Int64 => Ok(DynamicValue::Int64(value.as_i64().ok_or("expected i64")?)),
-        FieldType::Uint8 => Ok(DynamicValue::Uint8(
+        FieldType::Uint8 | FieldType::Char | FieldType::Byte => Ok(DynamicValue::Uint8(
             u8::try_from(value.as_u64().ok_or("expected u8")?)
                 .map_err(|_| "value out of range for u8")?,
         )),
-        FieldType::Uint16 => Ok(DynamicValue::Uint16(
+        FieldType::Uint16 | FieldType::WChar => Ok(DynamicValue::Uint16(
             u16::try_from(value.as_u64().ok_or("expected u16")?)
                 .map_err(|_| "value out of range for u16")?,
         )),
@@ -709,7 +709,10 @@ fn json_to_dynamic_value(
             value.as_f64().ok_or("expected f32")? as f32
         )),
         FieldType::Float64 => Ok(DynamicValue::Float64(value.as_f64().ok_or("expected f64")?)),
-        FieldType::String | FieldType::BoundedString(_) => Ok(DynamicValue::String(
+        FieldType::String
+        | FieldType::BoundedString(_)
+        | FieldType::WString
+        | FieldType::BoundedWString(_) => Ok(DynamicValue::String(
             value.as_str().ok_or("expected string")?.to_string(),
         )),
         FieldType::Message(inner_schema) => Ok(DynamicValue::Message(Box::new(
@@ -725,6 +728,37 @@ fn json_to_dynamic_value(
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(DynamicValue::Array(items))
         }
+    }
+}
+
+#[cfg(test)]
+mod dynamic_input_tests {
+    use super::json_to_dynamic_value;
+    use hiroz::dynamic::{DynamicValue, FieldType};
+
+    #[test]
+    fn native_and_wide_types_keep_their_runtime_widths() {
+        assert_eq!(
+            json_to_dynamic_value(&serde_json::json!(255), &FieldType::Char).unwrap(),
+            DynamicValue::Uint8(255)
+        );
+        assert_eq!(
+            json_to_dynamic_value(&serde_json::json!(255), &FieldType::Byte).unwrap(),
+            DynamicValue::Uint8(255)
+        );
+        assert_eq!(
+            json_to_dynamic_value(&serde_json::json!(65_535), &FieldType::WChar).unwrap(),
+            DynamicValue::Uint16(65_535)
+        );
+        assert_eq!(
+            json_to_dynamic_value(&serde_json::json!("wide 🚀"), &FieldType::WString).unwrap(),
+            DynamicValue::String("wide 🚀".into())
+        );
+        assert_eq!(
+            json_to_dynamic_value(&serde_json::json!("bounded"), &FieldType::BoundedWString(7),)
+                .unwrap(),
+            DynamicValue::String("bounded".into())
+        );
     }
 }
 
