@@ -647,7 +647,12 @@ fn const_type_name(const_type: &ConstType) -> Result<String> {
     }
 }
 
-fn expression_text(expression: &ConstExpr) -> String {
+/// Render a parsed IDL constant/default expression for source metadata.
+///
+/// Literal and unary values use their IDL spelling. Less common compound
+/// expressions retain a diagnostic representation while the original source
+/// remains available on [`ParsedIdl`].
+pub fn expression_text(expression: &ConstExpr) -> String {
     match expression {
         ConstExpr::Literal(Literal::Char(value)) => format!("'{value}'"),
         ConstExpr::Literal(Literal::String(value)) => format!("\"{value}\""),
