@@ -1171,29 +1171,6 @@ fn time_from_clock(clock: &crate::time::ZClock) -> super::Time {
     }
 }
 
-#[cfg(test)]
-mod clock_tests {
-    use super::*;
-    use crate::action::Time;
-    use crate::time::{ZClock, ZTime};
-
-    #[test]
-    fn action_time_uses_zero_and_configured_simulated_time() {
-        let clock = ZClock::simulated(ZTime::zero());
-        assert_eq!(time_from_clock(&clock), Time::zero());
-        clock
-            .set_time(ZTime::from_unix_nanos(42_000_000_123))
-            .unwrap();
-        assert_eq!(
-            time_from_clock(&clock),
-            Time {
-                sec: 42,
-                nanosec: 123,
-            }
-        );
-    }
-}
-
 /// Methods available only for goals in the "Accepted" state.
 impl<A: ZAction> GoalHandle<A, Accepted> {
     /// Access the goal data.
@@ -1218,7 +1195,6 @@ impl<A: ZAction> GoalHandle<A, Accepted> {
     ///
     /// This updates the server state to executing and publishes a status update.
     pub fn execute(mut self) -> GoalHandle<A, Executing> {
-        self.server.cancel_dispatcher().drain(&self.server);
         let cancel_flag = self
             .cancel_flag
             .clone()
@@ -1392,5 +1368,28 @@ impl<A: ZAction> GoalHandle<A, Executing> {
 
         self.server.publish_status();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::*;
+    use crate::action::Time;
+    use crate::time::{ZClock, ZTime};
+
+    #[test]
+    fn action_time_uses_zero_and_configured_simulated_time() {
+        let clock = ZClock::simulated(ZTime::zero());
+        assert_eq!(time_from_clock(&clock), Time::zero());
+        clock
+            .set_time(ZTime::from_unix_nanos(42_000_000_123))
+            .unwrap();
+        assert_eq!(
+            time_from_clock(&clock),
+            Time {
+                sec: 42,
+                nanosec: 123,
+            }
+        );
     }
 }

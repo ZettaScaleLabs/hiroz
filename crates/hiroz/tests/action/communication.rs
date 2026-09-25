@@ -42,7 +42,10 @@ async fn setup_test() -> Result<(
     hiroz::action::client::ZActionClient<TestAction>,
     hiroz::action::server::ZActionServer<TestAction>,
 )> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = ZContextBuilder::default()
+        .disable_multicast_scouting()
+        .with_json("connect/endpoints", Vec::<String>::new())
+        .build()?;
     let node = ctx.create_node("test_action_comm_node").build()?;
 
     let server = node
@@ -128,6 +131,13 @@ mod tests {
                 .expect("timeout receiving goal")?;
             let goal_id = requested.info.goal_id;
             let accepted = requested.accept();
+            timeout(Duration::from_secs(5), async {
+                while !server_clone.is_cancel_request_ready() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("timeout waiting for queued cancel");
             let _executing = accepted.execute();
 
             // Server should receive cancel request
@@ -406,6 +416,7 @@ mod tests {
         let goal_handle2 = timeout(Duration::from_secs(5), client.send_goal(goal2))
             .await
             .expect("timeout sending goal 2")?;
+        let goal_id2 = goal_handle2.id();
 
         let (handle1, handle2) = server_task.await.expect("server task failed")?;
 
@@ -443,7 +454,9 @@ mod tests {
         handle2.canceled(TestResult { value: 2 })?;
 
         let (cancel_response, _) = client_task.await.expect("client task panicked")?;
-        assert_eq!(cancel_response.return_code, 1);
+        assert_eq!(cancel_response.return_code, 0);
+        assert_eq!(cancel_response.goals_canceling.len(), 1);
+        assert_eq!(cancel_response.goals_canceling[0].goal_id, goal_id2);
 
         let _ = timeout(Duration::from_secs(5), goal_handle1.result())
             .await
