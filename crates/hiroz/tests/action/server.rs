@@ -42,6 +42,7 @@ mod tests {
         GoalId, GoalInfo, GoalStatus, Time,
         messages::{CancelService, GoalService, SendGoalRequest},
     };
+    use hiroz::time::{ZClock, ZTime};
     use std::time::Duration;
     use tokio::time::timeout;
 
@@ -66,6 +67,40 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         Ok((node, client, server))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn accepted_goal_uses_the_configured_node_clock() -> Result<()> {
+        let clock = ZClock::simulated(ZTime::zero());
+        clock.set_time(ZTime::from_unix_nanos(42_000_000_123))?;
+        let ctx = ZContextBuilder::default().with_clock(clock).build()?;
+        let node = ctx.create_node("sim_clock_action_server").build()?;
+        let client = node
+            .create_action_client::<TestAction>("sim_clock_action")
+            .build()?;
+        let server = node
+            .create_action_server::<TestAction>("sim_clock_action")
+            .build()?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let server_task = tokio::spawn(async move {
+            let accepted = server.recv_goal().await.unwrap().accept();
+            assert_eq!(
+                accepted.info().stamp,
+                Time {
+                    sec: 42,
+                    nanosec: 123
+                }
+            );
+        });
+        let _goal = timeout(
+            Duration::from_secs(2),
+            client.send_goal(TestGoal { order: 1 }),
+        )
+        .await
+        .expect("send goal timed out")?;
+        server_task.await.unwrap();
+        Ok(())
     }
 
     async fn send_cancel_request(

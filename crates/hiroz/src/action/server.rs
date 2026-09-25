@@ -81,6 +81,7 @@ pub(crate) struct InnerServer<A: ZAction> {
     /// Token to cancel the default result handler when switching to full driver mode
     pub(crate) result_handler_token: CancellationToken,
     pub(crate) cancel_dispatcher: Arc<CancelDispatcher>,
+    pub(crate) clock: crate::time::ZClock,
 }
 
 /// Drop guard that triggers shutdown when the last server handle is dropped.
@@ -408,6 +409,7 @@ where
             default_result: A::Result::default,
             result_handler_token: result_handler_token.clone(),
             cancel_dispatcher: Arc::new(CancelDispatcher::new()),
+            clock: self.node.clock().clone(),
         });
 
         // Spawn background task to handle result requests (default mode for manual goal handling)
@@ -1083,7 +1085,7 @@ impl<A: ZAction> GoalHandle<A, Requested> {
     ///
     /// This sends an acceptance response to the client and updates the server state.
     pub fn accept(mut self) -> GoalHandle<A, Accepted> {
-        self.info.stamp = super::Time::now();
+        self.info.stamp = time_from_clock(&self.server.inner.clock);
         let cancel_flag = Arc::new(AtomicBool::new(false));
         // Insert before replying because a client may request the result immediately.
         self.server.goal_manager().modify(|manager| {
@@ -1157,6 +1159,38 @@ impl<A: ZAction> GoalHandle<A, Requested> {
         }
         self.cleanup.disarm();
         Ok(())
+    }
+}
+
+fn time_from_clock(clock: &crate::time::ZClock) -> super::Time {
+    let nanos = u64::try_from(clock.now().as_unix_nanos()).unwrap_or_default();
+    let seconds = nanos / 1_000_000_000;
+    super::Time {
+        sec: i32::try_from(seconds).unwrap_or(i32::MAX),
+        nanosec: (nanos % 1_000_000_000) as u32,
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::*;
+    use crate::action::Time;
+    use crate::time::{ZClock, ZTime};
+
+    #[test]
+    fn action_time_uses_zero_and_configured_simulated_time() {
+        let clock = ZClock::simulated(ZTime::zero());
+        assert_eq!(time_from_clock(&clock), Time::zero());
+        clock
+            .set_time(ZTime::from_unix_nanos(42_000_000_123))
+            .unwrap();
+        assert_eq!(
+            time_from_clock(&clock),
+            Time {
+                sec: 42,
+                nanosec: 123,
+            }
+        );
     }
 }
 
