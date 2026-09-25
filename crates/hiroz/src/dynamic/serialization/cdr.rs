@@ -84,6 +84,8 @@ fn serialize_value(
         (DynamicValue::Int32(v), FieldType::Int32) => writer.write_i32(*v),
         (DynamicValue::Int64(v), FieldType::Int64) => writer.write_i64(*v),
         (DynamicValue::Uint8(v), FieldType::Uint8) => writer.write_u8(*v),
+        (DynamicValue::Uint8(v), FieldType::Char) => writer.write_u8(*v),
+        (DynamicValue::Uint8(v), FieldType::Byte) => writer.write_u8(*v),
         (DynamicValue::Uint16(v), FieldType::Uint16) => writer.write_u16(*v),
         (DynamicValue::Uint32(v), FieldType::Uint32) => writer.write_u32(*v),
         (DynamicValue::Uint64(v), FieldType::Uint64) => writer.write_u64(*v),
@@ -117,7 +119,10 @@ fn serialize_value(
 
         // Optimized byte array
         (DynamicValue::Bytes(bytes), FieldType::Sequence(inner))
-            if matches!(**inner, FieldType::Uint8) =>
+            if matches!(
+                **inner,
+                FieldType::Uint8 | FieldType::Char | FieldType::Byte
+            ) =>
         {
             writer.write_bytes(bytes);
         }
@@ -161,7 +166,9 @@ fn deserialize_value<BO: ByteOrder>(
         FieldType::Int16 => Ok(DynamicValue::Int16(reader.read_i16().map_err(map_cdr_err)?)),
         FieldType::Int32 => Ok(DynamicValue::Int32(reader.read_i32().map_err(map_cdr_err)?)),
         FieldType::Int64 => Ok(DynamicValue::Int64(reader.read_i64().map_err(map_cdr_err)?)),
-        FieldType::Uint8 => Ok(DynamicValue::Uint8(reader.read_u8().map_err(map_cdr_err)?)),
+        FieldType::Uint8 | FieldType::Char | FieldType::Byte => {
+            Ok(DynamicValue::Uint8(reader.read_u8().map_err(map_cdr_err)?))
+        }
         FieldType::Uint16 => Ok(DynamicValue::Uint16(
             reader.read_u16().map_err(map_cdr_err)?,
         )),
@@ -193,7 +200,10 @@ fn deserialize_value<BO: ByteOrder>(
         // Sequence
         FieldType::Sequence(inner) => {
             // Optimize for byte arrays
-            if matches!(**inner, FieldType::Uint8) {
+            if matches!(
+                **inner,
+                FieldType::Uint8 | FieldType::Char | FieldType::Byte
+            ) {
                 let bytes = reader.read_byte_sequence().map_err(map_cdr_err)?.to_vec();
                 return Ok(DynamicValue::Bytes(bytes));
             }
@@ -209,7 +219,10 @@ fn deserialize_value<BO: ByteOrder>(
         // Bounded sequence
         FieldType::BoundedSequence(inner, _max) => {
             // Same handling as unbounded sequence for deserialization
-            if matches!(**inner, FieldType::Uint8) {
+            if matches!(
+                **inner,
+                FieldType::Uint8 | FieldType::Char | FieldType::Byte
+            ) {
                 let bytes = reader.read_byte_sequence().map_err(map_cdr_err)?.to_vec();
                 return Ok(DynamicValue::Bytes(bytes));
             }

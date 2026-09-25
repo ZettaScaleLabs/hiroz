@@ -158,7 +158,8 @@ fn convert_base_type(
     // Check if it's a primitive type
     match base_type {
         "bool" => return Ok(FieldType::Bool),
-        "int8" | "byte" => return Ok(FieldType::Int8),
+        "int8" => return Ok(FieldType::Int8),
+        "byte" => return Ok(FieldType::Byte),
         "int16" => return Ok(FieldType::Int16),
         "int32" => return Ok(FieldType::Int32),
         "int64" => return Ok(FieldType::Int64),
@@ -393,6 +394,15 @@ mod embedded_tests {
             src.contains("string data"),
             "embedded source does not look like the real definition: {src:?}"
         );
+    }
+
+    #[test]
+    fn legacy_char_loads_as_uint8_schema() {
+        let schema = load_schema("std_msgs/msg/Char").expect("std_msgs/msg/Char must resolve");
+        assert!(matches!(
+            schema.field("data").expect("Char.data").field_type,
+            FieldType::Uint8
+        ));
     }
 
     #[test]

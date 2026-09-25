@@ -1,10 +1,10 @@
 //! ROS 2 Type ID Constants
 //!
 //! Type IDs follow the ROS 2 RIHS01 specification:
-//! - 1-15: Single primitives
-//! - 49-63: Fixed arrays (base + 48)
-//! - 97-111: Bounded sequences (base + 96)
-//! - 145-159: Unbounded sequences (base + 144)
+//! - 1-48: Single-value type-ID range
+//! - 49-96: Fixed arrays (base + 48)
+//! - 97-144: Bounded sequences (base + 96)
+//! - 145-192: Unbounded sequences (base + 144)
 //!
 //! Special type IDs:
 //! - 1, 49, 97, 145: Nested message types
@@ -13,13 +13,13 @@
 pub struct TypeId;
 
 impl TypeId {
-    // ===== Single Primitives (1-17) =====
+    // ===== Single Values (1-48; defined primitives occupy selected IDs) =====
 
     /// Nested message type (single)
     pub const NESTED_TYPE: u8 = 1;
     /// int8 (single)
     pub const INT8: u8 = 2;
-    /// uint8/byte/char (single)
+    /// uint8 (single)
     pub const UINT8: u8 = 3;
     /// int16 (single)
     pub const INT16: u8 = 4;
@@ -37,9 +37,11 @@ impl TypeId {
     pub const FLOAT32: u8 = 10;
     /// float64 (single)
     pub const FLOAT64: u8 = 11;
+    /// native IDL char (single)
+    pub const CHAR: u8 = 13;
     /// bool (single)
     pub const BOOL: u8 = 15;
-    /// byte (alias for uint8)
+    /// IDL byte (single)
     pub const BYTE: u8 = 16;
     /// string (single)
     pub const STRING: u8 = 17;
@@ -54,14 +56,18 @@ impl TypeId {
     /// bounded wstring (single)
     pub const BOUNDED_WSTRING: u8 = 22;
 
-    // ===== Fixed Arrays (49-65) = base + 48 =====
+    // ===== Fixed Arrays (49-96) = base + 48 =====
 
     /// Nested message type (fixed array)
     pub const NESTED_TYPE_ARRAY: u8 = 49;
     /// int8 (fixed array)
     pub const INT8_ARRAY: u8 = 50;
-    /// uint8/byte/char (fixed array)
+    /// uint8 (fixed array)
     pub const UINT8_ARRAY: u8 = 51;
+    /// native IDL char (fixed array)
+    pub const CHAR_ARRAY: u8 = Self::CHAR + Self::ARRAY_OFFSET;
+    /// byte (fixed array)
+    pub const BYTE_ARRAY: u8 = Self::BYTE + Self::ARRAY_OFFSET;
     /// int16 (fixed array)
     pub const INT16_ARRAY: u8 = 52;
     /// uint16 (fixed array)
@@ -82,15 +88,21 @@ impl TypeId {
     pub const BOOL_ARRAY: u8 = 63;
     /// string (fixed array)
     pub const STRING_ARRAY: u8 = 65;
+    /// bounded string (fixed array)
+    pub const BOUNDED_STRING_ARRAY: u8 = Self::BOUNDED_STRING + Self::ARRAY_OFFSET;
 
-    // ===== Bounded Sequences (97-113) = base + 96 =====
+    // ===== Bounded Sequences (97-144) = base + 96 =====
 
     /// Nested message type (bounded sequence)
     pub const NESTED_TYPE_BOUNDED_SEQUENCE: u8 = 97;
     /// int8 (bounded sequence)
     pub const INT8_BOUNDED_SEQUENCE: u8 = 98;
-    /// uint8/byte/char (bounded sequence)
+    /// uint8 (bounded sequence)
     pub const UINT8_BOUNDED_SEQUENCE: u8 = 99;
+    /// native IDL char (bounded sequence)
+    pub const CHAR_BOUNDED_SEQUENCE: u8 = Self::CHAR + Self::BOUNDED_SEQUENCE_OFFSET;
+    /// byte (bounded sequence)
+    pub const BYTE_BOUNDED_SEQUENCE: u8 = Self::BYTE + Self::BOUNDED_SEQUENCE_OFFSET;
     /// int16 (bounded sequence)
     pub const INT16_BOUNDED_SEQUENCE: u8 = 100;
     /// uint16 (bounded sequence)
@@ -111,15 +123,22 @@ impl TypeId {
     pub const BOOL_BOUNDED_SEQUENCE: u8 = 111;
     /// string (bounded sequence)
     pub const STRING_BOUNDED_SEQUENCE: u8 = 113;
+    /// bounded string (bounded sequence)
+    pub const BOUNDED_STRING_BOUNDED_SEQUENCE: u8 =
+        Self::BOUNDED_STRING + Self::BOUNDED_SEQUENCE_OFFSET;
 
-    // ===== Unbounded Sequences (145-161) = base + 144 =====
+    // ===== Unbounded Sequences (145-192) = base + 144 =====
 
     /// Nested message type (unbounded sequence)
     pub const NESTED_TYPE_UNBOUNDED_SEQUENCE: u8 = 145;
     /// int8 (unbounded sequence)
     pub const INT8_UNBOUNDED_SEQUENCE: u8 = 146;
-    /// uint8/byte/char (unbounded sequence)
+    /// uint8 (unbounded sequence)
     pub const UINT8_UNBOUNDED_SEQUENCE: u8 = 147;
+    /// native IDL char (unbounded sequence)
+    pub const CHAR_UNBOUNDED_SEQUENCE: u8 = Self::CHAR + Self::UNBOUNDED_SEQUENCE_OFFSET;
+    /// byte (unbounded sequence)
+    pub const BYTE_UNBOUNDED_SEQUENCE: u8 = Self::BYTE + Self::UNBOUNDED_SEQUENCE_OFFSET;
     /// int16 (unbounded sequence)
     pub const INT16_UNBOUNDED_SEQUENCE: u8 = 148;
     /// uint16 (unbounded sequence)
@@ -140,6 +159,9 @@ impl TypeId {
     pub const BOOL_UNBOUNDED_SEQUENCE: u8 = 159;
     /// string (unbounded sequence)
     pub const STRING_UNBOUNDED_SEQUENCE: u8 = 161;
+    /// bounded string (unbounded sequence)
+    pub const BOUNDED_STRING_UNBOUNDED_SEQUENCE: u8 =
+        Self::BOUNDED_STRING + Self::UNBOUNDED_SEQUENCE_OFFSET;
 
     // ===== Offset Constants =====
 
@@ -160,22 +182,23 @@ impl TypeId {
 
     /// Check if a type ID is an array (fixed size)
     pub const fn is_array(type_id: u8) -> bool {
-        type_id >= 49 && type_id <= 65
+        type_id > Self::ARRAY_OFFSET && type_id <= Self::BOUNDED_SEQUENCE_OFFSET
     }
 
     /// Check if a type ID is a bounded sequence
     pub const fn is_bounded_sequence(type_id: u8) -> bool {
-        type_id >= 97 && type_id <= 113
+        type_id > Self::BOUNDED_SEQUENCE_OFFSET && type_id <= Self::UNBOUNDED_SEQUENCE_OFFSET
     }
 
     /// Check if a type ID is an unbounded sequence
     pub const fn is_unbounded_sequence(type_id: u8) -> bool {
-        type_id >= 145 && type_id <= 161
+        type_id > Self::UNBOUNDED_SEQUENCE_OFFSET
+            && type_id <= Self::UNBOUNDED_SEQUENCE_OFFSET + Self::ARRAY_OFFSET
     }
 
     /// Check if a type ID is a single (non-array, non-sequence) value
     pub const fn is_single(type_id: u8) -> bool {
-        type_id >= 1 && type_id <= 17
+        type_id >= 1 && type_id <= Self::ARRAY_OFFSET
     }
 
     /// Get the base type ID (strip array/sequence modifier)
@@ -197,6 +220,7 @@ impl TypeId {
             Self::NESTED_TYPE => Some("nested"),
             Self::INT8 => Some("int8"),
             Self::UINT8 => Some("uint8"),
+            Self::CHAR => Some("char"),
             Self::INT16 => Some("int16"),
             Self::UINT16 => Some("uint16"),
             Self::INT32 => Some("int32"),
@@ -207,6 +231,7 @@ impl TypeId {
             Self::FLOAT64 => Some("float64"),
             Self::BOOL => Some("bool"),
             Self::STRING => Some("string"),
+            Self::BOUNDED_STRING => Some("bounded_string"),
             _ => None,
         }
     }
@@ -258,6 +283,27 @@ mod tests {
             TypeId::base_type(TypeId::INT32_UNBOUNDED_SEQUENCE),
             TypeId::INT32
         );
+        assert!(TypeId::is_single(TypeId::BOUNDED_STRING));
+        assert!(TypeId::is_array(TypeId::BOUNDED_STRING_ARRAY));
+        assert!(TypeId::is_bounded_sequence(
+            TypeId::BOUNDED_STRING_BOUNDED_SEQUENCE
+        ));
+        assert!(TypeId::is_unbounded_sequence(
+            TypeId::BOUNDED_STRING_UNBOUNDED_SEQUENCE
+        ));
+        assert_eq!(TypeId::base_type(TypeId::CHAR_ARRAY), TypeId::CHAR);
+        assert!(TypeId::is_single(48));
+        assert!(TypeId::is_array(49));
+        assert!(TypeId::is_array(96));
+        assert!(TypeId::is_bounded_sequence(97));
+        assert!(TypeId::is_bounded_sequence(144));
+        assert!(TypeId::is_unbounded_sequence(145));
+        assert!(TypeId::is_unbounded_sequence(192));
+        assert!(!TypeId::is_single(0));
+        assert!(!TypeId::is_array(48));
+        assert!(!TypeId::is_bounded_sequence(96));
+        assert!(!TypeId::is_unbounded_sequence(193));
+        assert!(!TypeId::is_unbounded_sequence(255));
     }
 
     #[test]

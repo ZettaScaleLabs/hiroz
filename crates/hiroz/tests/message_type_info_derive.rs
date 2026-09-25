@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 mod common;
 use common::TestRouter;
+use hiroz_msgs::std_msgs::Char as RosChar;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, hiroz::MessageTypeInfo)]
 #[ros_msg(type_name = "custom_msgs/msg/Position2D")]
@@ -101,6 +102,23 @@ fn derive_generates_type_info_and_schema() {
         assert_eq!(RobotTelemetry::type_hash(), TypeHash::zero());
         assert!(schema.type_hash.is_none());
     }
+}
+
+#[test]
+fn generated_legacy_char_schema_keeps_ros_uint8_identity() {
+    let schema = RosChar::message_schema().expect("schema should be generated");
+    assert!(matches!(
+        schema.field("data").unwrap().field_type,
+        FieldType::Uint8
+    ));
+    assert_eq!(
+        schema.compute_type_hash().unwrap().to_rihs_string(),
+        "RIHS01_3ad2d04dd29ba19d04b16659afa3ccaedd691914b02a64e82e252f2fa6a586a9"
+    );
+    assert_eq!(
+        RosChar::type_hash().to_rihs_string(),
+        schema.compute_type_hash().unwrap().to_rihs_string()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

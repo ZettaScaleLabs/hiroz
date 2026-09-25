@@ -218,7 +218,7 @@ pub fn default_for_type(field_type: &FieldType) -> DynamicValue {
         FieldType::Int16 => DynamicValue::Int16(0),
         FieldType::Int32 => DynamicValue::Int32(0),
         FieldType::Int64 => DynamicValue::Int64(0),
-        FieldType::Uint8 => DynamicValue::Uint8(0),
+        FieldType::Uint8 | FieldType::Char | FieldType::Byte => DynamicValue::Uint8(0),
         FieldType::Uint16 => DynamicValue::Uint16(0),
         FieldType::Uint32 => DynamicValue::Uint32(0),
         FieldType::Uint64 => DynamicValue::Uint64(0),

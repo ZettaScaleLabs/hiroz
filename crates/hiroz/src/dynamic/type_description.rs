@@ -143,6 +143,8 @@ fn field_type_to_description(field_type: &FieldType) -> Result<FieldTypeDescript
         FieldType::Int32 => Ok(FieldTypeDescription::primitive(TypeId::INT32)),
         FieldType::Int64 => Ok(FieldTypeDescription::primitive(TypeId::INT64)),
         FieldType::Uint8 => Ok(FieldTypeDescription::primitive(TypeId::UINT8)),
+        FieldType::Char => Ok(FieldTypeDescription::primitive(TypeId::CHAR)),
+        FieldType::Byte => Ok(FieldTypeDescription::primitive(TypeId::BYTE)),
         FieldType::Uint16 => Ok(FieldTypeDescription::primitive(TypeId::UINT16)),
         FieldType::Uint32 => Ok(FieldTypeDescription::primitive(TypeId::UINT32)),
         FieldType::Uint64 => Ok(FieldTypeDescription::primitive(TypeId::UINT64)),
@@ -152,7 +154,7 @@ fn field_type_to_description(field_type: &FieldType) -> Result<FieldTypeDescript
 
         // Bounded string
         FieldType::BoundedString(capacity) => Ok(FieldTypeDescription {
-            type_id: TypeId::STRING,
+            type_id: TypeId::BOUNDED_STRING,
             capacity: 0,
             string_capacity: *capacity as u64,
             nested_type_name: String::new(),
@@ -169,15 +171,13 @@ fn field_type_to_description(field_type: &FieldType) -> Result<FieldTypeDescript
             let base_type_id = get_base_type_id(inner)?;
             let array_type_id = base_type_id + TypeId::ARRAY_OFFSET;
 
-            if let FieldType::Message(schema) = inner.as_ref() {
-                Ok(FieldTypeDescription::nested_array(
-                    array_type_id,
-                    *size as u64,
-                    &schema.type_name,
-                ))
+            let mut description = if let FieldType::Message(schema) = inner.as_ref() {
+                FieldTypeDescription::nested_array(array_type_id, *size as u64, &schema.type_name)
             } else {
-                Ok(FieldTypeDescription::array(array_type_id, *size as u64))
-            }
+                FieldTypeDescription::array(array_type_id, *size as u64)
+            };
+            description.string_capacity = bounded_string_capacity(inner);
+            Ok(description)
         }
 
         // Unbounded sequence
@@ -188,7 +188,9 @@ fn field_type_to_description(field_type: &FieldType) -> Result<FieldTypeDescript
             if let FieldType::Message(schema) = inner.as_ref() {
                 Ok(FieldTypeDescription::nested(seq_type_id, &schema.type_name))
             } else {
-                Ok(FieldTypeDescription::primitive(seq_type_id))
+                let mut description = FieldTypeDescription::primitive(seq_type_id);
+                description.string_capacity = bounded_string_capacity(inner);
+                Ok(description)
             }
         }
 
@@ -197,15 +199,13 @@ fn field_type_to_description(field_type: &FieldType) -> Result<FieldTypeDescript
             let base_type_id = get_base_type_id(inner)?;
             let seq_type_id = base_type_id + TypeId::BOUNDED_SEQUENCE_OFFSET;
 
-            if let FieldType::Message(schema) = inner.as_ref() {
-                Ok(FieldTypeDescription::nested_array(
-                    seq_type_id,
-                    *capacity as u64,
-                    &schema.type_name,
-                ))
+            let mut description = if let FieldType::Message(schema) = inner.as_ref() {
+                FieldTypeDescription::nested_array(seq_type_id, *capacity as u64, &schema.type_name)
             } else {
-                Ok(FieldTypeDescription::array(seq_type_id, *capacity as u64))
-            }
+                FieldTypeDescription::array(seq_type_id, *capacity as u64)
+            };
+            description.string_capacity = bounded_string_capacity(inner);
+            Ok(description)
         }
     }
 }
@@ -219,17 +219,27 @@ fn get_base_type_id(field_type: &FieldType) -> Result<u8, DynamicError> {
         FieldType::Int32 => Ok(TypeId::INT32),
         FieldType::Int64 => Ok(TypeId::INT64),
         FieldType::Uint8 => Ok(TypeId::UINT8),
+        FieldType::Char => Ok(TypeId::CHAR),
+        FieldType::Byte => Ok(TypeId::BYTE),
         FieldType::Uint16 => Ok(TypeId::UINT16),
         FieldType::Uint32 => Ok(TypeId::UINT32),
         FieldType::Uint64 => Ok(TypeId::UINT64),
         FieldType::Float32 => Ok(TypeId::FLOAT32),
         FieldType::Float64 => Ok(TypeId::FLOAT64),
-        FieldType::String | FieldType::BoundedString(_) => Ok(TypeId::STRING),
+        FieldType::String => Ok(TypeId::STRING),
+        FieldType::BoundedString(_) => Ok(TypeId::BOUNDED_STRING),
         FieldType::Message(_) => Ok(TypeId::NESTED_TYPE),
         // For nested arrays/sequences, we get the innermost type
         FieldType::Array(inner, _)
         | FieldType::Sequence(inner)
         | FieldType::BoundedSequence(inner, _) => get_base_type_id(inner),
+    }
+}
+
+fn bounded_string_capacity(field_type: &FieldType) -> u64 {
+    match field_type {
+        FieldType::BoundedString(capacity) => *capacity as u64,
+        _ => 0,
     }
 }
 
@@ -354,18 +364,15 @@ fn field_type_description_to_type(
         TypeId::INT32 => FieldType::Int32,
         TypeId::INT64 => FieldType::Int64,
         TypeId::UINT8 => FieldType::Uint8,
+        TypeId::CHAR => FieldType::Char,
+        TypeId::BYTE => FieldType::Byte,
         TypeId::UINT16 => FieldType::Uint16,
         TypeId::UINT32 => FieldType::Uint32,
         TypeId::UINT64 => FieldType::Uint64,
         TypeId::FLOAT32 => FieldType::Float32,
         TypeId::FLOAT64 => FieldType::Float64,
-        TypeId::STRING => {
-            if ftd.string_capacity > 0 {
-                FieldType::BoundedString(ftd.string_capacity as usize)
-            } else {
-                FieldType::String
-            }
-        }
+        TypeId::STRING => FieldType::String,
+        TypeId::BOUNDED_STRING => FieldType::BoundedString(ftd.string_capacity as usize),
         TypeId::NESTED_TYPE => {
             let schema = type_map.get(&ftd.nested_type_name).ok_or_else(|| {
                 DynamicError::FieldNotFound(format!(
@@ -595,8 +602,82 @@ mod tests {
             .unwrap();
 
         let td = schema.to_type_description().unwrap();
-        assert_eq!(td.fields[0].field_type.type_id, TypeId::STRING);
+        assert_eq!(td.fields[0].field_type.type_id, TypeId::BOUNDED_STRING);
         assert_eq!(td.fields[0].field_type.string_capacity, 256);
+    }
+
+    #[test]
+    fn test_byte_and_bounded_string_collection_descriptions_roundtrip() {
+        let schema = MessageSchema::builder("test_msgs/msg/ScalarAliases")
+            .field("byte_value", FieldType::Byte)
+            .field("native_char", FieldType::Char)
+            .field("bytes", FieldType::Array(Box::new(FieldType::Byte), 3))
+            .field("bounded", FieldType::BoundedString(12))
+            .field(
+                "bounded_values",
+                FieldType::BoundedSequence(Box::new(FieldType::BoundedString(12)), 4),
+            )
+            .build()
+            .unwrap();
+
+        let description = schema.to_type_description().unwrap();
+        assert_eq!(description.fields[0].field_type.type_id, TypeId::BYTE);
+        assert_eq!(description.fields[1].field_type.type_id, TypeId::CHAR);
+        assert_eq!(description.fields[2].field_type.type_id, TypeId::BYTE_ARRAY);
+        assert_eq!(
+            description.fields[3].field_type.type_id,
+            TypeId::BOUNDED_STRING
+        );
+        assert_eq!(description.fields[3].field_type.string_capacity, 12);
+        assert_eq!(
+            description.fields[4].field_type.type_id,
+            TypeId::BOUNDED_STRING + TypeId::BOUNDED_SEQUENCE_OFFSET
+        );
+        assert_eq!(description.fields[4].field_type.string_capacity, 12);
+
+        let msg = schema.to_type_description_msg().unwrap();
+        let restored = type_description_msg_to_schema(&msg).unwrap();
+        assert_eq!(restored.fields[0].field_type, FieldType::Byte);
+        assert_eq!(restored.fields[1].field_type, FieldType::Char);
+        assert_eq!(restored.fields[3].field_type, FieldType::BoundedString(12));
+        assert_eq!(
+            restored.fields[4].field_type,
+            FieldType::BoundedSequence(Box::new(FieldType::BoundedString(12)), 4)
+        );
+    }
+
+    #[test]
+    fn test_byte_hash_matches_ros_fixture() {
+        let schema = MessageSchema::builder("example_interfaces/msg/Byte")
+            .field("data", FieldType::Byte)
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            schema.compute_type_hash().unwrap().to_rihs_string(),
+            "RIHS01_f014e0424be54b8ba7c35490aea4198be92df1de4e88f4e19a2fbbce2e020bb9"
+        );
+    }
+
+    #[test]
+    fn test_standard_byte_and_legacy_char_hashes() {
+        let byte = MessageSchema::builder("std_msgs/msg/Byte")
+            .field("data", FieldType::Byte)
+            .build()
+            .unwrap();
+        assert_eq!(
+            byte.compute_type_hash().unwrap().to_rihs_string(),
+            "RIHS01_41e1a3345f73fe93ede006da826a6ee274af23dd4653976ff249b0f44e3e798f"
+        );
+
+        let legacy_char = MessageSchema::builder("std_msgs/msg/Char")
+            .field("data", FieldType::Uint8)
+            .build()
+            .unwrap();
+        assert_eq!(
+            legacy_char.compute_type_hash().unwrap().to_rihs_string(),
+            "RIHS01_3ad2d04dd29ba19d04b16659afa3ccaedd691914b02a64e82e252f2fa6a586a9"
+        );
     }
 
     #[test]
