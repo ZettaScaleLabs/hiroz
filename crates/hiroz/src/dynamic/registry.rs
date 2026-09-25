@@ -135,11 +135,18 @@ fn convert_field_type(
 ) -> Result<FieldType, DynamicError> {
     use hiroz_codegen::types::ArrayType;
 
-    let base_type = convert_base_type(
-        &field.field_type.base_type,
-        &field.field_type.package,
-        resolver,
-    )?;
+    let base_type = match (
+        field.field_type.base_type.as_str(),
+        field.field_type.string_bound,
+    ) {
+        ("string", Some(bound)) => FieldType::BoundedString(bound),
+        ("wstring", Some(bound)) => FieldType::BoundedWString(bound),
+        _ => convert_base_type(
+            &field.field_type.base_type,
+            &field.field_type.package,
+            resolver,
+        )?,
+    };
 
     match &field.field_type.array {
         ArrayType::Single => Ok(base_type),
@@ -165,11 +172,13 @@ fn convert_base_type(
         "int64" => return Ok(FieldType::Int64),
         "uint8" | "char" => return Ok(FieldType::Uint8),
         "uint16" => return Ok(FieldType::Uint16),
+        "wchar" => return Ok(FieldType::WChar),
         "uint32" => return Ok(FieldType::Uint32),
         "uint64" => return Ok(FieldType::Uint64),
         "float32" => return Ok(FieldType::Float32),
         "float64" => return Ok(FieldType::Float64),
         "string" => return Ok(FieldType::String),
+        "wstring" => return Ok(FieldType::WString),
         _ => {}
     }
 
@@ -178,6 +187,12 @@ fn convert_base_type(
         && let Ok(max_len) = rest.parse::<usize>()
     {
         return Ok(FieldType::BoundedString(max_len));
+    }
+
+    if let Some(rest) = base_type.strip_prefix("wstring<=")
+        && let Ok(max_len) = rest.parse::<usize>()
+    {
+        return Ok(FieldType::BoundedWString(max_len));
     }
 
     // It's a message type - resolve it
@@ -403,6 +418,42 @@ mod embedded_tests {
             schema.field("data").expect("Char.data").field_type,
             FieldType::Uint8
         ));
+    }
+
+    #[test]
+    fn parsed_bounded_strings_preserve_bounds_in_all_collection_forms() {
+        let parsed = hiroz_codegen::parser::msg::parse_msg_string(
+            "string<=5 narrow\n\
+             wstring<=6 wide\n\
+             wstring<=6[2] fixed\n\
+             wstring<=6[<=3] bounded\n\
+             wstring<=6[] unbounded\n",
+            "test_msgs",
+            std::path::Path::new("Wide.msg"),
+        )
+        .unwrap();
+        let schema = parsed_message_to_schema(&parsed, &|_, _| None).unwrap();
+
+        assert_eq!(
+            schema.field("narrow").unwrap().field_type,
+            FieldType::BoundedString(5)
+        );
+        assert_eq!(
+            schema.field("wide").unwrap().field_type,
+            FieldType::BoundedWString(6)
+        );
+        assert_eq!(
+            schema.field("fixed").unwrap().field_type,
+            FieldType::Array(Box::new(FieldType::BoundedWString(6)), 2)
+        );
+        assert_eq!(
+            schema.field("bounded").unwrap().field_type,
+            FieldType::BoundedSequence(Box::new(FieldType::BoundedWString(6)), 3)
+        );
+        assert_eq!(
+            schema.field("unbounded").unwrap().field_type,
+            FieldType::Sequence(Box::new(FieldType::BoundedWString(6)))
+        );
     }
 
     #[test]

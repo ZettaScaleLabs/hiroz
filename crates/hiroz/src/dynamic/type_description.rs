@@ -144,6 +144,7 @@ fn field_type_to_description(field_type: &FieldType) -> Result<FieldTypeDescript
         FieldType::Int64 => Ok(FieldTypeDescription::primitive(TypeId::INT64)),
         FieldType::Uint8 => Ok(FieldTypeDescription::primitive(TypeId::UINT8)),
         FieldType::Char => Ok(FieldTypeDescription::primitive(TypeId::CHAR)),
+        FieldType::WChar => Ok(FieldTypeDescription::primitive(TypeId::WCHAR)),
         FieldType::Byte => Ok(FieldTypeDescription::primitive(TypeId::BYTE)),
         FieldType::Uint16 => Ok(FieldTypeDescription::primitive(TypeId::UINT16)),
         FieldType::Uint32 => Ok(FieldTypeDescription::primitive(TypeId::UINT32)),
@@ -151,10 +152,17 @@ fn field_type_to_description(field_type: &FieldType) -> Result<FieldTypeDescript
         FieldType::Float32 => Ok(FieldTypeDescription::primitive(TypeId::FLOAT32)),
         FieldType::Float64 => Ok(FieldTypeDescription::primitive(TypeId::FLOAT64)),
         FieldType::String => Ok(FieldTypeDescription::primitive(TypeId::STRING)),
+        FieldType::WString => Ok(FieldTypeDescription::primitive(TypeId::WSTRING)),
 
         // Bounded string
         FieldType::BoundedString(capacity) => Ok(FieldTypeDescription {
             type_id: TypeId::BOUNDED_STRING,
+            capacity: 0,
+            string_capacity: *capacity as u64,
+            nested_type_name: String::new(),
+        }),
+        FieldType::BoundedWString(capacity) => Ok(FieldTypeDescription {
+            type_id: TypeId::BOUNDED_WSTRING,
             capacity: 0,
             string_capacity: *capacity as u64,
             nested_type_name: String::new(),
@@ -220,6 +228,7 @@ fn get_base_type_id(field_type: &FieldType) -> Result<u8, DynamicError> {
         FieldType::Int64 => Ok(TypeId::INT64),
         FieldType::Uint8 => Ok(TypeId::UINT8),
         FieldType::Char => Ok(TypeId::CHAR),
+        FieldType::WChar => Ok(TypeId::WCHAR),
         FieldType::Byte => Ok(TypeId::BYTE),
         FieldType::Uint16 => Ok(TypeId::UINT16),
         FieldType::Uint32 => Ok(TypeId::UINT32),
@@ -227,7 +236,9 @@ fn get_base_type_id(field_type: &FieldType) -> Result<u8, DynamicError> {
         FieldType::Float32 => Ok(TypeId::FLOAT32),
         FieldType::Float64 => Ok(TypeId::FLOAT64),
         FieldType::String => Ok(TypeId::STRING),
+        FieldType::WString => Ok(TypeId::WSTRING),
         FieldType::BoundedString(_) => Ok(TypeId::BOUNDED_STRING),
+        FieldType::BoundedWString(_) => Ok(TypeId::BOUNDED_WSTRING),
         FieldType::Message(_) => Ok(TypeId::NESTED_TYPE),
         // For nested arrays/sequences, we get the innermost type
         FieldType::Array(inner, _)
@@ -238,7 +249,9 @@ fn get_base_type_id(field_type: &FieldType) -> Result<u8, DynamicError> {
 
 fn bounded_string_capacity(field_type: &FieldType) -> u64 {
     match field_type {
-        FieldType::BoundedString(capacity) => *capacity as u64,
+        FieldType::BoundedString(capacity) | FieldType::BoundedWString(capacity) => {
+            *capacity as u64
+        }
         _ => 0,
     }
 }
@@ -365,6 +378,7 @@ fn field_type_description_to_type(
         TypeId::INT64 => FieldType::Int64,
         TypeId::UINT8 => FieldType::Uint8,
         TypeId::CHAR => FieldType::Char,
+        TypeId::WCHAR => FieldType::WChar,
         TypeId::BYTE => FieldType::Byte,
         TypeId::UINT16 => FieldType::Uint16,
         TypeId::UINT32 => FieldType::Uint32,
@@ -372,7 +386,9 @@ fn field_type_description_to_type(
         TypeId::FLOAT32 => FieldType::Float32,
         TypeId::FLOAT64 => FieldType::Float64,
         TypeId::STRING => FieldType::String,
+        TypeId::WSTRING => FieldType::WString,
         TypeId::BOUNDED_STRING => FieldType::BoundedString(ftd.string_capacity as usize),
+        TypeId::BOUNDED_WSTRING => FieldType::BoundedWString(ftd.string_capacity as usize),
         TypeId::NESTED_TYPE => {
             let schema = type_map.get(&ftd.nested_type_name).ok_or_else(|| {
                 DynamicError::FieldNotFound(format!(
@@ -656,6 +672,73 @@ mod tests {
         assert_eq!(
             schema.compute_type_hash().unwrap().to_rihs_string(),
             "RIHS01_f014e0424be54b8ba7c35490aea4198be92df1de4e88f4e19a2fbbce2e020bb9"
+        );
+    }
+
+    #[test]
+    fn test_wide_string_descriptions_and_collections_roundtrip() {
+        let schema = MessageSchema::builder("test_msgs/msg/WideTypes")
+            .field("native_wchar", FieldType::WChar)
+            .field("wide", FieldType::WString)
+            .field("bounded_wide", FieldType::BoundedWString(6))
+            .field(
+                "wide_array",
+                FieldType::Array(Box::new(FieldType::WString), 3),
+            )
+            .field(
+                "wide_values",
+                FieldType::Sequence(Box::new(FieldType::WString)),
+            )
+            .field(
+                "bounded_wide_values",
+                FieldType::BoundedSequence(Box::new(FieldType::BoundedWString(6)), 4),
+            )
+            .build()
+            .unwrap();
+
+        let description = schema.to_type_description().unwrap();
+        assert_eq!(description.fields[0].field_type.type_id, TypeId::WCHAR);
+        assert_eq!(description.fields[1].field_type.type_id, TypeId::WSTRING);
+        assert_eq!(
+            description.fields[2].field_type.type_id,
+            TypeId::BOUNDED_WSTRING
+        );
+        assert_eq!(description.fields[2].field_type.string_capacity, 6);
+        assert_eq!(
+            description.fields[3].field_type.type_id,
+            TypeId::WSTRING_ARRAY
+        );
+        assert_eq!(description.fields[3].field_type.capacity, 3);
+        assert_eq!(
+            description.fields[4].field_type.type_id,
+            TypeId::WSTRING_UNBOUNDED_SEQUENCE
+        );
+        assert_eq!(
+            description.fields[5].field_type.type_id,
+            TypeId::BOUNDED_WSTRING_BOUNDED_SEQUENCE
+        );
+        assert_eq!(description.fields[5].field_type.capacity, 4);
+        assert_eq!(description.fields[5].field_type.string_capacity, 6);
+
+        let restored =
+            type_description_msg_to_schema(&schema.to_type_description_msg().unwrap()).unwrap();
+        assert_eq!(restored.fields.len(), schema.fields.len());
+        for (restored, original) in restored.fields.iter().zip(&schema.fields) {
+            assert_eq!(restored.name, original.name);
+            assert_eq!(restored.field_type, original.field_type);
+        }
+    }
+
+    #[test]
+    fn test_wstring_hash_matches_ros_fixture() {
+        let schema = MessageSchema::builder("example_interfaces/msg/WString")
+            .field("data", FieldType::WString)
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            schema.compute_type_hash().unwrap().to_rihs_string(),
+            "RIHS01_32033e06d9dfe5468c5d6e1dc8b7a23c8910bad071cfd4e151a951d580e68dd8"
         );
     }
 

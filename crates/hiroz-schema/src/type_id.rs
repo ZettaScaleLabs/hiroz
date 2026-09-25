@@ -39,6 +39,8 @@ impl TypeId {
     pub const FLOAT64: u8 = 11;
     /// native IDL char (single)
     pub const CHAR: u8 = 13;
+    /// native IDL wchar (single)
+    pub const WCHAR: u8 = 14;
     /// bool (single)
     pub const BOOL: u8 = 15;
     /// IDL byte (single)
@@ -66,6 +68,8 @@ impl TypeId {
     pub const UINT8_ARRAY: u8 = 51;
     /// native IDL char (fixed array)
     pub const CHAR_ARRAY: u8 = Self::CHAR + Self::ARRAY_OFFSET;
+    /// native IDL wchar (fixed array)
+    pub const WCHAR_ARRAY: u8 = Self::WCHAR + Self::ARRAY_OFFSET;
     /// byte (fixed array)
     pub const BYTE_ARRAY: u8 = Self::BYTE + Self::ARRAY_OFFSET;
     /// int16 (fixed array)
@@ -90,6 +94,10 @@ impl TypeId {
     pub const STRING_ARRAY: u8 = 65;
     /// bounded string (fixed array)
     pub const BOUNDED_STRING_ARRAY: u8 = Self::BOUNDED_STRING + Self::ARRAY_OFFSET;
+    /// wstring (fixed array)
+    pub const WSTRING_ARRAY: u8 = Self::WSTRING + Self::ARRAY_OFFSET;
+    /// bounded wstring (fixed array)
+    pub const BOUNDED_WSTRING_ARRAY: u8 = Self::BOUNDED_WSTRING + Self::ARRAY_OFFSET;
 
     // ===== Bounded Sequences (97-144) = base + 96 =====
 
@@ -101,6 +109,8 @@ impl TypeId {
     pub const UINT8_BOUNDED_SEQUENCE: u8 = 99;
     /// native IDL char (bounded sequence)
     pub const CHAR_BOUNDED_SEQUENCE: u8 = Self::CHAR + Self::BOUNDED_SEQUENCE_OFFSET;
+    /// native IDL wchar (bounded sequence)
+    pub const WCHAR_BOUNDED_SEQUENCE: u8 = Self::WCHAR + Self::BOUNDED_SEQUENCE_OFFSET;
     /// byte (bounded sequence)
     pub const BYTE_BOUNDED_SEQUENCE: u8 = Self::BYTE + Self::BOUNDED_SEQUENCE_OFFSET;
     /// int16 (bounded sequence)
@@ -126,6 +136,11 @@ impl TypeId {
     /// bounded string (bounded sequence)
     pub const BOUNDED_STRING_BOUNDED_SEQUENCE: u8 =
         Self::BOUNDED_STRING + Self::BOUNDED_SEQUENCE_OFFSET;
+    /// wstring (bounded sequence)
+    pub const WSTRING_BOUNDED_SEQUENCE: u8 = Self::WSTRING + Self::BOUNDED_SEQUENCE_OFFSET;
+    /// bounded wstring (bounded sequence)
+    pub const BOUNDED_WSTRING_BOUNDED_SEQUENCE: u8 =
+        Self::BOUNDED_WSTRING + Self::BOUNDED_SEQUENCE_OFFSET;
 
     // ===== Unbounded Sequences (145-192) = base + 144 =====
 
@@ -137,6 +152,8 @@ impl TypeId {
     pub const UINT8_UNBOUNDED_SEQUENCE: u8 = 147;
     /// native IDL char (unbounded sequence)
     pub const CHAR_UNBOUNDED_SEQUENCE: u8 = Self::CHAR + Self::UNBOUNDED_SEQUENCE_OFFSET;
+    /// native IDL wchar (unbounded sequence)
+    pub const WCHAR_UNBOUNDED_SEQUENCE: u8 = Self::WCHAR + Self::UNBOUNDED_SEQUENCE_OFFSET;
     /// byte (unbounded sequence)
     pub const BYTE_UNBOUNDED_SEQUENCE: u8 = Self::BYTE + Self::UNBOUNDED_SEQUENCE_OFFSET;
     /// int16 (unbounded sequence)
@@ -162,6 +179,11 @@ impl TypeId {
     /// bounded string (unbounded sequence)
     pub const BOUNDED_STRING_UNBOUNDED_SEQUENCE: u8 =
         Self::BOUNDED_STRING + Self::UNBOUNDED_SEQUENCE_OFFSET;
+    /// wstring (unbounded sequence)
+    pub const WSTRING_UNBOUNDED_SEQUENCE: u8 = Self::WSTRING + Self::UNBOUNDED_SEQUENCE_OFFSET;
+    /// bounded wstring (unbounded sequence)
+    pub const BOUNDED_WSTRING_UNBOUNDED_SEQUENCE: u8 =
+        Self::BOUNDED_WSTRING + Self::UNBOUNDED_SEQUENCE_OFFSET;
 
     // ===== Offset Constants =====
 
@@ -221,6 +243,7 @@ impl TypeId {
             Self::INT8 => Some("int8"),
             Self::UINT8 => Some("uint8"),
             Self::CHAR => Some("char"),
+            Self::WCHAR => Some("wchar"),
             Self::INT16 => Some("int16"),
             Self::UINT16 => Some("uint16"),
             Self::INT32 => Some("int32"),
@@ -231,7 +254,9 @@ impl TypeId {
             Self::FLOAT64 => Some("float64"),
             Self::BOOL => Some("bool"),
             Self::STRING => Some("string"),
+            Self::WSTRING => Some("wstring"),
             Self::BOUNDED_STRING => Some("bounded_string"),
+            Self::BOUNDED_WSTRING => Some("bounded_wstring"),
             _ => None,
         }
     }
@@ -252,6 +277,12 @@ mod tests {
             TypeId::INT32_UNBOUNDED_SEQUENCE,
             TypeId::INT32 + TypeId::UNBOUNDED_SEQUENCE_OFFSET
         );
+        assert_eq!(TypeId::WCHAR, 14);
+        assert_eq!(TypeId::WSTRING, 18);
+        assert_eq!(TypeId::BOUNDED_WSTRING, 22);
+        assert_eq!(TypeId::WSTRING_ARRAY, 66);
+        assert_eq!(TypeId::BOUNDED_WSTRING_BOUNDED_SEQUENCE, 118);
+        assert_eq!(TypeId::WSTRING_UNBOUNDED_SEQUENCE, 162);
     }
 
     #[test]

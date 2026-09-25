@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use super::error::DynamicError;
-use super::schema::MessageSchema;
+use super::schema::{FieldType, MessageSchema};
 use super::value::{DynamicValue, FromDynamic, IntoDynamic, default_for_type};
 
 /// A ROS 2 message with runtime-determined type.
@@ -155,6 +155,7 @@ impl DynamicMessage {
             .ok_or_else(|| DynamicError::FieldNotFound(field_name.to_string()))?;
 
         if path.len() == 1 {
+            validate_wstring_bounds(&self.schema.fields[field_idx].field_type, &value)?;
             self.values[field_idx] = value;
             Ok(())
         } else {
@@ -175,7 +176,9 @@ impl DynamicMessage {
         if index >= self.values.len() {
             return Err(DynamicError::IndexOutOfBounds(index));
         }
-        self.values[index] = value.into_dynamic();
+        let value = value.into_dynamic();
+        validate_wstring_bounds(&self.schema.fields[index].field_type, &value)?;
+        self.values[index] = value;
         Ok(())
     }
 
@@ -234,7 +237,9 @@ impl DynamicMessageBuilder {
             .iter()
             .position(|f| f.name == name)
             .ok_or_else(|| DynamicError::FieldNotFound(name.to_string()))?;
-        self.values[idx] = Some(value.into_dynamic());
+        let value = value.into_dynamic();
+        validate_wstring_bounds(&self.schema.fields[idx].field_type, &value)?;
+        self.values[idx] = Some(value);
         Ok(self)
     }
 
@@ -247,7 +252,9 @@ impl DynamicMessageBuilder {
         if index >= self.values.len() {
             return Err(DynamicError::IndexOutOfBounds(index));
         }
-        self.values[index] = Some(value.into_dynamic());
+        let value = value.into_dynamic();
+        validate_wstring_bounds(&self.schema.fields[index].field_type, &value)?;
+        self.values[index] = Some(value);
         Ok(self)
     }
 
@@ -271,4 +278,35 @@ impl DynamicMessageBuilder {
             values,
         }
     }
+}
+
+fn validate_wstring_bounds(
+    field_type: &FieldType,
+    value: &DynamicValue,
+) -> Result<(), DynamicError> {
+    match (field_type, value) {
+        (FieldType::BoundedWString(max), DynamicValue::String(value)) => {
+            let actual = value.encode_utf16().count();
+            if actual > *max {
+                return Err(DynamicError::BoundExceeded { max: *max, actual });
+            }
+        }
+        (
+            FieldType::Array(inner, _)
+            | FieldType::Sequence(inner)
+            | FieldType::BoundedSequence(inner, _),
+            DynamicValue::Array(values),
+        ) => {
+            for value in values {
+                validate_wstring_bounds(inner, value)?;
+            }
+        }
+        (FieldType::Message(_), DynamicValue::Message(message)) => {
+            for (field, value) in message.schema().fields.iter().zip(message.values()) {
+                validate_wstring_bounds(&field.field_type, value)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }

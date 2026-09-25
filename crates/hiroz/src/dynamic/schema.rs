@@ -22,6 +22,8 @@ pub enum FieldType {
     Uint8,
     /// Native ROS IDL `char` (wire-compatible with uint8, distinct in descriptions).
     Char,
+    /// Native ROS IDL `wchar` (a 16-bit code unit, distinct in descriptions).
+    WChar,
     /// ROS IDL `byte` (wire-compatible with uint8, distinct in type descriptions).
     Byte,
     Uint16,
@@ -32,6 +34,10 @@ pub enum FieldType {
     String,
     /// Bounded string: string<=N
     BoundedString(usize),
+    /// ROS wide string encoded as UTF-16 code units widened to uint32 on the wire.
+    WString,
+    /// Bounded ROS wide string; the bound counts UTF-16 code units.
+    BoundedWString(usize),
 
     // Compound
     /// Nested message type
@@ -55,7 +61,7 @@ impl FieldType {
             | FieldType::Uint8
             | FieldType::Char
             | FieldType::Byte => Some(1),
-            FieldType::Int16 | FieldType::Uint16 => Some(2),
+            FieldType::Int16 | FieldType::Uint16 | FieldType::WChar => Some(2),
             FieldType::Int32 | FieldType::Uint32 | FieldType::Float32 => Some(4),
             FieldType::Int64 | FieldType::Uint64 | FieldType::Float64 => Some(8),
             FieldType::Array(inner, len) => inner.fixed_size().map(|s| s * len),
@@ -73,10 +79,13 @@ impl FieldType {
             | FieldType::Uint8
             | FieldType::Char
             | FieldType::Byte => 1,
-            FieldType::Int16 | FieldType::Uint16 => 2,
+            FieldType::Int16 | FieldType::Uint16 | FieldType::WChar => 2,
             FieldType::Int32 | FieldType::Uint32 | FieldType::Float32 => 4,
             FieldType::Int64 | FieldType::Uint64 | FieldType::Float64 => 8,
-            FieldType::String | FieldType::BoundedString(_) => 4, // length prefix
+            FieldType::String
+            | FieldType::BoundedString(_)
+            | FieldType::WString
+            | FieldType::BoundedWString(_) => 4, // length prefix
             FieldType::Array(inner, _) => inner.alignment(),
             FieldType::Sequence(_) | FieldType::BoundedSequence(_, _) => 4, // length prefix
             FieldType::Message(schema) => schema.alignment(),
@@ -96,12 +105,15 @@ impl FieldType {
                 | FieldType::Char
                 | FieldType::Byte
                 | FieldType::Uint16
+                | FieldType::WChar
                 | FieldType::Uint32
                 | FieldType::Uint64
                 | FieldType::Float32
                 | FieldType::Float64
                 | FieldType::String
                 | FieldType::BoundedString(_)
+                | FieldType::WString
+                | FieldType::BoundedWString(_)
         )
     }
 
@@ -117,6 +129,7 @@ impl FieldType {
                 | FieldType::Char
                 | FieldType::Byte
                 | FieldType::Uint16
+                | FieldType::WChar
                 | FieldType::Uint32
                 | FieldType::Uint64
                 | FieldType::Float32
