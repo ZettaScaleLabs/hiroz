@@ -351,6 +351,8 @@ mod tests {
             .await
             .expect("cancel was blocked")?;
         assert_eq!(cancel.return_code, 0);
+        assert_eq!(cancel.goals_canceling.len(), 1);
+        assert_eq!(cancel.goals_canceling[0].goal_id, first_id);
 
         let result = timeout(Duration::from_secs(2), result_task)
             .await

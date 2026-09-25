@@ -464,7 +464,12 @@ impl<A: ZAction> ZActionClient<A> {
     }
 
     pub async fn cancel_goal(&self, goal_id: GoalId) -> Result<CancelGoalServiceResponse> {
-        let goal_info = GoalInfo::new(goal_id);
+        // A nonzero timestamp also selects every goal accepted before it. A
+        // request for one UUID therefore carries the zero timestamp.
+        let goal_info = GoalInfo {
+            goal_id,
+            stamp: Time::zero(),
+        };
         let request = CancelGoalServiceRequest { goal_info };
 
         self.cancel_client.call(&request).await
