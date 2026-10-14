@@ -1262,6 +1262,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#buffer-messages-from-lyrical-publishers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Buffer messages from Lyrical publishers
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2461,6 +2472,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#buffer-messages-from-lyrical-publishers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Buffer messages from Lyrical publishers
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2556,6 +2578,25 @@ See <a href="../../reference/troubleshooting/">Troubleshooting</a> for diagnosis
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>run-example<span class="w"> </span>subscriber
 </span></code></pre></div>
 <p>For more detail see <a href="../../bindings/go-quick-start/">Go Quick Start</a>.</p>
+<hr />
+<h2 id="buffer-messages-from-lyrical-publishers">Buffer messages from Lyrical publishers<a class="headerlink" href="#buffer-messages-from-lyrical-publishers" title="Permanent link">&para;</a></h2>
+<p>A ROS 2 Lyrical <code>rmw_zenoh</code> publisher treats an unbounded <code>uint8[]</code> field as a buffer, also inside a nested message. Examples are <code>sensor_msgs/Image</code>, <code>sensor_msgs/PointCloud2</code> and <code>std_msgs/UInt8MultiArray</code>.</p>
+<p>If every matched subscriber announces buffer support, the publisher writes the message only on <code>&lt;topic key&gt;/_buf_cpu</code>. A subscriber that reads only <code>&lt;topic key&gt;</code> receives nothing.</p>
+<p>A hiroz subscriber announces buffer support when its message has such a field. Its liveliness token ends in <code>backends:cpu:</code>, and it also reads <code>&lt;topic key&gt;/_buf_cpu</code>. The payload is plain CDR, so the message type does not change.</p>
+<p>hiroz reads the field from the message schema. Generated messages and dynamic subscribers need no setup. A schema cannot tell <code>byte[]</code> from <code>uint8[]</code>, so a message with an unbounded <code>byte[]</code> also joins. That costs one idle subscription.</p>
+<p>Call <code>with_cpu_buffer_group(true)</code> for a message type without a schema. Call <code>with_cpu_buffer_group(false)</code> to opt out.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kd">let</span><span class="w"> </span><span class="n">sub</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span><span class="p">.</span><span class="n">create_sub</span><span class="p">::</span><span class="o">&lt;</span><span class="n">MyBufferMsg</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;/my_topic&quot;</span><span class="p">)</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="p">.</span><span class="n">with_cpu_buffer_group</span><span class="p">(</span><span class="kc">true</span><span class="p">)</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</span></code></pre></div>
+<p>These subscribers never join:</p>
+<ul>
+<li>Transient-local subscribers. <code>rmw_zenoh</code> serves them on the base key only.</li>
+<li>Subscribers on a custom key expression format.</li>
+<li>Subscribers without a schema: the Python binding, the feedback and status subscribers of an action client, and <code>rmw-zenoh-rs</code>.</li>
+</ul>
+<p>A key expression without wildcards matches only itself. If you use access control, allow <code>&lt;topic key&gt;/_buf_cpu</code> wherever you allow <code>&lt;topic key&gt;</code>.</p>
 
 
 

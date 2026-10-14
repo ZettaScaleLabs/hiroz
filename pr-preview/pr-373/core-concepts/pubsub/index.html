@@ -951,17 +951,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#buffer-typed-messages-from-lyrical-rmw_zenoh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Buffer-typed messages from Lyrical rmw_zenoh
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#ros-2-interoperability" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2736,17 +2725,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#buffer-typed-messages-from-lyrical-rmw_zenoh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Buffer-typed messages from Lyrical rmw_zenoh
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#ros-2-interoperability" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3213,19 +3191,9 @@ accDescr: The publisher sends two successive messages into the Zenoh transport, 
 </span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
 </span></code></pre></div>
 <p>The rule format follows the ROS 2 convention: <code>from:=to</code>.</p>
-<h2 id="buffer-typed-messages-from-lyrical-rmw_zenoh">Buffer-typed messages from Lyrical <code>rmw_zenoh</code><a class="headerlink" href="#buffer-typed-messages-from-lyrical-rmw_zenoh" title="Permanent link">&para;</a></h2>
-<p>A ROS 2 Lyrical publisher using <code>rmw_zenoh</code> sends messages with a <code>rosidl::Buffer</code> field on a separate key when a subscriber announces that it supports buffers. A subscriber that does not announce it receives nothing on those topics.</p>
-<p>hiroz announces the support for you. In Lyrical every unbounded <code>uint8[]</code> field, and every <code>char[]</code> field, is a <code>rosidl::Buffer</code>. A message has buffer fields when it has such a field itself or when a field of its own is a message that does. That covers <code>sensor_msgs/Image</code>, <code>sensor_msgs/CompressedImage</code>, <code>sensor_msgs/PointCloud2</code>, <code>std_msgs/UInt8MultiArray</code>, <code>visualization_msgs/MeshFile</code>, and also messages that contain one of them, such as <code>visualization_msgs/Marker</code>. A bounded <code>uint8[&lt;=N]</code>, a fixed <code>uint8[N]</code> and a <code>byte[]</code> are not buffers.</p>
-<p>A hiroz subscriber to such a message adds <code>backends:cpu:</code> to its liveliness token and also subscribes to <code>&lt;topic key&gt;/_buf_cpu</code>. The payload on that key is plain CDR, so you receive the same message type as before. The key <code>&lt;topic key&gt;/_buf_cpu</code> is a different key expression from <code>&lt;topic key&gt;</code>, so an access-control rule that names only the topic key does not cover it. If you use access control, add a rule for the <code>_buf_cpu</code> key to the subscribe and publish rules of the topic. hiroz has no CUDA or other accelerated backend, so a hiroz subscriber always uses the CPU path.</p>
-<p>hiroz reads the rule off the message definition, so generated messages and dynamic schemas need no setup. A dynamic schema cannot tell a <code>byte[]</code> from a <code>uint8[]</code>, so it counts both as buffers. For a subscriber that is harmless: the extra subscription never receives anything. A message type that does not say, such as one written by hand without a schema, stays out of the group. For such a type call <code>with_buffer_cpu_endpoint(true)</code>. Call <code>with_buffer_cpu_endpoint(false)</code> to turn it off for a message that would join.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kd">let</span><span class="w"> </span><span class="n">sub</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">    </span><span class="p">.</span><span class="n">create_sub</span><span class="p">::</span><span class="o">&lt;</span><span class="n">MyBufferMsg</span><span class="o">&gt;</span><span class="p">(</span><span class="s">&quot;/my_topic&quot;</span><span class="p">)</span>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="p">.</span><span class="n">with_buffer_cpu_endpoint</span><span class="p">(</span><span class="kc">true</span><span class="p">)</span>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span><span class="p">.</span><span class="n">build</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
-</span></code></pre></div>
-<p>Transient-local subscribers never join, because <code>rmw_zenoh</code> serves their history on the base key only. A hiroz subscriber on a custom key expression format never joins.</p>
 <h2 id="ros-2-interoperability">ROS 2 Interoperability<a class="headerlink" href="#ros-2-interoperability" title="Permanent link">&para;</a></h2>
 <p>hiroz publishers and subscribers interoperate with ROS 2 C++ and Python nodes via the shared Zenoh transport. See the dedicated <strong><a href="../../user-guide/interop/">ROS 2 Interoperability</a></strong> chapter for setup instructions covering Rust, Python, and Go.</p>
+<p>A subscriber to a message with an unbounded <code>uint8[]</code> also joins the CPU buffer group of a Lyrical <code>rmw_zenoh</code> publisher. See <a href="../../user-guide/interop/#buffer-messages-from-lyrical-publishers">Buffer messages from Lyrical publishers</a>.</p>
 <h2 id="resources">Resources<a class="headerlink" href="#resources" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong><a href="../../user-guide/custom-messages/">Custom Messages</a></strong> - Defining and using custom message types</li>
