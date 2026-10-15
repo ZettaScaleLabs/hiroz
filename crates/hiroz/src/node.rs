@@ -636,6 +636,7 @@ impl ZNode {
 
     /// Create a raw subscriber for FFI (no type safety)
     /// Returns a RawSubscriber that must be kept alive as long as the subscription is active
+    /// On the `rmw_zenoh` key format it also joins the CPU buffer group.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber<F>(
         &self,
@@ -651,6 +652,7 @@ impl ZNode {
     }
 
     /// Create a raw subscriber for FFI with optional QoS
+    /// On the `rmw_zenoh` key format it also joins the CPU buffer group.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_qos<F>(
         &self,
@@ -659,6 +661,23 @@ impl ZNode {
         type_hash: &str,
         callback: F,
         qos: Option<crate::qos::QosProfile>,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(&[u8]) + Send + Sync + 'static,
+    {
+        self.create_raw_subscriber_inner(topic, type_name, type_hash, callback, qos, true)
+    }
+
+    /// A raw subscriber has no message definition, so `join` says whether to join the CPU buffer group.
+    #[cfg(feature = "ffi")]
+    fn create_raw_subscriber_inner<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        join: bool,
     ) -> Result<crate::ffi::subscriber::RawSubscriber>
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
@@ -689,17 +708,32 @@ impl ZNode {
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
+        let handler = std::sync::Arc::new(move |sample: zenoh::sample::Sample| {
+            callback(&sample.payload().to_bytes())
+        });
         let subscriber = self
             .session
             .declare_subscriber((*topic_ke).clone())
-            .callback(move |sample| {
-                let payload = sample.payload().to_bytes();
-                callback(&payload);
+            .callback({
+                let handler = handler.clone();
+                move |sample| handler(sample)
             })
             .advanced();
         let subscriber = apply_transient_local_sub(subscriber, &entity.qos).wait()?;
+        let group = crate::buffer_compat::declare(
+            &self.session,
+            &self.keyexpr_format,
+            &entity,
+            None,
+            Some(join),
+            false,
+            handler,
+        )?;
 
-        Ok(crate::ffi::subscriber::RawSubscriber { inner: subscriber })
+        Ok(crate::ffi::subscriber::RawSubscriber {
+            _group: group,
+            inner: subscriber,
+        })
     }
 
     /// Create a raw service client for FFI (no type safety)
@@ -864,8 +898,15 @@ impl ZNode {
             self.create_raw_service_client(&cancel_goal_service, &cancel_goal_type, "")?;
 
         // Feedback subscriber (no-op callback for now; Go handles via polling or separate mechanism)
-        let feedback_sub =
-            self.create_raw_subscriber(&feedback_topic, &feedback_type_dds, feedback_hash, |_| {})?;
+        // It is internal plumbing, so it stays out of the CPU buffer group.
+        let feedback_sub = self.create_raw_subscriber_inner(
+            &feedback_topic,
+            &feedback_type_dds,
+            feedback_hash,
+            |_| {},
+            None,
+            false,
+        )?;
 
         Ok(crate::ffi::action::RawActionClient {
             send_goal_client,

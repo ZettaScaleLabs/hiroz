@@ -105,10 +105,13 @@ A hiroz subscriber to such a message announces buffer support, with `backends:cp
 
 Call `with_cpu_buffer_group(true)` on the subscriber builder for a message type without a schema, or `with_cpu_buffer_group(false)` to opt out.
 
+A raw subscriber has no message definition, so it joins on every topic and has no opt-out. Raw subscribers are `create_raw_subscriber`, `create_raw_subscriber_with_qos` and the C and Go bindings, all behind the `ffi` feature. It shows in the ROS graph and adds one Zenoh subscription. On a topic without buffer messages nobody writes `<topic key>/_buf_cpu`, so each sample still arrives once.
+
 These subscribers never join:
 
 - Transient-local subscribers. `rmw_zenoh` serves them on the base key only.
 - Subscribers on a custom key expression format.
-- Subscribers without a schema: the Python binding, the feedback and status subscribers of an action client, and `rmw-zenoh-rs`.
+- The feedback subscriber of a raw action client.
+- Other subscribers without a schema: the Python binding, the feedback and status subscribers of an action client, and `rmw-zenoh-rs`.
 
 If you use access control, allow `<topic key>/_buf_cpu` wherever you allow `<topic key>`.
