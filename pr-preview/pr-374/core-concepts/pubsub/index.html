@@ -3193,7 +3193,6 @@ accDescr: The publisher sends two successive messages into the Zenoh transport, 
 <p>The rule format follows the ROS 2 convention: <code>from:=to</code>.</p>
 <h2 id="ros-2-interoperability">ROS 2 Interoperability<a class="headerlink" href="#ros-2-interoperability" title="Permanent link">&para;</a></h2>
 <p>hiroz publishers and subscribers interoperate with ROS 2 C++ and Python nodes via the shared Zenoh transport. See the dedicated <strong><a href="../../user-guide/interop/">ROS 2 Interoperability</a></strong> chapter for setup instructions covering Rust, Python, and Go.</p>
-<p>A subscriber to a message with an unbounded <code>uint8[]</code> also joins the CPU buffer group of a Lyrical <code>rmw_zenoh</code> publisher. See <a href="../../user-guide/interop/#buffer-messages-from-lyrical-publishers">Buffer messages from Lyrical publishers</a>.</p>
 <h2 id="resources">Resources<a class="headerlink" href="#resources" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong><a href="../../user-guide/custom-messages/">Custom Messages</a></strong> - Defining and using custom message types</li>
