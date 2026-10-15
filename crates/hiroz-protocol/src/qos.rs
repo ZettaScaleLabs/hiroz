@@ -77,16 +77,13 @@ impl QosProfile {
             ""
         };
 
-        // History format: <history_kind>,<depth>
-        // Only include kind if non-default, always include depth
+        // History format: <history_kind>,<depth>, as rmw_zenoh_cpp writes it:
+        // the kind is omitted for keep-last, and the depth is omitted exactly
+        // when it equals rmw_zenoh_cpp's wire default (42). Always writing the
+        // depth is not enough: it differs from the writer at depth 42.
         let history = match self.history {
-            QosHistory::KeepLast(depth) => {
-                if self.history != default_qos.history {
-                    format!("1,{}", depth)
-                } else {
-                    format!(",{}", depth)
-                }
-            }
+            QosHistory::KeepLast(RMW_ZENOH_DEFAULT_HISTORY_DEPTH) => ",".to_string(),
+            QosHistory::KeepLast(depth) => format!(",{}", depth),
             QosHistory::KeepAll => "2,".to_string(),
         };
 
