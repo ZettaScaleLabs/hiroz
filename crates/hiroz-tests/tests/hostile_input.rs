@@ -157,6 +157,7 @@ fn dynamic_decoder_accepts_a_length_at_the_boundary() {
 fn generated_decoder_survives_a_hostile_sequence_length() {
     use hiroz::msg::ZMessage;
     use hiroz_msgs::std_msgs::{MultiArrayDimension, UInt8MultiArray};
+    use zenoh_buffers::buffer::Buffer;
 
     if is_child() {
         // Build the valid sample before the limit applies.
@@ -166,7 +167,7 @@ fn generated_decoder_survives_a_hostile_sequence_length() {
             size: 3,
             stride: 3,
         }];
-        valid.data = vec![1, 2, 3];
+        valid.data = vec![1u8, 2, 3].into();
         let valid = valid.serialize();
         limit_address_space();
 
