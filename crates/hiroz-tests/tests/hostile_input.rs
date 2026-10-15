@@ -153,7 +153,6 @@ fn dynamic_decoder_accepts_a_length_at_the_boundary() {
 /// starts with `layout.dim`, a sequence of 32-byte `MultiArrayDimension`) must also
 /// return an error. This is the path of a typed subscriber, on the base key and on
 /// the group key alike, because both reach the same decode.
-#[cfg(feature = "ros-msgs")]
 #[test]
 fn generated_decoder_survives_a_hostile_sequence_length() {
     use hiroz::msg::ZMessage;
