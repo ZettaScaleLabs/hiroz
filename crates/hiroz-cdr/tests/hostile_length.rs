@@ -73,6 +73,10 @@ fn length_only(len: u32) -> Vec<u8> {
 /// A valid body for `Vec<Big>`: `n` elements.
 fn valid_body(n: u32) -> Vec<u8> {
     let mut v = length_only(n);
+    if n > 0 {
+        // `u64` elements start on an 8-byte boundary.
+        v.extend_from_slice(&[0; 4]);
+    }
     for i in 0..n {
         for w in 0..4u64 {
             v.extend_from_slice(&(u64::from(i) * 4 + w).to_le_bytes());
