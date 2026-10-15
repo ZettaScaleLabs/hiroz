@@ -171,10 +171,10 @@ fn generated_decoder_survives_a_hostile_sequence_length() {
         let valid = valid.serialize();
         limit_address_space();
 
-        let err = UInt8MultiArray::deserialize(&hostile_sample()[..])
-            .err()
-            .expect("hostile length must be an error");
-        println!("hostile: {err}");
+        match UInt8MultiArray::deserialize(&hostile_sample()[..]) {
+            Err(err) => println!("hostile: {err}"),
+            Ok(_) => panic!("hostile length must be an error"),
+        }
 
         let back = UInt8MultiArray::deserialize(&valid[..]).expect("valid sample");
         println!(
