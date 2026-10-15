@@ -116,3 +116,149 @@ fn reject_invalid_duration_and_liveliness() {
         Err(QosDecodeError::InvalidLiveliness),
     );
 }
+
+// ---------------------------------------------------------------------------
+// Conformance with the chunk rmw_zenoh_cpp writes. The expected text comes
+// from fixtures captured from the real C++ code (see
+// `fixtures/rmw_zenoh_qos/README.md`); nothing here recomputes it.
+// ---------------------------------------------------------------------------
+
+const GRID: &str = include_str!("fixtures/rmw_zenoh_qos/qos_grid.tsv");
+const DEPTHS: &str = include_str!("fixtures/rmw_zenoh_qos/qos_depths.tsv");
+
+/// One fixture row: the rmw integers the C++ writer was given, and the chunk it wrote.
+struct Row {
+    rel: u32,
+    dur: u32,
+    hist: u32,
+    depth: usize,
+    deadline: (u64, u64),
+    lifespan: (u64, u64),
+    lv: u32,
+    lease: (u64, u64),
+    chunk: &'static str,
+}
+
+fn rows(fixture: &'static str) -> Vec<Row> {
+    fixture
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+        .map(|l| {
+            let (fields, chunk) = l.split_once('\t').expect("fixture row has a tab");
+            let n: Vec<u64> = fields
+                .split(' ')
+                .map(|v| v.parse().expect("fixture field is an integer"))
+                .collect();
+            assert_eq!(n.len(), 11, "{l}");
+            Row {
+                rel: n[0] as u32,
+                dur: n[1] as u32,
+                hist: n[2] as u32,
+                depth: n[3] as usize,
+                deadline: (n[4], n[5]),
+                lifespan: (n[6], n[7]),
+                lv: n[8] as u32,
+                lease: (n[9], n[10]),
+                chunk,
+            }
+        })
+        .collect()
+}
+
+fn profile_of(r: &Row) -> QosProfile {
+    let dur = |(sec, nsec)| QosDuration { sec, nsec };
+    QosProfile {
+        reliability: match r.rel {
+            1 => QosReliability::Reliable,
+            2 => QosReliability::BestEffort,
+            v => panic!("reliability {v}"),
+        },
+        durability: match r.dur {
+            1 => QosDurability::TransientLocal,
+            2 => QosDurability::Volatile,
+            v => panic!("durability {v}"),
+        },
+        history: match r.hist {
+            1 => QosHistory::KeepLast(r.depth),
+            2 => QosHistory::KeepAll,
+            v => panic!("history {v}"),
+        },
+        deadline: dur(r.deadline),
+        lifespan: dur(r.lifespan),
+        liveliness: match r.lv {
+            1 => QosLiveliness::Automatic,
+            3 => QosLiveliness::ManualByTopic,
+            v => panic!("liveliness {v}"),
+        },
+        liveliness_lease_duration: dur(r.lease),
+    }
+}
+
+/// `(row number, got, expected)` for every row whose chunk differs.
+fn chunk_mismatches(rows: &[Row]) -> Vec<(usize, String, &'static str)> {
+    rows.iter()
+        .enumerate()
+        .filter_map(|(i, r)| {
+            let got = profile_of(r).encode();
+            (got != r.chunk).then_some((i + 1, got, r.chunk))
+        })
+        .collect()
+}
+
+#[test]
+fn qos_chunk_equals_rmw_zenoh_for_every_grid_profile() {
+    let grid = rows(GRID);
+    assert_eq!(grid.len(), 576, "fixture is the whole grid");
+    let bad = chunk_mismatches(&grid);
+    assert!(
+        bad.is_empty(),
+        "{} of {} rows differ from rmw_zenoh; first 3 (row, hiroz, rmw_zenoh): {:?}",
+        bad.len(),
+        grid.len(),
+        &bad[..bad.len().min(3)]
+    );
+}
+
+/// Control: the rows hiroz already encoded correctly (depth 10, the hiroz
+/// default, and keep-all) stay correct. Counting them keeps the check from
+/// passing over an empty set.
+#[test]
+fn grid_rows_that_matched_before_the_fix_still_match() {
+    let kept: Vec<Row> = rows(GRID)
+        .into_iter()
+        .filter(|r| r.hist == 2 || r.depth == 10)
+        .collect();
+    assert_eq!(kept.len(), 192, "96 depth-10 rows and 96 keep-all rows");
+    let bad = chunk_mismatches(&kept);
+    assert!(
+        bad.is_empty(),
+        "{} rows regressed: {:?}",
+        bad.len(),
+        &bad[..bad.len().min(3)]
+    );
+}
+
+/// Control: the rule "omit the kind, always write the depth" is not enough.
+/// rmw_zenoh also omits the depth at 42, so this model of the rejected rule
+/// must differ from the writer on every depth-42 keep-last row (96 of 576).
+/// If this fails, the fixture lost its depth-42 rows and the pin in
+/// `qos_chunk_equals_rmw_zenoh_for_every_grid_profile` no longer proves it.
+#[test]
+fn always_writing_the_depth_differs_from_rmw_zenoh_on_the_depth_42_rows() {
+    let differs: Vec<usize> = rows(GRID)
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| {
+            let history_field = match r.hist {
+                1 => format!(",{}", r.depth),
+                _ => "2,".to_string(),
+            };
+            r.chunk.split(':').nth(2) != Some(history_field.as_str())
+        })
+        .map(|(i, _)| i + 1)
+        .collect();
+    assert_eq!(differs.len(), 96);
+    assert!(differs
+        .iter()
+        .all(|&n| rows(GRID)[n - 1].hist == 1 && rows(GRID)[n - 1].depth == 42));
+}
