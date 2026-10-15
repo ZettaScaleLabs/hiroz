@@ -384,10 +384,13 @@ impl ZNode {
         // consumer that answers GetTypeDescription for its subscribed type, as
         // ROS 2 nodes do. This is what lets `hu meter pub` resolve the schema
         // from a topic that only has a subscriber.
-        if let Some(schema) = T::message_schema() {
-            self.register_schema_with_type_description_service(&schema);
+        let schema = T::message_schema();
+        if let Some(schema) = &schema {
+            self.register_schema_with_type_description_service(schema);
         }
-        self.create_sub_impl(topic, Some(T::type_info()))
+        let mut builder = self.create_sub_impl(topic, Some(T::type_info()));
+        builder.cpu_group = schema.map(|schema| schema.has_buffer_fields());
+        builder
     }
 
     #[doc(hidden)]
@@ -401,6 +404,9 @@ impl ZNode {
     {
         // Note: Topic qualification happens in ZSubBuilder::build()
         // to allow error handling in the Result type
+        //
+        // `cpu_group` stays unknown here: the Python binding and the action client's
+        // feedback and status subscribers have no schema to ask, so they do not join.
         let entity = EndpointEntity {
             id: self.counter.increment(),
             node: Some(self.entity.clone()),
@@ -417,6 +423,7 @@ impl ZNode {
             dyn_schema: None,
             locality: None,
             expected_encoding: None,
+            cpu_group: None,
             _phantom_data: Default::default(),
         }
     }
@@ -455,7 +462,8 @@ impl ZNode {
             "[NOD] Creating cache: topic={}, capacity={}",
             topic, capacity
         );
-        let sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
+        let mut sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
+        sub_builder.cpu_group = T::message_schema().map(|schema| schema.has_buffer_fields());
         ZCacheBuilder::new(sub_builder, capacity)
     }
 

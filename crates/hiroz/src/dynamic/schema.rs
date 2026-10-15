@@ -163,6 +163,28 @@ pub struct MessageSchema {
 }
 
 impl MessageSchema {
+    /// Whether the message has an unbounded `uint8[]` field, directly or in a nested message.
+    ///
+    /// In Lyrical such a field is a `rosidl::Buffer`. A schema cannot tell `byte` from `uint8`,
+    /// so an unbounded `byte[]` also counts.
+    pub(crate) fn has_buffer_fields(&self) -> bool {
+        fn is_buffer_sequence(field_type: &FieldType) -> bool {
+            matches!(field_type, FieldType::Sequence(inner) if matches!(**inner, FieldType::Uint8))
+        }
+        fn nested_has_buffer(field_type: &FieldType) -> bool {
+            match field_type {
+                FieldType::Message(schema) => schema.has_buffer_fields(),
+                FieldType::Array(inner, _)
+                | FieldType::Sequence(inner)
+                | FieldType::BoundedSequence(inner, _) => nested_has_buffer(inner),
+                _ => false,
+            }
+        }
+        self.fields
+            .iter()
+            .any(|f| is_buffer_sequence(&f.field_type) || nested_has_buffer(&f.field_type))
+    }
+
     /// Get field by name.
     pub fn field(&self, name: &str) -> Option<&FieldSchema> {
         self.fields.iter().find(|f| f.name == name)
@@ -294,5 +316,42 @@ impl MessageSchemaBuilder {
             fields: self.fields,
             type_hash: self.type_hash,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message(field_type: FieldType) -> Arc<MessageSchema> {
+        MessageSchema::builder("pkg/msg/M")
+            .field("f", field_type)
+            .build()
+            .unwrap()
+    }
+
+    fn bytes() -> FieldType {
+        FieldType::Sequence(Box::new(FieldType::Uint8))
+    }
+
+    /// Pins the rule: only an unbounded `uint8[]` is a buffer, directly or nested.
+    #[test]
+    fn has_buffer_fields_follows_the_rosidl_rule() {
+        let nested = || Box::new(FieldType::Message(message(bytes())));
+        let cases = [
+            ("unbounded uint8[]", bytes(), true),
+            ("nested message", FieldType::Message(message(bytes())), true),
+            ("nested message in an array", FieldType::Array(nested(), 2), true),
+            ("nested message in a sequence", FieldType::Sequence(nested()), true),
+            (
+                "bounded uint8[<=4]",
+                FieldType::BoundedSequence(Box::new(FieldType::Uint8), 4),
+                false,
+            ),
+            ("fixed uint8[4]", FieldType::Array(Box::new(FieldType::Uint8), 4), false),
+        ];
+        for (name, field_type, expected) in cases {
+            assert_eq!(message(field_type).has_buffer_fields(), expected, "{name}");
+        }
     }
 }
