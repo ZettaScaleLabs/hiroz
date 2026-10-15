@@ -148,3 +148,44 @@ fn dynamic_decoder_accepts_a_length_at_the_boundary() {
     sample.truncate(sample.len() - 1); // length 4, 3 bytes left
     assert!(DynamicMessage::from_cdr(&sample, &schema).is_err());
 }
+
+/// The generated decoder of a message with a `sequence<struct>` field (`UInt8MultiArray`
+/// starts with `layout.dim`, a sequence of 32-byte `MultiArrayDimension`) must also
+/// return an error. This is the path of a typed subscriber, on the base key and on
+/// the group key alike, because both reach the same decode.
+#[cfg(feature = "ros-msgs")]
+#[test]
+fn generated_decoder_survives_a_hostile_sequence_length() {
+    use hiroz::msg::ZMessage;
+    use hiroz_msgs::std_msgs::{MultiArrayDimension, UInt8MultiArray};
+
+    if is_child() {
+        // Build the valid sample before the limit applies.
+        let mut valid = UInt8MultiArray::default();
+        valid.layout.dim = vec![MultiArrayDimension {
+            label: "x".into(),
+            size: 3,
+            stride: 3,
+        }];
+        valid.data = vec![1, 2, 3];
+        let valid = valid.serialize();
+        limit_address_space();
+
+        let err = UInt8MultiArray::deserialize(&hostile_sample()[..])
+            .err()
+            .expect("hostile length must be an error");
+        println!("hostile: {err}");
+
+        let back = UInt8MultiArray::deserialize(&valid[..]).expect("valid sample");
+        println!(
+            "next valid: {} dims, {} bytes",
+            back.layout.dim.len(),
+            back.data.len()
+        );
+        return;
+    }
+    assert_child_survives(
+        "generated_decoder_survives_a_hostile_sequence_length",
+        &["hostile: ", "next valid: 1 dims, 3 bytes"],
+    );
+}
