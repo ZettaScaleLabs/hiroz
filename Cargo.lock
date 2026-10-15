@@ -1836,6 +1836,7 @@ version = "0.2.0"
 dependencies = [
  "bytemuck",
  "byteorder",
+ "nix 0.29.0",
  "proptest",
  "serde",
  "thiserror 2.0.17",
