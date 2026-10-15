@@ -292,3 +292,42 @@ fn qos_chunk_decodes_like_rmw_zenoh() {
     }
     assert_eq!(compared, 7, "8 fixture chunks, 1 rejected by rmw_zenoh");
 }
+
+/// When hiroz encodes depth 0 to 100 for each history kind, each chunk equals
+/// the writer's.
+///
+/// hiroz `KeepAll` carries no depth, but rmw_zenoh writes `2,` for depth 42
+/// and `2,0` for depth 0. One text cannot match both, so for keep-all the
+/// text is compared on the depth-42 row (in the grid) and here the chunk must
+/// decode back to `KeepAll`.
+#[test]
+fn qos_chunk_equals_rmw_zenoh_for_depths_0_to_100() {
+    let depths = rows(DEPTHS);
+    assert_eq!(
+        depths.len(),
+        408,
+        "4 reliability/durability pairs, 102 rows each"
+    );
+
+    let keep_last: Vec<Row> = depths.into_iter().filter(|r| r.hist == 1).collect();
+    assert_eq!(keep_last.len(), 404, "depths 0 to 100, 4 pairs");
+    let bad = chunk_mismatches(&keep_last);
+    assert!(
+        bad.is_empty(),
+        "{} of {} keep-last rows differ from rmw_zenoh; first 3 (row, hiroz, rmw_zenoh): {:?}",
+        bad.len(),
+        keep_last.len(),
+        &bad[..bad.len().min(3)]
+    );
+
+    let keep_all: Vec<Row> = rows(DEPTHS).into_iter().filter(|r| r.hist == 2).collect();
+    assert_eq!(keep_all.len(), 4, "keep-all with depth 0, 4 pairs");
+    for r in &keep_all {
+        assert_eq!(
+            QosProfile::decode(r.chunk),
+            Ok(profile_of(r)),
+            "keep-all chunk {:?} does not round-trip",
+            r.chunk
+        );
+    }
+}
