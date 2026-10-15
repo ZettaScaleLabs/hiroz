@@ -15,6 +15,7 @@
 mod common;
 
 use std::{
+    io::Write,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -29,6 +30,7 @@ use hiroz::{
 use hiroz_msgs::std_msgs::{Float64MultiArray, UInt8MultiArray};
 use hiroz_protocol::{KeyExprFormat, KeyExprFormatterAdapter, RmwZenohFormatter};
 use serde::{Deserialize, Serialize};
+use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};
 use zenoh::Wait;
 
 const RECV: Duration = Duration::from_secs(3);
@@ -183,6 +185,10 @@ fn shape<'a>(node: &'a str, topic: &'a str, wire: &'a Wire, joined: bool) -> Sha
 /// The key a Lyrical publisher writes a buffer message to: domain, topic, type, hash, group.
 fn group_key(topic: &str, wire: &Wire) -> String {
     format!("0/{topic}/{}/{}/_buf_cpu", wire.name, wire.hash)
+}
+
+fn base_key(topic: &str, wire: &Wire) -> String {
+    format!("0/{topic}/{}/{}", wire.name, wire.hash)
 }
 
 /// Put `payload` on `key` until `done` is true or `limit` passes.
@@ -769,5 +775,184 @@ fn group_subscription_is_declared_before_the_token_is_visible() {
         wrong.len() <= TRIALS / 10,
         "token before match, or an event missing, in {} of {TRIALS} trials: {wrong:?}",
         wrong.len()
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Slice 4: the info log and access control
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Clone, Default)]
+struct Captured(Arc<Mutex<Vec<u8>>>);
+impl Write for Captured {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Cycle 4.1: one `info` line per group key and process names the key. Three subscribers on one
+/// key log once; a second key logs once; a subscriber that stays out logs nothing.
+#[test]
+fn joining_logs_the_group_key_once_per_key() {
+    let out = Captured::default();
+    let _guard = tracing_subscriber::fmt()
+        .with_writer({
+            let out = out.clone();
+            move || out.clone()
+        })
+        .with_ansi(false)
+        .with_max_level(LevelFilter::INFO)
+        .finish()
+        .set_default();
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    let _a: Vec<_> = (0..3)
+        .map(|_| {
+            node.create_sub::<UInt8MultiArray>("/log_a")
+                .build()
+                .unwrap()
+        })
+        .collect();
+    let _b = node.create_sub::<Blob>("/log_b").build().unwrap();
+    let _out = node
+        .create_sub::<UInt8MultiArray>("/log_off")
+        .with_buffer_group(BufferGroup::Off)
+        .build()
+        .unwrap();
+    let _plain = node
+        .create_sub::<Float64MultiArray>("/log_plain")
+        .build()
+        .unwrap();
+
+    let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("CPU buffer group"))
+        .collect();
+    let expected = |topic: &str| {
+        format!(
+            "joined the rmw_zenoh CPU buffer group: subscribed to key {}. A router access-control \
+             rule that denies this key drops buffer messages and reports no error. Allow this key \
+             wherever you allow its topic key.",
+            group_key(topic, &UINT8)
+        )
+    };
+    assert_eq!(lines.len(), 2, "{text}");
+    assert!(
+        lines.iter().any(|l| l.ends_with(&expected("log_a"))),
+        "{text}"
+    );
+    assert!(
+        lines.iter().any(|l| l.ends_with(&expected("log_b"))),
+        "{text}"
+    );
+    assert!(lines.iter().all(|l| l.contains(" INFO ")), "{text}");
+}
+
+/// A router that denies the group key on every interface, as in the access-control check. A rule
+/// whose subject names only `lo` matched nothing there.
+fn router_denying_the_group_key() -> TestRouter {
+    let interfaces: Vec<String> = std::fs::read_dir("/sys/class/net")
+        .expect("list interfaces")
+        .map(|e| format!("\"{}\"", e.unwrap().file_name().to_string_lossy()))
+        .collect();
+    let access_control = format!(
+        r#"{{
+            enabled: true,
+            default_permission: "allow",
+            rules: [{{
+                id: "deny_group", permission: "deny",
+                messages: ["put", "declare_subscriber"], flows: ["egress", "ingress"],
+                key_exprs: ["0/*/*/*/_buf_cpu"],
+            }}],
+            subjects: [{{ id: "all", interfaces: [{}] }}],
+            policies: [{{ rules: ["deny_group"], subjects: ["all"] }}],
+        }}"#,
+        interfaces.join(",")
+    );
+    TestRouter::with_config(move |config| {
+        config
+            .insert_json5("access_control", &access_control)
+            .unwrap();
+    })
+}
+
+/// Cycle 4.2: a router that denies the group key does not break the base key. A subscriber that
+/// joins a non-buffer topic still receives each sample once. A router with no rule is the control
+/// for the group key itself.
+#[test]
+fn non_buffer_topic_still_delivers_under_a_group_key_deny_rule() {
+    const SAMPLES: usize = 20;
+    let router = router_denying_the_group_key();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    let sub = node
+        .create_sub::<Float64MultiArray>("/acl_plain")
+        .with_buffer_group(BufferGroup::Cpu)
+        .build()
+        .unwrap();
+    token_for(&raw, "acl_plain");
+
+    // A `Float64MultiArray` with no dimensions and no data: header, then three zero words.
+    let payload = [0u8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let key = base_key("acl_plain", &FLOAT64);
+    std::thread::sleep(POLL);
+    for _ in 0..SAMPLES {
+        raw.put(&key, payload.to_vec()).wait().unwrap();
+    }
+    let mut received = 0;
+    while sub.recv_timeout(QUIET).is_ok() {
+        received += 1;
+    }
+    assert_eq!(received, SAMPLES);
+}
+
+/// Cycle 4.3, characterization of the router: under a rule that denies the group key, a joined
+/// subscriber on a buffer topic gets nothing on that key, `build` returns `Ok`, and the base key
+/// still flows. Without the rule the same subscriber receives on the group key.
+#[test]
+fn denied_group_key_starves_silently_while_the_base_key_flows() {
+    let denying = router_denying_the_group_key();
+    let open = TestRouter::new();
+    let arrivals = |router: &TestRouter, topic: &str, key: &str| {
+        let raw = raw_session(router.endpoint());
+        let ctx = create_hiroz_context_with_router(router).expect("ctx");
+        let node = ctx.create_node("tok_node").build().expect("node");
+        let sub = node
+            .create_sub::<UInt8MultiArray>(&format!("/{topic}"))
+            .build()
+            .expect("build returns Ok under a deny rule");
+        token_for(&raw, topic);
+        std::thread::sleep(POLL);
+        for _ in 0..20 {
+            raw.put(key, PAYLOAD.to_vec()).wait().unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let mut received = 0;
+        while sub.recv_timeout(POLL).is_ok() {
+            received += 1;
+        }
+        received
+    };
+    let group = group_key("acl_buf", &UINT8);
+    let base = base_key("acl_buf", &UINT8);
+    assert!(
+        arrivals(&open, "acl_buf", &group) > 0,
+        "control: open router, group key"
+    );
+    assert_eq!(
+        arrivals(&denying, "acl_buf", &group),
+        0,
+        "group key under the rule"
+    );
+    assert!(
+        arrivals(&denying, "acl_buf", &base) > 0,
+        "base key under the rule"
     );
 }

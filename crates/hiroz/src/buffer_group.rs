@@ -5,10 +5,13 @@
 //! `<base>/_buf_cpu` to a subscriber whose token ends in `backends:cpu:`. A subscriber that joins
 //! the group does both.
 
-use std::sync::Arc;
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use hiroz_protocol::{KeyExprFormat, qos::QosDurability};
-use tracing::debug;
+use tracing::{debug, info};
 use zenoh::{
     Result, Wait,
     key_expr::KeyExpr,
@@ -106,6 +109,7 @@ impl Plan {
                     builder = builder.allowed_origin(locality);
                 }
                 let sub = builder.wait()?;
+                log_once(&key);
                 Some(sub)
             }
             None => None,
@@ -132,5 +136,23 @@ impl Drop for Membership {
     /// subscription on it goes away.
     fn drop(&mut self) {
         drop(self.token.take());
+    }
+}
+
+/// An operator learns here that the group key needs an access-control rule: a router that
+/// denies the key drops buffer messages and reports no error. One line per key and process.
+fn log_once(key: &str) {
+    static LOGGED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let first = LOGGED
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap()
+        .insert(key.to_owned());
+    if first {
+        info!(
+            "joined the rmw_zenoh CPU buffer group: subscribed to key {key}. A router \
+             access-control rule that denies this key drops buffer messages and reports no \
+             error. Allow this key wherever you allow its topic key."
+        );
     }
 }
