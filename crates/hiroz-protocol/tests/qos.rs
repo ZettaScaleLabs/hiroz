@@ -262,3 +262,33 @@ fn always_writing_the_depth_differs_from_rmw_zenoh_on_the_depth_42_rows() {
         .iter()
         .all(|&n| rows(GRID)[n - 1].hist == 1 && rows(GRID)[n - 1].depth == 42));
 }
+
+const DECODE: &str = include_str!("fixtures/rmw_zenoh_qos/qos_decode.tsv");
+
+/// When hiroz decodes a chunk that rmw_zenoh parses, the fields equal the ones
+/// rmw_zenoh returns.
+///
+/// The fixture also holds the chunk `:::,:,:,,`, which rmw_zenoh rejects
+/// (`NULL`) and hiroz accepts. hiroz stays lenient on purpose, so that row is
+/// not compared and no rejection is asserted.
+#[test]
+fn qos_chunk_decodes_like_rmw_zenoh() {
+    let mut compared = 0;
+    for line in DECODE.lines() {
+        let (chunk, fields) = line.split_once('\t').expect("fixture row has a tab");
+        if fields == "NULL" {
+            continue;
+        }
+        let row_text = format!("{fields}\t{chunk}");
+        let row = rows(Box::leak(row_text.into_boxed_str()))
+            .pop()
+            .expect("one row");
+        assert_eq!(
+            QosProfile::decode(chunk),
+            Ok(profile_of(&row)),
+            "chunk {chunk:?}, rmw_zenoh fields {fields:?}"
+        );
+        compared += 1;
+    }
+    assert_eq!(compared, 7, "8 fixture chunks, 1 rejected by rmw_zenoh");
+}
