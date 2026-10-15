@@ -197,3 +197,86 @@ fn joined_subscriber_reads_the_group_key_with_its_locality() {
         "a local sample reached a Remote-only subscriber"
     );
 }
+
+/// Raw subscribers need hiroz's `ffi` feature, which the other suites do not.
+#[cfg(feature = "raw-sub-tests")]
+mod raw {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use super::*;
+
+    fn type_of_u8_array() -> (&'static str, String) {
+        (
+            UInt8MultiArray::type_name(),
+            UInt8MultiArray::type_hash().to_rihs_string(),
+        )
+    }
+
+    /// Pins: a raw subscriber joins the group by default, and one callback serves both keys.
+    #[test]
+    fn raw_subscriber_joins_by_default() {
+        let router = TestRouter::new();
+        let raw = raw_session(router.endpoint());
+        let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+        let node = ctx.create_node("raw_join").build().expect("node");
+        let (name, hash) = type_of_u8_array();
+        let count = Arc::new(AtomicUsize::new(0));
+        let counter = count.clone();
+        let _sub = node
+            .create_raw_subscriber("/raw_join_topic", name, &hash, move |_| {
+                counter.fetch_add(1, Ordering::Relaxed);
+            })
+            .expect("raw subscriber");
+
+        let token = token_for(&raw, "raw_join_topic");
+        assert!(token.ends_with("/backends:cpu:"), "{token}");
+        let base = base_key::<UInt8MultiArray>(&token, "raw_join_topic");
+        let payload = UInt8MultiArray::default().serialize();
+        for key in [format!("{base}/_buf_cpu"), base] {
+            let before = count.load(Ordering::Relaxed);
+            assert!(
+                put_until(&raw, &key, &payload, RECV, || count.load(Ordering::Relaxed)
+                    > before),
+                "nothing received on {key}"
+            );
+        }
+    }
+
+    /// Pins: the feedback subscriber of a raw action client stays out of the group.
+    #[test]
+    fn raw_action_client_feedback_subscriber_stays_out() {
+        let router = TestRouter::new();
+        let raw = raw_session(router.endpoint());
+        let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+        let node = ctx.create_node("raw_action").build().expect("node");
+        let _client = node
+            .create_raw_action_client(
+                "/raw_fib",
+                "example_interfaces/action/Fibonacci",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            )
+            .expect("raw action client");
+        // Positive control: a joined raw subscriber on the same node shows the token query works.
+        let (name, hash) = type_of_u8_array();
+        let _joined = node
+            .create_raw_subscriber("/raw_action_control", name, &hash, |_| {})
+            .expect("raw subscriber");
+        token_for(&raw, "raw_action_control");
+        let feedback: Vec<String> = tokens(&raw)
+            .into_iter()
+            .filter(|t| t.contains("feedback"))
+            .collect();
+        assert!(
+            feedback.is_empty(),
+            "the feedback subscriber declared a token: {feedback:?}"
+        );
+    }
+}

@@ -33,7 +33,7 @@ def run-tests [] {
     #
     # None were in `default-members`, so none ran here before `--workspace`.
     run-cmd "cargo nextest run --no-fail-fast --workspace --exclude hiroz-tests --exclude rmw-zenoh-rs -E 'not binary(shm_size_estimation)'"
-    run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy"
+    run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy,raw-sub-tests"
 }
 
 def check-bundled-msgs [] {
