@@ -13,7 +13,7 @@ use std::process::{Command, Output};
 use hiroz::dynamic::{DynamicMessage, DynamicValue, FieldType, MessageSchema};
 use nix::sys::resource::{Resource, setrlimit};
 
-/// The marker macro of the R1 plan: a false condition panics with `R1ASSERT <name>: <message>`.
+/// Failure marker, `NAME: message`: a false condition panics with `R1ASSERT <name>: <message>`.
 /// A red run is read only through this text.
 macro_rules! r1_assert {
     ($cond:expr, $name:expr, $($msg:tt)+) => {
@@ -62,7 +62,7 @@ fn describe(out: &Output) -> String {
     )
 }
 
-/// F19: the 4-byte CDR_LE encapsulation header and a length prefix, nothing after.
+/// The 4-byte CDR_LE encapsulation header and a length prefix, nothing after.
 fn hostile_sample() -> Vec<u8> {
     let mut v = vec![0x00, 0x01, 0x00, 0x00];
     v.extend_from_slice(&HOSTILE_LENGTH.to_le_bytes());
@@ -299,9 +299,27 @@ fn typed_subscriber_survives_a_hostile_sample_on_the_base_key() {
         }
         println!("route up");
 
+        // Drain the valid samples the wait loop left queued or in flight, so that
+        // neither the hostile receive nor the next-valid receive can be satisfied by one.
+        // The queue is empty once a receive times out.
+        let mut drained = 0;
+        loop {
+            match sub.recv_timeout(Duration::from_millis(500)) {
+                Ok(_) => drained += 1,
+                Err(err) if hiroz::error::is_timeout(&*err) => break,
+                Err(err) => panic!("drain: unexpected error: {err}"),
+            }
+        }
+        println!("drained: {drained}");
+
         limit_address_space();
         publisher.put(hostile_sample()).wait().expect("put hostile");
+        // The error must come from the decoder. A timeout would also be an `Err`, and a
+        // dead delivery path would then pass for a rejected sample.
         match sub.recv_timeout(Duration::from_secs(5)) {
+            Err(err) if hiroz::error::is_timeout(&*err) => {
+                panic!("hostile sample was not delivered: {err}")
+            }
             Err(err) => println!("hostile: {err}"),
             Ok(_) => panic!("hostile length must be an error"),
         }
