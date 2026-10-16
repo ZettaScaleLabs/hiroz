@@ -1867,6 +1867,7 @@ dependencies = [
 name = "hiroz-derive"
 version = "0.2.0"
 dependencies = [
+ "hiroz-schema",
  "proc-macro2",
  "quote",
  "syn 2.0.110",
@@ -1899,6 +1900,7 @@ dependencies = [
 name = "hiroz-protocol"
 version = "0.2.0"
 dependencies = [
+ "hiroz-schema",
  "zenoh",
 ]
 
@@ -1911,6 +1913,7 @@ dependencies = [
  "hiroz",
  "hiroz-cdr",
  "hiroz-msgs",
+ "hiroz-schema",
  "once_cell",
  "pyo3",
  "serde",
@@ -1937,6 +1940,7 @@ dependencies = [
  "hiroz",
  "hiroz-cdr",
  "hiroz-msgs",
+ "hiroz-protocol",
  "hiroz-schema",
  "nix 0.29.0",
  "once_cell",
@@ -3285,7 +3289,7 @@ dependencies = [
 
 [[package]]
 name = "protobuf_demo"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "hiroz",
@@ -3719,6 +3723,7 @@ dependencies = [
  "hiroz",
  "hiroz-cdr",
  "hiroz-protocol",
+ "hiroz-schema",
  "parking_lot",
  "serde",
  "strum 0.27.2",
