@@ -14,16 +14,17 @@ trap 'rm -rf "$scratch"' EXIT
 cd "$scratch" || exit 2
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 git init -q . || exit 2
-for m in 'fix(a): ordinary scoped' 'fix: ordinary unscoped' 'fix(x)!: breaking scoped' 'fix!: breaking unscoped'; do
+for m in 'fix(a): ordinary scoped' 'fix: ordinary unscoped' 'fix(x)!: breaking scoped' 'fix!: breaking unscoped' 'chore!: breaking chore' 'ci(c)!: breaking ci' 'build!: breaking build' 'chore: plain chore'; do
   git commit -q --allow-empty -m "$m" || exit 2
 done
+git commit -q --allow-empty -m 'fix(f): footer break' -m 'BREAKING CHANGE: x' || exit 2
 out=$("$cliff" --config "$cfg" --unreleased --offline 2>&1); rc=$?
 echo "$out"
 echo "CLIFF=$rc"
 [ "$rc" = 0 ] || { echo "R1ASSERT $t UNKNOWN: git-cliff exited $rc"; exit 2; }
 fail=0
 line() { printf '%s\n' "$out" | grep -F -- "$1" | head -1; }
-for want in 'Breaking scoped' 'Breaking unscoped'; do
+for want in 'Breaking scoped' 'Breaking unscoped' 'Footer break' 'Breaking chore' 'Breaking ci' 'Breaking build'; do
   l=$(line "$want")
   [ -n "$l" ] || { echo "R1ASSERT $t UNKNOWN: no line for '$want'"; exit 2; }
   case "$l" in *BREAKING*) echo "MARK_OK $want" ;; *) echo "R1ASSERT $t FAIL: no breaking mark on '$want'"; fail=1 ;; esac
@@ -33,5 +34,7 @@ for ctl in 'Ordinary scoped' 'Ordinary unscoped'; do
   [ -n "$l" ] || { echo "R1ASSERT $t UNKNOWN: no line for '$ctl'"; exit 2; }
   case "$l" in *BREAKING*) echo "R1ASSERT $t FAIL: mark on ordinary '$ctl'"; fail=1 ;; *) echo "CONTROL_OK $ctl" ;; esac
 done
+# a skipped type stays skipped unless the commit is breaking
+if printf '%s\n' "$out" | grep -qF 'Plain chore'; then echo "R1ASSERT $t FAIL: plain chore appears"; fail=1; else echo "CONTROL_OK Plain chore skipped"; fi
 [ "$fail" = 0 ] && echo "TEST=0 $t" || echo "TEST=1 $t"
 exit "$fail"
