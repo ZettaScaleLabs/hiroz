@@ -99,30 +99,14 @@ For more detail see [Go Quick Start](../bindings/go-quick-start.md).
 
 ## Buffer messages from Lyrical publishers
 
-A ROS 2 Lyrical `rmw_zenoh` publisher treats an unbounded `uint8[]` field as a buffer, also inside a nested message. Examples are `sensor_msgs/Image` and `sensor_msgs/PointCloud2`. If a matched subscriber announces buffer support, the publisher writes the message only on `<topic key>/_buf_cpu`. A subscriber that reads only `<topic key>` receives nothing, also when it is the one matched subscriber that does not announce buffer support (measured with `rmw_zenoh_cpp` 0.10.6). Humble, Jazzy and Kilted have no buffer-aware `rmw_zenoh_cpp`, so the cells that need one skip there.
+A ROS 2 Lyrical `rmw_zenoh_cpp` publisher treats an unbounded `uint8[]` field as a buffer, also inside a nested message. Examples are `sensor_msgs/Image` and `sensor_msgs/PointCloud2`. If a matched subscriber announces buffer support, the publisher writes the message only on `<topic key>/_buf_cpu`, never on `<topic key>`. Humble, Jazzy and Kilted have no buffer-aware `rmw_zenoh_cpp`, so the interop tests that need one skip on those distros.
 
-A hiroz subscriber that joins the group announces buffer support, with `backends:cpu:` at the end of its liveliness token, and also reads `<topic key>/_buf_cpu`. The payload is plain CDR. A typed subscriber, a dynamic subscriber and a cache join this way. A joined subscriber has one subscription, on `<topic key>/**`, and drops every other key under the topic key in process.
+A hiroz subscriber joins this group when the end of its liveliness token is `backends:cpu:`. It then reads `<topic key>/**`, which includes the base key and the group key, and drops every other key under the topic key in process. The payload is plain CDR.
 
-By default (`BufferGroup::Auto`) a subscriber joins when its message has an unbounded `uint8[]`, directly or in a nested message, or when hiroz has no message definition to ask. A message with only a bounded sequence or a fixed array of `uint8`, or with no `uint8[]`, does not join. A schema cannot tell `byte[]` from `uint8[]`, so a message with an unbounded `byte[]` also joins. A joined subscriber that is not needed adds no second subscription to the session.
+`BufferGroup::Auto` is the default. A typed subscriber, a dynamic subscriber or a cache joins when its message has an unbounded `uint8[]`, directly or nested, or when hiroz has no message definition to ask. The feedback and status subscribers of an action client follow the same rule. To keep the previous token and routing, call `with_buffer_group(BufferGroup::Off)` on the subscriber builder. `BufferGroup::Cpu` joins whatever the message is. The cache builder and the action client have no `with_buffer_group`.
 
-Call `with_buffer_group` on the subscriber builder to decide for yourself: `BufferGroup::Cpu` joins whatever the message is, and `BufferGroup::Off` does not join.
+A subscriber never joins if it is transient-local or uses a custom key expression format. Raw subscribers do not join, and `rmw-zenoh-rs` subscriptions use `Off`. The Go and Python bindings subscribe through the raw path, so they do not join either.
 
-The cache builder and the action client have no `with_buffer_group`, so they always follow `Auto`.
+If you use access control, allow `<topic key>/**` wherever you allow `<topic key>`. A router rule that denies only the group key starves a joined subscriber on a buffer topic: no error is raised and the base key still delivers. A rule on `<topic key>/**` also starves a subscriber set to `Off`, because `<topic key>/**` includes `<topic key>`. hiroz writes one `info` log line per group key and process when a subscriber joins.
 
-These subscribers never join, whatever you ask:
-
-- Transient-local subscribers. `rmw_zenoh` serves them on the base key only.
-- Subscribers on a custom key expression format.
-
-These subscribers do not join:
-
-- Raw subscribers. There is no way to opt them in.
-- `rmw-zenoh-rs` subscriptions. They pass `BufferGroup::Off`.
-
-The feedback and status subscribers of an action client have no message definition, so they join under `Auto`. The Python binding has no message definition either, so it joins under `Auto`. The Python binding has no way to opt out.
-
-hiroz writes one `info` log line for each group key in a process, after it subscribes to the key. hiroz keeps one string for each group key it logged, for the life of the process. If you use access control, allow `<topic key>/**`, which includes `<topic key>/_buf_cpu`, wherever you allow `<topic key>`. A router rule that denies the group key makes a joined subscriber on a buffer topic receive nothing. No error is raised, and the base key still delivers. A topic that is not a buffer topic is not affected. A rule that denies `<topic key>/**` makes a joined subscriber receive nothing on both keys. `<topic key>/**` includes `<topic key>`, so an `Off` subscriber of the topic receives nothing either.
-
-`BufferGroup::Auto` is the default, and it changes the liveliness token and the routing of existing subscribers. A subscriber set to `Off` has a token with no `backends:` field and reads only `<topic key>`. This is what every subscriber did before `Auto` existed. With `Auto`, a subscriber of a message with an unbounded `uint8[]` field, or of a message with no definition, has a token that ends with `backends:cpu:`, and it also reads `<topic key>/_buf_cpu`. This affects typed subscribers, dynamic subscribers and caches of such messages, the feedback and status subscribers of an action client, and the Python binding. To keep the old token and routing on a subscriber, call `with_buffer_group(BufferGroup::Off)` on its builder. The cache builder, the action client and the Python binding have no way to keep them.
-
-A subscriber whose liveliness token has no `backends:` field receives nothing from a buffer-aware publisher, until <https://github.com/ros2/rmw_zenoh/pull/1078> lands. Measured on `rmw_zenoh_cpp` 0.10.6 (n=5). The routing code is the same in 0.10.5 and 0.10.7 by source reading, not measured. 0.10.4 and 0.11.0 have no buffer support. This holds for a buffer topic. A hiroz subscriber set to `Off` and every `rmw-zenoh-rs` subscription have no `backends:` field, so both receive nothing in this case. Measured with a publisher on 0.10.6, a buffer-aware subscriber on 0.10.6 and a legacy subscriber on 0.10.4 shared one topic. The buffer-aware subscriber received 30 of 30 messages and the legacy subscriber received 0 of 30. A legacy subscriber alone received 0 of 30. Each figure is the same in 5 runs, on one host, with 30 `UInt8MultiArray` messages of 64 bytes at 5 Hz. A publisher on 0.10.4 delivered 30 of 30 messages to a legacy subscriber, and to a buffer-aware subscriber, in the same 5 runs. Versions other than 0.10.4 and 0.10.6 are not measured.
+A subscriber with no `backends:` field, such as an `Off` subscriber or any `rmw-zenoh-rs` subscription, receives nothing from a buffer-aware publisher until <https://github.com/ros2/rmw_zenoh/pull/1078> lands.
