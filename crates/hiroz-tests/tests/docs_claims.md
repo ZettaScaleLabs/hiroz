@@ -6,6 +6,7 @@ Claims table for the buffer section of `docs/user-guide/interop.md` (criterion E
 | Examples are `sensor_msgs/Image` and `sensor_msgs/PointCloud2` | not tested | Names of upstream messages. No cell sends them |
 | If a matched subscriber announces buffer support, the publisher writes the message only on `<topic key>/_buf_cpu` | joined_subscribers_receive_from_a_released_publisher, mixed_matched_set_delivers_each_sample_once | Both cells read the group key as N and the base key as 0 from a Lyrical publisher |
 | A subscriber that reads only `<topic key>` receives nothing, also when it is the one matched subscriber that does not announce buffer support (measured with `rmw_zenoh_cpp` 0.10.6) | mixed_matched_set_delivers_each_sample_once | The legacy subscriber is a hiroz subscriber with `BufferGroup::Off`. It reads the base key only and received 0 of 30 in two matched sets |
+| Humble, Jazzy and Kilted have no buffer-aware `rmw_zenoh_cpp`, so the cells that need one skip there | not tested | Upstream releases. The nix cells printed the skip line on every distro, with `rmw_zenoh_cpp` 0.10.4 |
 | A hiroz subscriber that joins the group announces buffer support, with `backends:cpu:` at the end of its liveliness token, and also reads `<topic key>/_buf_cpu` | typed_subscriber_with_buffer_fields_joins, joined_subscriber_reads_the_group_key_with_its_locality | |
 | The payload is plain CDR | joined_subscriber_receives_on_the_key_a_real_publisher_writes | |
 | A typed subscriber, a dynamic subscriber and a cache join this way | typed_subscriber_with_buffer_fields_joins, dynamic_subscriber_joins_for_nested_and_unbounded_byte_fields, cache_joins_the_group | |
@@ -30,10 +31,12 @@ Claims table for the buffer section of `docs/user-guide/interop.md` (criterion E
 | The Python binding has no way to opt out | not tested | Code reading. `hiroz-py` has no call to `with_buffer_group` |
 | hiroz writes one `info` log line for each group key in a process, after it subscribes to the key | joining_logs_the_group_key_once_per_key | |
 | hiroz keeps one string for each group key it logged, for the life of the process | not tested | Code reading of the set in `log_once`. No test counts the set |
-| If you use access control, allow `<topic key>/**`, which includes `<topic key>/_buf_cpu`, wherever you allow `<topic key>` | not tested | Advice. The router test denies the group key, and no test denies `<topic key>/**` alone |
+| If you use access control, allow `<topic key>/**`, which includes `<topic key>/_buf_cpu`, wherever you allow `<topic key>` | not tested | Advice. No test runs an allow rule. denied_wide_key_starves_a_joined_subscriber shows the effect of the opposite rule |
 | A router rule that denies the group key makes a joined subscriber on a buffer topic receive nothing | denied_group_key_starves_silently_while_the_base_key_flows | |
 | No error is raised, and the base key still delivers | denied_group_key_starves_silently_while_the_base_key_flows | |
 | A topic that is not a buffer topic is not affected | non_buffer_topic_still_delivers_under_a_group_key_deny_rule | |
+| A rule that denies `<topic key>/**` makes a joined subscriber receive nothing on both keys | denied_wide_key_starves_a_joined_subscriber | Measured on one in-process router, n=1 run: 0 received on the group key and on the base key, against some on an open router |
+| `<topic key>/**` includes `<topic key>`, so an `Off` subscriber of the topic receives nothing either | denied_wide_key_starves_a_joined_subscriber | The `Off` subscriber received 0 on the base key under the rule and some on an open router. A joined subscriber on a second topic still received under the same rule |
 | `BufferGroup::Auto` is the default, and it changes the liveliness token and the routing of existing subscribers | typed_subscriber_with_buffer_fields_joins, opt_out_announces_no_backends |  |
 | A subscriber set to `Off` has a token with no `backends:` field and reads only `<topic key>` | opt_out_announces_no_backends, mixed_matched_set_delivers_each_sample_once | The token is read in the first test. The second shows an `Off` subscriber receiving 0 of 30 from a publisher that writes the group key |
 | This is what every subscriber did before `Auto` existed | not tested | History of the code, not a property of the current tree |

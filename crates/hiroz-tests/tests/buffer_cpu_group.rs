@@ -1110,9 +1110,9 @@ fn joining_logs_the_group_key_once_per_key() {
     );
 }
 
-/// A router that denies the group key on every interface, as in the access-control check. A rule
+/// A router that denies `key_expr` on every interface, as in the access-control check. A rule
 /// whose subject names only `lo` matched nothing there.
-fn router_denying_the_group_key() -> TestRouter {
+fn router_denying(key_expr: &str) -> TestRouter {
     let interfaces: Vec<String> = std::fs::read_dir("/sys/class/net")
         .expect("list interfaces")
         .map(|e| format!("\"{}\"", e.unwrap().file_name().to_string_lossy()))
@@ -1122,12 +1122,12 @@ fn router_denying_the_group_key() -> TestRouter {
             enabled: true,
             default_permission: "allow",
             rules: [{{
-                id: "deny_group", permission: "deny",
+                id: "deny_rule", permission: "deny",
                 messages: ["put", "declare_subscriber"], flows: ["egress", "ingress"],
-                key_exprs: ["0/*/*/*/_buf_cpu"],
+                key_exprs: ["{key_expr}"],
             }}],
             subjects: [{{ id: "all", interfaces: [{}] }}],
-            policies: [{{ rules: ["deny_group"], subjects: ["all"] }}],
+            policies: [{{ rules: ["deny_rule"], subjects: ["all"] }}],
         }}"#,
         interfaces.join(",")
     );
@@ -1136,6 +1136,10 @@ fn router_denying_the_group_key() -> TestRouter {
             .insert_json5("access_control", &access_control)
             .unwrap();
     })
+}
+
+fn router_denying_the_group_key() -> TestRouter {
+    router_denying("0/*/*/*/_buf_cpu")
 }
 
 /// A router that denies the group key does not break the base key. A subscriber that
@@ -1215,6 +1219,88 @@ fn denied_group_key_starves_silently_while_the_base_key_flows() {
     assert!(
         arrivals(&denying, "acl_buf", &base) > 0,
         "base key under the rule"
+    );
+}
+
+/// Under a rule that denies `<topic key>/**` alone, a joined subscriber on a buffer topic gets
+/// nothing, on the group key and on the base key. `<topic key>/**` includes `<topic key>`, so the
+/// rule also starves a subscriber set to `Off`, which reads the base key only. A rule on the group
+/// key alone leaves the base key open (see the test above).
+///
+/// Two controls show the zeros come from the rule. A router with no rule delivers on both keys,
+/// to a joined and to an `Off` subscriber. On the router with the rule, a joined subscriber on a
+/// second topic still receives on its group key, so the rule is scoped to one topic key.
+#[test]
+fn denied_wide_key_starves_a_joined_subscriber() {
+    const NAME: &str = "denied_wide_key_starves_a_joined_subscriber";
+    let base = base_key("acl_wide", &UINT8);
+    let group = group_key("acl_wide", &UINT8);
+    let denying = router_denying(&format!("{base}/**"));
+    let open = TestRouter::new();
+    let arrivals = |router: &TestRouter, topic: &str, mode: BufferGroup, key: &str| {
+        let raw = raw_session(router.endpoint());
+        let ctx = create_hiroz_context_with_router(router).expect("ctx");
+        let node = ctx.create_node("tok_node").build().expect("node");
+        let sub = node
+            .create_sub::<UInt8MultiArray>(&format!("/{topic}"))
+            .with_buffer_group(mode)
+            .build()
+            .expect("build returns Ok under a deny rule");
+        token_for(&raw, topic);
+        std::thread::sleep(POLL);
+        for _ in 0..20 {
+            raw.put(key, PAYLOAD.to_vec()).wait().unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let mut received = 0;
+        while sub.recv_timeout(POLL).is_ok() {
+            received += 1;
+        }
+        received
+    };
+    let other = group_key("acl_wide_other", &UINT8);
+    let check = |what: &str, received: usize, delivers: bool| {
+        r1_assert!(
+            (received > 0) == delivers,
+            NAME,
+            "{what}: received {received}, expected {}",
+            if delivers { "some" } else { "none" }
+        );
+    };
+    check(
+        "open router, joined, group key",
+        arrivals(&open, "acl_wide", BufferGroup::Auto, &group),
+        true,
+    );
+    check(
+        "open router, joined, base key",
+        arrivals(&open, "acl_wide", BufferGroup::Auto, &base),
+        true,
+    );
+    check(
+        "open router, Off, base key",
+        arrivals(&open, "acl_wide", BufferGroup::Off, &base),
+        true,
+    );
+    check(
+        "rule, joined, other topic, group key",
+        arrivals(&denying, "acl_wide_other", BufferGroup::Auto, &other),
+        true,
+    );
+    check(
+        "rule, joined, group key",
+        arrivals(&denying, "acl_wide", BufferGroup::Auto, &group),
+        false,
+    );
+    check(
+        "rule, joined, base key",
+        arrivals(&denying, "acl_wide", BufferGroup::Auto, &base),
+        false,
+    );
+    check(
+        "rule, Off, base key",
+        arrivals(&denying, "acl_wide", BufferGroup::Off, &base),
+        false,
     );
 }
 
