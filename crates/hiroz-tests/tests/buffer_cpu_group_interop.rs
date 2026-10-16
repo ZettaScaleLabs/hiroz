@@ -1,32 +1,32 @@
 //! A hiroz subscriber must receive from a released `rmw_zenoh` publisher in buffer mode.
 //!
-//! The publisher is `ros2 topic pub` of a Lyrical `rmw_zenoh_cpp`. Lyrical writes a message with
-//! an unbounded `uint8[]` field only on `<topic key>/_buf_cpu` when every matched subscriber
-//! announces buffer support. A plain Zenoh session counts the samples on both keys, so the test
-//! knows the publisher is in buffer mode without depending on a subscriber starving: the group
-//! key must carry the samples and the base key none.
+//! The publisher is a released Lyrical `rmw_zenoh_cpp`. Lyrical writes a message with an unbounded
+//! `uint8[]` field only on `<topic key>/_buf_cpu` to a subscriber that joined the CPU buffer group.
+//! A plain Zenoh session counts the samples on both keys, so a cell knows the publisher is in
+//! buffer mode without depending on a subscriber starving: the group key must carry the samples
+//! and the base key none. A cell that reads a base key above 0 on Lyrical proves nothing.
+//!
+//! On an older distro the publisher has no buffer mode. The cells there are a no-regression check:
+//! every sample arrives on the base key.
 
+#![cfg(target_os = "linux")]
 #![cfg(feature = "ros-interop")]
 
 mod common;
 
 use std::{
     process::{Command, Stdio},
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, Mutex},
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use common::{t1_harness, *};
 use hiroz::{Builder, MessageTypeInfo};
-use hiroz_msgs::std_msgs::UInt8MultiArray;
+use hiroz_msgs::{sensor_msgs::PointCloud2, std_msgs::UInt8MultiArray};
 use serde::{Deserialize, Serialize};
+use t1_harness::{ModeDetector, SeqCounter};
 use zenoh::Wait;
-
-const BASE: &str = "0/bufcell/std_msgs::msg::dds_::UInt8MultiArray_/RIHS01_5687e861b8d307a5e48b7515467ae7a5fc2daf805bd0ce6d8e9e604bade9f385";
 
 /// `std_msgs/UInt8MultiArray` on the wire, without a message schema: the no-schema case.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,183 +58,311 @@ impl hiroz::msg::ZMessage for Blob {
     type Serdes = hiroz::msg::SerdeCdrSerdes<Blob>;
 }
 
-fn counter(
-    session: &zenoh::Session,
-    key: &str,
-) -> (zenoh::pubsub::Subscriber<()>, Arc<AtomicUsize>) {
-    let count = Arc::new(AtomicUsize::new(0));
-    let seen = count.clone();
-    let sub = session
-        .declare_subscriber(key.to_owned())
-        .callback(move |_| {
-            seen.fetch_add(1, Ordering::SeqCst);
-        })
-        .wait()
-        .expect("counter");
-    (sub, count)
+/// `sensor_msgs/PointCloud2` on the wire, without a message schema: the no-schema case of the
+/// payload of public report 369.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Stamp {
+    sec: i32,
+    nanosec: u32,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Header {
+    stamp: Stamp,
+    frame_id: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Field {
+    name: String,
+    offset: u32,
+    datatype: u8,
+    count: u32,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CloudBlob {
+    header: Header,
+    height: u32,
+    width: u32,
+    fields: Vec<Field>,
+    is_bigendian: bool,
+    point_step: u32,
+    row_step: u32,
+    data: Vec<u8>,
+    is_dense: bool,
+}
+impl MessageTypeInfo for CloudBlob {
+    fn type_name() -> &'static str {
+        PointCloud2::type_name()
+    }
+    fn type_hash() -> hiroz::TypeHash {
+        PointCloud2::type_hash()
+    }
+}
+impl hiroz::ros_msg::WithTypeInfo for CloudBlob {}
+impl hiroz::msg::ZMessage for CloudBlob {
+    type Serdes = hiroz::msg::SerdeCdrSerdes<CloudBlob>;
 }
 
-/// Cycle 2.12: a typed subscriber and a no-schema subscriber receive every sample a Lyrical
-/// publisher in buffer mode writes. The plain session is the mode detector and the count.
+/// The messages one cell publishes per kind.
+const SAMPLES: u32 = 30;
+
+/// The Lyrical publisher is the only one with a buffer mode. Any other distro is a no-regression
+/// cell: the samples arrive on the base key.
+fn distro_has_buffer_mode() -> bool {
+    std::env::var("ROS_DISTRO").is_ok_and(|d| d == "lyrical")
+}
+
+/// The base key of a topic for the domain 0, as `rmw_zenoh_cpp` writes it.
+fn base_key(topic: &str, type_name: &str, hash: &hiroz::TypeHash) -> String {
+    format!(
+        "0/{}/{}/{}",
+        topic.trim_start_matches('/'),
+        type_name,
+        hash.to_rihs_string()
+    )
+}
+
+/// A released `rclpy` publisher of a message with a `data` field of `size` bytes. Message number
+/// `seq` carries `seq` as 4 little-endian bytes in `data` and the sentinel 0xA5 as the last byte.
+/// It waits for `subs` matched subscribers, then publishes `n` messages at 5 Hz.
+const SEQ_PUBLISHER: &str = r#"
+import sys, time, rclpy
+kind, topic, n, size, subs = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
+rclpy.init()
+node = rclpy.create_node('t1_seq_pub')
+if kind == 'uint8':
+    from std_msgs.msg import UInt8MultiArray as Msg
+else:
+    from sensor_msgs.msg import PointCloud2 as Msg
+pub = node.create_publisher(Msg, topic, 10)
+t0 = time.time()
+while pub.get_subscription_count() < subs and time.time() - t0 < 20:
+    rclpy.spin_once(node, timeout_sec=0.1)
+print('T1PUB matched=%d' % pub.get_subscription_count(), flush=True)
+time.sleep(1.0)
+for seq in range(n):
+    data = bytearray(size)
+    data[0:4] = seq.to_bytes(4, 'little')
+    data[size - 1] = 0xA5
+    m = Msg()
+    if kind != 'uint8':
+        m.header.frame_id = 't1'
+        m.height = 1
+        m.width = size
+        m.point_step = 1
+        m.row_step = size
+        m.is_dense = True
+    m.data = list(data)
+    pub.publish(m)
+    rclpy.spin_once(node, timeout_sec=0.2)
+print('T1PUB published=%d' % n, flush=True)
+time.sleep(1.0)
+node.destroy_node()
+rclpy.shutdown()
+"#;
+
+fn spawn_seq_publisher(
+    router: &TestRouter,
+    kind: &str,
+    topic: &str,
+    size: usize,
+    subs: usize,
+) -> ProcessGuard {
+    let child = Command::new("python3")
+        .args([
+            "-c",
+            SEQ_PUBLISHER,
+            kind,
+            topic,
+            &SAMPLES.to_string(),
+            &size.to_string(),
+            &subs.to_string(),
+        ])
+        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("spawn the rclpy publisher");
+    ProcessGuard::new(child, "rclpy seq publisher")
+}
+
+/// The `data` bytes of a dynamic message: `Bytes`, or an array of `uint8`.
+fn dynamic_bytes(msg: &hiroz::dynamic::DynamicMessage) -> Vec<u8> {
+    let value = msg.get_dynamic("data").expect("data field");
+    match value.as_bytes() {
+        Some(bytes) => bytes.to_vec(),
+        None => value
+            .as_array()
+            .expect("data is bytes or an array")
+            .iter()
+            .filter_map(|v| v.as_u8())
+            .collect(),
+    }
+}
+
+/// What one arm received of one kind.
+struct Arm {
+    name: &'static str,
+    received: usize,
+    duplicates: usize,
+    corrupt: usize,
+}
+
+/// What one kind of payload read: the detector counts and the arms.
+struct KindRun {
+    kind: &'static str,
+    group: usize,
+    base: usize,
+    arms: Vec<Arm>,
+}
+
+/// Runs the four non-raw subscriber arms of one payload kind against one released publisher.
+/// Every message type of the arms has a `data` field of bytes.
+macro_rules! run_kind {
+    ($kind:expr, $py:expr, $topic:expr, $size:expr, $M:ty, $B:ty) => {{
+        let topic: &str = $topic;
+        let router = TestRouter::new();
+        let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+        let node = ctx.create_node("t1cell_node").build().expect("node");
+        let typed = node.create_sub::<$M>(topic).build().unwrap();
+        let blob = node.create_sub::<$B>(topic).build().unwrap();
+        let dynamic = node
+            .create_dyn_sub(topic, <$M>::message_schema().unwrap())
+            .build()
+            .unwrap();
+        let cache = node
+            .create_cache::<$M>(topic, 4 * SAMPLES as usize)
+            .build()
+            .unwrap();
+        let base = base_key(topic, <$M>::type_name(), &<$M>::type_hash());
+        let detector = ModeDetector::new(router.endpoint(), &base);
+        wait_for_ready(Duration::from_secs(2));
+
+        let mut guard = spawn_seq_publisher(&router, $py, topic, $size, 4);
+        let (mut c_typed, mut c_blob, mut c_dyn) =
+            (SeqCounter::new(), SeqCounter::new(), SeqCounter::new());
+        let poll = Duration::from_millis(10);
+        let end = Instant::now() + Duration::from_secs(SAMPLES as u64 / 5 + 40);
+        let mut finished_at: Option<Instant> = None;
+        while Instant::now() < end {
+            if let Ok(m) = typed.recv_timeout(poll) {
+                c_typed.record(&m.data);
+            }
+            if let Ok(m) = blob.recv_timeout(poll) {
+                c_blob.record(&m.data);
+            }
+            if let Ok(m) = dynamic.recv_timeout(poll) {
+                c_dyn.record(&dynamic_bytes(&m));
+            }
+            let done = guard
+                .child
+                .as_mut()
+                .is_some_and(|c| c.try_wait().ok().flatten().is_some());
+            if done && finished_at.is_none() {
+                finished_at = Some(Instant::now());
+            }
+            // The publisher has exited: give the last samples two seconds, then stop.
+            if finished_at.is_some_and(|t| t.elapsed() > Duration::from_secs(2)) {
+                break;
+            }
+        }
+        let mut c_cache = SeqCounter::new();
+        let horizon = SystemTime::now() + Duration::from_secs(3600);
+        for m in cache.get_interval(UNIX_EPOCH, horizon) {
+            c_cache.record(&m.data);
+        }
+
+        let arm = |name: &'static str, c: &SeqCounter| Arm {
+            name,
+            received: c.received_of(SAMPLES),
+            duplicates: c.duplicates(),
+            corrupt: c.corrupt(),
+        };
+        let reading = detector.read();
+        KindRun {
+            kind: $kind,
+            group: reading.group,
+            base: reading.base,
+            arms: vec![
+                arm("typed", &c_typed),
+                arm("no_schema", &c_blob),
+                arm("dynamic", &c_dyn),
+                arm("cache", &c_cache),
+            ],
+        }
+    }};
+}
+
+/// Cycle 2.12: when a Lyrical publisher is in buffer mode, the typed, the no-schema, the dynamic
+/// and the cache subscriber each receive every sample, for `UInt8MultiArray` and for
+/// `PointCloud2`. The plain session is the mode detector. Each arm counts by sequence number and
+/// sentinel, so a repeat, a gap and a truncated payload are all visible.
+///
+/// The test prints one `T1ARM` line per arm and one `T1RED` line: the least any arm received, with
+/// the detector counts of the worst kind. The line is the one J-RED-T1 reads.
 #[test]
 fn joined_subscribers_receive_from_a_released_publisher() {
     const NAME: &str = "joined_subscribers_receive_from_a_released_publisher";
     assert!(
         check_ros2_available(),
-        "ros2 is required: run this test where a Lyrical ROS 2 is installed"
+        "ros2 is required: run this test where a released ROS 2 is installed"
     );
     t1_harness::require_buffer_aware_rmw(NAME);
-    let router = TestRouter::new();
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("bufcell_node").build().expect("node");
-    let typed = node
-        .create_sub::<UInt8MultiArray>("/bufcell")
-        .build()
-        .unwrap();
-    let blob = node.create_sub::<Blob>("/bufcell").build().unwrap();
+    let runs = vec![
+        run_kind!("uint8", "uint8", "/bufcell", 64, UInt8MultiArray, Blob),
+        run_kind!("cloud", "cloud", "/bufcloud", 65536, PointCloud2, CloudBlob),
+    ];
 
-    let mut config = zenoh::Config::default();
-    config.insert_json5("mode", "\"client\"").unwrap();
-    config
-        .insert_json5("connect/endpoints", &format!("[\"{}\"]", router.endpoint()))
-        .unwrap();
-    config
-        .insert_json5("scouting/multicast/enabled", "false")
-        .unwrap();
-    let plain = zenoh::open(config).wait().expect("plain session");
-    let (_group_sub, group) = counter(&plain, &format!("{BASE}/_buf_cpu"));
-    let (_base_sub, base) = counter(&plain, BASE);
-    wait_for_ready(Duration::from_secs(2));
-
-    const SAMPLES: usize = 30;
-    let publisher = Command::new("ros2")
-        .args([
-            "topic",
-            "pub",
-            "/bufcell",
-            "std_msgs/msg/UInt8MultiArray",
-            "{data: [1, 2, 3]}",
-            "--rate",
-            "5",
-            "--times",
-            &SAMPLES.to_string(),
-        ])
-        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
-        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn ros2 topic pub");
-    let _guard = ProcessGuard::new(publisher, "ros2 pub");
-
-    let (mut typed_n, mut blob_n) = (0, 0);
-    let end = Instant::now() + Duration::from_secs(SAMPLES as u64 / 5 + 8);
-    while Instant::now() < end {
-        typed_n += typed.recv_timeout(Duration::from_millis(50)).is_ok() as usize;
-        blob_n += blob.recv_timeout(Duration::from_millis(50)).is_ok() as usize;
-        if group.load(Ordering::SeqCst) >= SAMPLES && typed_n >= SAMPLES && blob_n >= SAMPLES {
-            break;
+    let mut least = SAMPLES as usize;
+    for run in &runs {
+        println!(
+            "T1MODE {NAME}/{} GROUP={} BASE={}",
+            run.kind, run.group, run.base
+        );
+        for arm in &run.arms {
+            println!(
+                "T1ARM {NAME}/{}/{} RECEIVED={} OF={SAMPLES} DUPLICATES={} CORRUPT={}",
+                run.kind, arm.name, arm.received, arm.duplicates, arm.corrupt
+            );
+            least = least.min(arm.received);
         }
-        thread::sleep(Duration::from_millis(1));
     }
-    thread::sleep(Duration::from_millis(500));
-    while typed.recv_timeout(Duration::from_millis(50)).is_ok() {
-        typed_n += 1;
+    let group = runs.iter().map(|r| r.group).min().unwrap();
+    let base = runs.iter().map(|r| r.base).max().unwrap();
+    println!("T1RED {NAME} RECEIVED={least} OF={SAMPLES} DETECTOR=group:{group},base:{base}");
+
+    // The detector is the control. On Lyrical the group key carries every sample and the base
+    // key none. Elsewhere the base key carries every sample. A cell that fails the control
+    // proves nothing, and its failure carries no R1ASSERT marker.
+    for run in &runs {
+        if distro_has_buffer_mode() {
+            assert!(
+                run.group == SAMPLES as usize && run.base == 0,
+                "UNKNOWN DETECTOR {}: the detector read group {} and base {} of {SAMPLES}, so \
+                 the publisher is not in buffer mode and the cell proves nothing",
+                run.kind,
+                run.group,
+                run.base
+            );
+        } else {
+            assert!(
+                run.base >= SAMPLES as usize && run.group == 0,
+                "UNKNOWN DETECTOR {}: the detector read group {} and base {} of {SAMPLES} on a \
+                 distro with no buffer mode",
+                run.kind,
+                run.group,
+                run.base
+            );
+        }
     }
-    while blob.recv_timeout(Duration::from_millis(50)).is_ok() {
-        blob_n += 1;
+    for run in &runs {
+        for arm in &run.arms {
+            let what = format!("{}/{} received", run.kind, arm.name);
+            t1_harness::r1_assert_eq(NAME, arm.received, SAMPLES as usize, &what);
+            t1_harness::r1_assert_eq(NAME, arm.duplicates, 0, &format!("{what}: repeats"));
+            t1_harness::r1_assert_eq(NAME, arm.corrupt, 0, &format!("{what}: corrupt payloads"));
+        }
     }
-
-    let (group_n, base_n) = (group.load(Ordering::SeqCst), base.load(Ordering::SeqCst));
-    // Kill criterion: samples on the base key mean the publisher is not in buffer mode, and the
-    // cell proves nothing.
-    assert_eq!(base_n, 0, "the publisher is not in buffer mode");
-    assert!(
-        group_n >= SAMPLES * 2 / 3,
-        "group key carried {group_n} of {SAMPLES}"
-    );
-    assert_eq!(
-        typed_n, group_n,
-        "typed subscriber against the group key count"
-    );
-    assert_eq!(
-        blob_n, group_n,
-        "no-schema subscriber against the group key count"
-    );
-}
-
-/// Cycle 2.13: a topic that is not a buffer topic delivers each sample once to a subscriber that
-/// joined the group: its count equals the base key count, and the group key carries nothing.
-#[test]
-fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
-    assert!(
-        check_ros2_available(),
-        "ros2 is required: run this test where a Lyrical ROS 2 is installed"
-    );
-    const FLOAT_BASE: &str = "0/plaincell/std_msgs::msg::dds_::Float64MultiArray_/RIHS01_1025ddc6b9552d191f89ef1a8d2f60f3d373e28b283d8891ddcc974e8c55397f";
-    let router = TestRouter::new();
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("plaincell_node").build().expect("node");
-    let joined = node
-        .create_sub::<hiroz_msgs::std_msgs::Float64MultiArray>("/plaincell")
-        .with_buffer_group(hiroz::BufferGroup::Cpu)
-        .build()
-        .unwrap();
-
-    let mut config = zenoh::Config::default();
-    config.insert_json5("mode", "\"client\"").unwrap();
-    config
-        .insert_json5("connect/endpoints", &format!("[\"{}\"]", router.endpoint()))
-        .unwrap();
-    config
-        .insert_json5("scouting/multicast/enabled", "false")
-        .unwrap();
-    let plain = zenoh::open(config).wait().expect("plain session");
-    let (_group_sub, group) = counter(&plain, &format!("{FLOAT_BASE}/_buf_cpu"));
-    let (_base_sub, base) = counter(&plain, FLOAT_BASE);
-    wait_for_ready(Duration::from_secs(2));
-
-    const SAMPLES: usize = 30;
-    let publisher = Command::new("ros2")
-        .args([
-            "topic",
-            "pub",
-            "/plaincell",
-            "std_msgs/msg/Float64MultiArray",
-            "{data: [1.0, 2.0]}",
-            "--rate",
-            "5",
-            "--times",
-            &SAMPLES.to_string(),
-        ])
-        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
-        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn ros2 topic pub");
-    let _guard = ProcessGuard::new(publisher, "ros2 pub");
-
-    let mut received = 0;
-    let end = Instant::now() + Duration::from_secs(SAMPLES as u64 / 5 + 8);
-    while Instant::now() < end && base.load(Ordering::SeqCst) < SAMPLES {
-        received += joined.recv_timeout(Duration::from_millis(100)).is_ok() as usize;
-    }
-    while joined.recv_timeout(Duration::from_millis(500)).is_ok() {
-        received += 1;
-    }
-
-    let base_n = base.load(Ordering::SeqCst);
-    assert!(
-        base_n >= SAMPLES * 2 / 3,
-        "base key carried {base_n} of {SAMPLES}"
-    );
-    assert_eq!(
-        group.load(Ordering::SeqCst),
-        0,
-        "the group key carried a sample"
-    );
-    assert_eq!(received, base_n, "each sample must arrive once");
 }
 
 const MODE_NOBUF_BASE: &str = "0/modecell/std_msgs::msg::dds_::Float64MultiArray_/RIHS01_1025ddc6b9552d191f89ef1a8d2f60f3d373e28b283d8891ddcc974e8c55397f";
@@ -445,4 +573,80 @@ fn f5_capture_reads_the_group_key_a_real_publisher_writes() {
         F5_NAMESPACED_GROUP_KEY,
         "recorded F5 key",
     );
+}
+
+// ---- cells below need the join machinery of the lane: they name BufferGroup ----
+
+/// Cycle 2.13: a topic that is not a buffer topic delivers each sample once to a subscriber that
+/// joined the group: its count equals the base key count, and the group key carries nothing.
+#[test]
+fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
+    assert!(
+        check_ros2_available(),
+        "ros2 is required: run this test where a Lyrical ROS 2 is installed"
+    );
+    const FLOAT_BASE: &str = "0/plaincell/std_msgs::msg::dds_::Float64MultiArray_/RIHS01_1025ddc6b9552d191f89ef1a8d2f60f3d373e28b283d8891ddcc974e8c55397f";
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("plaincell_node").build().expect("node");
+    let joined = node
+        .create_sub::<hiroz_msgs::std_msgs::Float64MultiArray>("/plaincell")
+        .with_buffer_group(hiroz::BufferGroup::Cpu)
+        .build()
+        .unwrap();
+
+    let mut config = zenoh::Config::default();
+    config.insert_json5("mode", "\"client\"").unwrap();
+    config
+        .insert_json5("connect/endpoints", &format!("[\"{}\"]", router.endpoint()))
+        .unwrap();
+    config
+        .insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    let plain = zenoh::open(config).wait().expect("plain session");
+    let (_group_sub, group) = counter(&plain, &format!("{FLOAT_BASE}/_buf_cpu"));
+    let (_base_sub, base) = counter(&plain, FLOAT_BASE);
+    wait_for_ready(Duration::from_secs(2));
+
+    const SAMPLES: usize = 30;
+    let publisher = Command::new("ros2")
+        .args([
+            "topic",
+            "pub",
+            "/plaincell",
+            "std_msgs/msg/Float64MultiArray",
+            "{data: [1.0, 2.0]}",
+            "--rate",
+            "5",
+            "--times",
+            &SAMPLES.to_string(),
+        ])
+        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn ros2 topic pub");
+    let _guard = ProcessGuard::new(publisher, "ros2 pub");
+
+    let mut received = 0;
+    let end = Instant::now() + Duration::from_secs(SAMPLES as u64 / 5 + 8);
+    while Instant::now() < end && base.load(Ordering::SeqCst) < SAMPLES {
+        received += joined.recv_timeout(Duration::from_millis(100)).is_ok() as usize;
+    }
+    while joined.recv_timeout(Duration::from_millis(500)).is_ok() {
+        received += 1;
+    }
+
+    let base_n = base.load(Ordering::SeqCst);
+    assert!(
+        base_n >= SAMPLES * 2 / 3,
+        "base key carried {base_n} of {SAMPLES}"
+    );
+    assert_eq!(
+        group.load(Ordering::SeqCst),
+        0,
+        "the group key carried a sample"
+    );
+    assert_eq!(received, base_n, "each sample must arrive once");
 }
