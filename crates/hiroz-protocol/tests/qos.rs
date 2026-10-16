@@ -219,11 +219,10 @@ fn qos_chunk_equals_rmw_zenoh_for_every_grid_profile() {
     );
 }
 
-/// Control: the rows hiroz already encoded correctly (depth 10, the hiroz
-/// default, and keep-all) stay correct. Counting them keeps the check from
-/// passing over an empty set.
+/// The hiroz-default depth and keep-all profiles agree with the reference
+/// writer for every reliability, durability, and duration combination.
 #[test]
-fn grid_rows_that_matched_before_the_fix_still_match() {
+fn default_depth_and_keep_all_grid_rows_match_rmw_zenoh() {
     let kept: Vec<Row> = rows(GRID)
         .into_iter()
         .filter(|r| r.hist == 2 || r.depth == 10)
@@ -238,13 +237,10 @@ fn grid_rows_that_matched_before_the_fix_still_match() {
     );
 }
 
-/// Control: the rule "omit the kind, always write the depth" is not enough.
-/// rmw_zenoh also omits the depth at 42, so on the 96 depth-42 keep-last rows
-/// of the grid the history field is `,` and not `,42`. The fixture must keep
-/// those rows, and the encoder must write `,` on them. An encoder that always
-/// writes the depth writes `,42` and fails here, as it fails the grid pin.
+/// Keep-last profiles at rmw_zenoh's wire-default depth encode their history
+/// field as `,`, not `,42`, for every fixture combination.
 #[test]
-fn always_writing_the_depth_differs_from_rmw_zenoh_on_the_depth_42_rows() {
+fn wire_default_depth_is_omitted_from_keep_last_history() {
     let history_field = |chunk: &str| chunk.split(':').nth(2).map(str::to_string);
     let grid = rows(GRID);
     let depth_42: Vec<&Row> = grid
@@ -278,10 +274,9 @@ const DECODE: &str = include_str!("fixtures/rmw_zenoh_qos/qos_decode.tsv");
 /// When hiroz decodes a chunk that rmw_zenoh parses, the fields equal the ones
 /// rmw_zenoh returns.
 ///
-/// The fixture also holds chunks that rmw_zenoh rejects (`NULL`): `:::,:,:,,`
-/// and the liveliness key 2. hiroz accepts the first on purpose, so no
-/// rejection is asserted and those rows are not compared. The rejected set
-/// is pinned by name, so a new `NULL` row needs a decision.
+/// Rows marked `NULL` are chunks rejected by rmw_zenoh. hiroz intentionally
+/// accepts `:::,:,:,,`, so rejected rows are excluded from field comparison
+/// and enumerated explicitly to keep that compatibility boundary visible.
 #[test]
 fn qos_chunk_decodes_like_rmw_zenoh() {
     let mut compared = 0;
@@ -346,10 +341,8 @@ fn qos_chunk_equals_rmw_zenoh_for_depths_0_to_100() {
     }
 }
 
-/// `ManualByNode` is a hiroz-only liveliness value. The encoder writes key 2,
-/// and rmw_zenoh_cpp has no such key: its parser rejects the whole chunk
-/// (`NULL` in the decode fixture), so a peer running rmw_zenoh_cpp ignores the
-/// entity. This test pins that known limitation; it is not a conformance claim.
+/// `ManualByNode` is represented by key 2 in hiroz. rmw_zenoh has no key 2,
+/// rejects the complete chunk, and therefore does not discover the entity.
 #[test]
 fn manual_by_node_is_written_as_a_chunk_rmw_zenoh_rejects() {
     let chunk = QosProfile {
@@ -373,11 +366,9 @@ fn manual_by_node_is_written_as_a_chunk_rmw_zenoh_rejects() {
 
 const DURATIONS: &str = include_str!("fixtures/rmw_zenoh_qos/qos_durations.tsv");
 
-/// When exactly one component of a duration is at its default, the chunk
-/// omits that component and writes the other. rmw_zenoh decides per
-/// component, so a rule that omits the whole duration, or writes both parts,
-/// differs from the writer on these rows. The grid has no such row: there both
-/// parts are at the default or both are not.
+/// Each duration component is encoded independently: a default component is
+/// omitted while a non-default component is retained. These mixed-default
+/// profiles are not present in the main grid fixture.
 #[test]
 fn qos_chunk_equals_rmw_zenoh_when_one_duration_component_is_default() {
     let durations = rows(DURATIONS);
