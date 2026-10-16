@@ -124,6 +124,7 @@ impl Drop for ShutdownGuard {
 /// # Examples
 ///
 /// ```no_run
+/// # use hiroz::Builder;
 /// # use hiroz::action::*;
 /// # use std::time::Duration;
 /// # use hiroz_msgs::action_tutorials_interfaces::action::Fibonacci;
