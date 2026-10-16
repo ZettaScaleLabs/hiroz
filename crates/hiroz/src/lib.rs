@@ -68,6 +68,8 @@ pub mod graph;
 pub mod lifecycle;
 /// Intra-process message bus (prototype): `Arc<T>` delivery without serialization.
 pub mod local_bus;
+/// Allocator pin for large message payloads (glibc only).
+pub mod malloc_pin;
 /// Typed message wrappers and helpers.
 pub mod msg;
 /// ROS 2 node creation and management.
