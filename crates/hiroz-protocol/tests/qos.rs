@@ -239,28 +239,38 @@ fn grid_rows_that_matched_before_the_fix_still_match() {
 }
 
 /// Control: the rule "omit the kind, always write the depth" is not enough.
-/// rmw_zenoh also omits the depth at 42, so this model of the rejected rule
-/// must differ from the writer on every depth-42 keep-last row (96 of 576).
-/// If this fails, the fixture lost its depth-42 rows and the pin in
-/// `qos_chunk_equals_rmw_zenoh_for_every_grid_profile` no longer proves it.
+/// rmw_zenoh also omits the depth at 42, so on the 96 depth-42 keep-last rows
+/// of the grid the history field is `,` and not `,42`. The fixture must keep
+/// those rows, and the encoder must write `,` on them. An encoder that always
+/// writes the depth writes `,42` and fails here, as it fails the grid pin.
 #[test]
 fn always_writing_the_depth_differs_from_rmw_zenoh_on_the_depth_42_rows() {
-    let differs: Vec<usize> = rows(GRID)
+    let history_field = |chunk: &str| chunk.split(':').nth(2).map(str::to_string);
+    let grid = rows(GRID);
+    let depth_42: Vec<&Row> = grid
         .iter()
-        .enumerate()
-        .filter(|(_, r)| {
-            let history_field = match r.hist {
-                1 => format!(",{}", r.depth),
-                _ => "2,".to_string(),
-            };
-            r.chunk.split(':').nth(2) != Some(history_field.as_str())
-        })
-        .map(|(i, _)| i + 1)
+        .filter(|r| r.hist == 1 && r.depth == 42)
         .collect();
-    assert_eq!(differs.len(), 96);
-    assert!(differs
-        .iter()
-        .all(|&n| rows(GRID)[n - 1].hist == 1 && rows(GRID)[n - 1].depth == 42));
+    assert_eq!(
+        depth_42.len(),
+        96,
+        "the depth-42 keep-last rows of the grid"
+    );
+    for r in depth_42 {
+        let always_depth = Some(",42".to_string());
+        assert_ne!(
+            history_field(r.chunk),
+            always_depth,
+            "fixture row {:?} lost its depth omission",
+            r.chunk
+        );
+        assert_eq!(
+            history_field(&profile_of(r).encode()),
+            history_field(r.chunk),
+            "encoder history field on depth-42 row {:?}",
+            r.chunk
+        );
+    }
 }
 
 const DECODE: &str = include_str!("fixtures/rmw_zenoh_qos/qos_decode.tsv");
@@ -268,15 +278,18 @@ const DECODE: &str = include_str!("fixtures/rmw_zenoh_qos/qos_decode.tsv");
 /// When hiroz decodes a chunk that rmw_zenoh parses, the fields equal the ones
 /// rmw_zenoh returns.
 ///
-/// The fixture also holds the chunk `:::,:,:,,`, which rmw_zenoh rejects
-/// (`NULL`) and hiroz accepts. hiroz stays lenient on purpose, so that row is
-/// not compared and no rejection is asserted.
+/// The fixture also holds chunks that rmw_zenoh rejects (`NULL`): `:::,:,:,,`
+/// and the liveliness key 2. hiroz accepts the first on purpose, so no
+/// rejection is asserted and those rows are not compared. The rejected set
+/// is pinned by name, so a new `NULL` row needs a decision.
 #[test]
 fn qos_chunk_decodes_like_rmw_zenoh() {
     let mut compared = 0;
+    let mut rejected = Vec::new();
     for line in DECODE.lines() {
         let (chunk, fields) = line.split_once('\t').expect("fixture row has a tab");
         if fields == "NULL" {
+            rejected.push(chunk);
             continue;
         }
         let row_text = format!("{fields}\t{chunk}");
@@ -290,7 +303,8 @@ fn qos_chunk_decodes_like_rmw_zenoh() {
         );
         compared += 1;
     }
-    assert_eq!(compared, 7, "8 fixture chunks, 1 rejected by rmw_zenoh");
+    assert_eq!(compared, 17, "19 fixture chunks, 2 rejected by rmw_zenoh");
+    assert_eq!(rejected, [":::,:,:,,", "::,:,:,:2,,"]);
 }
 
 /// When hiroz encodes depth 0 to 100 for each history kind, each chunk equals
@@ -330,4 +344,54 @@ fn qos_chunk_equals_rmw_zenoh_for_depths_0_to_100() {
             r.chunk
         );
     }
+}
+
+/// `ManualByNode` is a hiroz-only liveliness value. The encoder writes key 2,
+/// and rmw_zenoh_cpp has no such key: its parser rejects the whole chunk
+/// (`NULL` in the decode fixture), so a peer running rmw_zenoh_cpp ignores the
+/// entity. This test pins that known limitation; it is not a conformance claim.
+#[test]
+fn manual_by_node_is_written_as_a_chunk_rmw_zenoh_rejects() {
+    let chunk = QosProfile {
+        history: QosHistory::KeepLast(RMW_ZENOH_DEFAULT_HISTORY_DEPTH),
+        liveliness: QosLiveliness::ManualByNode,
+        ..QosProfile::default()
+    }
+    .encode();
+    assert_eq!(chunk, "::,:,:,:2,,");
+    let rejected: Vec<&str> = DECODE
+        .lines()
+        .filter_map(|l| l.split_once('\t'))
+        .filter(|(_, fields)| *fields == "NULL")
+        .map(|(chunk, _)| chunk)
+        .collect();
+    assert!(
+        rejected.contains(&chunk.as_str()),
+        "rmw_zenoh no longer rejects {chunk:?}; rejected chunks: {rejected:?}"
+    );
+}
+
+const DURATIONS: &str = include_str!("fixtures/rmw_zenoh_qos/qos_durations.tsv");
+
+/// When exactly one component of a duration is at its default, the chunk
+/// omits that component and writes the other. rmw_zenoh decides per
+/// component, so a rule that omits the whole duration, or writes both parts,
+/// differs from the writer on these rows. The grid has no such row: there both
+/// parts are at the default or both are not.
+#[test]
+fn qos_chunk_equals_rmw_zenoh_when_one_duration_component_is_default() {
+    let durations = rows(DURATIONS);
+    assert_eq!(
+        durations.len(),
+        12,
+        "4 component pairs for each of deadline, lifespan and lease"
+    );
+    let bad = chunk_mismatches(&durations);
+    assert!(
+        bad.is_empty(),
+        "{} of {} rows differ from rmw_zenoh; first 3 (row, hiroz, rmw_zenoh): {:?}",
+        bad.len(),
+        durations.len(),
+        &bad[..bad.len().min(3)]
+    );
 }
