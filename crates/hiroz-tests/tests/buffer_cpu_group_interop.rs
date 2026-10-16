@@ -122,6 +122,17 @@ fn base_key(topic: &str, type_name: &str, hash: &hiroz::TypeHash) -> String {
     )
 }
 
+/// The base key a released publisher writes for the topic of `entity`, in the key format of the
+/// distro this binary is built for. The type-hash segment is `RIHS01_...` on Jazzy and later and
+/// `TypeHashNotSupported` on Humble, so a cell that reads the base key must not spell the hash.
+fn entity_base_key(entity: &hiroz_protocol::EndpointEntity) -> String {
+    hiroz_protocol::KeyExprFormat::default()
+        .topic_key_expr(entity)
+        .expect("base key")
+        .as_str()
+        .to_owned()
+}
+
 /// A released `rclpy` publisher of a message with a `data` field of `size` bytes. Message number
 /// `seq` carries `seq` as 4 little-endian bytes in `data` and the sentinel 0xA5 as the last byte.
 /// It waits for `subs` matched subscribers, then publishes `n` messages at 5 Hz.
@@ -390,8 +401,6 @@ fn joined_subscribers_receive_from_a_released_publisher() {
     }
 }
 
-const MODE_NOBUF_BASE: &str = "0/modecell/std_msgs::msg::dds_::Float64MultiArray_/RIHS01_1025ddc6b9552d191f89ef1a8d2f60f3d373e28b283d8891ddcc974e8c55397f";
-
 /// The positive control of the mode detector: a publisher that is not in buffer mode. A
 /// `Float64MultiArray` has no unbounded `uint8[]` field, so the publisher writes the base key only.
 /// The detector must refuse it with the base count above 0 and say the cell proves nothing.
@@ -407,11 +416,12 @@ fn mode_detector_fails_on_a_publisher_that_is_not_in_buffer_mode() {
     // and is not one, so a hiroz subscriber of the same topic makes the publisher write.
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("modecell_node").build().expect("node");
-    let _matched = node
+    let matched = node
         .create_sub::<hiroz_msgs::std_msgs::Float64MultiArray>("/modecell")
         .build()
         .unwrap();
-    let detector = t1_harness::ModeDetector::new(router.endpoint(), MODE_NOBUF_BASE);
+    let detector =
+        t1_harness::ModeDetector::new(router.endpoint(), &entity_base_key(matched.entity()));
     wait_for_ready(Duration::from_secs(2));
 
     let publisher = Command::new("ros2")
@@ -833,7 +843,6 @@ fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
         check_ros2_available(),
         "ros2 is required: run this test where a released ROS 2 is installed"
     );
-    const FLOAT_BASE: &str = "0/plaincell/std_msgs::msg::dds_::Float64MultiArray_/RIHS01_1025ddc6b9552d191f89ef1a8d2f60f3d373e28b283d8891ddcc974e8c55397f";
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("plaincell_node").build().expect("node");
@@ -842,7 +851,7 @@ fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
         .with_buffer_group(hiroz::BufferGroup::Cpu)
         .build()
         .unwrap();
-    let detector = ModeDetector::new(router.endpoint(), FLOAT_BASE);
+    let detector = ModeDetector::new(router.endpoint(), &entity_base_key(joined.entity()));
     wait_for_ready(Duration::from_secs(2));
 
     const PUBLISHED: usize = 30;
