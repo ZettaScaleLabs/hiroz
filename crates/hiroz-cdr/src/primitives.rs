@@ -352,11 +352,17 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
     ///
     /// # Safety
     /// The maximum count prevents unbounded iteration. It does not prove that the
-    /// elements are present in the input or make it safe to reserve for the count.
+    /// elements are present in the input.
     ///
     /// The maximum sequence length is 100 million elements. This validates only
-    /// the declared count; decoders must consume each element before growing their
-    /// output because valid elements can occupy zero bytes on the wire.
+    /// the declared count: it does not compare the count with [`Self::remaining`],
+    /// because valid elements can occupy zero bytes on the wire.
+    ///
+    /// A decoder must consume each element before it grows its output, and may
+    /// reserve at most `count.min(self.remaining())` elements as a hint. That bound
+    /// stops a short input from reserving the declared count. It does not bound the
+    /// bytes reserved: an element of `size_of::<T>()` bytes can make the reservation
+    /// up to `size_of::<T>()` times the unread input.
     #[inline]
     pub fn read_sequence_length(&mut self) -> Result<usize> {
         const MAX_SEQUENCE_LENGTH: u32 = 100_000_000;
