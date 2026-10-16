@@ -105,7 +105,9 @@ A hiroz subscriber joins this group when the end of its liveliness token is `bac
 
 `BufferGroup::Auto` is the default. A typed subscriber, a dynamic subscriber or a cache joins when its message has an unbounded `uint8[]`, directly or nested, or when hiroz has no message definition to ask. The feedback and status subscribers of an action client follow the same rule. To keep the previous token and routing, call `with_buffer_group(BufferGroup::Off)` on the subscriber builder. `BufferGroup::Cpu` joins whatever the message is. The cache builder and the action client have no `with_buffer_group`.
 
-A subscriber never joins if it is transient-local or uses a custom key expression format. Raw subscribers do not join, and `rmw-zenoh-rs` subscriptions use `Off`. The Go and Python bindings subscribe through the raw path, so they do not join either.
+A subscriber never joins if it is transient-local or uses a custom key expression format. Raw subscribers do not join unless you opt in, and `rmw-zenoh-rs` subscriptions use `Off`. The Go and Python bindings subscribe through the raw path, so they do not join either.
+
+A raw subscriber has no message definition for `Auto` to inspect. `create_raw_subscriber` and `create_raw_subscriber_with_qos` stay out of the group. `create_raw_subscriber_with_group(.., BufferGroup::Cpu)` joins, behind the `ffi` feature. With `Auto` or `Off` it stays out, and with `Cpu` it still stays out if it is transient-local or uses a custom key expression format. The opt-in is Rust only: the Go and Python bindings do not expose it yet.
 
 If you use access control, allow `<topic key>/**` wherever you allow `<topic key>`. A router rule that denies only the group key starves a joined subscriber on a buffer topic: no error is raised and the base key still delivers. A rule on `<topic key>/**` also starves a subscriber set to `Off`, because `<topic key>/**` includes `<topic key>`. hiroz writes one `info` log line per group key and process when a subscriber joins.
 
