@@ -624,7 +624,7 @@ jobs:
       # a pre-release tag depends on, which is the defect that broke the first
       # pre-release ever cut on the other channel.
       - name: Release workflow version semantics
-        run: bash scripts/test-release-version-semantics.sh
+        run: nu scripts/test-release-version-semantics.nu
 
       - name: Installer refusal paths
         run: bash scripts/test-install-hu.sh
