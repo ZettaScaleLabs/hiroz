@@ -14,15 +14,20 @@
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use hiroz::{Builder, MessageTypeInfo, context::ZContextBuilder};
+use hiroz::{Builder, MessageTypeInfo, context::ZContextBuilder, malloc_pin::PinOutcome};
 use hiroz_msgs::std_msgs::UInt8MultiArray;
 use zenoh::Wait;
 use zenoh_buffers::buffer::SplitBuffer;
 
-const ENDPOINT: &str = "tcp/127.0.0.1:17481";
+/// Environment variable that names the endpoint, for example `tcp/127.0.0.1:41000`.
+const ENDPOINT_VAR: &str = "MALLOC_PROBE_ENDPOINT";
 const WARM: usize = 10;
 /// Offset of the data field in the CDR payload: header 4, empty dim sequence 4, offset 4, length 4.
 const DATA_AT: usize = 16;
+
+fn endpoint() -> String {
+    std::env::var(ENDPOINT_VAR).unwrap_or_else(|_| panic!("{ENDPOINT_VAR} is not set"))
+}
 
 fn now_ns() -> u64 {
     SystemTime::now()
@@ -49,7 +54,7 @@ fn publisher(size: usize, hz: f64, count: usize) {
     c.insert_json5("transport/shared_memory/enabled", "false")
         .unwrap();
     c.insert_json5("mode", "\"peer\"").unwrap();
-    c.insert_json5("listen/endpoints", &format!("[\"{ENDPOINT}\"]"))
+    c.insert_json5("listen/endpoints", &format!("[\"{}\"]", endpoint()))
         .unwrap();
     let s = zenoh::open(c).wait().expect("open");
     let t0 = Instant::now();
@@ -86,9 +91,37 @@ fn publisher(size: usize, hz: f64, count: usize) {
     std::thread::sleep(Duration::from_secs(2));
 }
 
-fn apply_arm(arm: &str) {
+/// Exit status of a receiver that cannot give a valid arm. The test treats it as a failure.
+const EXIT_PIN_GATE: i32 = 4;
+
+/// Whether the outcome of the pin lets the `lib` arm count as pinned.
+fn pin_gate(outcome: PinOutcome) -> Result<(), String> {
+    match outcome {
+        PinOutcome::Pinned { .. } => Ok(()),
+        other => Err(format!("the lib arm is not pinned: {other:?}")),
+    }
+}
+
+/// Apply the arm and return the text of the pin outcome for the RESULT line.
+///
+/// Exits with `EXIT_PIN_GATE` and the marker `PINGATE` when an operator variable of glibc is
+/// set (it changes every arm) or when the `lib` arm does not end up pinned. A comparison of
+/// two unpinned arms would pass without measuring the pin.
+fn apply_arm(arm: &str) -> String {
+    for var in ["MALLOC_TRIM_THRESHOLD_", "MALLOC_MMAP_THRESHOLD_"] {
+        if std::env::var_os(var).is_some() {
+            eprintln!("PINGATE {var} is set; every arm would run under it");
+            std::process::exit(EXIT_PIN_GATE);
+        }
+    }
     if arm == "lib" {
-        hiroz::malloc_pin::pin_large_message_thresholds();
+        let outcome = hiroz::malloc_pin::pin_large_message_thresholds();
+        eprintln!("PINOUTCOME {outcome:?}");
+        if let Err(why) = pin_gate(outcome) {
+            eprintln!("PINGATE {why}");
+            std::process::exit(EXIT_PIN_GATE);
+        }
+        "Pinned".to_string()
     } else if let Some(v) = arm.strip_prefix("raw:") {
         let (mmap, trim) = v.split_once(':').expect("raw:<mmap>:<trim>");
         let mib = |s: &str| s.parse::<i32>().expect("mib") << 20;
@@ -98,8 +131,36 @@ fn apply_arm(arm: &str) {
         let a = unsafe { mallopt(-3, mib(mmap)) };
         let b = unsafe { mallopt(-1, mib(trim)) };
         eprintln!("RAWPIN mmap_rc={a} trim_rc={b}");
+        "raw".to_string()
     } else {
         assert_eq!(arm, "none", "unknown arm {arm}");
+        "none".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_pinned_passes_the_gate() {
+        assert!(
+            pin_gate(PinOutcome::Pinned {
+                mmap_rc: 1,
+                trim_rc: 1
+            })
+            .is_ok()
+        );
+        for bad in [
+            PinOutcome::Rejected {
+                mmap_rc: 0,
+                trim_rc: 1,
+            },
+            PinOutcome::OperatorSet,
+            PinOutcome::Unsupported,
+        ] {
+            assert!(pin_gate(bad).is_err(), "{bad:?} passed the gate");
+        }
     }
 }
 
@@ -115,10 +176,10 @@ fn receive(arm_full: &str, count: usize) {
             delay_ms = d.parse().expect("delay ms");
         }
     }
-    apply_arm(arm);
+    let pin = apply_arm(arm);
     let ctx = ZContextBuilder::default()
         .disable_multicast_scouting()
-        .with_connect_endpoints([ENDPOINT])
+        .with_connect_endpoints([endpoint()])
         .with_mode("peer")
         .build()
         .expect("context");
@@ -176,7 +237,7 @@ fn receive(arm_full: &str, count: usize) {
         _ => (f64::NAN, f64::NAN),
     };
     println!(
-        "RESULT arm={arm_full} n={k}/{count} p50_ms={p50:.3} user_ms={user:.2} sys_ms={sys:.2}"
+        "RESULT arm={arm_full} pin={pin} n={k}/{count} p50_ms={p50:.3} user_ms={user:.2} sys_ms={sys:.2}"
     );
 }
 
