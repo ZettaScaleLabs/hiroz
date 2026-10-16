@@ -1,5 +1,5 @@
 //! The Linux body of the probe. See the parent module for the usage.
-#![cfg(target_os = "linux")]
+#![cfg(all(target_os = "linux", target_env = "gnu"))]
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -141,6 +141,7 @@ fn receive(arm_full: &str, count: usize) {
     }
     let pin = apply_arm(arm);
     let ctx = ZContextBuilder::default()
+        .with_domain_id(0)
         .disable_multicast_scouting()
         .with_connect_endpoints([endpoint()])
         .with_mode("peer")

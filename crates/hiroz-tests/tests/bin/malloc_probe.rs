@@ -11,17 +11,17 @@
 //! each optionally followed by `+spawn` (receive on a spawned thread) or `+delay<ms>`
 //! (sleep before the receive time is read, a deliberately slowed arm).
 //!
-//! The probe measures Linux glibc behaviour. On another target it compiles to a stub that exits
+//! The probe measures Linux glibc behaviour. On another target, musl included, it compiles to a stub that exits
 //! with status 2.
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
 fn main() {
     linux::run();
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
 fn main() {
-    eprintln!("malloc_probe supports Linux only");
+    eprintln!("malloc_probe supports Linux with glibc only");
     std::process::exit(2);
 }
 
