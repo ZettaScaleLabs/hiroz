@@ -351,15 +351,12 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
     /// Read a sequence length prefix.
     ///
     /// # Safety
-    /// Includes a sanity check to prevent absurd allocations from malformed data.
-    /// Maximum sequence length is 100 million elements (~400MB for float32 arrays).
+    /// The maximum count prevents unbounded iteration. It does not prove that the
+    /// elements are present in the input or make it safe to reserve for the count.
     ///
-    /// The length must also fit the bytes that follow it: a prefix larger than the
-    /// remaining byte count returns [`Error::UnexpectedEof`]. This assumes every
-    /// element takes at least one byte. The check bounds a caller's reservation to
-    /// `size_of::<T>()` times the remaining bytes, not to the remaining bytes. An
-    /// element type larger than one byte, with a payload of one byte per element,
-    /// can still reserve `size_of::<T>()` times the payload.
+    /// The maximum sequence length is 100 million elements. This validates only
+    /// the declared count; decoders must consume each element before growing their
+    /// output because valid elements can occupy zero bytes on the wire.
     #[inline]
     pub fn read_sequence_length(&mut self) -> Result<usize> {
         const MAX_SEQUENCE_LENGTH: u32 = 100_000_000;
@@ -369,9 +366,6 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
                 "Sequence length {} exceeds maximum allowed ({}). Possible schema mismatch or corrupted data.",
                 len, MAX_SEQUENCE_LENGTH
             )));
-        }
-        if len as usize > self.remaining() {
-            return Err(Error::UnexpectedEof);
         }
         Ok(len as usize)
     }
