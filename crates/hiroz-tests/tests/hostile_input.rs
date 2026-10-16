@@ -6,6 +6,8 @@
 //! space limit (`RLIMIT_AS`) and checks how the child ended. A cgroup memory
 //! limit does not trigger the abort: the reservation is not charged until touched.
 
+#![cfg(target_os = "linux")]
+
 use std::process::{Command, Output};
 
 use hiroz::dynamic::{DynamicMessage, DynamicValue, FieldType, MessageSchema};

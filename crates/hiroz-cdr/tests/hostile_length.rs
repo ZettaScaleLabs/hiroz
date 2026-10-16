@@ -8,6 +8,8 @@
 //! Environment: the abort needs an address-space limit. A cgroup memory limit
 //! does not trigger it, because the reservation is not charged until it is touched.
 
+#![cfg(target_os = "linux")]
+
 use std::process::{Command, Output};
 
 use byteorder::LittleEndian;
