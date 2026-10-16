@@ -9,6 +9,8 @@
 #![allow(dead_code)]
 
 use std::{
+    path::{Path, PathBuf},
+    process::Command,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -227,10 +229,132 @@ impl SeqCounter {
     }
 }
 
+/// The marker string a buffer-aware `rmw_zenoh_cpp` carries: the group suffix of its key expressions.
+pub const BUFFER_MARKER: &str = "_buf_cpu";
+
+/// The most bytes of a library the guard reads while it looks for the marker.
+const SCAN_LIMIT: u64 = 64 * 1024 * 1024;
+
+/// Why the guard cannot vouch for the `rmw_zenoh_cpp` of this environment.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RmwGuardError {
+    /// No `librmw_zenoh_cpp.so` on `LD_LIBRARY_PATH`, in an `AMENT_PREFIX_PATH` prefix or in the
+    /// prefix `ros2 pkg prefix rmw_zenoh_cpp` names.
+    NotFound,
+    /// The library has no buffer marker.
+    NotBufferAware { path: PathBuf, version: Option<String> },
+    /// The library could not be read to the end inside the limit.
+    Unreadable { path: PathBuf, why: String },
+}
+
+impl std::fmt::Display for RmwGuardError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => write!(f, "could not find librmw_zenoh_cpp.so"),
+            Self::NotBufferAware { path, version } => write!(
+                f,
+                "the rmw_zenoh_cpp in this environment is not buffer-aware ({}, {}): run this test in an environment with the released 0.10.6 or later",
+                path.display(),
+                version.as_deref().map_or("version not found".to_owned(), |v| format!("version {v}")),
+            ),
+            Self::Unreadable { path, why } => write!(
+                f,
+                "could not scan librmw_zenoh_cpp.so ({}): {why}",
+                path.display()
+            ),
+        }
+    }
+}
+
+/// True when `reader` holds `needle` in its first `limit` bytes. The read is chunked, so memory
+/// stays bounded. An error is returned when the limit ends the scan before the end of the input.
+pub fn stream_contains(
+    mut reader: impl std::io::Read,
+    needle: &[u8],
+    limit: u64,
+) -> std::io::Result<bool> {
+    const CHUNK: usize = 1 << 20;
+    let keep = needle.len().saturating_sub(1);
+    let mut buf = vec![0u8; CHUNK + keep];
+    let (mut carried, mut total) = (0usize, 0u64);
+    loop {
+        let n = reader.read(&mut buf[carried..carried + CHUNK])?;
+        if n == 0 {
+            return Ok(false);
+        }
+        total += n as u64;
+        let filled = carried + n;
+        if buf[..filled].windows(needle.len()).any(|w| w == needle) {
+            return Ok(true);
+        }
+        if total >= limit {
+            return Err(std::io::Error::other(format!("no marker in the first {limit} bytes")));
+        }
+        carried = keep.min(filled);
+        buf.copy_within(filled - carried..filled, 0);
+    }
+}
+
+/// The directories where the publisher may find its `librmw_zenoh_cpp.so`, in loader order.
+fn rmw_library_dirs() -> Vec<PathBuf> {
+    let split = |var: &str| -> Vec<PathBuf> {
+        std::env::var_os(var)
+            .map(|v| std::env::split_paths(&v).filter(|p| !p.as_os_str().is_empty()).collect())
+            .unwrap_or_default()
+    };
+    let mut dirs = split("LD_LIBRARY_PATH");
+    dirs.extend(split("AMENT_PREFIX_PATH").into_iter().map(|p| p.join("lib")));
+    if let Ok(out) = Command::new("ros2").args(["pkg", "prefix", "rmw_zenoh_cpp"]).output()
+        && out.status.success()
+    {
+        let prefix = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        if !prefix.is_empty() {
+            dirs.push(PathBuf::from(prefix).join("lib"));
+        }
+    }
+    dirs
+}
+
+/// The first `librmw_zenoh_cpp.so` in `dirs`.
+pub fn find_rmw_library(dirs: &[PathBuf]) -> Option<PathBuf> {
+    dirs.iter().map(|d| d.join("librmw_zenoh_cpp.so")).find(|p| p.is_file())
+}
+
+/// The version in the `package.xml` of the package that owns `lib`, when the install has one.
+pub fn rmw_package_version(lib: &Path) -> Option<String> {
+    let prefix = lib.canonicalize().ok()?.parent()?.parent()?.to_owned();
+    let xml = std::fs::read_to_string(prefix.join("share/rmw_zenoh_cpp/package.xml")).ok()?;
+    let rest = xml.split("<version>").nth(1)?;
+    Some(rest.split("</version>").next()?.trim().to_owned())
+}
+
+/// Judges the library at `lib`.
+pub fn check_rmw_library(lib: &Path) -> Result<(), RmwGuardError> {
+    let unreadable = |e: std::io::Error| RmwGuardError::Unreadable {
+        path: lib.to_owned(),
+        why: e.to_string(),
+    };
+    let file = std::fs::File::open(lib).map_err(unreadable)?;
+    if stream_contains(file, BUFFER_MARKER.as_bytes(), SCAN_LIMIT).map_err(unreadable)? {
+        Ok(())
+    } else {
+        Err(RmwGuardError::NotBufferAware {
+            path: lib.to_owned(),
+            version: rmw_package_version(lib),
+        })
+    }
+}
+
 /// Fails the test with a named reason unless the `rmw_zenoh_cpp` the publisher will load is
 /// buffer-aware. A cell that expects the group key calls it first, so a missing buffer mode is
-/// not read as a hiroz failure.
+/// not read as a hiroz failure. Do not call it from a test that uses a non-buffer message type:
+/// that test is valid on any rmw.
 pub fn require_buffer_aware_rmw(name: &str) {
-    // Stub: the check follows in the next commit.
-    let _ = name;
+    let judged = match find_rmw_library(&rmw_library_dirs()) {
+        Some(lib) => check_rmw_library(&lib),
+        None => Err(RmwGuardError::NotFound),
+    };
+    if let Err(e) = judged {
+        r1_fail(name, &e.to_string());
+    }
 }
