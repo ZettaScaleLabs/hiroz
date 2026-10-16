@@ -280,10 +280,14 @@ def main [] {
     if ($dependencies | length) == 8 { ok "read 8 path dependency version strings" } else { version-location-bad "path dependency version strings found" ($dependencies | length | into string) "exactly 8" }
 
     let msgs_project = (open $"($ROOT)/crates/hiroz-msgs/python/pyproject.toml").project
+    let msgs_init = (open --raw $"($ROOT)/crates/hiroz-msgs/python/hiroz_msgs_py/__init__.py")
     let py_project = (open $"($ROOT)/crates/hiroz-py/pyproject.toml").project
+    let py_lock = (open --raw $"($ROOT)/crates/hiroz-py/uv.lock" | from toml)
     for wheel in [
         { location: "crates/hiroz-msgs/python/pyproject.toml version", version: ($msgs_project.version | into string) }
+        { location: "crates/hiroz-msgs/python/hiroz_msgs_py/__init__.py __version__", version: ($msgs_init | lines | where { str starts-with "__version__ = " } | first | default "" | split row '"' | get 1? | default "") }
         { location: "crates/hiroz-py/pyproject.toml version", version: ($py_project.version | into string) }
+        { location: "crates/hiroz-py/uv.lock hiroz-py version", version: ($py_lock.package | where name == "hiroz-py" | first | default { version: "" }).version }
     ] {
         if $wheel.version != $workspace_version { version-location-bad $wheel.location $wheel.version $workspace_version }
     }
