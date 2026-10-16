@@ -12,3 +12,7 @@ test-threads = 8
 # a single failing test left 108 of 154 unrun, and the leg then reported far less
 # than a green run would. Run them all and report every failure.
 fail-fast = false
+# A buffer cell that finds no buffer-aware rmw prints a `Skipping` line and passes. nextest hides
+# the output of a passing test by default, so the line would never reach the log and
+# scripts/ci/check-buffer-skips.sh would read a log that cannot show a skip.
+success-output = "final"

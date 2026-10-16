@@ -258,12 +258,13 @@ jobs:
           export RMW_IMPLEMENTATION=rmw_zenoh_cpp
           export RUST_LOG=hiroz=debug,zenoh=warn
           FEATURES="${{ matrix.hiroz_feature }}"
+          mkdir -p _tmp
           if [ "$FEATURES" = "humble" ]; then
             cargo nextest run -p hiroz-tests --profile interop \
-              --no-default-features --features ros-interop,humble
+              --no-default-features --features ros-interop,humble 2>&1 | tee _tmp/ros-interop.log
           else
             cargo nextest run -p hiroz-tests --profile interop \
-              --features "ros-interop,$FEATURES"
+              --features "ros-interop,$FEATURES" 2>&1 | tee _tmp/ros-interop.log
             # dynamic_subscriber tests are all #[ignore]'d in CI (ros2 topic
             # pub isn't graph-visible under CI's rmw_zenoh_cpp — see
             # headless_test.rs). --no-tests=warn keeps that from failing the job.
@@ -272,6 +273,8 @@ jobs:
               -E 'test(dynamic_subscriber)' \
               --no-tests=warn
           fi
+          # A skipped buffer cell passes in cargo's tally. Fail the lyrical leg on one.
+          sh scripts/ci/check-buffer-skips.sh "${{ matrix.distro }}" _tmp/ros-interop.log
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
         with:
