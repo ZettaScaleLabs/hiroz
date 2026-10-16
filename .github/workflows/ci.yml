@@ -97,6 +97,9 @@ jobs:
       - name: Test the apt retry wrapper
         run: ./scripts/ci/test-apt-retry.sh
 
+      - name: Test the buffer skip check
+        run: ./scripts/ci/test-check-buffer-skips.sh
+
   no-ros-test:
     name: ROS-independent Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
