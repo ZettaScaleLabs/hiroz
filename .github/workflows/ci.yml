@@ -533,7 +533,7 @@ jobs:
       - name: Install nushell
         uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
         with:
-          version: "0.113.1"
+          version: "0.116.1"
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
@@ -581,7 +581,7 @@ jobs:
       - name: Install nushell and jq
         run: |
           sudo apt-get update && sudo apt-get install -y jq
-          cargo install nu --locked --version 0.113.1
+          cargo install nu --locked --version 0.116.1
           # No `|| true`: a swallowed install failure resurfaces three steps
           # later as `nu: command not found`, which names neither the cause
           # nor the step that caused it.
@@ -857,7 +857,7 @@ jobs:
       - name: Install Nushell
         uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
         with:
-          version: '0.102'
+          version: '0.116.1'
 
       - name: Go vet (static analysis)
         run: nu scripts/test-go.nu --vet-only
