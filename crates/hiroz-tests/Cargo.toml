@@ -60,3 +60,8 @@ jazzy = ["hiroz/jazzy", "hiroz-msgs/jazzy"]
 rolling = ["hiroz/rolling", "hiroz-msgs/rolling"]
 kilted = ["hiroz/kilted", "hiroz-msgs/kilted"]
 lyrical = ["hiroz/lyrical", "hiroz-msgs/lyrical"]
+
+[[bin]]
+name = "malloc_probe"
+path = "tests/bin/malloc_probe.rs"
+required-features = ["ros-msgs"]

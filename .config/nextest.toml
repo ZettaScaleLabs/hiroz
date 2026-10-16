@@ -1,6 +1,11 @@
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 2 }
 
+# The pin gate runs fifteen 32 MiB receives of about 16 s each, one after the other.
+[[profile.default.overrides]]
+filter = 'test(=pinned_32mib_main_thread_receive_is_not_slower_than_unpinned)'
+slow-timeout = { period = "120s", terminate-after = 5 }
+
 # Profile for interop tests that spawn ros2 CLI subprocesses.
 # Each test owns its own TestRouter port so all 14 tests run in parallel.
 # The larger slow-timeout budget accommodates subprocess startup on CI runners.
