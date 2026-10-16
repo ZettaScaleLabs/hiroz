@@ -804,6 +804,71 @@ fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
     );
 }
 
+/// Cycle 3.5: when a joined cache is dropped, its group subscription stops. The stamp extractor
+/// of the cache runs once per sample the subscription delivers, so it counts deliveries after the
+/// cache itself is gone. The extractor runs on the group key before the drop.
+#[test]
+fn dropping_a_joined_cache_stops_group_key_updates() {
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::SystemTime,
+    };
+
+    const NAME: &str = "dropping_a_joined_cache_stops_group_key_updates";
+    const AFTER_DROP_PUTS: usize = 10;
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    let stamped = Arc::new(AtomicUsize::new(0));
+    let cache = node
+        .create_cache::<UInt8MultiArray>("/drop_cache_topic", 10)
+        .with_stamp({
+            let stamped = stamped.clone();
+            move |_msg: &UInt8MultiArray| {
+                stamped.fetch_add(1, Ordering::SeqCst);
+                SystemTime::now()
+            }
+        })
+        .build()
+        .expect("cache");
+    assert_token(
+        &token_for(&raw, "drop_cache_topic"),
+        shape("tok_node", "drop_cache_topic", &UINT8, true),
+    );
+    let key = group_key("drop_cache_topic", &UINT8);
+
+    // Positive control: the cache takes samples from the group key before the drop.
+    r1_assert!(
+        put_until(&raw, &key, &PAYLOAD, RECV, || stamped
+            .load(Ordering::SeqCst)
+            > 0),
+        NAME,
+        "control: no sample reached the cache on {key} before the drop"
+    );
+    std::thread::sleep(POLL);
+    let before = stamped.load(Ordering::SeqCst);
+    r1_assert!(
+        before >= 1 && !cache.is_empty(),
+        NAME,
+        "control: {before} samples stamped, cache empty: {}",
+        cache.is_empty()
+    );
+
+    drop(cache);
+    for _ in 0..AFTER_DROP_PUTS {
+        raw.put(&key, PAYLOAD.to_vec()).wait().expect("put");
+    }
+    std::thread::sleep(QUIET);
+    let after = stamped.load(Ordering::SeqCst);
+    r1_assert!(
+        after == before,
+        NAME,
+        "{} samples reached the dropped cache on {key} ({AFTER_DROP_PUTS} puts, {before} before)",
+        after - before
+    );
+}
+
 /// Cycle 3.3: a joined subscriber reads the group key, and `Locality::Remote` holds on that key.
 #[test]
 fn joined_subscriber_reads_the_group_key_with_its_locality() {
