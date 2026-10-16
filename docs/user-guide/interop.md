@@ -107,6 +107,8 @@ By default (`BufferGroup::Auto`) a subscriber joins when its message has an unbo
 
 Call `with_buffer_group` on the subscriber builder to decide for yourself: `BufferGroup::Cpu` joins whatever the message is, and `BufferGroup::Off` does not join.
 
+The cache builder and the action client have no `with_buffer_group`, so they always follow `Auto`.
+
 These subscribers never join, whatever you ask:
 
 - Transient-local subscribers. `rmw_zenoh` serves them on the base key only.
@@ -117,6 +119,10 @@ These subscribers do not join:
 - Raw subscribers. There is no way to opt them in.
 - `rmw-zenoh-rs` subscriptions. They pass `BufferGroup::Off`.
 
-The Python binding and the feedback and status subscribers of an action client have no message definition, so they join under `Auto`. The Python binding has no way to opt out.
+The feedback and status subscribers of an action client have no message definition, so they join under `Auto`. The Python binding has no message definition either, so it joins under `Auto`. The Python binding has no way to opt out.
 
-hiroz writes one `info` log line for each group key in a process, after it subscribes to the key. If you use access control, allow `<topic key>/**`, which includes `<topic key>/_buf_cpu`, wherever you allow `<topic key>`, and list every network interface in the subject of the rule. A router rule that denies the group key makes a joined subscriber on a buffer topic receive nothing. No error is raised, and the base key still delivers. A topic that is not a buffer topic is not affected.
+hiroz writes one `info` log line for each group key in a process, after it subscribes to the key. hiroz keeps one string for each group key it logged, for the life of the process. If you use access control, allow `<topic key>/**`, which includes `<topic key>/_buf_cpu`, wherever you allow `<topic key>`. A router rule that denies the group key makes a joined subscriber on a buffer topic receive nothing. No error is raised, and the base key still delivers. A topic that is not a buffer topic is not affected.
+
+`BufferGroup::Auto` is the default, and it changes the liveliness token and the routing of existing subscribers. A subscriber set to `Off` has a token with no `backends:` field and reads only `<topic key>`. This is what every subscriber did before `Auto` existed. With `Auto`, a subscriber of a message with an unbounded `uint8[]` field, or of a message with no definition, has a token that ends with `backends:cpu:`, and it also reads `<topic key>/_buf_cpu`. This affects typed subscribers, dynamic subscribers and caches of such messages, the feedback and status subscribers of an action client, and the Python binding. To keep the old token and routing on a subscriber, call `with_buffer_group(BufferGroup::Off)` on its builder. The cache builder, the action client and the Python binding have no way to keep them.
+
+A subscriber whose liveliness token has no `backends:` field receives nothing from a buffer-aware publisher on `rmw_zenoh_cpp` 0.10.5 to 0.10.7, until <https://github.com/ros2/rmw_zenoh/pull/1078> lands. This holds for a buffer topic. A hiroz subscriber set to `Off` and every `rmw-zenoh-rs` subscription have no `backends:` field, so both receive nothing in this case. Measured with a publisher on 0.10.6, a buffer-aware subscriber on 0.10.6 and a legacy subscriber on 0.10.4 shared one topic. The buffer-aware subscriber received 30 of 30 messages and the legacy subscriber received 0 of 30. A legacy subscriber alone received 0 of 30. Each figure is the same in 5 runs, on one host, with 30 `UInt8MultiArray` messages of 64 bytes at 5 Hz. A publisher on 0.10.4 delivered 30 of 30 messages to a legacy subscriber, and to a buffer-aware subscriber, in the same 5 runs. Versions after 0.10.7 are not covered.
