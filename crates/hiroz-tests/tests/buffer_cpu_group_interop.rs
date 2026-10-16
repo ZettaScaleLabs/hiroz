@@ -979,6 +979,12 @@ fn mixed_run(topic: &str, legacy: bool, anchor: bool) -> MixRun {
 ///   mode and the cell can tell the keys apart.
 /// - `mixed`: the joined subscriber and an `Off` subscriber. One subscriber is not buffer-aware.
 /// - `mixed_anchor`: the joined subscriber, an `Off` subscriber and the anchor.
+///
+/// Measured with `rmw_zenoh_cpp` 0.10.6: in every set the group key carries all samples and the
+/// base key none, so no sample arrives on both keys and the joined subscriber has no repeat to
+/// drop. The `Off` subscriber, which reads the base key only, receives nothing. The cell pins
+/// both facts: a publisher that starts to write both keys fails the key-count check, and the
+/// docs sentence about the `Off` subscriber follows from the second.
 #[test]
 fn mixed_matched_set_delivers_each_sample_once() {
     const NAME: &str = "mixed_matched_set_delivers_each_sample_once";
@@ -1021,12 +1027,28 @@ fn mixed_matched_set_delivers_each_sample_once() {
         aware.base
     );
     for (set, run) in &runs {
-        let arms = std::iter::once(&run.joined).chain(run.legacy.iter());
-        for arm in arms {
-            let what = format!("{set}/{} received", arm.name);
-            t1_harness::r1_assert_eq(NAME, arm.received, SAMPLES as usize, &what);
-            t1_harness::r1_assert_eq(NAME, arm.duplicates, 0, &format!("{what}: repeats"));
-            t1_harness::r1_assert_eq(NAME, arm.corrupt, 0, &format!("{what}: corrupt payloads"));
+        // One write per sample: the two keys together carry each sample once.
+        t1_harness::r1_assert_eq(
+            NAME,
+            run.group + run.base,
+            SAMPLES as usize,
+            &format!("{set}: samples on the group key and the base key together"),
+        );
+        let what = format!("{set}/joined received");
+        t1_harness::r1_assert_eq(NAME, run.joined.received, SAMPLES as usize, &what);
+        t1_harness::r1_assert_eq(NAME, run.joined.duplicates, 0, &format!("{what}: repeats"));
+        t1_harness::r1_assert_eq(
+            NAME,
+            run.joined.corrupt,
+            0,
+            &format!("{what}: corrupt payloads"),
+        );
+        if let Some(legacy) = &run.legacy {
+            // Characterization of the released publisher: the subscriber that reads the base
+            // key only gets nothing while the group key carries every sample.
+            let what = format!("{set}/legacy received");
+            t1_harness::r1_assert_eq(NAME, legacy.received, 0, &what);
+            t1_harness::r1_assert_eq(NAME, legacy.duplicates, 0, &format!("{what}: repeats"));
         }
     }
 }
