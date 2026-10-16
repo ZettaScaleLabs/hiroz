@@ -8,12 +8,15 @@
 //! Scope:
 //! - Only `rmw_init` in `rmw-zenoh-rs` applies the pin. `hiroz` does not call it, so an
 //!   application that uses `hiroz` directly gets no pin and must call
-//!   [`pin_large_message_thresholds`] itself.
+//!   [`crate::malloc_pin::pin_large_message_thresholds`] itself.
 //! - The pin changes the allocator of the whole process. It overrides any earlier `mallopt`
 //!   call of the host application. It detects only the glibc environment variables.
 //! - A message of 64 MiB or more is always served by `mmap` and sees no benefit. At 64 MiB
 //!   the receive latency was the same with no pin, with the previous 64/64 pin and with this
 //!   pin.
+//! - The timing gate for the pin (`malloc_pin_receive.rs` in `hiroz-tests`) is opt-in. CI does
+//!   not run it, because it holds only on a quiet host (load average below 0.6). The command is
+//!   in the module doc of that test.
 //! - The `rmw_init` call is guarded only by a source check
 //!   (`malloc_pin_wiring.rs` in `hiroz-tests`), because `rmw-zenoh-rs` needs ROS headers and
 //!   cannot build without them. The check fails when the call text is removed. It does not
