@@ -10,6 +10,7 @@
 //! oracle fixtures in `hiroz-protocol/tests/fixtures/rmw_zenoh_qos/`. Only the three opaque ids
 //! of a token (zid, node id, entity id) are read from the observed token.
 
+#![cfg(target_os = "linux")]
 #![cfg(feature = "ros-msgs")]
 
 mod common;
