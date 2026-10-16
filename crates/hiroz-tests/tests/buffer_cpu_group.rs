@@ -167,7 +167,19 @@ fn assert_token(token: &str, shape: Shape) {
         "@ros2_lv/0/{zid}/{node_id}/{entity_id}/MS/%/%/{}/%{}/{}/{hash}/{}{backends}",
         shape.node, shape.topic, shape.name, shape.qos
     );
-    assert_eq!(token, expected);
+    // The test harness names each test thread after the test, so the marker carries the test name.
+    let thread = std::thread::current();
+    let name = thread
+        .name()
+        .unwrap_or("unnamed")
+        .rsplit("::")
+        .next()
+        .unwrap_or("unnamed");
+    r1_assert!(
+        token == expected,
+        name,
+        "token differs\n  got:  {token}\n  want: {expected}"
+    );
 }
 
 const DEFAULT_QOS: &str = "::,10:,:,:,,";
@@ -567,8 +579,9 @@ fn cache_joins_the_group() {
         shape("tok_node", "cache_plain", &FLOAT64, false),
     );
     let key = group_key("cache_topic", &UINT8);
-    assert!(
+    r1_assert!(
         put_until(&raw, &key, &PAYLOAD, RECV, || !cache.is_empty()),
+        "cache_joins_the_group",
         "cache received nothing on {key}"
     );
 }
