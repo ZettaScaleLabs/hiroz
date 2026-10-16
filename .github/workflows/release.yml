@@ -203,7 +203,7 @@ jobs:
       - name: Install nushell
         uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
         with:
-          version: "0.113.1"
+          version: "0.116.1"
 
       # HU_VERSION identifies the RELEASE (`0.2.0-rc1`); HU_CORE identifies the
       # ASSETS (`0.2.0`). They differ only for a pre-release, because
@@ -266,7 +266,7 @@ jobs:
       - name: Install nushell
         uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
         with:
-          version: "0.113.1"
+          version: "0.116.1"
 
       # HU_VERSION identifies the RELEASE (`0.2.0-rc1`); HU_CORE identifies the
       # ASSETS (`0.2.0`). build-hu-release.nu names every file for the crate
@@ -797,7 +797,7 @@ jobs:
       - name: Install nushell
         uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
         with:
-          version: "0.113.1"
+          version: "0.116.1"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # stable
