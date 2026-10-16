@@ -99,7 +99,7 @@ For more detail see [Go Quick Start](../bindings/go-quick-start.md).
 
 ## Buffer messages from Lyrical publishers
 
-A ROS 2 Lyrical `rmw_zenoh_cpp` publisher treats an unbounded `uint8[]` field as a buffer, also inside a nested message. Examples are `sensor_msgs/Image` and `sensor_msgs/PointCloud2`. If a matched subscriber announces buffer support, the publisher writes the message only on `<topic key>/_buf_cpu`, never on `<topic key>`. Humble, Jazzy and Kilted have no buffer-aware `rmw_zenoh_cpp`, so the interop tests that need one skip on those distros.
+A ROS 2 Lyrical `rmw_zenoh_cpp` publisher treats an unbounded `uint8[]` field as a buffer, also inside a nested message. Examples are `sensor_msgs/Image` and `sensor_msgs/PointCloud2`. If a matched subscriber announces buffer support, the publisher writes the message on `<topic key>/_buf_cpu` and never on `<topic key>`. For each matched subscriber that does not announce it, the publisher also writes `<topic key>/_buf/<gid>`. Humble, Jazzy and Kilted have no buffer-aware `rmw_zenoh_cpp`, so the interop tests that need one skip on those distros.
 
 A hiroz subscriber joins this group when the end of its liveliness token is `backends:cpu:`. It then reads `<topic key>/**`, which includes the base key and the group key, and drops every other key under the topic key in process. The payload is plain CDR.
 
