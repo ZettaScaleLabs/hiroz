@@ -11,8 +11,6 @@
 //! with `recv_timeout`. The test says nothing about `async_recv`, callbacks or other types.
 #![cfg(all(target_os = "linux", feature = "ros-msgs"))]
 
-mod common;
-
 use std::{
     io::Read,
     process::{Command, Stdio},
@@ -136,9 +134,8 @@ fn pinned_32mib_main_thread_receive_is_not_slower_than_unpinned() {
         !not_slower(&slowed, &unpinned),
         "control failed: an unpinned receive slowed by {CONTROL_DELAY_MS} ms passed the check"
     );
-    r1_assert!(
+    assert!(
         not_slower(&pinned, &unpinned),
-        "pinned_32mib_main_thread_receive_is_not_slower_than_unpinned",
         "pinned median {:.3} ms exceeds unpinned median {:.3} ms by more than {:.3} ms",
         median(&pinned),
         median(&unpinned),
