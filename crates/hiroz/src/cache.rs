@@ -51,7 +51,6 @@ use std::time::SystemTime;
 use parking_lot::RwLock;
 use tracing::{debug, warn};
 use zenoh::Result;
-use zenoh::liveliness::LivelinessToken;
 
 use crate::Builder;
 use crate::msg::{SerdeCdrSerdes, ZDeserializer, ZMessage};
@@ -122,8 +121,8 @@ impl<T> CacheInner<T> {
 /// Dropping `ZCache` automatically deregisters the underlying Zenoh subscriber.
 pub struct ZCache<T: ZMessage> {
     inner: Arc<RwLock<CacheInner<T>>>,
+    _group: crate::buffer_compat::CpuGroup,
     _sub: zenoh::pubsub::Subscriber<()>,
-    _lv_token: LivelinessToken,
 }
 
 impl<T: ZMessage> ZCache<T> {
@@ -345,7 +344,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, lv_token) =
+        let (sub, group) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -375,8 +374,8 @@ where
         debug!("[CACHE] ZenohStamp cache ready");
         Ok(ZCache {
             inner,
+            _group: group,
             _sub: sub,
-            _lv_token: lv_token,
         })
     }
 }
@@ -402,7 +401,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, lv_token) =
+        let (sub, group) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -417,8 +416,8 @@ where
         debug!("[CACHE] ExtractorStamp cache ready");
         Ok(ZCache {
             inner,
+            _group: group,
             _sub: sub,
-            _lv_token: lv_token,
         })
     }
 }

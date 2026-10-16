@@ -9,6 +9,7 @@ pub type MessageCallback = extern "C" fn(user_data: usize, data: *const u8, len:
 
 /// Raw subscriber wrapper that keeps the zenoh subscriber alive
 pub struct RawSubscriber {
+    pub(crate) _group: crate::buffer_compat::CpuGroup,
     pub inner: AdvancedSubscriber<()>,
 }
 
