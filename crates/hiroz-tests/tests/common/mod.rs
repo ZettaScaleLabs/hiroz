@@ -1,3 +1,5 @@
+pub mod t1_harness;
+
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

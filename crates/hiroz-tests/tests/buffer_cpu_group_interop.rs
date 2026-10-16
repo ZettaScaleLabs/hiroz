@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use common::*;
+use common::{t1_harness, *};
 use hiroz::{Builder, MessageTypeInfo};
 use hiroz_msgs::std_msgs::UInt8MultiArray;
 use serde::{Deserialize, Serialize};
@@ -233,4 +233,60 @@ fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
         "the group key carried a sample"
     );
     assert_eq!(received, base_n, "each sample must arrive once");
+}
+
+const MODE_NOBUF_BASE: &str = "0/modecell/std_msgs::msg::dds_::Float64MultiArray_/RIHS01_1025ddc6b9552d191f89ef1a8d2f60f3d373e28b283d8891ddcc974e8c55397f";
+
+/// The positive control of the mode detector: a publisher that is not in buffer mode. A
+/// `Float64MultiArray` has no unbounded `uint8[]` field, so the publisher writes the base key only.
+/// The detector must refuse it with the base count above 0 and say the cell proves nothing.
+#[test]
+fn mode_detector_fails_on_a_publisher_that_is_not_in_buffer_mode() {
+    const NAME: &str = "mode_detector_fails_on_a_publisher_that_is_not_in_buffer_mode";
+    assert!(
+        check_ros2_available(),
+        "ros2 is required: run this test where a Lyrical ROS 2 is installed"
+    );
+    let router = TestRouter::new();
+    let detector = t1_harness::ModeDetector::new(router.endpoint(), MODE_NOBUF_BASE);
+    wait_for_ready(Duration::from_secs(2));
+
+    let publisher = Command::new("ros2")
+        .args([
+            "topic",
+            "pub",
+            "/modecell",
+            "std_msgs/msg/Float64MultiArray",
+            "{data: [1.0, 2.0]}",
+            "--rate",
+            "5",
+            "--times",
+            "30",
+        ])
+        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn ros2 topic pub");
+    let _guard = ProcessGuard::new(publisher, "ros2 pub");
+
+    match detector.require_buffer_mode(Duration::from_secs(10)) {
+        Err(t1_harness::DetectorError::NotInBufferMode { base, group }) => {
+            t1_harness::r1_assert_eq(NAME, group, 0, "group key count");
+            if base == 0 {
+                t1_harness::r1_fail(NAME, "the refusal reports a base key count of 0");
+            }
+            let text = t1_harness::DetectorError::NotInBufferMode { base, group }.to_string();
+            if !text.contains("proves nothing") {
+                t1_harness::r1_fail(NAME, &format!("the refusal does not say so: {text}"));
+            }
+        }
+        other => t1_harness::r1_fail(
+            NAME,
+            &format!(
+                "the detector accepted or could not judge a publisher outside buffer mode: {other:?}"
+            ),
+        ),
+    }
 }
