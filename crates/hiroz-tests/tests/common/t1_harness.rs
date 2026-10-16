@@ -13,7 +13,7 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use zenoh::Wait;
@@ -46,8 +46,13 @@ pub enum Mode {
 
 impl ModeReading {
     pub fn mode(&self) -> Mode {
-        let _ = self;
-        Mode::Silent
+        if self.base > 0 {
+            Mode::NotBuffer { base: self.base }
+        } else if self.group > 0 {
+            Mode::Buffer { group: self.group }
+        } else {
+            Mode::Silent
+        }
     }
 }
 
@@ -127,8 +132,22 @@ impl ModeDetector {
 
     /// Waits up to `timeout` for a sample on either key, then judges the mode.
     pub fn require_buffer_mode(&self, timeout: Duration) -> Result<usize, DetectorError> {
-        let _ = timeout;
-        Ok(self.read().group)
+        let end = Instant::now() + timeout;
+        while Instant::now() < end && self.read().mode() == Mode::Silent {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // A publisher that writes both keys must show on the base key, so wait for the second
+        // key after the first sample.
+        std::thread::sleep(Duration::from_millis(500));
+        let reading = self.read();
+        match reading.mode() {
+            Mode::Buffer { group } => Ok(group),
+            Mode::NotBuffer { base } => Err(DetectorError::NotInBufferMode {
+                base,
+                group: reading.group,
+            }),
+            Mode::Silent => Err(DetectorError::NoSamples),
+        }
     }
 }
 
@@ -149,5 +168,61 @@ fn counter(session: &zenoh::Session, key: &str) -> (zenoh::pubsub::Subscriber<()
 pub fn r1_assert_eq<T: PartialEq + std::fmt::Debug>(name: &str, left: T, right: T, what: &str) {
     if left != right {
         r1_fail(name, &format!("{what}: {left:?} is not {right:?}"));
+    }
+}
+
+/// The last byte of every payload a cell publishes.
+pub const SENTINEL: u8 = 0xA5;
+
+/// The `data` bytes of message number `seq`: the sequence number as 4 little-endian bytes, filler,
+/// and the sentinel as the last byte. `len` is at least 5.
+pub fn seq_payload(seq: u32, len: usize) -> Vec<u8> {
+    assert!(len >= 5, "a payload holds 4 sequence bytes and a sentinel");
+    let mut data = vec![0u8; len];
+    data[..4].copy_from_slice(&seq.to_le_bytes());
+    data[len - 1] = SENTINEL;
+    data
+}
+
+/// Counts received messages by sequence number. A payload whose last byte is not the sentinel is
+/// corrupt and counts for nothing: a truncated or shifted buffer must not pass as received.
+#[derive(Debug, Default)]
+pub struct SeqCounter {
+    seen: std::collections::BTreeSet<u32>,
+    duplicates: usize,
+    corrupt: usize,
+}
+
+impl SeqCounter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Records one received `data` field. Returns whether it was a new valid message.
+    pub fn record(&mut self, data: &[u8]) -> bool {
+        if data.len() < 5 || data[data.len() - 1] != SENTINEL {
+            self.corrupt += 1;
+            return false;
+        }
+        let seq = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+        if self.seen.insert(seq) {
+            true
+        } else {
+            self.duplicates += 1;
+            false
+        }
+    }
+
+    /// How many of the sequence numbers `0..sent` arrived at least once.
+    pub fn received_of(&self, sent: u32) -> usize {
+        self.seen.range(0..sent).count()
+    }
+
+    pub fn duplicates(&self) -> usize {
+        self.duplicates
+    }
+
+    pub fn corrupt(&self) -> usize {
+        self.corrupt
     }
 }
