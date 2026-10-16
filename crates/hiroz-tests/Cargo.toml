@@ -48,6 +48,8 @@ ros-interop = [
   "hiroz-msgs/action_tutorials_interfaces",
 ]
 python-interop = ["ros-msgs"]
+# Raw-subscriber tests. `hiroz/ffi` stays off elsewhere: `cargo clippy -D warnings` does not pass on the FFI modules.
+raw-sub-tests = ["ros-msgs", "hiroz/ffi"]
 hu-meter-tests = [
   "ros-msgs",
   "hiroz-msgs/example_interfaces",
