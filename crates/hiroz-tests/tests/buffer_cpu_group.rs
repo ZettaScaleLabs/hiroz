@@ -1151,6 +1151,11 @@ fn non_buffer_topic_still_delivers_under_a_group_key_deny_rule() {
     let sub = node
         .create_sub::<Float64MultiArray>("/acl_plain")
         .with_buffer_group(BufferGroup::Cpu)
+        // The test puts every sample before it receives, so the queue must hold them all.
+        .with_qos(QosProfile {
+            history: QosHistory::KeepLast(std::num::NonZeroUsize::new(SAMPLES).unwrap()),
+            ..Default::default()
+        })
         .build()
         .unwrap();
     token_for(&raw, "acl_plain");
