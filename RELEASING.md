@@ -4,7 +4,7 @@ This document covers the full release process: local dry-run, CI smoke test, and
 
 ## Version locations
 
-Before releasing, bump the version in all three places consistently:
+Before releasing, bump every version location below together. The table lists the three files, and the paragraphs under it list the other places that carry the number.
 
 | File | Field | Controls |
 |------|-------|----------|
@@ -13,6 +13,10 @@ Before releasing, bump the version in all three places consistently:
 | `crates/hiroz-py/pyproject.toml` | `version` | the `hiroz-py` wheel |
 
 The `hiroz-py` wheel depends on `hiroz-msgs-py>=<version>` — update that lower bound too when bumping.
+
+Eight more literal strings carry the workspace version: the seven path dependencies in the root `Cargo.toml` `[workspace.dependencies]` table, and the `hiroz-protocol` dependency in `crates/hiroz/Cargo.toml`. Bump each of them with the workspace version, because `cargo publish` reads them.
+
+`scripts/test-release-version-semantics.sh` reads all of these locations. It fails and names each location that differs from the workspace version. Set `EXPECT_VERSION` to the version you mean to tag, and it also fails when the workspace version differs from it. The check does not cover the `hu` package version in `flake.nix`, which is a separate number.
 
 **One version governs every Rust crate, and a check enforces it.** `hiroz`, `hiroz-protocol` and `hiroz-union` each used to carry a literal `version`, which meant `cargo publish --workspace` could leave a published crate behind at the old number while the tag said otherwise, and a `v0.2.0` tag could produce `hu` assets named `0.1.0`. They now inherit, and `scripts/test-release-version-semantics.sh` fails if any crate under `crates/` reintroduces a literal. `ci.yml` runs it on every pull request.
 
@@ -35,7 +39,7 @@ Build the Python wheels locally to catch obvious issues before touching CI:
 ./scripts/build-python-wheels.nu jazzy
 ```
 
-The script produces the same wheel filenames as CI (e.g. `hiroz_py-0.2.0-0jazzy-cp311-abi3-linux_x86_64.whl`).
+The script produces the same wheel filenames as CI (e.g. `hiroz_py-<version>-0jazzy-cp311-abi3-linux_x86_64.whl`).
 
 ## Step 2 — Smoke-test the release workflow
 

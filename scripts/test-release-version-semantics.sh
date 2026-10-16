@@ -368,5 +368,70 @@ RW="scripts/test-release-workflow.nu"
 grep_must     "$RW" "the rehearsal tag carries a message" '\^git tag -a -m'
 grep_must_not "$RW" "the rehearsal does not create a bare tag" '\^git tag \$tag$'
 echo
+
+echo
+echo "== version locations agree =="
+# RELEASING.md says to bump every version location together, and nothing read
+# them. At v0.2.0 the workspace said 0.2.0 and both wheels said 0.1.0. The
+# wheels follow the workspace version (RELEASING.md); a published wheel version
+# cannot be withdrawn, so this check only reads and never edits.
+#
+# EXPECT_VERSION, when set, must equal the workspace version. The release
+# cut sets it to the version it means to tag.
+#
+# Not covered: the `hu` package version in flake.nix, which is a separate
+# string with its own number.
+#
+# A failure carries the marker `R1ASSERT version_locations_agree:` and names
+# the location, so one edited location in a scratch copy is findable by name.
+VL_NAME=version_locations_agree
+VL_BAD=0
+vl_bad() { # location, found, wanted
+    VL_BAD=$((VL_BAD + 1))
+    bad "R1ASSERT $VL_NAME: $1 is $2, wanted $3"
+}
+
+VL_WS=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/Cargo.toml" | head -n1)
+if [ -z "$VL_WS" ]; then
+    vl_bad "Cargo.toml [workspace.package] version" "absent" "a version"
+else
+    ok "workspace version read: $VL_WS"
+    if [ -n "${EXPECT_VERSION:-}" ] && [ "$VL_WS" != "$EXPECT_VERSION" ]; then
+        vl_bad "Cargo.toml [workspace.package] version" "$VL_WS" "$EXPECT_VERSION (EXPECT_VERSION)"
+    fi
+
+    # Every dependency line of the root manifest and of crates/hiroz that names
+    # both a path and a literal version. RELEASING.md lists them.
+    VL_DEPS=0
+    for f in "$ROOT/Cargo.toml" "$ROOT/crates/hiroz/Cargo.toml"; do
+        rel=${f#"$ROOT"/}
+        while IFS= read -r line; do
+            v=$(printf '%s\n' "$line" | sed -n 's/.*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p')
+            n=$(printf '%s\n' "$line" | sed -n 's/^\([A-Za-z0-9_-]*\)[[:space:]]*=.*/\1/p')
+            VL_DEPS=$((VL_DEPS + 1))
+            [ "$v" = "$VL_WS" ] || vl_bad "$rel dependency $n" "$v" "$VL_WS"
+        done <<VLEOF
+$(grep -E '^[A-Za-z0-9_-]+[[:space:]]*=[[:space:]]*\{.*(path[[:space:]]*=.*version[[:space:]]*=[[:space:]]*"|version[[:space:]]*=[[:space:]]*".*path[[:space:]]*=)' "$f" 2>/dev/null || true)
+VLEOF
+    done
+    # A detector that finds nothing proves nothing: eight such strings exist today.
+    if [ "$VL_DEPS" -eq 8 ]; then
+        ok "read $VL_DEPS path dependency version strings"
+    else
+        vl_bad "path dependency version strings found" "$VL_DEPS" "exactly 8"
+    fi
+
+    VL_MSGS="$ROOT/crates/hiroz-msgs/python/pyproject.toml"
+    VL_PY="$ROOT/crates/hiroz-py/pyproject.toml"
+    for p in "$VL_MSGS" "$VL_PY"; do
+        v=$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$p" 2>/dev/null | head -n1)
+        [ "$v" = "$VL_WS" ] || vl_bad "${p#"$ROOT"/} version" "${v:-absent}" "$VL_WS"
+    done
+    b=$(sed -n 's/.*"hiroz-msgs-py>=\([^"]*\)".*/\1/p' "$VL_PY" 2>/dev/null | head -n1)
+    [ "$b" = "$VL_WS" ] || vl_bad "crates/hiroz-py/pyproject.toml hiroz-msgs-py bound" "${b:-absent}" "$VL_WS"
+fi
+[ "$VL_BAD" -ne 0 ] || ok "$VL_NAME: every location reads $VL_WS"
+echo "  note: the hu package version in flake.nix is not covered"
+
 echo "-- $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
