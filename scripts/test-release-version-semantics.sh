@@ -372,9 +372,8 @@ echo
 echo
 echo "== version locations agree =="
 # RELEASING.md says to bump every version location together, and nothing read
-# them. At v0.2.0 the workspace said 0.2.0 and both wheels said 0.1.0. The
-# wheels follow the workspace version (RELEASING.md); a published wheel version
-# cannot be withdrawn, so this check only reads and never edits.
+# them. The wheels follow the workspace version (RELEASING.md); a published
+# wheel version cannot be withdrawn, so this check only reads and never edits.
 #
 # EXPECT_VERSION, when set, must equal the workspace version. The release
 # cut sets it to the version it means to tag.
