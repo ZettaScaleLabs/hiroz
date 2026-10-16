@@ -354,9 +354,12 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
     /// Includes a sanity check to prevent absurd allocations from malformed data.
     /// Maximum sequence length is 100 million elements (~400MB for float32 arrays).
     ///
-    /// The length must also fit the bytes that follow it. Every CDR element takes at
-    /// least one byte, so a longer prefix cannot be valid. The check keeps a caller
-    /// from reserving `len * size_of::<T>()` bytes for a payload that cannot fill them.
+    /// The length must also fit the bytes that follow it: a prefix larger than the
+    /// remaining byte count returns [`Error::UnexpectedEof`]. This assumes every
+    /// element takes at least one byte. The check bounds a caller's reservation to
+    /// `size_of::<T>()` times the remaining bytes, not to the remaining bytes. An
+    /// element type larger than one byte, with a payload of one byte per element,
+    /// can still reserve `size_of::<T>()` times the payload.
     #[inline]
     pub fn read_sequence_length(&mut self) -> Result<usize> {
         const MAX_SEQUENCE_LENGTH: u32 = 100_000_000;
