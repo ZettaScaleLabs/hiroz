@@ -9,7 +9,8 @@
 //!
 //! Population: direct loopback TCP, no router, no SHM, a typed `UInt8MultiArray` received
 //! with `recv_timeout`. The test says nothing about `async_recv`, callbacks or other types.
-#![cfg(all(target_os = "linux", feature = "ros-msgs"))]
+#![cfg(target_os = "linux")]
+#![cfg(feature = "ros-msgs")]
 
 use std::{
     io::Read,
