@@ -373,12 +373,15 @@ jobs:
         if: runner.os == 'Linux'
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
+          # The pure-Rust checks only need the large preinstalled packages.
+          # Keep the runner tool cache and unrelated language/container images
+          # intact so this cleanup does not spend several minutes deleting them.
           large-packages: true
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          docker-images: true
+          tool-cache: false
+          android: false
+          dotnet: false
+          haskell: false
+          docker-images: false
           swap-storage: false
 
       - name: Install Nix (Linux)
