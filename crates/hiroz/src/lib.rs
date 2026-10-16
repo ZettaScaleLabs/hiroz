@@ -65,6 +65,8 @@ pub mod ffi;
 pub mod graph;
 /// ROS 2 lifecycle node support (state machine, lifecycle publisher).
 pub mod lifecycle;
+/// Intra-process message bus (prototype) — `Arc<T>` delivery without serialization.
+pub mod local_bus;
 /// Typed message wrappers and helpers.
 pub mod msg;
 /// ROS 2 node creation and management.
@@ -110,6 +112,10 @@ pub use hiroz_derive::MessageTypeInfo;
 pub use ros_msg::{ActionTypeInfo, MessageTypeInfo, ServiceTypeInfo, WithTypeInfo};
 pub use zbuf::ZBuf;
 pub use zenoh::Result;
+/// Re-exported so callers of `with_locality` do not need a direct `zenoh`
+/// dependency — and so they cannot pick a different `zenoh` version than the
+/// one hiroz links.
+pub use zenoh::sample::Locality;
 
 /// Builds a configured object, consuming the builder.
 ///
