@@ -8,6 +8,9 @@ t=cliff_marks_a_breaking_commit
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cfg=${1:-$here/cliff.toml}
 cliff=${GIT_CLIFF:-git-cliff}
+# resolve caller paths before the cd below; a bare command name stays a name for PATH
+case $cfg in /*) ;; *) [ -e "$cfg" ] && cfg=$PWD/${cfg#./} ;; esac
+case $cliff in /*) ;; */*) cliff=$PWD/${cliff#./} ;; esac
 command -v "$cliff" > /dev/null || { echo "R1ASSERT $t UNKNOWN: git-cliff not found"; exit 2; }
 scratch=$(mktemp -d) || exit 2
 trap 'rm -rf "$scratch"' EXIT
