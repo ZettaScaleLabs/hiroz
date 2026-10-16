@@ -13,16 +13,6 @@ use std::process::{Command, Output};
 use hiroz::dynamic::{DynamicMessage, DynamicValue, FieldType, MessageSchema};
 use nix::sys::resource::{Resource, setrlimit};
 
-/// Failure marker, `NAME: message`: a false condition panics with `R1ASSERT <name>: <message>`.
-/// A red run is read only through this text.
-macro_rules! r1_assert {
-    ($cond:expr, $name:expr, $($msg:tt)+) => {
-        if !$cond {
-            panic!("R1ASSERT {}: {}", $name, format!($($msg)+));
-        }
-    };
-}
-
 const CHILD_ENV: &str = "HIROZ_TESTS_HOSTILE_CHILD";
 const HOSTILE_LENGTH: u32 = 99_999_999;
 /// Address space the child may add on top of what the test binary already maps.
@@ -100,18 +90,16 @@ fn f64_sequence_schema() -> std::sync::Arc<MessageSchema> {
 /// Run the case in a child; it must exit 0 and print every marker.
 fn assert_child_survives(name: &str, markers: &[&str]) {
     let out = run_child(name);
-    r1_assert!(
+    assert!(
         out.status.success(),
-        name,
-        "the child must survive a hostile length\n{}",
+        "{name}: the child must survive a hostile length\n{}",
         describe(&out)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     for m in markers {
-        r1_assert!(
+        assert!(
             stdout.contains(m),
-            name,
-            "missing {m:?}\n{}",
+            "{name}: missing {m:?}\n{}",
             describe(&out)
         );
     }
