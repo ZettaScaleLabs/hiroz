@@ -193,8 +193,8 @@ fn dynamic_decoder_accepts_a_length_at_the_boundary() {
 
 /// The generated decoder of a message with a `sequence<struct>` field (`UInt8MultiArray`
 /// starts with `layout.dim`, a sequence of 32-byte `MultiArrayDimension`) must also
-/// return an error. This is the path of a typed subscriber, on the base key and on
-/// the group key alike, because both reach the same decode.
+/// return an error. This is the path of a typed subscriber, on any key, because
+/// every key reaches the same decode.
 #[test]
 fn generated_decoder_survives_a_hostile_sequence_length() {
     use hiroz::msg::ZMessage;
