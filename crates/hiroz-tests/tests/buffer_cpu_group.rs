@@ -237,6 +237,7 @@ fn schema(field_type: FieldType) -> Arc<MessageSchema> {
 /// Cycle 2.1: with no schema and `Auto`, a typed subscriber joins. The schema twin joins too.
 #[test]
 fn typed_subscriber_without_schema_joins() {
+    const NAME: &str = "typed_subscriber_without_schema_joins";
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
@@ -247,14 +248,85 @@ fn typed_subscriber_without_schema_joins() {
         .build()
         .unwrap();
 
-    assert_token(
-        &token_for(&raw, "no_schema"),
-        shape("tok_node", "no_schema", &UINT8, true),
+    let known = token_for(&raw, "with_schema");
+    let unknown = token_for(&raw, "no_schema");
+    // Control: the typed twin with a schema joins, so a missing group token is the rule and not
+    // a dead setup.
+    r1_assert!(
+        known.ends_with("/backends:cpu:"),
+        NAME,
+        "control: the subscriber with a schema has no group token: {known}"
     );
-    assert_token(
-        &token_for(&raw, "with_schema"),
-        shape("tok_node", "with_schema", &UINT8, true),
+    r1_assert!(
+        unknown.ends_with("/backends:cpu:"),
+        NAME,
+        "the subscriber with no schema has no group token: {unknown}"
     );
+    assert_token(&unknown, shape("tok_node", "no_schema", &UINT8, true));
+    assert_token(&known, shape("tok_node", "with_schema", &UINT8, true));
+}
+
+/// An action whose messages have no schema: every type is a hand-written serde type.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Num {
+    value: u32,
+}
+impl MessageTypeInfo for Num {
+    fn type_name() -> &'static str {
+        "test_msgs::msg::dds_::Num_"
+    }
+    fn type_hash() -> hiroz::TypeHash {
+        hiroz::TypeHash::zero()
+    }
+}
+impl hiroz::ros_msg::WithTypeInfo for Num {}
+impl hiroz::msg::ZMessage for Num {
+    type Serdes = hiroz::msg::SerdeCdrSerdes<Num>;
+}
+
+struct NoSchemaAction;
+impl hiroz::action::ZAction for NoSchemaAction {
+    type Goal = Num;
+    type Result = Num;
+    type Feedback = Num;
+    fn name() -> &'static str {
+        "test_msgs/action/NoSchema"
+    }
+}
+
+/// Cycle 2.14: the feedback and status subscribers of an action client, built for an action with
+/// no schema, follow the same rule as a typed subscriber with no schema: both join (N1).
+#[test]
+fn no_schema_callers_follow_the_rule() {
+    const NAME: &str = "no_schema_callers_follow_the_rule";
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    // Control: a typed subscriber with no schema joins in the same run.
+    let _typed = node.create_sub::<Blob>("/caller_control").build().unwrap();
+    let _client = node
+        .create_action_client::<NoSchemaAction>("no_schema_action")
+        .build()
+        .unwrap();
+
+    let control = token_for(&raw, "caller_control");
+    r1_assert!(
+        control.ends_with("/backends:cpu:"),
+        NAME,
+        "control: the typed subscriber with no schema has no group token: {control}"
+    );
+    for (what, topic) in [
+        ("feedback", "no_schema_action%_action%feedback"),
+        ("status", "no_schema_action%_action%status"),
+    ] {
+        let token = token_for(&raw, topic);
+        r1_assert!(
+            token.ends_with("/backends:cpu:"),
+            NAME,
+            "the {what} subscriber has no group token: {token}"
+        );
+    }
 }
 
 /// Cycle 2.2: a joined token carries the QoS chunk `rmw_zenoh` writes for the profile.
