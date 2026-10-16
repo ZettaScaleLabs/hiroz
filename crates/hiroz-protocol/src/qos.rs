@@ -84,9 +84,9 @@ impl QosProfile {
         // when it equals rmw_zenoh_cpp's wire default (42). Always writing the
         // depth is not enough: it differs from the writer at depth 42.
         let history = match self.history {
-            QosHistory::KeepLast(RMW_ZENOH_DEFAULT_HISTORY_DEPTH) => ",".to_string(),
+            QosHistory::KeepLast(RMW_ZENOH_DEFAULT_HISTORY_DEPTH) => String::from(","),
             QosHistory::KeepLast(depth) => format!(",{}", depth),
-            QosHistory::KeepAll => "2,".to_string(),
+            QosHistory::KeepAll => String::from("2,"),
         };
 
         let deadline = format!(
