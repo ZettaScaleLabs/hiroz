@@ -231,3 +231,93 @@ fn generated_decoder_survives_a_hostile_sequence_length() {
         &["hostile: ", "next valid: 1 dims, 3 bytes"],
     );
 }
+
+mod common;
+
+/// A typed subscriber on its base key must outlive a hostile sample from a raw publisher.
+/// The child builds the subscriber and the publisher, limits its address space, publishes
+/// the hostile sample and then a valid one. It must return an error for the first and the
+/// message for the second.
+#[test]
+fn typed_subscriber_survives_a_hostile_sample_on_the_base_key() {
+    use std::time::{Duration, Instant};
+
+    use hiroz::{Builder, msg::ZMessage};
+    use hiroz_msgs::std_msgs::{MultiArrayDimension, UInt8MultiArray};
+    use zenoh::Wait;
+    use zenoh_buffers::buffer::Buffer;
+
+    const NAME: &str = "typed_subscriber_survives_a_hostile_sample_on_the_base_key";
+
+    if is_child() {
+        let router = common::TestRouter::new();
+        let ctx = common::create_hiroz_context_with_endpoint(router.endpoint()).expect("context");
+        let node = ctx.create_node("hostile_sub").build().expect("node");
+        let sub = node
+            .create_sub::<UInt8MultiArray>("/hostile_base_key")
+            .build()
+            .expect("typed subscriber");
+
+        // A raw session is the publisher; it shares no code with the typed path.
+        let key = hiroz_protocol::KeyExprFormat::default()
+            .topic_key_expr(sub.entity())
+            .expect("base key");
+        let mut config = zenoh::Config::default();
+        config.insert_json5("mode", "\"client\"").expect("mode");
+        config
+            .insert_json5("connect/endpoints", &format!("[\"{}\"]", router.endpoint()))
+            .expect("endpoint");
+        config
+            .insert_json5("scouting/multicast/enabled", "false")
+            .expect("multicast");
+        let session = zenoh::open(config).wait().expect("raw session");
+        let publisher = session
+            .declare_publisher((*key).clone())
+            .wait()
+            .expect("raw publisher");
+
+        let mut valid = UInt8MultiArray::default();
+        valid.layout.dim = vec![MultiArrayDimension {
+            label: "x".into(),
+            size: 3,
+            stride: 3,
+        }];
+        valid.data = vec![1u8, 2, 3].into();
+        let valid = valid.serialize().to_vec();
+
+        // Wait until the subscriber receives a valid sample: the route is up.
+        let start = Instant::now();
+        loop {
+            publisher.put(valid.clone()).wait().expect("put");
+            if sub.recv_timeout(Duration::from_millis(200)).is_ok() {
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(20),
+                "route never came up"
+            );
+        }
+        println!("route up");
+
+        limit_address_space();
+        publisher.put(hostile_sample()).wait().expect("put hostile");
+        match sub.recv_timeout(Duration::from_secs(5)) {
+            Err(err) => println!("hostile: {err}"),
+            Ok(_) => panic!("hostile length must be an error"),
+        }
+        publisher.put(valid).wait().expect("put valid");
+        let back = sub
+            .recv_timeout(Duration::from_secs(5))
+            .expect("next valid sample");
+        println!(
+            "next valid: {} dims, {} bytes",
+            back.layout.dim.len(),
+            back.data.len()
+        );
+        return;
+    }
+    assert_child_survives(
+        NAME,
+        &["route up", "hostile: ", "next valid: 1 dims, 3 bytes"],
+    );
+}
