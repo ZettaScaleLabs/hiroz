@@ -24,7 +24,7 @@
 //!
 //! Population: direct loopback TCP, no router, no SHM, a typed `UInt8MultiArray` received
 //! with `recv_timeout`. The test says nothing about `async_recv`, callbacks or other types.
-#![cfg(target_os = "linux")]
+#![cfg(all(target_os = "linux", target_env = "gnu"))]
 #![cfg(feature = "ros-msgs")]
 
 use std::{
@@ -184,9 +184,34 @@ fn range(v: &[f64]) -> f64 {
     hi - lo
 }
 
-/// The pinned arm is not slower when its median stays within the larger range of the unpinned median.
-fn not_slower(pinned: &[f64], unpinned: &[f64]) -> bool {
-    median(pinned) <= median(unpinned) + range(pinned).max(range(unpinned))
+/// `candidate` is not slower when its median stays within `tolerance` of the unpinned median.
+fn not_slower(candidate: &[f64], unpinned: &[f64], tolerance: f64) -> bool {
+    median(candidate) <= median(unpinned) + tolerance
+}
+
+/// The tolerance of the pinned comparison: the larger range of the two arms.
+fn pinned_tolerance(pinned: &[f64], unpinned: &[f64]) -> f64 {
+    range(pinned).max(range(unpinned))
+}
+
+/// The control detects when the slowed arm fails a check that is at least as loose as the pinned
+/// one. The tolerance covers the pinned range too, so a pinned arm too noisy to measure makes the
+/// control fail instead of hiding a regression.
+fn control_detects(slowed: &[f64], unpinned: &[f64], pinned: &[f64]) -> bool {
+    let tolerance = pinned_tolerance(pinned, unpinned).max(range(slowed));
+    !not_slower(slowed, unpinned, tolerance)
+}
+
+#[test]
+fn control_tolerance_includes_the_pinned_range() {
+    // Pinned is 15 ms slower in median and its range is 36 ms. A control of 10 ms over unpinned
+    // must not validate this gate.
+    let unpinned = [40.0; 5];
+    let pinned = [19.0, 55.0, 55.0, 55.0, 55.0];
+    let slowed = [50.0; 5];
+    assert!(!control_detects(&slowed, &unpinned, &pinned));
+    let quiet_pinned = [40.0; 5];
+    assert!(control_detects(&slowed, &unpinned, &quiet_pinned));
 }
 
 #[test]
@@ -223,14 +248,14 @@ fn pinned_32mib_main_thread_receive_is_not_slower_than_unpinned() {
     // Control: the check must fire on the unpinned arm slowed on purpose. A control that passes the
     // check means the check cannot detect, so the verdict is UNKNOWN (plain assert, no marker).
     assert!(
-        !not_slower(&slowed, &unpinned),
-        "control failed: an unpinned receive slowed by {CONTROL_DELAY_MS} ms passed the check"
+        control_detects(&slowed, &unpinned, &pinned),
+        "control failed: an unpinned receive slowed by {CONTROL_DELAY_MS} ms passed a check as loose as the pinned one"
     );
     assert!(
-        not_slower(&pinned, &unpinned),
+        not_slower(&pinned, &unpinned, pinned_tolerance(&pinned, &unpinned)),
         "pinned median {:.3} ms exceeds unpinned median {:.3} ms by more than {:.3} ms",
         median(&pinned),
         median(&unpinned),
-        range(&pinned).max(range(&unpinned))
+        pinned_tolerance(&pinned, &unpinned)
     );
 }
