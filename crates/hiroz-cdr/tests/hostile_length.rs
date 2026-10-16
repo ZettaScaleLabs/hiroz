@@ -16,16 +16,6 @@ use byteorder::LittleEndian;
 use hiroz_cdr::{CdrDeserialize, CdrReader, from_bytes};
 use nix::sys::resource::{Resource, setrlimit};
 
-/// Failure marker, `NAME: message`: a false condition panics with `R1ASSERT <name>: <message>`.
-/// A red run is read only through this text.
-macro_rules! r1_assert {
-    ($cond:expr, $name:expr, $($msg:tt)+) => {
-        if !$cond {
-            panic!("R1ASSERT {}: {}", $name, format!($($msg)+));
-        }
-    };
-}
-
 const CHILD_ENV: &str = "HIROZ_CDR_HOSTILE_CHILD";
 const HOSTILE_LENGTH: u32 = 99_999_999;
 
@@ -153,18 +143,16 @@ fn typed_vec_survives_a_hostile_length() {
     }
     let name = "typed_vec_survives_a_hostile_length";
     let out = run_child(name);
-    r1_assert!(
+    assert!(
         out.status.success(),
-        name,
-        "the child must survive a hostile length\n{}",
+        "{name}: the child must survive a hostile length\n{}",
         describe(&out)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    r1_assert!(stdout.contains("hostile: "), name, "{}", describe(&out));
-    r1_assert!(
+    assert!(stdout.contains("hostile: "), "{name}: {}", describe(&out));
+    assert!(
         stdout.contains("next valid: 3 elements"),
-        name,
-        "{}",
+        "{name}: {}",
         describe(&out)
     );
 }
@@ -189,16 +177,14 @@ fn serde_vec_survives_a_hostile_length() {
     }
     let name = "serde_vec_survives_a_hostile_length";
     let out = run_child(name);
-    r1_assert!(
+    assert!(
         out.status.success(),
-        name,
-        "the child must survive a hostile length\n{}",
+        "{name}: the child must survive a hostile length\n{}",
         describe(&out)
     );
-    r1_assert!(
+    assert!(
         String::from_utf8_lossy(&out.stdout).contains("next valid: 3 elements"),
-        name,
-        "{}",
+        "{name}: {}",
         describe(&out)
     );
 }
