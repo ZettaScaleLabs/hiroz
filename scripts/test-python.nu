@@ -42,6 +42,14 @@ def setup-venv [] {
     run-cmd "cd crates/hiroz-py; source .venv/bin/activate && pip install -e ../hiroz-msgs/python/" --shell bash --distro (get-distro)
     print "  Installed hiroz-msgs-py (message types)"
 
+    # Test-only dependency. `TestZPayloadViewNumpy` checks that numpy consumes
+    # ZPayloadView's exported buffer without adding a copy. Plain `python -m
+    # venv` creates this venv, so it inherits no package from the surrounding
+    # devShell. Without this install the tests skip. The suite then still
+    # reports success. See #266.
+    run-cmd "cd crates/hiroz-py; source .venv/bin/activate && pip install -e '.[test]'" --shell bash --distro (get-distro)
+    print "  Installed the test extra (numpy, for the zero-copy assertions)"
+
     # Install hiroz-py in editable mode using maturin
     run-cmd "cd crates/hiroz-py; source .venv/bin/activate && RUSTFLAGS='-D warnings' maturin develop" --shell bash --distro (get-distro)
     print "  Installed hiroz-py (Rust bindings)"
