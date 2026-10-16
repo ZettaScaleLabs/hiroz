@@ -7,6 +7,7 @@
 //! and each row says either `not tested` or one or more test names. A sentence that changes in
 //! the docs fails this test until its row changes too.
 
+#[allow(dead_code)]
 mod common;
 
 use std::{collections::BTreeSet, fs, path::PathBuf};
