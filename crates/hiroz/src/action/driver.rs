@@ -103,14 +103,23 @@ pub(crate) async fn run_driver_loop<A, F, Fut>(
                 });
             }
 
-            // 5. Cancel Requests
+            // 5. Cancel Requests — must stay responsive while get_result waiters run.
             query = inner.cancel_server.queue().recv_async() => {
-                handle_cancel_request(&inner, query).await;
+                let inner = inner.clone();
+                goal_tasks.spawn(async move {
+                    handle_cancel_request(&inner, query).await;
+                });
             }
 
-            // 6. Result Requests
+            // 6. Result Requests — MUST NOT block the driver loop. ros2 clients
+            // call get_result immediately after accept and hold it open for the
+            // whole goal. Awaiting that here starves cancel_goal + further
+            // send_goals (queries arrive at the service layer but sit in queue).
             query = inner.result_server.queue().recv_async() => {
-                handle_result_request(&inner, query).await;
+                let inner = inner.clone();
+                goal_tasks.spawn(async move {
+                    handle_result_request(&inner, query).await;
+                });
             }
         }
     }
@@ -147,14 +156,23 @@ async fn handle_goal_request<A, F, Fut>(
     let requested = GoalHandle {
         goal: request.goal,
         info: GoalInfo::new(request.goal_id),
-        server,
-        query: Some(query),
+        server: server.clone(),
         cancel_flag: None,
         cancel_rx: None,
+        cleanup: crate::action::server::GoalCleanup::new(request.goal_id, server, Some(query)),
         _state: PhantomData::<Requested>,
     };
 
-    let accepted = requested.accept();
+    // accept() does a blocking zenoh reply wait. Run it off the async worker
+    // so a stuck reply (dead client / uplink blip) cannot starve the driver
+    // loop from processing cancel_goal / get_result / further send_goals.
+    let accepted = match tokio::task::spawn_blocking(move || requested.accept()).await {
+        Ok(accepted) => accepted,
+        Err(e) => {
+            tracing::error!("send_goal accept task failed: {e}");
+            return;
+        }
+    };
     let executing = accepted.execute();
 
     // Execute the user's handler
@@ -178,35 +196,50 @@ async fn handle_cancel_request<A: ZAction>(
         }
     };
 
-    // Mark goal as canceling using the atomic flag
-    let cancelled = inner.goal_manager.read(|manager| {
-        if let Some(ServerGoalState::Executing { cancel_flag, .. }) =
-            manager.goals.get(&request.goal_info.goal_id)
-        {
-            cancel_flag.store(true, std::sync::atomic::Ordering::Relaxed);
-            true
-        } else {
-            false
-        }
-    });
+    let server = ZActionServer::from_inner(Arc::clone(inner));
 
-    // Send response
+    // Zero UUID = cancel all (ROS 2 / `ros2 action cancel` convention).
+    // Specific UUID = cancel that executing/canceling goal only.
+    // `request_cancel` also transitions Executing → Canceling for status.
+    let goals_canceling = if !request.goal_info.goal_id.is_valid() {
+        let ids: Vec<super::GoalId> = inner
+            .goal_manager
+            .read(|manager| manager.goals.keys().copied().collect());
+        let mut out = Vec::new();
+        for goal_id in ids {
+            if server.request_cancel(goal_id) {
+                out.push(GoalInfo::new(goal_id));
+            }
+        }
+        out
+    } else if server.request_cancel(request.goal_info.goal_id) {
+        vec![request.goal_info.clone()]
+    } else {
+        vec![]
+    };
+
+    tracing::info!(
+        count = goals_canceling.len(),
+        specific = request.goal_info.goal_id.is_valid(),
+        "action cancel request processed"
+    );
+
+    // ERROR_NONE (0) if at least one goal is canceling; ERROR_REJECTED (1) otherwise.
     let response = CancelGoalServiceResponse {
-        return_code: if cancelled { 0 } else { 1 },
-        goals_canceling: if cancelled {
-            vec![request.goal_info]
-        } else {
-            vec![]
-        },
+        return_code: if goals_canceling.is_empty() { 1 } else { 0 },
+        goals_canceling,
     };
 
     let response_bytes = <CancelGoalServiceResponse as ZMessage>::serialize(&response);
     let attachment: Attachment = query.attachment().unwrap().try_into().unwrap();
-    // FIXME: address the result
-    let _ = query
-        .reply(query.key_expr().clone(), response_bytes)
-        .attachment(attachment)
-        .wait();
+    // Blocking zenoh wait off the async worker (same rationale as send_goal accept).
+    let _ = tokio::task::spawn_blocking(move || {
+        let _ = query
+            .reply(query.key_expr().clone(), response_bytes)
+            .attachment(attachment)
+            .wait();
+    })
+    .await;
 
     tracing::debug!("Sent cancel response");
 }
@@ -276,14 +309,20 @@ async fn handle_result_request<A: ZAction>(
                     (r, s)
                 }
                 Err(_) => {
-                    tracing::warn!("Result future cancelled for goal {:?}", request.goal_id);
-                    return; // Don't send response
+                    tracing::warn!(
+                        "Result future cancelled for goal {:?}; replying Aborted",
+                        request.goal_id
+                    );
+                    (A::Result::default(), super::GoalStatus::Aborted)
                 }
             }
         }
         ResultState::NotFound => {
-            tracing::warn!("Goal {:?} not found", request.goal_id);
-            return; // Don't send response
+            tracing::warn!(
+                "Goal {:?} not found; replying Unknown",
+                request.goal_id
+            );
+            (A::Result::default(), super::GoalStatus::Unknown)
         }
     };
 
@@ -294,9 +333,12 @@ async fn handle_result_request<A: ZAction>(
     };
     let response_bytes = <GetResultResponse<A> as ZMessage>::serialize(&response);
     let attachment: Attachment = query.attachment().unwrap().try_into().unwrap();
-    let _ = query
-        .reply(query.key_expr().clone(), response_bytes)
-        .attachment(attachment)
-        .wait();
+    let _ = tokio::task::spawn_blocking(move || {
+        let _ = query
+            .reply(query.key_expr().clone(), response_bytes)
+            .attachment(attachment)
+            .wait();
+    })
+    .await;
     tracing::debug!("Sent result response");
 }
