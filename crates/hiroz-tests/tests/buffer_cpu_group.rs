@@ -713,6 +713,7 @@ fn joined_subscriber_receives_on_the_key_a_real_publisher_writes() {
 /// Cycle 3.2: dropping a joined subscriber removes its token. The token is present before.
 #[test]
 fn dropping_the_subscriber_removes_its_token() {
+    const NAME: &str = "dropping_the_subscriber_removes_its_token";
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
@@ -739,12 +740,17 @@ fn dropping_the_subscriber_removes_its_token() {
             .filter(|k| k.contains("/%drop_topic/"))
             .count();
     }
-    assert_eq!(left, 0, "the token outlived the subscriber");
+    r1_assert!(
+        left == 0,
+        NAME,
+        "the token outlived the subscriber: {left} left"
+    );
 }
 
 /// Cycle 3.3: a joined subscriber reads the group key, and `Locality::Remote` holds on that key.
 #[test]
 fn joined_subscriber_reads_the_group_key_with_its_locality() {
+    const NAME: &str = "joined_subscriber_reads_the_group_key_with_its_locality";
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
@@ -759,14 +765,16 @@ fn joined_subscriber_reads_the_group_key_with_its_locality() {
     let key = group_key("loc_topic", &UINT8);
     let mut received = || sub.recv_timeout(POLL).is_ok();
     // Positive control: a sample from another session arrives.
-    assert!(
+    r1_assert!(
         put_until(&raw, &key, &PAYLOAD, RECV, &mut received),
+        NAME,
         "control: nothing on {key}"
     );
     while received() {}
     // A sample from the subscriber's own session must not.
-    assert!(
+    r1_assert!(
         !put_until(node.session(), &key, &PAYLOAD, QUIET, &mut received),
+        NAME,
         "a local sample reached a Remote-only subscriber"
     );
 }
@@ -777,6 +785,7 @@ fn joined_subscriber_reads_the_group_key_with_its_locality() {
 /// stamps both events with one counter, so the test needs no clock.
 #[test]
 fn group_subscription_is_declared_before_the_token_is_visible() {
+    const NAME: &str = "group_subscription_is_declared_before_the_token_is_visible";
     use std::{
         collections::HashMap,
         sync::atomic::{AtomicUsize, Ordering},
@@ -857,8 +866,9 @@ fn group_subscription_is_declared_before_the_token_is_visible() {
     // The two events reach the raw session on different paths, so a few trials arrive swapped
     // even in the right order (3 to 5 of 200 in the calibration runs). A token declared first
     // is swapped in every trial, so a tenth of the trials is a wide margin on both sides.
-    assert!(
+    r1_assert!(
         wrong.len() <= TRIALS / 10,
+        NAME,
         "token before match, or an event missing, in {} of {TRIALS} trials: {wrong:?}",
         wrong.len()
     );
