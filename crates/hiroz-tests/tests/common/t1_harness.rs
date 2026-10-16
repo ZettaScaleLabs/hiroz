@@ -23,7 +23,7 @@ use zenoh::Wait;
 /// The group suffix a buffer-aware publisher writes under.
 pub const GROUP_SUFFIX: &str = "_buf_cpu";
 
-/// Fails a test with the marker the J-RED verdict rule reads: `R1ASSERT <name>: <message>`.
+/// Fails a test with the marker that names the failing assertion: `R1ASSERT <name>: <message>`.
 pub fn r1_fail(name: &str, message: &str) -> ! {
     panic!("R1ASSERT {name}: {message}");
 }
@@ -354,15 +354,15 @@ fn judge_rmw() -> Result<(), RmwGuardError> {
 }
 
 /// The environment variable that turns a missing buffer mode from a logged skip into a failure.
-/// The runner of the green record sets it: a buffer cell must run there, never skip.
+/// A CI runner that must exercise the buffer cells sets it: a buffer cell must run there, never skip.
 pub const REQUIRE_BUFFER_RMW_ENV: &str = "T1_REQUIRE_BUFFER_RMW";
 
 /// The gate of a buffer cell: true when the `rmw_zenoh_cpp` the publisher will load is
 /// buffer-aware, so the cell may run. When it is not, the call prints
 /// `Skipping <name>: no buffer-aware rmw (<reason>)` and returns false, and the cell returns. The
-/// line is the explicit record that the cell did not run: a runner counts `Skipping` lines, and a
+/// line is the explicit record that the cell did not run: a CI check can count `Skipping` lines, and a
 /// pass with such a line is UNKNOWN for that cell, not a pass. When `T1_REQUIRE_BUFFER_RMW` is set
-/// the call fails the test instead, so the environment that holds the green record cannot skip.
+/// the call fails the test instead, so a runner that must exercise the buffer cells cannot skip.
 /// Do not call it from a compat cell: a test that uses a non-buffer message type is valid on any
 /// rmw.
 pub fn buffer_aware_rmw_or_skip(name: &str) -> bool {

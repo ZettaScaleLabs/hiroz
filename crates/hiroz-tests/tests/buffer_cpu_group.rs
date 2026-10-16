@@ -231,10 +231,10 @@ fn schema(field_type: FieldType) -> Arc<MessageSchema> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Slice 2: the join matrix
+// The join matrix
 // ---------------------------------------------------------------------------------------------
 
-/// Cycle 2.1: with no schema and `Auto`, a typed subscriber joins. The schema twin joins too.
+/// With no schema and `Auto`, a typed subscriber joins. The schema twin joins too.
 #[test]
 fn typed_subscriber_without_schema_joins() {
     const NAME: &str = "typed_subscriber_without_schema_joins";
@@ -294,7 +294,7 @@ impl hiroz::action::ZAction for NoSchemaAction {
     }
 }
 
-/// Cycle 2.14: the feedback and status subscribers of an action client, built for an action with
+/// The feedback and status subscribers of an action client, built for an action with
 /// no schema, follow the same rule as a typed subscriber with no schema: both join (N1).
 #[test]
 fn no_schema_callers_follow_the_rule() {
@@ -329,7 +329,7 @@ fn no_schema_callers_follow_the_rule() {
     }
 }
 
-/// Cycle 2.2: a joined token carries the QoS chunk `rmw_zenoh` writes for the profile.
+/// A joined token carries the QoS chunk `rmw_zenoh` writes for the profile.
 #[test]
 fn joined_subscriber_token_carries_the_writers_qos_chunk() {
     let router = TestRouter::new();
@@ -360,7 +360,7 @@ fn joined_subscriber_token_carries_the_writers_qos_chunk() {
     }
 }
 
-/// Cycle 2.5: a message with an unbounded `uint8[]` joins, as a typed message and as a schema.
+/// A message with an unbounded `uint8[]` joins, as a typed message and as a schema.
 #[test]
 fn typed_subscriber_with_buffer_fields_joins() {
     let router = TestRouter::new();
@@ -386,7 +386,7 @@ fn typed_subscriber_with_buffer_fields_joins() {
     );
 }
 
-/// Cycle 2.5: a dynamic subscriber joins for an unbounded `uint8[]`, also nested.
+/// A dynamic subscriber joins for an unbounded `uint8[]`, also nested.
 #[test]
 fn dynamic_subscriber_joins_for_nested_and_unbounded_byte_fields() {
     let router = TestRouter::new();
@@ -422,7 +422,7 @@ fn dynamic_subscriber_joins_for_nested_and_unbounded_byte_fields() {
     }
 }
 
-/// Cycle 2.6: a bounded sequence or a fixed array of `uint8` is no buffer. The joined twin shows
+/// A bounded sequence or a fixed array of `uint8` is no buffer. The joined twin shows
 /// the same schema shape joins when the sequence is unbounded.
 #[test]
 fn dynamic_subscriber_with_bounded_or_fixed_bytes_does_not_join() {
@@ -457,7 +457,7 @@ fn dynamic_subscriber_with_bounded_or_fixed_bytes_does_not_join() {
     }
 }
 
-/// Cycle 2.6: a message with no `uint8[]` stays out. The buffer type is the joined twin.
+/// A message with no `uint8[]` stays out. The buffer type is the joined twin.
 #[test]
 fn typed_subscriber_without_byte_fields_does_not_join() {
     let router = TestRouter::new();
@@ -480,7 +480,7 @@ fn typed_subscriber_without_byte_fields_does_not_join() {
     );
 }
 
-/// Cycle 2.7: `Off` stays out of the group on a buffer topic. `Auto` on the same type joins.
+/// `Off` stays out of the group on a buffer topic. `Auto` on the same type joins.
 #[test]
 fn opt_out_announces_no_backends() {
     let router = TestRouter::new();
@@ -504,7 +504,7 @@ fn opt_out_announces_no_backends() {
     );
 }
 
-/// Cycle 2.7: `Off` stays out for a subscriber with no schema too.
+/// `Off` stays out for a subscriber with no schema too.
 #[test]
 fn opt_out_stays_out_without_a_schema() {
     let router = TestRouter::new();
@@ -550,7 +550,7 @@ fn cpu_joins_a_type_without_byte_fields() {
     );
 }
 
-/// Cycle 2.8: `rmw_zenoh` serves transient-local history on the base key only, so a
+/// `rmw_zenoh` serves transient-local history on the base key only, so a
 /// transient-local subscriber stays out even when forced. The volatile twin joins.
 #[test]
 fn transient_local_stays_out_even_when_forced() {
@@ -585,7 +585,7 @@ fn transient_local_stays_out_even_when_forced() {
     );
 }
 
-/// Cycle 2.8: only the `rmw_zenoh` key format has the group. A custom format stays out even when
+/// Only the `rmw_zenoh` key format has the group. A custom format stays out even when
 /// forced. The same node on the `rmw_zenoh` format joins.
 #[test]
 fn custom_key_format_stays_out_even_when_forced() {
@@ -624,7 +624,7 @@ fn custom_key_format_stays_out_even_when_forced() {
     );
 }
 
-/// Cycle 2.9: a cache of a buffer type joins and receives on the group key. A cache of a type
+/// A cache of a buffer type joins and receives on the group key. A cache of a type
 /// with no byte field stays out.
 #[test]
 fn cache_joins_the_group() {
@@ -659,10 +659,10 @@ fn cache_joins_the_group() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Slice 3: group keys, teardown and the subscription-before-token order
+// Group keys, teardown and the subscription-before-token order
 // ---------------------------------------------------------------------------------------------
 
-/// Cycle 3.1: a joined subscriber receives on the key a real publisher writes, and a subscriber
+/// A joined subscriber receives on the key a real publisher writes, and a subscriber
 /// with no schema receives on it too. The key is a literal, not derived from the token.
 #[test]
 fn joined_subscriber_receives_on_the_key_a_real_publisher_writes() {
@@ -710,7 +710,7 @@ fn joined_subscriber_receives_on_the_key_a_real_publisher_writes() {
     assert_eq!(got.unwrap().data, vec![1, 2, 3]);
 }
 
-/// Cycle 3.2: dropping a joined subscriber removes its token. The token is present before.
+/// Dropping a joined subscriber removes its token. The token is present before.
 #[test]
 fn dropping_the_subscriber_removes_its_token() {
     const NAME: &str = "dropping_the_subscriber_removes_its_token";
@@ -747,7 +747,7 @@ fn dropping_the_subscriber_removes_its_token() {
     );
 }
 
-/// Cycle 3.5: when a joined typed subscriber is dropped, its callback does not run again for a
+/// When a joined typed subscriber is dropped, its callback does not run again for a
 /// sample on the group key. The callback runs on that key before the drop.
 #[test]
 fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
@@ -804,7 +804,7 @@ fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
     );
 }
 
-/// Cycle 3.5: when a joined cache is dropped, its group subscription stops. The stamp extractor
+/// When a joined cache is dropped, its group subscription stops. The stamp extractor
 /// of the cache runs once per sample the subscription delivers, so it counts deliveries after the
 /// cache itself is gone. The extractor runs on the group key before the drop.
 #[test]
@@ -869,7 +869,7 @@ fn dropping_a_joined_cache_stops_group_key_updates() {
     );
 }
 
-/// Cycle 3.3: a joined subscriber reads the group key, and `Locality::Remote` holds on that key.
+/// A joined subscriber reads the group key, and `Locality::Remote` holds on that key.
 #[test]
 fn joined_subscriber_reads_the_group_key_with_its_locality() {
     const NAME: &str = "joined_subscriber_reads_the_group_key_with_its_locality";
@@ -901,7 +901,7 @@ fn joined_subscriber_reads_the_group_key_with_its_locality() {
     );
 }
 
-/// Cycle 3.4: when the token becomes visible, the group subscription is already declared. A raw
+/// When the token becomes visible, the group subscription is already declared. A raw
 /// session sees two events for each subscriber: the token, and a subscriber matching a publisher
 /// it declared on the group key. The match must come first in nearly every trial. The session
 /// stamps both events with one counter, so the test needs no clock.
@@ -997,7 +997,7 @@ fn group_subscription_is_declared_before_the_token_is_visible() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Slice 4: the info log and access control
+// The info log and access control
 // ---------------------------------------------------------------------------------------------
 
 #[derive(Clone, Default)]
@@ -1012,7 +1012,7 @@ impl Write for Captured {
     }
 }
 
-/// Cycle 4.1: one `info` line per group key and process names the subscribed key and the group
+/// One `info` line per group key and process names the subscribed key and the group
 /// key. Three subscribers on one key log once; a second key logs once; a subscriber that stays
 /// out logs nothing.
 #[test]
@@ -1127,7 +1127,7 @@ fn router_denying_the_group_key() -> TestRouter {
     })
 }
 
-/// Cycle 4.2: a router that denies the group key does not break the base key. A subscriber that
+/// A router that denies the group key does not break the base key. A subscriber that
 /// joins a non-buffer topic still receives each sample once. A router with no rule is the control
 /// for the group key itself.
 #[test]
@@ -1158,7 +1158,7 @@ fn non_buffer_topic_still_delivers_under_a_group_key_deny_rule() {
     assert_eq!(received, SAMPLES);
 }
 
-/// Cycle 4.3, characterization of the router: under a rule that denies the group key, a joined
+/// Under a rule that denies the group key, a joined
 /// subscriber on a buffer topic gets nothing on that key, `build` returns `Ok`, and the base key
 /// still flows. Without the rule the same subscriber receives on the group key.
 #[test]
@@ -1203,7 +1203,7 @@ fn denied_group_key_starves_silently_while_the_base_key_flows() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// G2: the base subscription serves the group key
+// The base subscription serves the group key
 // ---------------------------------------------------------------------------------------------
 
 /// The joined subscriber has one subscription, on `<base>/**`. It serves the base key and the

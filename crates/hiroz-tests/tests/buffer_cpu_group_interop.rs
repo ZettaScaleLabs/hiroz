@@ -11,8 +11,8 @@
 //! sample arrives on the base key, and it must pass on Humble, Jazzy, Kilted and Lyrical. A buffer
 //! cell needs a buffer-aware `rmw_zenoh_cpp` and calls `t1_harness::buffer_aware_rmw_or_skip`.
 //! Where the library has no buffer mode that call prints `Skipping <cell>: no buffer-aware rmw`
-//! and the cell returns. The runner of the green record sets `T1_REQUIRE_BUFFER_RMW`, which turns
-//! that skip into a failure.
+//! and the cell returns. A CI runner that must exercise the buffer cells sets `T1_REQUIRE_BUFFER_RMW`, which
+//! turns that skip into a failure.
 
 #![cfg(target_os = "linux")]
 #![cfg(feature = "ros-interop")]
@@ -205,7 +205,7 @@ fn spawn_seq_publisher(
 
 /// A released subscriber of the topic, the anchor of the mode. It is the one matched subscriber
 /// that announces buffer support whether or not hiroz joins, so the publisher is in buffer mode
-/// in every run and the detector reads the group key. Measured at the S0 tip: with the four hiroz
+/// in every run and the detector reads the group key. Measured without the join: with the four hiroz
 /// subscribers alone and no anchor, the detector read 0 on both keys, so the cell proved nothing.
 fn spawn_anchor(router: &TestRouter, kind: &str, topic: &str) -> ProcessGuard {
     use std::os::unix::process::CommandExt;
@@ -334,13 +334,13 @@ macro_rules! run_kind {
     }};
 }
 
-/// Cycle 2.12: when a Lyrical publisher is in buffer mode, the typed, the no-schema, the dynamic
+/// When a Lyrical publisher is in buffer mode, the typed, the no-schema, the dynamic
 /// and the cache subscriber each receive every sample, for `UInt8MultiArray` and for
 /// `PointCloud2`. The plain session is the mode detector. Each arm counts by sequence number and
 /// sentinel, so a repeat, a gap and a truncated payload are all visible.
 ///
 /// The test prints one `T1ARM` line per arm and one `T1RED` line: the least any arm received, with
-/// the detector counts of the worst kind. The line is the one J-RED-T1 reads.
+/// the detector counts of the worst kind. The line reports the worst arm.
 #[test]
 fn joined_subscribers_receive_from_a_released_publisher() {
     const NAME: &str = "joined_subscribers_receive_from_a_released_publisher";
@@ -529,7 +529,7 @@ fn mode_detector_reads_the_group_key_on_a_publisher_in_buffer_mode() {
     t1_harness::r1_assert_eq(NAME, detector.read().base, 0, "base key count");
 }
 
-/// Fixture F5, the row for a namespaced topic: the group key a released Lyrical publisher writes
+/// The group key for a namespaced topic: the key a released Lyrical publisher writes
 /// for `/f5ns/cell`, captured by `f5_capture_reads_the_group_key_a_real_publisher_writes` from the
 /// released Lyrical `rmw_zenoh_cpp` 0.10.6 in the container image of the cell runner.
 const F5_NAMESPACED_GROUP_KEY: &str = "0/f5ns/cell/std_msgs::msg::dds_::UInt8MultiArray_/RIHS01_5687e861b8d307a5e48b7515467ae7a5fc2daf805bd0ce6d8e9e604bade9f385/_buf_cpu";
@@ -617,7 +617,7 @@ fn f5_capture_reads_the_group_key_a_real_publisher_writes() {
         NAME,
         key.as_str(),
         F5_NAMESPACED_GROUP_KEY,
-        "recorded F5 key",
+        "recorded namespaced group key",
     );
 }
 
@@ -668,7 +668,7 @@ fn token_for(name: &str, session: &zenoh::Session, topic: &str) -> String {
     }
 }
 
-/// Cycle 2.11: an older distro accepts the joined token and lists the subscriber. The test reads
+/// An older distro accepts the joined token and lists the subscriber. The test reads
 /// the token the older parser has to parse and the `ros2 topic info -v` text of the released
 /// CLI. The token must end in `backends:cpu:`: that field is what an older parser must tolerate,
 /// and a subscriber that never joined has none, so the test cannot pass without the join.
@@ -742,7 +742,7 @@ use hiroz_msgs::action_tutorials_interfaces::{FibonacciGoal, action::Fibonacci};
 #[cfg(any(feature = "kilted", feature = "lyrical"))]
 use hiroz_msgs::example_interfaces::{FibonacciGoal, action::Fibonacci};
 
-/// Cycle 2.15: the hiroz action client receives each feedback message of the released Fibonacci
+/// The hiroz action client receives each feedback message of the released Fibonacci
 /// server once. The server of `action_tutorials_cpp` publishes the whole sequence after each
 /// step, so feedback number `i` holds `i + 3` numbers: the received lengths must be exactly
 /// `3, 4, ..., order + 1`, each once. The group key carries no sample, as the feedback is not a
@@ -843,9 +843,9 @@ async fn action_feedback_arrives_once_each_with_the_group_joined() {
     );
 }
 
-// ---- cells below need the join machinery of the lane: they name BufferGroup ----
+// ---- cells below need the join machinery: they name BufferGroup ----
 
-/// Cycle 2.13: a topic that is not a buffer topic delivers each sample once to a subscriber that
+/// A topic that is not a buffer topic delivers each sample once to a subscriber that
 /// joined the group: its count equals the base key count, and the group key carries nothing.
 #[test]
 fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {

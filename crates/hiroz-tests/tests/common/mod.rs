@@ -643,13 +643,13 @@ pub fn spawn_holder<T: Send + 'static>(
     })
 }
 
-/// Assert with a marker the J-RED verdict can read.
+/// Assert with a marker that identifies the failing assertion by name.
 ///
-/// On a false condition this panics with `R1ASSERT <name>: <message>`. The verdict script
-/// counts a test as red only when its failure text holds `R1ASSERT <name>:`; a failed
-/// `unwrap()`, `expect()` or a bare timeout carries no marker and reads as `UNKNOWN NOASSERT`.
+/// On a false condition this panics with `R1ASSERT <name>: <message>`. A failure is
+/// attributed to the assertion only when its text holds `R1ASSERT <name>:`; a failed
+/// `unwrap()`, `expect()` or a bare timeout carries no marker.
 /// Wrap a timeout in this macro, for example `r1_assert!(got.is_ok(), "<name>", "no message")`.
-/// A test with no red or mutant record keeps a plain `assert!`.
+/// A test whose failure needs no attribution keeps a plain `assert!`.
 ///
 /// Call it by its bare name from the test crate root, after `mod common;`.
 #[allow(unused_macros)]
