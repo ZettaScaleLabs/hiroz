@@ -435,12 +435,10 @@ fn f5_capture_reads_the_group_key_a_real_publisher_writes() {
     if !(key.starts_with("0/f5ns") && key.ends_with("/_buf_cpu")) {
         t1_harness::r1_fail(NAME, &format!("unexpected key shape: {key}"));
     }
-    if !F5_NAMESPACED_GROUP_KEY.is_empty() {
-        t1_harness::r1_assert_eq(
-            NAME,
-            key.as_str(),
-            F5_NAMESPACED_GROUP_KEY,
-            "recorded F5 key",
-        );
-    }
+    t1_harness::r1_assert_eq(
+        NAME,
+        key.as_str(),
+        F5_NAMESPACED_GROUP_KEY,
+        "recorded F5 key",
+    );
 }
