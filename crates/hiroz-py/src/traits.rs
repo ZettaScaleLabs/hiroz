@@ -10,6 +10,9 @@ use crate::raw_bytes::{RawBytesCdrSerdes, RawBytesMessage, RawBytesService};
 pub(crate) trait RawPublisher: Send + Sync {
     /// Publish pre-serialized data
     fn publish(&self, data: ZBytes) -> Result<()>;
+    /// Block until at least `count` subscriptions are matched, or `timeout` elapses.
+    /// Returns true if the count was reached. Delegates to the core liveliness-based wait.
+    fn wait_for_subscription(&self, count: usize, timeout: Duration) -> bool;
 }
 
 /// Type-erased subscriber trait for Python interop
@@ -42,6 +45,12 @@ impl RawPublisher for GenericPubWrapper {
         self.inner
             .publish_serialized(data)
             .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    fn wait_for_subscription(&self, count: usize, timeout: Duration) -> bool {
+        // The core method is async; block on it using the shared runtime.
+        // Callers release the GIL around this via `py.allow_threads`.
+        crate::action::get_tokio_rt().block_on(self.inner.wait_for_subscription(count, timeout))
     }
 }
 
@@ -106,7 +115,17 @@ pub(crate) trait RawClient: Send + Sync {
 /// Type-erased server trait for Python interop
 pub(crate) trait RawServer: Send + Sync {
     fn take_request_serialized(&self) -> Result<(RequestId, Vec<u8>)>;
+    /// Non-blocking variant: returns None if no request is queued.
+    /// Used by the optional callback-mode server loop.
+    fn try_take_request_serialized(&self) -> Result<Option<(RequestId, Vec<u8>)>>;
     fn send_response_serialized(&self, data: &[u8], request_id: &RequestId) -> Result<()>;
+    /// Drop a pending reply without answering it.
+    ///
+    /// `take_request` registers a reply handle that only `send_response` removes,
+    /// so any path that abandons a request (a failed deserialize, a raising
+    /// callback) must call this or the handle is retained for the life of the
+    /// server — an unbounded leak under a repeatedly-failing callback.
+    fn discard_pending(&self, request_id: &RequestId);
 }
 
 /// Generic client wrapper using RawBytesService
@@ -186,6 +205,29 @@ impl RawServer for GenericServerWrapper {
         Ok((request_id, request.0))
     }
 
+    fn try_take_request_serialized(&self) -> Result<Option<(RequestId, Vec<u8>)>> {
+        let mut server = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock server: {}", e))?;
+
+        match server
+            .try_take_request()
+            .map_err(|e| anyhow::anyhow!("Failed to poll request: {}", e))?
+        {
+            Some(request) => {
+                let (request, reply) = request.into_parts();
+                let request_id = reply.id().clone();
+                self.pending
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("Failed to lock pending replies: {}", e))?
+                    .insert(request_id.clone(), reply);
+                Ok(Some((request_id, request.0)))
+            }
+            None => Ok(None),
+        }
+    }
+
     fn send_response_serialized(&self, data: &[u8], request_id: &RequestId) -> Result<()> {
         let response = RawBytesMessage(data.to_vec());
 
@@ -199,5 +241,13 @@ impl RawServer for GenericServerWrapper {
         reply
             .reply_blocking(&response)
             .map_err(|e| anyhow::anyhow!("Failed to send response: {}", e))
+    }
+
+    fn discard_pending(&self, request_id: &RequestId) {
+        // Best-effort: a poisoned lock here means the server is already broken,
+        // and this runs on error paths that must not mask the original failure.
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(request_id);
+        }
     }
 }

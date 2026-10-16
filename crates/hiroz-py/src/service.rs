@@ -1,7 +1,10 @@
 use crate::traits::{RawClient, RawServer};
+use hiroz::graph::Graph;
 use hiroz::service::RequestId;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Python wrapper for service client
@@ -10,16 +13,26 @@ pub struct PyZClient {
     inner: Box<dyn RawClient>,
     request_type_name: String,
     response_type_name: String,
+    /// Shared graph + fully-qualified service name, used by `wait_for_service`.
+    graph: Arc<Graph>,
+    service_name: String,
 }
 
 impl PyZClient {
-    pub fn new(inner: Box<dyn RawClient>, service_type: String) -> Self {
+    pub fn new(
+        inner: Box<dyn RawClient>,
+        service_type: String,
+        graph: Arc<Graph>,
+        service_name: String,
+    ) -> Self {
         let request_type_name = format!("{}_Request", service_type);
         let response_type_name = format!("{}_Response", service_type);
         Self {
             inner,
             request_type_name,
             response_type_name,
+            graph,
+            service_name,
         }
     }
 }
@@ -36,18 +49,28 @@ impl PyZClient {
         timeout: Option<f64>,
     ) -> PyResult<PyObject> {
         let cdr_bytes = hiroz_msgs::serialize_to_cdr(&self.request_type_name, data.py(), data)?;
-        let timeout_duration = timeout.map(Duration::from_secs_f64);
+        let timeout_duration = crate::graph::checked_timeout(timeout)?;
 
         let cdr_bytes = py
             .allow_threads(|| self.inner.call_serialized(&cdr_bytes, timeout_duration))
-            .map_err(|e| {
-                if hiroz::error::is_timeout(e.root_cause()) {
-                    crate::error::TimeoutError::new_err(e.to_string())
-                } else {
-                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-                }
-            })?;
+            .map_err(crate::error::map_call_error)?;
         hiroz_msgs::deserialize_from_cdr(&self.response_type_name, py, &cdr_bytes)
+    }
+
+    /// Wait until a service server for this service is available.
+    ///
+    /// Mirrors rclpy's `Client.wait_for_service(timeout_sec)`. Polls the
+    /// discovery graph until a matching server appears. Returns True if a
+    /// server was found before `timeout`, False otherwise.
+    ///
+    /// Args:
+    ///     timeout: Maximum seconds to wait. None waits forever.
+    #[pyo3(signature = (timeout=None))]
+    fn wait_for_service(&self, py: Python, timeout: Option<f64>) -> PyResult<bool> {
+        let timeout = crate::graph::checked_timeout(timeout)?;
+        Ok(py.allow_threads(|| {
+            crate::graph::wait_for_service_server(&self.graph, &self.service_name, timeout)
+        }))
     }
 
     /// Get the service type name (for debugging)
@@ -59,12 +82,65 @@ impl PyZClient {
     }
 }
 
-/// Python wrapper for service server
+/// Background-thread state for a callback-mode server (P6).
+///
+/// Holds an `Arc` to the underlying server (keeping its Zenoh queryable alive)
+/// and a stop flag the worker thread checks each poll.
+struct CallbackServerState {
+    stop: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+    _server: Arc<dyn RawServer>,
+}
+
+impl CallbackServerState {
+    /// Stop the worker and wait for it, with the GIL released.
+    ///
+    /// This is the blocking shutdown path. It must never run from `Drop` — see
+    /// the note there — so it is reachable only via `close()` / `__exit__`,
+    /// where we hold a `Python` token and can hand the GIL back to the worker
+    /// while it finishes its in-flight callback.
+    fn close(&mut self, py: Python<'_>) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(h) = self.handle.take() {
+            py.allow_threads(|| {
+                let _ = h.join();
+            });
+        }
+    }
+}
+
+impl Drop for CallbackServerState {
+    fn drop(&mut self) {
+        // Signal, but never join here.
+        //
+        // Deallocation runs with the GIL held, and the worker acquires the GIL
+        // to invoke the user callback. Joining would therefore deadlock if the
+        // worker is waiting on the GIL, and even without that a slow callback
+        // would block `del server` and interpreter shutdown for as long as it
+        // runs. Detaching is safe: the worker owns an `Arc` on the server, so
+        // the queryable outlives us until the thread observes `stop` on its
+        // next poll (a few ms) and exits.
+        //
+        // Call `close()` — or use the server as a context manager — when you
+        // need to know the worker has actually stopped.
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Python wrapper for service server.
+///
+/// Pull mode (default): `inner` is `Some`; the caller drives `take_request` /
+/// `send_response`. Callback mode (P6): `inner` is `None` and a background
+/// thread (held in `callback`) services requests via the user callback.
+/// Errors from the callback thread are stored in `last_error` and surfaced via
+/// the `last_error` Python property.
 #[pyclass(name = "ZServer")]
 pub struct PyZServer {
-    inner: std::sync::Mutex<Box<dyn RawServer>>,
+    inner: Option<Mutex<Box<dyn RawServer>>>,
     request_type_name: String,
     response_type_name: String,
+    callback: Option<CallbackServerState>,
+    last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl PyZServer {
@@ -72,11 +148,132 @@ impl PyZServer {
         let request_type_name = format!("{}_Request", service_type);
         let response_type_name = format!("{}_Response", service_type);
         Self {
-            inner: std::sync::Mutex::new(inner),
+            inner: Some(Mutex::new(inner)),
             request_type_name,
             response_type_name,
+            callback: None,
+            last_error: Arc::new(Mutex::new(None)),
         }
     }
+
+    /// Build a callback-mode server: a background thread receives each request,
+    /// calls `callback(request)`, and sends the returned object as the response.
+    pub fn new_with_callback(
+        server: Arc<dyn RawServer>,
+        service_type: String,
+        callback: PyObject,
+    ) -> Self {
+        let request_type_name = format!("{}_Request", service_type);
+        let response_type_name = format!("{}_Response", service_type);
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let last_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let handle = spawn_callback_loop(
+            Arc::clone(&server),
+            request_type_name.clone(),
+            response_type_name.clone(),
+            callback,
+            Arc::clone(&stop),
+            Arc::clone(&last_error),
+        );
+
+        Self {
+            inner: None,
+            request_type_name,
+            response_type_name,
+            callback: Some(CallbackServerState {
+                stop,
+                handle: Some(handle),
+                _server: server,
+            }),
+            last_error,
+        }
+    }
+
+    fn require_pull(&self) -> PyResult<&Mutex<Box<dyn RawServer>>> {
+        self.inner.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "This server runs in callback mode; take_request/send_response are unavailable. \
+                 Create it without a callback to use pull mode.",
+            )
+        })
+    }
+}
+
+/// Spawn the worker thread for a callback-mode server.
+fn spawn_callback_loop(
+    server: Arc<dyn RawServer>,
+    request_type_name: String,
+    response_type_name: String,
+    callback: PyObject,
+    stop: Arc<AtomicBool>,
+    last_error: Arc<Mutex<Option<String>>>,
+) -> std::thread::JoinHandle<()> {
+    // Helper: record an error both in the shared slot and stderr.
+    macro_rules! record_error {
+        ($last_error:expr, $msg:literal, $e:expr) => {{
+            let msg = format!(concat!("hiroz_py: ", $msg, ": {}"), $e);
+            eprintln!("{}", msg);
+            if let Ok(mut guard) = $last_error.lock() {
+                *guard = Some(msg);
+            }
+        }};
+    }
+
+    std::thread::spawn(move || {
+        while !stop.load(Ordering::Relaxed) {
+            // Poll for a request without holding the GIL.
+            match server.try_take_request_serialized() {
+                Ok(Some((request_id, request_bytes))) => {
+                    Python::with_gil(|py| {
+                        let req_obj = match hiroz_msgs::deserialize_from_cdr(
+                            &request_type_name,
+                            py,
+                            &request_bytes,
+                        ) {
+                            Ok(o) => o,
+                            Err(e) => {
+                                record_error!(last_error, "request deserialize error", e);
+                                server.discard_pending(&request_id);
+                                return;
+                            }
+                        };
+                        let resp_obj = match callback.call1(py, (req_obj,)) {
+                            Ok(o) => o,
+                            Err(e) => {
+                                record_error!(last_error, "service callback error", e);
+                                server.discard_pending(&request_id);
+                                return;
+                            }
+                        };
+                        let resp_bytes = match hiroz_msgs::serialize_to_cdr(
+                            &response_type_name,
+                            py,
+                            resp_obj.bind(py),
+                        ) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                record_error!(last_error, "response serialize error", e);
+                                server.discard_pending(&request_id);
+                                return;
+                            }
+                        };
+                        if let Err(e) = server.send_response_serialized(&resp_bytes, &request_id) {
+                            record_error!(last_error, "send_response error", e);
+                            // send_response only removes the entry once the reply
+                            // succeeds; drop it here so a failing send cannot leak.
+                            server.discard_pending(&request_id);
+                        }
+                    });
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(2)),
+                Err(e) => {
+                    record_error!(last_error, "service poll error", e);
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+        }
+    })
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -84,9 +281,9 @@ impl PyZServer {
 impl PyZServer {
     /// Receive the next service request (blocking)
     unsafe fn take_request(&self, py: Python) -> PyResult<(PyObject, PyObject)> {
+        let mutex = self.require_pull()?;
         let result = py.allow_threads(|| {
-            let inner = self
-                .inner
+            let inner = mutex
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
             inner.take_request_serialized()
@@ -126,9 +323,9 @@ impl PyZServer {
             source_timestamp: 0,
         };
 
+        let mutex = self.require_pull()?;
         py.allow_threads(|| {
-            let inner = self
-                .inner
+            let inner = mutex
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
             inner.send_response_serialized(&cdr_bytes, &key)
@@ -142,5 +339,41 @@ impl PyZServer {
             "request={}, response={}",
             self.request_type_name, self.response_type_name
         )
+    }
+
+    /// The last error raised by the callback thread, or None if no error has
+    /// occurred. Resets to None when read. Only meaningful in callback mode;
+    /// always None in pull mode.
+    #[getter]
+    fn last_error(&self) -> Option<String> {
+        self.last_error.lock().ok().and_then(|mut g| g.take())
+    }
+
+    /// Stop a callback-mode server and wait for its worker thread to finish.
+    ///
+    /// Dropping the server only *signals* the worker (joining during
+    /// deallocation could deadlock against the GIL), so call this — or use the
+    /// server as a context manager — when you need a guarantee that the
+    /// callback is no longer running. Idempotent, and a no-op in pull mode.
+    fn close(&mut self, py: Python<'_>) {
+        if let Some(state) = self.callback.as_mut() {
+            state.close(py);
+        }
+    }
+
+    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    #[pyo3(signature = (_exc_type=None, _exc_value=None, _traceback=None))]
+    fn __exit__(
+        &mut self,
+        py: Python<'_>,
+        _exc_type: Option<&Bound<'_, PyAny>>,
+        _exc_value: Option<&Bound<'_, PyAny>>,
+        _traceback: Option<&Bound<'_, PyAny>>,
+    ) -> bool {
+        self.close(py);
+        false
     }
 }
