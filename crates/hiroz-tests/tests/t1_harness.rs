@@ -1,8 +1,9 @@
 //! The counter of the T1 harness needs no ROS: it reads a payload sequence number and a sentinel.
 
-mod common;
+#[path = "common/t1_harness.rs"]
+mod t1_harness;
 
-use common::t1_harness::{SENTINEL, SeqCounter, seq_payload};
+use t1_harness::{SENTINEL, SeqCounter, seq_payload};
 
 #[test]
 fn seq_counter_counts_by_sequence_and_rejects_a_bad_sentinel() {
