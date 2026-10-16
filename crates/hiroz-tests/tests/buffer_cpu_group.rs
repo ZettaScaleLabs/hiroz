@@ -1199,3 +1199,88 @@ fn denied_group_key_starves_silently_while_the_base_key_flows() {
         "base key under the rule"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// G2: the base subscription serves the group key
+// ---------------------------------------------------------------------------------------------
+
+/// The joined subscriber has one subscription, on `<base>/**`. It serves the base key and the
+/// group key. Every other key under the base reaches that subscription, and the subscriber drops
+/// it in process: another group of the same topic (`_buf_cuda`, say) never reaches the callback.
+///
+/// Control 1 shows the subscription is wide: a raw publisher on each other key sees a matching
+/// subscriber. Without it, "nothing arrived" cannot tell a filter from a subscription that is too
+/// narrow. Control 2 shows the group key and the base key still deliver.
+#[test]
+fn other_groups_of_the_topic_never_reach_a_joined_subscriber() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    const NAME: &str = "other_groups_of_the_topic_never_reach_a_joined_subscriber";
+    const PUTS: usize = 10;
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    let calls = Arc::new(AtomicUsize::new(0));
+    let _sub = node
+        .create_sub::<UInt8MultiArray>("/iso_groups")
+        .build_with_callback({
+            let calls = calls.clone();
+            move |_msg| {
+                calls.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .expect("sub");
+    token_for(&raw, "iso_groups");
+
+    let base = base_key("iso_groups", &UINT8);
+    let others = [
+        format!("{base}/_buf_cuda"),
+        format!("{base}/_buf_cpu/extra"),
+        format!("{base}/deeper/_buf_cpu"),
+    ];
+
+    // Control 1: each other key reaches a subscription of the subscriber's session.
+    for key in &others {
+        let publisher = raw
+            .declare_publisher(key.clone())
+            .wait()
+            .expect("publisher");
+        let end = Instant::now() + RECV;
+        while !publisher.matching_status().wait().unwrap().matching() && Instant::now() < end {
+            std::thread::sleep(POLL);
+        }
+        r1_assert!(
+            publisher.matching_status().wait().unwrap().matching(),
+            NAME,
+            "control: no subscription matches {key}, so the subscriber's key is not wide"
+        );
+        for _ in 0..PUTS {
+            publisher.put(PAYLOAD.to_vec()).wait().expect("put");
+        }
+    }
+    std::thread::sleep(QUIET);
+    let leaked = calls.load(Ordering::SeqCst);
+    r1_assert!(
+        leaked == 0,
+        NAME,
+        "{leaked} callbacks ran for samples on other keys under {base}"
+    );
+
+    // Control 2: the group key and the base key deliver.
+    let group = group_key("iso_groups", &UINT8);
+    r1_assert!(
+        put_until(&raw, &group, &PAYLOAD, RECV, || calls
+            .load(Ordering::SeqCst)
+            > 0),
+        NAME,
+        "control: nothing arrived on {group}"
+    );
+    let after_group = calls.load(Ordering::SeqCst);
+    r1_assert!(
+        put_until(&raw, &base, &PAYLOAD, RECV, || calls.load(Ordering::SeqCst)
+            > after_group),
+        NAME,
+        "control: nothing arrived on {base}"
+    );
+}
