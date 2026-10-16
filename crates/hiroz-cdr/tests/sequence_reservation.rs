@@ -124,11 +124,11 @@ fn honest_sequence_reserves_once() {
         let mut r = CdrReader::<LittleEndian>::new(&input);
         Vec::<Big>::cdr_deserialize(&mut r)
     });
+    let decoded = decoded.expect("honest_sequence_reserves_once: decode");
+    assert_eq!(decoded.len(), N as usize);
     assert_eq!(
-        decoded
-            .expect("honest_sequence_reserves_once: decode")
-            .len(),
-        N as usize
+        decoded[0].0, [0; 4],
+        "honest_sequence_reserves_once: first element"
     );
     assert_eq!(
         counts.reallocs, 0,
