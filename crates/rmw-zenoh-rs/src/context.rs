@@ -381,8 +381,9 @@ pub extern "C" fn rmw_init(
         }
         hiroz::malloc_pin::PinOutcome::Pinned { mmap_rc, trim_rc } => {
             tracing::debug!(
-                "glibc thresholds pinned at {} MiB (mallopt rc: mmap={}, trim={})",
+                "glibc thresholds pinned (mmap {} MiB, trim {} MiB; mallopt rc: mmap={}, trim={})",
                 hiroz::malloc_pin::MMAP_THRESHOLD >> 20,
+                hiroz::malloc_pin::TRIM_THRESHOLD >> 20,
                 mmap_rc,
                 trim_rc
             );

@@ -21,7 +21,12 @@ pub enum PinOutcome {
 /// Value of `M_MMAP_THRESHOLD`, in bytes.
 pub const MMAP_THRESHOLD: i32 = 64 << 20;
 /// Value of `M_TRIM_THRESHOLD`, in bytes.
-pub const TRIM_THRESHOLD: i32 = 64 << 20;
+///
+/// It must stay above the free heap top that a receive leaves behind. A 32 MiB payload leaves
+/// two 32 MiB buffers, so a threshold of 64 MiB trimmed the heap on every message and the
+/// receive paid page faults again. The process keeps up to this many free bytes at the heap
+/// top, so a larger value costs resident memory after a burst of large messages.
+pub const TRIM_THRESHOLD: i32 = 256 << 20;
 
 /// Pin the glibc allocator thresholds for large message payloads.
 ///
