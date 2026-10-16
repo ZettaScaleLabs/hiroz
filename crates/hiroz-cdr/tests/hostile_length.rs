@@ -16,7 +16,7 @@ use byteorder::LittleEndian;
 use hiroz_cdr::{CdrDeserialize, CdrReader, Error, from_bytes};
 use nix::sys::resource::{Resource, setrlimit};
 
-/// The marker macro of the R1 plan: a false condition panics with `R1ASSERT <name>: <message>`.
+/// Failure marker, `NAME: message`: a false condition panics with `R1ASSERT <name>: <message>`.
 /// A red run is read only through this text.
 macro_rules! r1_assert {
     ($cond:expr, $name:expr, $($msg:tt)+) => {
