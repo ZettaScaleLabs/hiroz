@@ -212,7 +212,7 @@ fn qos_chunk_equals_rmw_zenoh_for_every_grid_profile() {
     let bad = chunk_mismatches(&grid);
     assert!(
         bad.is_empty(),
-        "{} of {} rows differ from rmw_zenoh; first 3 (row, hiroz, rmw_zenoh): {:?}",
+        "R1ASSERT qos_chunk_equals_rmw_zenoh_for_every_grid_profile: {} of {} rows differ from rmw_zenoh; first 3 (row, hiroz, rmw_zenoh): {:?}",
         bad.len(),
         grid.len(),
         &bad[..bad.len().min(3)]
@@ -314,7 +314,7 @@ fn qos_chunk_equals_rmw_zenoh_for_depths_0_to_100() {
     let bad = chunk_mismatches(&keep_last);
     assert!(
         bad.is_empty(),
-        "{} of {} keep-last rows differ from rmw_zenoh; first 3 (row, hiroz, rmw_zenoh): {:?}",
+        "R1ASSERT qos_chunk_equals_rmw_zenoh_for_depths_0_to_100: {} of {} keep-last rows differ from rmw_zenoh; first 3 (row, hiroz, rmw_zenoh): {:?}",
         bad.len(),
         keep_last.len(),
         &bad[..bad.len().min(3)]
