@@ -66,20 +66,44 @@ jobs:
             }
 
             // PR is not draft and has no maintainer reviews
-            core.setFailed(
+            const failureMessage =
               '❌ External contributor PRs should be opened as DRAFT until ready for final review.\n\n' +
               'Please either:\n' +
               '1. Convert this PR to a draft (see "Convert to draft" in the PR sidebar)\n' +
               '2. Wait for a maintainer to review before marking as ready\n\n' +
               'This helps us manage CI workflow approvals and prioritize reviews.\n' +
-              'See CONTRIBUTING.md for details.'
+              'See CONTRIBUTING.md for details.';
+
+            // Post the same message as a PR comment: core.setFailed only reaches the
+            // Actions log, which an external contributor has no reason to open.
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber
+            });
+
+            const alreadyCommented = comments.data.some(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('External contributor PRs should be opened as DRAFT')
             );
+
+            if (!alreadyCommented) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: failureMessage
+              });
+            }
+
+            core.setFailed(failureMessage);
 
       - name: Post helpful comment for first-time contributors
         if: |
           steps.check-author.outputs.is-external == 'true' &&
           steps.check-author.outputs.is-draft == 'false' &&
-          steps.check-author.outputs.author-association == 'FIRST_TIME_CONTRIBUTOR'
+          (steps.check-author.outputs.author-association == 'FIRST_TIME_CONTRIBUTOR' ||
+           steps.check-author.outputs.author-association == 'NONE')
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7
         with:
           script: |
