@@ -7,6 +7,21 @@
 //! min-max ranges. A control arm, the unpinned receive slowed by a deliberate delay, must fail
 //! the same check.
 //!
+//! Opt-in: the test is `#[ignore]`d and CI does not run it. Its thresholds come from one quiet
+//! host (load average below 0.6). On a shared runner under load the unpinned receive drops
+//! messages (47 of 60 samples were seen) and the run says nothing about the pin. Run it on a
+//! quiet host with:
+//!
+//! ```text
+//! cargo nextest run -p hiroz-tests --features ros-msgs,jazzy --profile pin-timing \
+//!     --run-ignored only -E 'test(=pinned_32mib_main_thread_receive_is_not_slower_than_unpinned)'
+//! ```
+//!
+//! The run takes about 3 minutes. The test prints the load average and glibc version first.
+//! Check the printed load before you read the result. CI still compiles this file, and it runs
+//! `operator_threshold_variable_fails_the_probe` here and the wiring test in
+//! `malloc_pin_wiring.rs`.
+//!
 //! Population: direct loopback TCP, no router, no SHM, a typed `UInt8MultiArray` received
 //! with `recv_timeout`. The test says nothing about `async_recv`, callbacks or other types.
 #![cfg(target_os = "linux")]
@@ -176,6 +191,7 @@ fn not_slower(pinned: &[f64], unpinned: &[f64]) -> bool {
 
 #[test]
 #[serial]
+#[ignore = "timing gate for a quiet host (load below 0.6); run with --profile pin-timing, see the module doc"]
 fn pinned_32mib_main_thread_receive_is_not_slower_than_unpinned() {
     println!(
         "HOST load_average={} glibc={:?}",

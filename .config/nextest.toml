@@ -2,9 +2,17 @@
 slow-timeout = { period = "30s", terminate-after = 2 }
 
 # The pin gate runs fifteen 32 MiB receives of about 16 s each, one after the other.
+# The test is `#[ignore]`d. CI does not run it. See the profile `pin-timing` below.
 [[profile.default.overrides]]
 filter = 'test(=pinned_32mib_main_thread_receive_is_not_slower_than_unpinned)'
 slow-timeout = { period = "120s", terminate-after = 5 }
+
+# Profile for the opt-in pin timing gate. Run it on a quiet host only (load average below 0.6):
+#   cargo nextest run -p hiroz-tests --features ros-msgs,jazzy --profile pin-timing \
+#       --run-ignored only -E 'test(=pinned_32mib_main_thread_receive_is_not_slower_than_unpinned)'
+# One test thread, so nothing else of this run shares the host with the measurement.
+[profile.pin-timing]
+test-threads = 1
 
 # Profile for interop tests that spawn ros2 CLI subprocesses.
 # Each test owns its own TestRouter port so all 14 tests run in parallel.
