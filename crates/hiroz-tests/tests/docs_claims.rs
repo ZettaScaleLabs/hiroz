@@ -66,6 +66,7 @@ fn rows(table: &str) -> Vec<(String, String)> {
     table
         .lines()
         .filter(|l| l.trim_start().starts_with('|'))
+        .filter(|l| !l.chars().all(|c| matches!(c, '|' | '-' | ' ')))
         .map(|l| {
             let cells: Vec<String> = l
                 .trim()
@@ -75,9 +76,7 @@ fn rows(table: &str) -> Vec<(String, String)> {
                 .collect();
             (cells[0].clone(), cells.get(1).cloned().unwrap_or_default())
         })
-        .filter(|(s, t)| {
-            s != "sentence" && !s.chars().all(|c| c == '-' || c == ' ') && t != "tests"
-        })
+        .filter(|(s, t)| s != "sentence" && t != "tests")
         .collect()
 }
 
@@ -140,7 +139,8 @@ fn docs_claims_table_has_no_untested_sentence() {
     r1_assert!(
         problems.is_empty(),
         NAME,
-        "{} problems: {problems:#?}",
-        problems.len()
+        "{} problems: {}",
+        problems.len(),
+        problems.join("; ")
     );
 }
