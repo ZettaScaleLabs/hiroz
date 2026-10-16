@@ -141,7 +141,7 @@ fn harness_detects_an_allocation_abort_here() {
     );
 }
 
-/// The dynamic decoder reserves `Vec::with_capacity(len)` for non-byte sequences.
+/// The dynamic decoder must consume elements before growing its output array.
 #[test]
 fn dynamic_decoder_survives_a_hostile_sequence_length() {
     if is_child() {

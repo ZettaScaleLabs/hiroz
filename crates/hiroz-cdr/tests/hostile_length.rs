@@ -1,5 +1,5 @@
-//! A sequence length read from the wire must not make the decoder reserve
-//! more memory than the payload can fill.
+//! A sequence length read from the wire must not cause a large reservation before
+//! the decoder has consumed the corresponding elements.
 //!
 //! An allocation failure aborts the process, so the test cannot catch it. Each
 //! case re-executes this test binary as a child process with a lowered address
@@ -13,7 +13,7 @@
 use std::process::{Command, Output};
 
 use byteorder::LittleEndian;
-use hiroz_cdr::{CdrDeserialize, CdrReader, Error, from_bytes};
+use hiroz_cdr::{CdrDeserialize, CdrReader, from_bytes};
 use nix::sys::resource::{Resource, setrlimit};
 
 /// Failure marker, `NAME: message`: a false condition panics with `R1ASSERT <name>: <message>`.
@@ -30,7 +30,21 @@ const CHILD_ENV: &str = "HIROZ_CDR_HOSTILE_CHILD";
 const HOSTILE_LENGTH: u32 = 99_999_999;
 
 /// One element of 32 bytes on the wire and in memory. 99_999_999 of them need 3.2 GB.
-type Big = [u64; 4];
+#[derive(Debug, serde::Deserialize)]
+struct Big([u64; 4]);
+
+impl CdrDeserialize for Big {
+    fn cdr_deserialize<'de, BO: byteorder::ByteOrder>(
+        reader: &mut CdrReader<'de, BO>,
+    ) -> hiroz_cdr::Result<Self> {
+        Ok(Self([
+            reader.read_u64()?,
+            reader.read_u64()?,
+            reader.read_u64()?,
+            reader.read_u64()?,
+        ]))
+    }
+}
 
 /// Address space the child may add on top of what the test binary already maps.
 const HEADROOM: u64 = 1 << 30;
@@ -155,6 +169,37 @@ fn typed_vec_survives_a_hostile_length() {
     );
 }
 
+/// Enough trailing bytes to pass the old count check must not authorize a huge reservation.
+#[test]
+fn typed_vec_does_not_reserve_from_a_truncated_payload() {
+    if is_child() {
+        let mut hostile = length_only(HOSTILE_LENGTH);
+        hostile.extend_from_slice(&[0; 4]); // align the first u64 element
+        hostile.resize(hostile.len() + HOSTILE_LENGTH as usize, 0);
+        limit_address_space();
+
+        let mut reader = CdrReader::<LittleEndian>::new(&hostile);
+        let err = Vec::<Big>::cdr_deserialize(&mut reader)
+            .expect_err("truncated payload must fail after decoded elements");
+        println!("truncated: {err}");
+        return;
+    }
+    let name = "typed_vec_does_not_reserve_from_a_truncated_payload";
+    let out = run_child(name);
+    r1_assert!(
+        out.status.success(),
+        name,
+        "the child must grow only as elements decode\n{}",
+        describe(&out)
+    );
+    r1_assert!(
+        String::from_utf8_lossy(&out.stdout).contains("truncated: "),
+        name,
+        "{}",
+        describe(&out)
+    );
+}
+
 // --- serde path -----------------------------------------------------------
 
 /// The serde deserializer reaches the same length check through `deserialize_seq`.
@@ -191,7 +236,7 @@ fn serde_vec_survives_a_hostile_length() {
 
 // --- the boundary, without a child process ---------------------------------
 
-/// Reads `len` as a prefix and returns the result and what is left.
+/// Reads one sequence count; the prefix reader does not consume payload bytes.
 fn read_len(len: u32, payload: usize) -> hiroz_cdr::Result<usize> {
     let mut body = length_only(len);
     body.extend(std::iter::repeat_n(0u8, payload));
@@ -205,11 +250,16 @@ fn sequence_length_at_the_boundary() {
     assert_eq!(read_len(0, 10).unwrap(), 0, "zero length, trailing bytes");
     assert_eq!(read_len(8, 8).unwrap(), 8, "length equals remaining bytes");
     assert_eq!(read_len(1, 8).unwrap(), 1, "length below remaining bytes");
-    assert!(
-        matches!(read_len(9, 8), Err(Error::UnexpectedEof)),
-        "length one above remaining bytes"
+    assert_eq!(
+        read_len(9, 8).unwrap(),
+        9,
+        "count is independent of payload"
     );
-    assert!(matches!(read_len(1, 0), Err(Error::UnexpectedEof)));
+    assert_eq!(
+        read_len(1, 0).unwrap(),
+        1,
+        "element decoding checks payload"
+    );
 }
 
 /// A long sequence that fits its payload still decodes, for the generic and the serde path.
@@ -221,34 +271,24 @@ fn long_valid_sequence_still_decodes() {
     let mut r = CdrReader::<LittleEndian>::new(&body);
     let v = Vec::<Big>::cdr_deserialize(&mut r).expect("typed decode");
     assert_eq!(v.len(), n as usize);
-    assert_eq!(v[999], [3996, 3997, 3998, 3999]);
+    assert_eq!(v[999].0, [3996, 3997, 3998, 3999]);
 
     let (v, _) = from_bytes::<Vec<Big>, LittleEndian>(&body).expect("serde decode");
     assert_eq!(v.len(), n as usize);
-    assert_eq!(v[999], [3996, 3997, 3998, 3999]);
+    assert_eq!(v[999].0, [3996, 3997, 3998, 3999]);
 }
 
-/// Pin: a sequence of zero-size elements. They occupy no bytes on the wire, but the length check
-/// still requires one remaining byte per declared element. A `Vec<()>` whose declared length
-/// exceeds the remaining bytes is therefore `UnexpectedEof`, although it would decode without the
-/// check. The control rows show that the same element type decodes when the bytes are present.
+/// Unit elements occupy no bytes on the wire, so their sequence needs only a length prefix.
 #[test]
-fn zero_size_elements_need_a_byte_each() {
+fn zero_size_elements_need_no_payload_bytes() {
     let decode = |len: u32, payload: usize| {
         let mut body = length_only(len);
         body.extend(std::iter::repeat_n(0u8, payload));
         from_bytes::<Vec<()>, LittleEndian>(&body).map(|(v, _)| v.len())
     };
-    // Controls: the decoder handles `Vec<()>` when the bytes exist.
+    // Controls: the decoder handles empty and non-empty sequences.
     assert_eq!(decode(0, 0).unwrap(), 0, "empty sequence");
     assert_eq!(decode(3, 3).unwrap(), 3, "one byte per element");
-    // The pinned behavior.
-    assert!(
-        matches!(decode(3, 0), Err(Error::UnexpectedEof)),
-        "three zero-size elements, no bytes"
-    );
-    assert!(
-        matches!(decode(3, 2), Err(Error::UnexpectedEof)),
-        "three zero-size elements, two bytes"
-    );
+    assert_eq!(decode(3, 0).unwrap(), 3, "zero-byte unit elements");
+    assert_eq!(decode(3, 2).unwrap(), 3, "trailing bytes remain unread");
 }

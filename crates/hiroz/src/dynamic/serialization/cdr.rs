@@ -194,7 +194,7 @@ fn deserialize_value(
             }
 
             let len = reader.read_sequence_length().map_err(map_cdr_err)?;
-            let mut values = Vec::with_capacity(len);
+            let mut values = Vec::new();
             for _ in 0..len {
                 values.push(deserialize_value(inner, reader)?);
             }
@@ -210,7 +210,7 @@ fn deserialize_value(
             }
 
             let len = reader.read_sequence_length().map_err(map_cdr_err)?;
-            let mut values = Vec::with_capacity(len);
+            let mut values = Vec::new();
             for _ in 0..len {
                 values.push(deserialize_value(inner, reader)?);
             }
