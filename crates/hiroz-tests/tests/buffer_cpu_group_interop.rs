@@ -27,6 +27,7 @@ use hiroz_msgs::{sensor_msgs::PointCloud2, std_msgs::UInt8MultiArray};
 use serde::{Deserialize, Serialize};
 use t1_harness::{ModeDetector, SeqCounter};
 use zenoh::Wait;
+use zenoh_buffers::buffer::SplitBuffer;
 
 /// `std_msgs/UInt8MultiArray` on the wire, without a message schema: the no-schema case.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,6 +187,28 @@ fn spawn_seq_publisher(
     ProcessGuard::new(child, "rclpy seq publisher")
 }
 
+/// A released subscriber of the topic, the anchor of the mode. It is the one matched subscriber
+/// that announces buffer support whether or not hiroz joins, so the publisher is in buffer mode
+/// in every run and the detector reads the group key. Measured at the S0 tip: with the four hiroz
+/// subscribers alone and no anchor, the detector read 0 on both keys, so the cell proved nothing.
+fn spawn_anchor(router: &TestRouter, kind: &str, topic: &str) -> ProcessGuard {
+    use std::os::unix::process::CommandExt;
+    let ros_type = match kind {
+        "uint8" => "std_msgs/msg/UInt8MultiArray",
+        _ => "sensor_msgs/msg/PointCloud2",
+    };
+    let child = Command::new("ros2")
+        .args(["topic", "echo", topic, ros_type, "--no-arr"])
+        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .process_group(0)
+        .spawn()
+        .expect("spawn the released anchor subscriber");
+    ProcessGuard::new(child, "released anchor subscriber")
+}
+
 /// The `data` bytes of a dynamic message: `Bytes`, or an array of `uint8`.
 fn dynamic_bytes(msg: &hiroz::dynamic::DynamicMessage) -> Vec<u8> {
     let value = msg.get_dynamic("data").expect("data field");
@@ -217,7 +240,7 @@ struct KindRun {
 }
 
 /// Runs the four non-raw subscriber arms of one payload kind against one released publisher.
-/// Every message type of the arms has a `data` field of bytes.
+/// A typed message holds `data` as a `ZBuf` and a no-schema message as a `Vec<u8>`.
 macro_rules! run_kind {
     ($kind:expr, $py:expr, $topic:expr, $size:expr, $M:ty, $B:ty) => {{
         let topic: &str = $topic;
@@ -238,7 +261,9 @@ macro_rules! run_kind {
         let detector = ModeDetector::new(router.endpoint(), &base);
         wait_for_ready(Duration::from_secs(2));
 
-        let mut guard = spawn_seq_publisher(&router, $py, topic, $size, 4);
+        let _anchor = spawn_anchor(&router, $py, topic);
+        wait_for_ready(Duration::from_secs(2));
+        let mut guard = spawn_seq_publisher(&router, $py, topic, $size, 5);
         let (mut c_typed, mut c_blob, mut c_dyn) =
             (SeqCounter::new(), SeqCounter::new(), SeqCounter::new());
         let poll = Duration::from_millis(10);
@@ -246,7 +271,7 @@ macro_rules! run_kind {
         let mut finished_at: Option<Instant> = None;
         while Instant::now() < end {
             if let Ok(m) = typed.recv_timeout(poll) {
-                c_typed.record(&m.data);
+                c_typed.record(&m.data.contiguous());
             }
             if let Ok(m) = blob.recv_timeout(poll) {
                 c_blob.record(&m.data);
@@ -269,7 +294,7 @@ macro_rules! run_kind {
         let mut c_cache = SeqCounter::new();
         let horizon = SystemTime::now() + Duration::from_secs(3600);
         for m in cache.get_interval(UNIX_EPOCH, horizon) {
-            c_cache.record(&m.data);
+            c_cache.record(&m.data.contiguous());
         }
 
         let arm = |name: &'static str, c: &SeqCounter| Arm {
@@ -581,9 +606,10 @@ fn f5_capture_reads_the_group_key_a_real_publisher_writes() {
 /// joined the group: its count equals the base key count, and the group key carries nothing.
 #[test]
 fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
+    const NAME: &str = "non_buffer_topic_delivers_each_sample_once_with_the_group_joined";
     assert!(
         check_ros2_available(),
-        "ros2 is required: run this test where a Lyrical ROS 2 is installed"
+        "ros2 is required: run this test where a released ROS 2 is installed"
     );
     const FLOAT_BASE: &str = "0/plaincell/std_msgs::msg::dds_::Float64MultiArray_/RIHS01_1025ddc6b9552d191f89ef1a8d2f60f3d373e28b283d8891ddcc974e8c55397f";
     let router = TestRouter::new();
@@ -594,21 +620,10 @@ fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
         .with_buffer_group(hiroz::BufferGroup::Cpu)
         .build()
         .unwrap();
-
-    let mut config = zenoh::Config::default();
-    config.insert_json5("mode", "\"client\"").unwrap();
-    config
-        .insert_json5("connect/endpoints", &format!("[\"{}\"]", router.endpoint()))
-        .unwrap();
-    config
-        .insert_json5("scouting/multicast/enabled", "false")
-        .unwrap();
-    let plain = zenoh::open(config).wait().expect("plain session");
-    let (_group_sub, group) = counter(&plain, &format!("{FLOAT_BASE}/_buf_cpu"));
-    let (_base_sub, base) = counter(&plain, FLOAT_BASE);
+    let detector = ModeDetector::new(router.endpoint(), FLOAT_BASE);
     wait_for_ready(Duration::from_secs(2));
 
-    const SAMPLES: usize = 30;
+    const PUBLISHED: usize = 30;
     let publisher = Command::new("ros2")
         .args([
             "topic",
@@ -619,7 +634,7 @@ fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
             "--rate",
             "5",
             "--times",
-            &SAMPLES.to_string(),
+            &PUBLISHED.to_string(),
         ])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
@@ -630,23 +645,30 @@ fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
     let _guard = ProcessGuard::new(publisher, "ros2 pub");
 
     let mut received = 0;
-    let end = Instant::now() + Duration::from_secs(SAMPLES as u64 / 5 + 8);
-    while Instant::now() < end && base.load(Ordering::SeqCst) < SAMPLES {
+    let end = Instant::now() + Duration::from_secs(PUBLISHED as u64 / 5 + 8);
+    while Instant::now() < end && detector.read().base < PUBLISHED {
         received += joined.recv_timeout(Duration::from_millis(100)).is_ok() as usize;
     }
     while joined.recv_timeout(Duration::from_millis(500)).is_ok() {
         received += 1;
     }
 
-    let base_n = base.load(Ordering::SeqCst);
+    let reading = detector.read();
+    println!(
+        "T1MODE {NAME} GROUP={} BASE={} RECEIVED={received}",
+        reading.group, reading.base
+    );
+    // The control: the base key carries the samples, so the topic is not a buffer topic.
     assert!(
-        base_n >= SAMPLES * 2 / 3,
-        "base key carried {base_n} of {SAMPLES}"
+        reading.base >= PUBLISHED * 2 / 3,
+        "UNKNOWN DETECTOR: the base key carried {} of {PUBLISHED}",
+        reading.base
     );
-    assert_eq!(
-        group.load(Ordering::SeqCst),
-        0,
-        "the group key carried a sample"
+    t1_harness::r1_assert_eq(NAME, reading.group, 0, "group key count");
+    t1_harness::r1_assert_eq(
+        NAME,
+        received,
+        reading.base,
+        "received against the base key",
     );
-    assert_eq!(received, base_n, "each sample must arrive once");
 }
