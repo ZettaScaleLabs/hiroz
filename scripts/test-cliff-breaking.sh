@@ -34,6 +34,17 @@ for ctl in 'Ordinary scoped' 'Ordinary unscoped'; do
   [ -n "$l" ] || { echo "R1ASSERT $t UNKNOWN: no line for '$ctl'"; exit 2; }
   case "$l" in *BREAKING*) echo "R1ASSERT $t FAIL: mark on ordinary '$ctl'"; fail=1 ;; *) echo "CONTROL_OK $ctl" ;; esac
 done
+# the same verdict must hold for a relative config path and a relative GIT_CLIFF path
+if [ -z "${R1_CLIFF_INNER:-}" ]; then
+  rel=$(mktemp -d) || exit 2
+  mkdir "$rel/bin" && cp "$cfg" "$rel/cliff.toml" && ln -s "$(command -v "$cliff")" "$rel/bin/git-cliff" || exit 2
+  relout=$(cd "$rel" && R1_CLIFF_INNER=1 GIT_CLIFF=./bin/git-cliff bash "$here/scripts/test-cliff-breaking.sh" cliff.toml 2>&1); relrc=$?
+  rm -rf "$rel"
+  if [ "$relrc" = 0 ]; then echo "CONTROL_OK relative paths"; else
+    printf "%s\n" "$relout" | grep -v "^TEST=" | tail -5
+    echo "R1ASSERT $t FAIL: relative config or GIT_CLIFF path gives rc=$relrc"; fail=1
+  fi
+fi
 # a skipped type stays skipped unless the commit is breaking
 if printf '%s\n' "$out" | grep -qF 'Plain chore'; then echo "R1ASSERT $t FAIL: plain chore appears"; fail=1; else echo "CONTROL_OK Plain chore skipped"; fi
 [ "$fail" = 0 ] && echo "TEST=0 $t" || echo "TEST=1 $t"
