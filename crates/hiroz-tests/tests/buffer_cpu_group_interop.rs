@@ -20,6 +20,7 @@
 mod common;
 
 use std::{
+    collections::BTreeMap,
     process::{Command, Stdio},
     sync::{Arc, Mutex},
     thread,
@@ -919,6 +920,9 @@ fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
 struct MixRun {
     group: usize,
     base: usize,
+    /// The keys under the base key that carried samples, relative to it (`""` is the base key
+    /// itself), each with its sample count. Read by a plain Zenoh subscriber on `<base>/**`.
+    keys: Vec<(String, usize)>,
     joined: Arm,
     legacy: Option<Arm>,
 }
@@ -944,6 +948,33 @@ fn mixed_run(topic: &str, legacy: bool, anchor: bool) -> MixRun {
         &UInt8MultiArray::type_hash(),
     );
     let detector = ModeDetector::new(router.endpoint(), &base);
+    let keys_seen = Arc::new(Mutex::new(BTreeMap::<String, usize>::new()));
+    let mut config = zenoh::Config::default();
+    config.insert_json5("mode", "\"client\"").unwrap();
+    config
+        .insert_json5("connect/endpoints", &format!("[\"{}\"]", router.endpoint()))
+        .unwrap();
+    config
+        .insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    let key_session = zenoh::open(config).wait().expect("key session");
+    let _key_sub = key_session
+        .declare_subscriber(format!("{base}/**"))
+        .callback({
+            let keys_seen = keys_seen.clone();
+            let base = base.clone();
+            move |sample| {
+                let key = sample.key_expr().as_str();
+                let rest = key.strip_prefix(base.as_str()).unwrap_or(key);
+                *keys_seen
+                    .lock()
+                    .unwrap()
+                    .entry(rest.trim_start_matches('/').to_string())
+                    .or_default() += 1;
+            }
+        })
+        .wait()
+        .expect("key subscriber");
     wait_for_ready(Duration::from_secs(2));
     let _anchor = anchor.then(|| spawn_anchor(&router, "uint8", topic));
     wait_for_ready(Duration::from_secs(2));
@@ -981,9 +1012,16 @@ fn mixed_run(topic: &str, legacy: bool, anchor: bool) -> MixRun {
         corrupt: c.corrupt(),
     };
     let reading = detector.read();
+    let keys = keys_seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(k, n)| (k.clone(), *n))
+        .collect();
     MixRun {
         group: reading.group,
         base: reading.base,
+        keys,
         joined: arm("joined", &c_joined),
         legacy: off.is_some().then(|| arm("legacy", &c_off)),
     }
@@ -999,6 +1037,9 @@ fn mixed_run(topic: &str, legacy: bool, anchor: bool) -> MixRun {
 ///   mode and the cell can tell the keys apart.
 /// - `mixed`: the joined subscriber and an `Off` subscriber. One subscriber is not buffer-aware.
 /// - `mixed_anchor`: the joined subscriber, an `Off` subscriber and the anchor.
+///
+/// A plain Zenoh subscriber on `<topic key>/**`, outside hiroz, records which keys carry samples.
+/// The cell prints them as a `T1KEYS` line per set. It does not assert on them yet.
 ///
 /// Measured with `rmw_zenoh_cpp` 0.10.6: in every set the group key carries all samples and the
 /// base key none, so no sample arrives on both keys and the joined subscriber has no repeat to
@@ -1036,6 +1077,15 @@ fn mixed_matched_set_delivers_each_sample_once() {
                 .as_ref()
                 .map_or("none".into(), |a| a.duplicates.to_string()),
         );
+    }
+
+    for (set, run) in &runs {
+        let keys: Vec<String> = run
+            .keys
+            .iter()
+            .map(|(k, n)| format!("{}:{n}", if k.is_empty() { "<base>" } else { k }))
+            .collect();
+        println!("T1KEYS {NAME}/{set} KEYS={}", keys.join(","));
     }
 
     // The control: with every subscriber buffer-aware the group key carries every sample and the
