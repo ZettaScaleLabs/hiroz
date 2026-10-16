@@ -894,3 +894,139 @@ fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
         "received against the base key",
     );
 }
+
+/// What one arm of a mixed-set cell read: the detector counts and each subscriber.
+struct MixRun {
+    group: usize,
+    base: usize,
+    joined: Arm,
+    legacy: Option<Arm>,
+}
+
+/// One cell of the mixed matched set. A joined hiroz subscriber reads a topic that a released
+/// `rclpy` publisher writes. `legacy` adds a hiroz subscriber that stays out of the group
+/// (`BufferGroup::Off`), whose token has no `backends:` field, so the publisher sees a subscriber
+/// that is not buffer-aware. `anchor` adds the released buffer-aware subscriber.
+fn mixed_run(topic: &str, legacy: bool, anchor: bool) -> MixRun {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("t1mix_node").build().expect("node");
+    let joined = node.create_sub::<UInt8MultiArray>(topic).build().unwrap();
+    let off = legacy.then(|| {
+        node.create_sub::<UInt8MultiArray>(topic)
+            .with_buffer_group(hiroz::BufferGroup::Off)
+            .build()
+            .unwrap()
+    });
+    let base = base_key(
+        topic,
+        UInt8MultiArray::type_name(),
+        &UInt8MultiArray::type_hash(),
+    );
+    let detector = ModeDetector::new(router.endpoint(), &base);
+    wait_for_ready(Duration::from_secs(2));
+    let _anchor = anchor.then(|| spawn_anchor(&router, "uint8", topic));
+    wait_for_ready(Duration::from_secs(2));
+    let matched = 1 + legacy as usize + anchor as usize;
+    let mut guard = spawn_seq_publisher(&router, "uint8", topic, 64, matched);
+
+    let (mut c_joined, mut c_off) = (SeqCounter::new(), SeqCounter::new());
+    let poll = Duration::from_millis(10);
+    let end = Instant::now() + Duration::from_secs(SAMPLES as u64 / 5 + 40);
+    let mut finished_at: Option<Instant> = None;
+    while Instant::now() < end {
+        if let Ok(m) = joined.recv_timeout(poll) {
+            c_joined.record(&m.data.contiguous());
+        }
+        if let Some(off) = &off
+            && let Ok(m) = off.recv_timeout(poll)
+        {
+            c_off.record(&m.data.contiguous());
+        }
+        let done = guard
+            .child
+            .as_mut()
+            .is_some_and(|c| c.try_wait().ok().flatten().is_some());
+        if done && finished_at.is_none() {
+            finished_at = Some(Instant::now());
+        }
+        if finished_at.is_some_and(|t| t.elapsed() > Duration::from_secs(2)) {
+            break;
+        }
+    }
+    let arm = |name: &'static str, c: &SeqCounter| Arm {
+        name,
+        received: c.received_of(SAMPLES),
+        duplicates: c.duplicates(),
+        corrupt: c.corrupt(),
+    };
+    let reading = detector.read();
+    MixRun {
+        group: reading.group,
+        base: reading.base,
+        joined: arm("joined", &c_joined),
+        legacy: off.is_some().then(|| arm("legacy", &c_off)),
+    }
+}
+
+/// A buffer-aware `rmw_zenoh` publisher writes each sample once, on one key, whatever mix of
+/// subscribers is matched, and a joined hiroz subscriber that reads the base key and the group
+/// key delivers each sample once. The cell runs three matched sets and prints the detector
+/// counts and each subscriber's counts per set:
+///
+/// - `aware`: the joined subscriber and the released anchor. Every subscriber is buffer-aware.
+///   This is the control: the group key must carry every sample, so the publisher is in buffer
+///   mode and the cell can tell the keys apart.
+/// - `mixed`: the joined subscriber and an `Off` subscriber. One subscriber is not buffer-aware.
+/// - `mixed_anchor`: the joined subscriber, an `Off` subscriber and the anchor.
+#[test]
+fn mixed_matched_set_delivers_each_sample_once() {
+    const NAME: &str = "mixed_matched_set_delivers_each_sample_once";
+    assert!(
+        check_ros2_available(),
+        "ros2 is required: run this test where a released ROS 2 is installed"
+    );
+    t1_harness::require_buffer_aware_rmw(NAME);
+    let runs = [
+        ("aware", mixed_run("/mixaware", false, true)),
+        ("mixed", mixed_run("/mixmixed", true, false)),
+        ("mixed_anchor", mixed_run("/mixanchor", true, true)),
+    ];
+    for (set, run) in &runs {
+        println!(
+            "T1MIX {NAME}/{set} GROUP={} BASE={} JOINED_RECEIVED={} JOINED_DUPLICATES={} \
+             JOINED_CORRUPT={} LEGACY_RECEIVED={} LEGACY_DUPLICATES={} OF={SAMPLES}",
+            run.group,
+            run.base,
+            run.joined.received,
+            run.joined.duplicates,
+            run.joined.corrupt,
+            run.legacy
+                .as_ref()
+                .map_or("none".into(), |a| a.received.to_string()),
+            run.legacy
+                .as_ref()
+                .map_or("none".into(), |a| a.duplicates.to_string()),
+        );
+    }
+
+    // The control: with every subscriber buffer-aware the group key carries every sample and the
+    // base key none. A cell that fails it proves nothing about the mixed sets.
+    let (_, aware) = &runs[0];
+    assert!(
+        aware.group == SAMPLES as usize && aware.base == 0,
+        "UNKNOWN DETECTOR: the detector read group {} and base {} of {SAMPLES} with every \
+         subscriber buffer-aware, so the publisher is not in buffer mode",
+        aware.group,
+        aware.base
+    );
+    for (set, run) in &runs {
+        let arms = std::iter::once(&run.joined).chain(run.legacy.iter());
+        for arm in arms {
+            let what = format!("{set}/{} received", arm.name);
+            t1_harness::r1_assert_eq(NAME, arm.received, SAMPLES as usize, &what);
+            t1_harness::r1_assert_eq(NAME, arm.duplicates, 0, &format!("{what}: repeats"));
+            t1_harness::r1_assert_eq(NAME, arm.corrupt, 0, &format!("{what}: corrupt payloads"));
+        }
+    }
+}
