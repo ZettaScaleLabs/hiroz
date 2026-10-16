@@ -36,6 +36,15 @@ impl RawPublisher {
     }
 
     pub fn publish_bytes(&self, data: &[u8]) -> Result<(), zenoh::Error> {
+        // The four `ZPub` publish paths take this same guard, for the same
+        // reason. `local_only_shim` hands a sample to the drain thread only
+        // while `LOCAL_PUBLISH_DEPTH` is set. Without the guard, hiroz does not
+        // mark a same-process raw publish as local. The subscriber's callback
+        // then runs inline on this thread. A callback that publishes back into
+        // its own topic recurses until the stack is gone (#249).
+        // `rmw-zenoh-rs` publishes through this path, so an unguarded publish
+        // here keeps the deadlock reachable from every rmw user.
+        let _local = crate::pubsub::LocalPublishGuard::enter();
         self.inner
             .put(data)
             .attachment(self.new_attachment())
