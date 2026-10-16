@@ -25,7 +25,10 @@ use crate::entity::EndpointEntity;
 /// Whether a subscriber joins rmw_zenoh's CPU buffer group.
 ///
 /// Set it with `with_buffer_group` on the subscriber builder.
+///
+/// New values may be added in a minor release, so match it with a wildcard arm.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BufferGroup {
     /// Join when the message may carry a buffer: the message definition has an unbounded
     /// `uint8[]`, directly or nested, or hiroz has no definition to ask. This is the default.
