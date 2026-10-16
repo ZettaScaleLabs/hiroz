@@ -4,10 +4,14 @@
 //! liveliness token has no `backends:` field. It sends the sample, as plain CDR, on
 //! `<base>/_buf_cpu` to a subscriber whose token ends in `backends:cpu:`. A subscriber that joins
 //! the group does both.
+//!
+//! A joined subscriber has one subscription, on `<base>/**`. It reads the base key and the group
+//! key, and drops every other key under the base in process. It declares no second subscription,
+//! because the declaration time of a session grows with the square of its subscription count.
 
 use std::{
     collections::HashSet,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Mutex, OnceLock},
 };
 
 use hiroz_protocol::{KeyExprFormat, qos::QosDurability};
@@ -16,8 +20,7 @@ use zenoh::{
     Result, Wait,
     key_expr::KeyExpr,
     liveliness::LivelinessToken,
-    pubsub::Subscriber,
-    sample::{Locality, Sample},
+    sample::Sample,
 };
 
 use crate::entity::EndpointEntity;
@@ -69,7 +72,8 @@ pub(crate) fn joins(
 /// it declares nothing.
 pub(crate) struct Plan {
     token_key: String,
-    group_key: Option<String>,
+    /// The topic key and the group key, when joining.
+    keys: Option<(String, String)>,
 }
 
 impl Plan {
@@ -80,82 +84,87 @@ impl Plan {
         join: bool,
     ) -> Result<Self> {
         let mut token_key = format.liveliness_key_expr(entity, zid)?.as_str().to_owned();
-        let group_key = if join {
+        let keys = if join {
             token_key.push_str("/backends:cpu:");
-            Some(format!("{}/_buf_cpu", format.topic_key_expr(entity)?.as_str()))
+            let base = format.topic_key_expr(entity)?.as_str().to_owned();
+            let group = format!("{base}/_buf_cpu");
+            Some((base, group))
         } else {
             None
         };
-        Ok(Self {
-            token_key,
-            group_key,
-        })
+        Ok(Self { token_key, keys })
     }
 
-    /// Declare the group subscription, then the token. A publisher reads the token to decide
-    /// where to send, so the subscription must exist before the token is visible.
-    pub(crate) fn declare<F>(
-        self,
-        session: &zenoh::Session,
-        locality: Option<Locality>,
-        handler: Arc<F>,
-    ) -> Result<Membership>
-    where
-        F: Fn(Sample) + Send + Sync + 'static,
-    {
-        let sub = match self.group_key {
-            Some(key) => {
-                let mut builder = session
-                    .declare_subscriber(KeyExpr::try_from(key.clone())?)
-                    .callback(move |sample| handler(sample));
-                if let Some(locality) = locality {
-                    builder = builder.allowed_origin(locality);
-                }
-                let sub = builder.wait()?;
-                log_once(&key);
-                Some(sub)
-            }
-            None => None,
-        };
+    /// The group key, when the subscriber joins.
+    pub(crate) fn group_key(&self) -> Option<&str> {
+        self.keys.as_ref().map(|(_, group)| group.as_str())
+    }
+
+    /// Declare the token. The subscriber's own subscription, on `<base>/**`, already serves the
+    /// group key, so a publisher that reads the token finds a subscription.
+    pub(crate) fn declare(self, session: &zenoh::Session) -> Result<Membership> {
+        if let Some((base, group)) = &self.keys {
+            log_once(base, group);
+        }
         let token = session
             .liveliness()
             .declare_token(KeyExpr::try_from(self.token_key)?)
             .wait()?;
-        Ok(Membership {
-            token: Some(token),
-            _sub: sub,
-        })
+        Ok(Membership { token: Some(token) })
+    }
+}
+
+/// The key a joined subscriber subscribes on: its base key and everything under it. It reads the
+/// base key and the group key, and drops the rest in process.
+pub(crate) fn union_key(base: &str) -> Result<KeyExpr<'static>> {
+    KeyExpr::try_from(format!("{base}/**"))
+}
+
+/// Wrap `handler` so that it sees the base key and the group key only.
+pub(crate) fn only_base_and_group<F>(
+    base: String,
+    group_key: String,
+    handler: F,
+) -> impl Fn(Sample) + Send + Sync + 'static
+where
+    F: Fn(Sample) + Send + Sync + 'static,
+{
+    move |sample: Sample| {
+        let key = sample.key_expr().as_str();
+        if key == base || key == group_key {
+            handler(sample);
+        }
     }
 }
 
 /// What a subscriber holds for the group. Drop it before anything else the subscriber owns.
 pub(crate) struct Membership {
     token: Option<LivelinessToken>,
-    _sub: Option<Subscriber<()>>,
 }
 
 impl Drop for Membership {
     /// Undeclare the token first, so publishers stop sending to the group key before the
-    /// subscription on it goes away.
+    /// subscription that serves it goes away.
     fn drop(&mut self) {
         drop(self.token.take());
     }
 }
 
-/// An operator learns here that the group key needs an access-control rule: a router that
-/// denies the key drops buffer messages and reports no error. One line per key and process.
-fn log_once(key: &str) {
+/// An operator learns here that the subscription and the group key need access-control rules: a
+/// router that denies either key drops buffer messages and reports no error. One line per group
+/// key and process.
+fn log_once(base: &str, group: &str) {
     static LOGGED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     let first = LOGGED
         .get_or_init(Default::default)
         .lock()
         .unwrap()
-        .insert(key.to_owned());
+        .insert(group.to_owned());
     if first {
         info!(
-            "joined the rmw_zenoh CPU buffer group: subscribed to key {key}. A router \
-             access-control rule that denies this key drops buffer messages and reports no \
-             error. Allow this key wherever you allow its topic key."
+            "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
+             key {group}. A router access-control rule that denies either key drops buffer \
+             messages and reports no error. Allow both keys wherever you allow its topic key."
         );
     }
 }

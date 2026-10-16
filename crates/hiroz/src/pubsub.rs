@@ -755,8 +755,8 @@ where
     }
 
     /// Build a raw Zenoh subscriber with a sample-level callback, returning
-    /// the subscriber and its CPU buffer group membership (the liveliness token, and the
-    /// group subscription when joined).
+    /// the subscriber and its CPU buffer group membership (the liveliness token). A joined
+    /// subscriber subscribes on `<base>/**`, which serves the group key.
     ///
     /// This is the canonical subscriber setup path used by [`ZCache`] so that
     /// topic qualification, key-expression construction, and liveliness-token
@@ -789,31 +789,32 @@ where
         let key_expr = (*topic_ke).clone();
         debug!("[CACHE] Key expression: {}", key_expr);
 
-        let callback = Arc::new(callback);
-        let sub = self
-            .session
-            .declare_subscriber(key_expr)
-            .callback({
-                let callback = callback.clone();
-                move |sample| callback(sample)
-            })
-            .wait()?;
+        let plan = self.group_plan()?;
+        let base = key_expr.as_str().to_owned();
+        let sub = match plan.group_key() {
+            Some(group_key) => self
+                .session
+                .declare_subscriber(crate::buffer_group::union_key(&base)?)
+                .callback(crate::buffer_group::only_base_and_group(
+                    base,
+                    group_key.to_owned(),
+                    callback,
+                ))
+                .wait()?,
+            None => self
+                .session
+                .declare_subscriber(key_expr)
+                .callback(callback)
+                .wait()?,
+        };
 
-        // A cache has no locality option.
-        let membership = self.declare_membership(None, callback)?;
+        let membership = plan.declare(&self.session)?;
 
         Ok((sub, membership))
     }
 
-    /// Declare the subscriber's token, with the group subscription when it joins.
-    fn declare_membership<F>(
-        &self,
-        locality: Option<zenoh::sample::Locality>,
-        handler: Arc<F>,
-    ) -> Result<crate::buffer_group::Membership>
-    where
-        F: Fn(Sample) + Send + Sync + 'static,
-    {
+    /// What the subscriber declares for the group: its token, and the group key when it joins.
+    fn group_plan(&self) -> Result<crate::buffer_group::Plan> {
         let join = crate::buffer_group::joins(
             self.buffer_group,
             self.has_buffer_fields,
@@ -825,8 +826,7 @@ where
             &self.entity,
             &self.session.zid(),
             join,
-        )?
-        .declare(&self.session, locality, handler)
+        )
     }
 
     /// Internal method that all build variants use.
@@ -889,14 +889,32 @@ where
         });
 
         // Build an AdvancedSubscriber and configure based on durability
-        let mut sub_builder = self
-            .session
-            .declare_subscriber(key_expr)
-            .callback({
-                let handler = validated_handler.clone();
-                move |sample| handler(sample)
-            })
-            .advanced();
+        let plan = self.group_plan()?;
+        let mut sub_builder = match plan.group_key() {
+            Some(group_key) => {
+                let base = key_expr.as_str().to_owned();
+                let handler = crate::buffer_group::only_base_and_group(
+                    base.clone(),
+                    group_key.to_owned(),
+                    {
+                        let handler = validated_handler.clone();
+                        move |sample| handler(sample)
+                    },
+                );
+                self.session
+                    .declare_subscriber(crate::buffer_group::union_key(&base)?)
+                    .callback(handler)
+                    .advanced()
+            }
+            None => self
+                .session
+                .declare_subscriber(key_expr)
+                .callback({
+                    let handler = validated_handler.clone();
+                    move |sample| handler(sample)
+                })
+                .advanced(),
+        };
 
         // Apply locality restriction if specified
         if let Some(locality) = self.locality {
@@ -907,7 +925,7 @@ where
         let sub_builder = apply_transient_local_sub(sub_builder, &self.entity.qos);
         let inner = sub_builder.wait()?;
 
-        let group = self.declare_membership(self.locality, validated_handler)?;
+        let group = plan.declare(&self.session)?;
 
         debug!("[SUB] Subscriber ready: topic={}", self.entity.topic);
 

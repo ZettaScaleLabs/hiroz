@@ -101,9 +101,9 @@ For more detail see [Go Quick Start](../bindings/go-quick-start.md).
 
 A ROS 2 Lyrical `rmw_zenoh` publisher treats an unbounded `uint8[]` field as a buffer, also inside a nested message. Examples are `sensor_msgs/Image` and `sensor_msgs/PointCloud2`. If every matched subscriber announces buffer support, the publisher writes the message only on `<topic key>/_buf_cpu`, and a subscriber that reads only `<topic key>` receives nothing.
 
-A hiroz subscriber that joins the group announces buffer support, with `backends:cpu:` at the end of its liveliness token, and also reads `<topic key>/_buf_cpu`. The payload is plain CDR. A typed subscriber, a dynamic subscriber and a cache join this way.
+A hiroz subscriber that joins the group announces buffer support, with `backends:cpu:` at the end of its liveliness token, and also reads `<topic key>/_buf_cpu`. The payload is plain CDR. A typed subscriber, a dynamic subscriber and a cache join this way. A joined subscriber has one subscription, on `<topic key>/**`, and drops every other key under the topic key in process.
 
-By default (`BufferGroup::Auto`) a subscriber joins when its message has an unbounded `uint8[]`, directly or in a nested message, or when hiroz has no message definition to ask. A message with only a bounded sequence or a fixed array of `uint8`, or with no `uint8[]`, does not join. A schema cannot tell `byte[]` from `uint8[]`, so a message with an unbounded `byte[]` also joins. A joined subscriber that is not needed costs one idle subscription.
+By default (`BufferGroup::Auto`) a subscriber joins when its message has an unbounded `uint8[]`, directly or in a nested message, or when hiroz has no message definition to ask. A message with only a bounded sequence or a fixed array of `uint8`, or with no `uint8[]`, does not join. A schema cannot tell `byte[]` from `uint8[]`, so a message with an unbounded `byte[]` also joins. A joined subscriber that is not needed adds no second subscription to the session.
 
 Call `with_buffer_group` on the subscriber builder to decide for yourself: `BufferGroup::Cpu` joins whatever the message is, and `BufferGroup::Off` does not join.
 
@@ -119,4 +119,4 @@ These subscribers do not join:
 
 The Python binding and the feedback and status subscribers of an action client have no message definition, so they join under `Auto`. The Python binding has no way to opt out.
 
-hiroz writes one `info` log line for each group key in a process, after it subscribes to the key. If you use access control, allow `<topic key>/_buf_cpu` wherever you allow `<topic key>`, and list every network interface in the subject of the rule. A router rule that denies the group key makes a joined subscriber on a buffer topic receive nothing. No error is raised, and the base key still delivers. A topic that is not a buffer topic is not affected.
+hiroz writes one `info` log line for each group key in a process, after it subscribes to the key. If you use access control, allow `<topic key>/**`, which includes `<topic key>/_buf_cpu`, wherever you allow `<topic key>`, and list every network interface in the subject of the rule. A router rule that denies the group key makes a joined subscriber on a buffer topic receive nothing. No error is raised, and the base key still delivers. A topic that is not a buffer topic is not affected.
