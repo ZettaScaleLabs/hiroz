@@ -355,8 +355,9 @@ fn mode_detector_reads_the_group_key_on_a_publisher_in_buffer_mode() {
 }
 
 /// Fixture F5, the row for a namespaced topic: the group key a released Lyrical publisher writes
-/// for `/f5ns/cell`, captured by `f5_capture_reads_the_group_key_a_real_publisher_writes`.
-const F5_NAMESPACED_GROUP_KEY: &str = "";
+/// for `/f5ns/cell`, captured by `f5_capture_reads_the_group_key_a_real_publisher_writes` from the
+/// released Lyrical `rmw_zenoh_cpp` 0.10.6 in the container image of the cell runner.
+const F5_NAMESPACED_GROUP_KEY: &str = "0/f5ns/cell/std_msgs::msg::dds_::UInt8MultiArray_/RIHS01_5687e861b8d307a5e48b7515467ae7a5fc2daf805bd0ce6d8e9e604bade9f385/_buf_cpu";
 
 /// Captures the group key of a namespaced topic from a real publisher in buffer mode and prints
 /// it as `F5_KEY=<key>`. A plain session subscribes on every group key and records the key
