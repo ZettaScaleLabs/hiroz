@@ -112,11 +112,11 @@ These subscribers never join, whatever you ask:
 - Transient-local subscribers. `rmw_zenoh` serves them on the base key only.
 - Subscribers on a custom key expression format.
 
-These subscribers do not join yet:
+These subscribers do not join:
 
 - Raw subscribers. There is no way to opt them in.
-- `rmw-zenoh-rs` subscriptions, which pass `BufferGroup::Off` for now.
+- `rmw-zenoh-rs` subscriptions. They pass `BufferGroup::Off`.
 
-The Python binding and the feedback and status subscribers of an action client have no message definition, so they join under `Auto`.
+The Python binding and the feedback and status subscribers of an action client have no message definition, so they join under `Auto`. The Python binding has no way to opt out.
 
 hiroz writes one `info` log line for each group key in a process, after it subscribes to the key. If you use access control, allow `<topic key>/_buf_cpu` wherever you allow `<topic key>`, and list every network interface in the subject of the rule. A router rule that denies the group key makes a joined subscriber on a buffer topic receive nothing. No error is raised, and the base key still delivers. A topic that is not a buffer topic is not affected.
