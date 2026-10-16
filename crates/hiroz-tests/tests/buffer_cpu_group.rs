@@ -44,6 +44,16 @@ struct Wire {
     hash: &'static str,
 }
 
+impl Wire {
+    /// The hash segment of a key or token in the key format of the distro this binary is built
+    /// for: `hash` itself on Jazzy and later, `TypeHashNotSupported` on Humble.
+    fn key_hash(&self) -> String {
+        hiroz::TypeHash::from_rihs_string(self.hash)
+            .expect("a valid RIHS string")
+            .to_rihs_string()
+    }
+}
+
 const UINT8: Wire = Wire {
     name: "std_msgs::msg::dds_::UInt8MultiArray_",
     hash: "RIHS01_5687e861b8d307a5e48b7515467ae7a5fc2daf805bd0ce6d8e9e604bade9f385",
@@ -138,12 +148,13 @@ fn token_for(session: &zenoh::Session, topic: &str) -> String {
 }
 
 /// What a token looks like. `hash` is `None` where hiroz derives it from an ad-hoc schema, so
-/// the test has no independent value for it; the observed hash is then used as it is.
+/// the test has no independent value for it; the observed hash segment is then used as it is.
+/// `hash` is the segment as the distro writes it, see `Wire::key_hash`.
 struct Shape<'a> {
     node: &'a str,
     topic: &'a str,
     name: &'a str,
-    hash: Option<&'a str>,
+    hash: Option<String>,
     qos: &'a str,
     joined: bool,
 }
@@ -158,8 +169,8 @@ fn assert_token(token: &str, shape: Shape) {
     let hash = shape.hash.unwrap_or_else(|| {
         parts
             .iter()
-            .find(|p| p.starts_with("RIHS01_"))
-            .copied()
+            .find(|p| p.starts_with("RIHS01_") || **p == "TypeHashNotSupported")
+            .map(|p| (*p).to_owned())
             .unwrap_or_else(|| panic!("no type hash in {token}"))
     });
     let backends = if shape.joined { "/backends:cpu:" } else { "" };
@@ -189,7 +200,7 @@ fn shape<'a>(node: &'a str, topic: &'a str, wire: &'a Wire, joined: bool) -> Sha
         node,
         topic,
         name: wire.name,
-        hash: Some(wire.hash),
+        hash: Some(wire.key_hash()),
         qos: DEFAULT_QOS,
         joined,
     }
@@ -197,11 +208,11 @@ fn shape<'a>(node: &'a str, topic: &'a str, wire: &'a Wire, joined: bool) -> Sha
 
 /// The key a Lyrical publisher writes a buffer message to: domain, topic, type, hash, group.
 fn group_key(topic: &str, wire: &Wire) -> String {
-    format!("0/{topic}/{}/{}/_buf_cpu", wire.name, wire.hash)
+    format!("0/{topic}/{}/{}/_buf_cpu", wire.name, wire.key_hash())
 }
 
 fn base_key(topic: &str, wire: &Wire) -> String {
-    format!("0/{topic}/{}/{}", wire.name, wire.hash)
+    format!("0/{topic}/{}/{}", wire.name, wire.key_hash())
 }
 
 /// Put `payload` on `key` until `done` is true or `limit` passes.
