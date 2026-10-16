@@ -56,3 +56,51 @@ fn test_fibonacci_get_result_hash() {
         "status hash mismatch"
     );
 }
+
+#[test]
+fn test_cancel_goal_hash_matches_ros() {
+    use hiroz_codegen::{
+        discovery::{discover_actions, discover_messages},
+        resolver::Resolver,
+    };
+
+    // Same package set as Fibonacci hash check; CancelGoal hash is shared
+    // across all actions (action_msgs/srv/CancelGoal).
+    let assets = assets_dir();
+    let packages = [
+        "builtin_interfaces",
+        "unique_identifier_msgs",
+        "action_msgs",
+        "service_msgs",
+        "action_tutorials_interfaces",
+    ];
+    let mut all_messages = Vec::new();
+    for pkg in &packages {
+        let pkg_path = assets.join(pkg);
+        let msgs = discover_messages(&pkg_path, pkg).unwrap_or_default();
+        all_messages.extend(msgs);
+    }
+
+    let mut resolver = Resolver::new(false);
+    resolver
+        .resolve_messages(all_messages)
+        .expect("resolve messages");
+
+    let pkg_path = assets.join("action_tutorials_interfaces");
+    let actions =
+        discover_actions(&pkg_path, "action_tutorials_interfaces").expect("discover actions");
+    let resolved = resolver.resolve_actions(actions).expect("resolve actions");
+    let fib = resolved
+        .iter()
+        .find(|a| a.parsed.name == "Fibonacci")
+        .expect("Fibonacci action");
+
+    let hash = fib.cancel_goal_hash.to_rihs_string();
+    println!("cancel_goal_hash: {hash}");
+    // From /opt/ros/lyrical/share/action_msgs/srv/CancelGoal.json
+    assert_eq!(
+        hash,
+        "RIHS01_573d8b0a534451d7bc2ac8c5ffde8ac14b8593b7001175d0cd6516dcbeb8689a",
+        "CancelGoal hash must match ROS action_msgs/srv/CancelGoal.json"
+    );
+}
