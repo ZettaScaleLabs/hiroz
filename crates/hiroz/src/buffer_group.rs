@@ -152,14 +152,7 @@ impl Drop for Membership {
 
 /// An operator learns here that the subscription and the group key need access-control rules: a
 /// router that denies either key drops buffer messages and reports no error. One line per group
-/// key and process.
-///
-/// `LOGGED` holds one string per distinct group key, never more: `insert` ignores a key it
-/// already holds, and nothing else adds to the set. A group key is `<topic key>/_buf_cpu`, so the
-/// set is as large as the number of distinct topic keys that joined in this process, and each
-/// entry is no longer than its key. A process that joins an unbounded number of distinct topic
-/// names grows the set with it. The set is not pruned, because a pruned key would log a second
-/// time.
+/// key and process. `LOGGED` keeps one entry per joined topic key and is not pruned.
 fn log_once(base: &str, group: &str) {
     static LOGGED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     let first = LOGGED
