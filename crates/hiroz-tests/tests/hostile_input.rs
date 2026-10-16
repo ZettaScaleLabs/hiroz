@@ -339,3 +339,93 @@ fn typed_subscriber_survives_a_hostile_sample_on_the_base_key() {
         &["route up", "hostile: ", "next valid: 1 dims, 3 bytes"],
     );
 }
+
+/// A joined typed subscriber must outlive a hostile sample on the group key. A raw publisher
+/// writes to `<base>/_buf_cpu`, the key only a joined subscriber listens on. The child waits
+/// until a valid sample arrives through that key: the wait is the control that the group
+/// subscription is live, so the test cannot pass without the join. It then limits its address
+/// space, publishes the hostile sample and a valid one, and expects an error and a message.
+#[test]
+fn typed_subscriber_survives_a_hostile_sample_on_the_group_key() {
+    use std::time::{Duration, Instant};
+
+    use hiroz::{Builder, msg::ZMessage};
+    use hiroz_msgs::std_msgs::{MultiArrayDimension, UInt8MultiArray};
+    use zenoh::Wait;
+    use zenoh_buffers::buffer::Buffer;
+
+    const NAME: &str = "typed_subscriber_survives_a_hostile_sample_on_the_group_key";
+
+    if is_child() {
+        let router = common::TestRouter::new();
+        let ctx = common::create_hiroz_context_with_endpoint(router.endpoint()).expect("context");
+        let node = ctx.create_node("hostile_group_sub").build().expect("node");
+        let sub = node
+            .create_sub::<UInt8MultiArray>("/hostile_group_key")
+            .build()
+            .expect("typed subscriber");
+
+        // The group key is the base key plus the group suffix.
+        let base = hiroz_protocol::KeyExprFormat::default()
+            .topic_key_expr(sub.entity())
+            .expect("base key");
+        let group_key = format!("{}/_buf_cpu", base.as_str());
+        let mut config = zenoh::Config::default();
+        config.insert_json5("mode", "\"client\"").expect("mode");
+        config
+            .insert_json5("connect/endpoints", &format!("[\"{}\"]", router.endpoint()))
+            .expect("endpoint");
+        config
+            .insert_json5("scouting/multicast/enabled", "false")
+            .expect("multicast");
+        let session = zenoh::open(config).wait().expect("raw session");
+        let publisher = session
+            .declare_publisher(group_key)
+            .wait()
+            .expect("raw publisher");
+
+        let mut valid = UInt8MultiArray::default();
+        valid.layout.dim = vec![MultiArrayDimension {
+            label: "x".into(),
+            size: 3,
+            stride: 3,
+        }];
+        valid.data = vec![1u8, 2, 3].into();
+        let valid = valid.serialize().to_vec();
+
+        // Wait until the subscriber receives a valid sample on the group key.
+        let start = Instant::now();
+        loop {
+            publisher.put(valid.clone()).wait().expect("put");
+            if sub.recv_timeout(Duration::from_millis(200)).is_ok() {
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(20),
+                "the group key never delivered: the subscriber did not join"
+            );
+        }
+        println!("group route up");
+
+        limit_address_space();
+        publisher.put(hostile_sample()).wait().expect("put hostile");
+        match sub.recv_timeout(Duration::from_secs(5)) {
+            Err(err) => println!("hostile: {err}"),
+            Ok(_) => panic!("hostile length must be an error"),
+        }
+        publisher.put(valid).wait().expect("put valid");
+        let back = sub
+            .recv_timeout(Duration::from_secs(5))
+            .expect("next valid sample");
+        println!(
+            "next valid: {} dims, {} bytes",
+            back.layout.dim.len(),
+            back.data.len()
+        );
+        return;
+    }
+    assert_child_survives(
+        NAME,
+        &["group route up", "hostile: ", "next valid: 1 dims, 3 bytes"],
+    );
+}
