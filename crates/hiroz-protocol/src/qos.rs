@@ -53,6 +53,8 @@ fn parse_duration(s: &str, default: &QosDuration) -> Result<QosDuration, QosDeco
 impl QosProfile {
     /// Encode QoS to string for liveliness token.
     /// Format matches rmw_zenoh_cpp: [reliability]:[durability]:[history],[depth]:[deadline_sec],[deadline_nsec]:[lifespan_sec],[lifespan_nsec]:[liveliness_kind],[lease_sec],[lease_nsec]
+    ///
+    /// Two cases do not match the text rmw_zenoh_cpp writes. `KeepAll` is written as `2,`, while rmw_zenoh_cpp writes `2,0` at depth 0, so the text is equal at depth 42 only. `ManualByNode` is written as `2`, which rmw_zenoh_cpp rejects.
     pub fn encode(&self) -> String {
         use alloc::format;
         let default_qos = Self::default();
@@ -99,12 +101,11 @@ impl QosProfile {
         );
 
         // Liveliness kind - empty if default (RMW values: 1=Automatic,
-        // 2=ManualByNode, 3=ManualByTopic). rmw_zenoh_cpp itself never
-        // encodes or decodes 2 (MANUAL_BY_NODE was deprecated and removed
-        // from RMW); hiroz still carries the variant and encodes it as 2 for
-        // completeness, but a peer running rmw_zenoh_cpp will not decode it
-        // distinctly -- a pre-existing upstream limitation, not one this
-        // encoder introduces.
+        // 2=ManualByNode, 3=ManualByTopic). rmw_zenoh_cpp has no key for 2
+        // (MANUAL_BY_NODE was removed from RMW), so its parser rejects the whole
+        // token and a peer running rmw_zenoh_cpp does not see the entity at
+        // all. hiroz still carries the variant and encodes it as 2; this is a
+        // pre-existing limitation, not one this encoder introduces.
         let liveliness_kind = if self.liveliness != default_qos.liveliness {
             match self.liveliness {
                 QosLiveliness::Automatic => "1",
