@@ -94,3 +94,21 @@ just -f crates/hiroz-go/justfile run-example subscriber
 ```
 
 For more detail see [Go Quick Start](../bindings/go-quick-start.md).
+
+---
+
+## Buffer messages from Lyrical publishers
+
+A ROS 2 Lyrical `rmw_zenoh` publisher treats an unbounded `uint8[]` field as a buffer, also inside a nested message. Examples are `sensor_msgs/Image` and `sensor_msgs/PointCloud2`. If every matched subscriber announces buffer support, the publisher writes the message only on `<topic key>/_buf_cpu`, and a subscriber that reads only `<topic key>` receives nothing.
+
+A hiroz subscriber to such a message announces buffer support, with `backends:cpu:` at the end of its liveliness token, and also reads `<topic key>/_buf_cpu`. The payload is plain CDR. hiroz reads the field from the message schema, so generated messages and dynamic subscribers need no setup. A schema cannot tell `byte[]` from `uint8[]`, so a message with an unbounded `byte[]` also joins. That costs one idle subscription.
+
+Call `with_cpu_buffer_group(true)` on the subscriber builder for a message type without a schema, or `with_cpu_buffer_group(false)` to opt out.
+
+These subscribers never join:
+
+- Transient-local subscribers. `rmw_zenoh` serves them on the base key only.
+- Subscribers on a custom key expression format.
+- Subscribers without a schema: the Python binding, the feedback and status subscribers of an action client, and `rmw-zenoh-rs`.
+
+If you use access control, allow `<topic key>/_buf_cpu` wherever you allow `<topic key>`.

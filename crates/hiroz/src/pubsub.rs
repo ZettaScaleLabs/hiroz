@@ -642,6 +642,9 @@ pub struct ZSubBuilder<T, S = SerdeCdrSerdes<T>> {
     /// Expected encoding for received messages.
     /// If set, the subscriber will validate that received samples match this encoding.
     pub(crate) expected_encoding: Option<crate::encoding::Encoding>,
+    /// Join rmw_zenoh's CPU buffer group: the caller's choice, else whether the message
+    /// definition has an unbounded `uint8[]`. `None` when neither is known.
+    pub(crate) cpu_group: Option<bool>,
     pub(crate) _phantom_data: PhantomData<(T, S)>,
 }
 
@@ -663,8 +666,18 @@ where
             dyn_schema: self.dyn_schema,
             locality: self.locality,
             expected_encoding: self.expected_encoding,
+            cpu_group: self.cpu_group,
             _phantom_data: PhantomData,
         }
+    }
+
+    /// Join (`true`) or stay out of (`false`) rmw_zenoh's CPU buffer group.
+    ///
+    /// By default a subscriber joins when its message has an unbounded `uint8[]`, directly or in a
+    /// nested message. Call this for a message type without a schema, or to opt out.
+    pub fn with_cpu_buffer_group(mut self, join: bool) -> Self {
+        self.cpu_group = Some(join);
+        self
     }
 
     /// Set the locality restriction for this subscription.
@@ -733,13 +746,17 @@ where
         if self.entity.type_info.is_none() {
             self.entity.type_info = Some(crate::dynamic::schema_type_info(&schema));
         }
+        if self.cpu_group.is_none() {
+            self.cpu_group = Some(schema.has_buffer_fields());
+        }
 
         self.dyn_schema = Some(schema);
         self
     }
 
     /// Build a raw Zenoh subscriber with a sample-level callback, returning
-    /// the subscriber and liveliness token.
+    /// the subscriber and its CPU buffer group (the liveliness token, and the
+    /// group subscription when joined).
     ///
     /// This is the canonical subscriber setup path used by [`ZCache`] so that
     /// topic qualification, key-expression construction, and liveliness-token
@@ -751,7 +768,7 @@ where
         callback: F,
     ) -> Result<(
         zenoh::pubsub::Subscriber<()>,
-        zenoh::liveliness::LivelinessToken,
+        crate::buffer_compat::CpuGroup,
     )>
     where
         F: Fn(Sample) + Send + Sync + 'static,
@@ -772,22 +789,28 @@ where
         let key_expr = (*topic_ke).clone();
         debug!("[CACHE] Key expression: {}", key_expr);
 
+        let callback = Arc::new(callback);
         let sub = self
             .session
             .declare_subscriber(key_expr)
-            .callback(callback)
+            .callback({
+                let callback = callback.clone();
+                move |sample| callback(sample)
+            })
             .wait()?;
 
-        let lv_ke = self
-            .keyexpr_format
-            .liveliness_key_expr(&self.entity, &self.session.zid())?;
-        let lv_token = self
-            .session
-            .liveliness()
-            .declare_token((*lv_ke).clone())
-            .wait()?;
+        // A cache has no locality option.
+        let group = crate::buffer_compat::declare(
+            &self.session,
+            &self.keyexpr_format,
+            &self.entity,
+            None,
+            self.cpu_group,
+            true,
+            callback,
+        )?;
 
-        Ok((sub, lv_token))
+        Ok((sub, group))
     }
 
     /// Internal method that all build variants use.
@@ -827,7 +850,7 @@ where
 
         // Wrap handler with encoding validation if expected encoding is set
         let expected_encoding = self.expected_encoding.clone();
-        let validated_handler = move |sample: Sample| {
+        let validated_handler = Arc::new(move |sample: Sample| {
             observe_loss(&loss, &sample);
             // Validate encoding if expected encoding is set
             if let Some(ref expected) = expected_encoding {
@@ -847,13 +870,16 @@ where
                 }
             }
             handler.handle(sample)
-        };
+        });
 
         // Build an AdvancedSubscriber and configure based on durability
         let mut sub_builder = self
             .session
             .declare_subscriber(key_expr)
-            .callback(validated_handler)
+            .callback({
+                let handler = validated_handler.clone();
+                move |sample| handler(sample)
+            })
             .advanced();
 
         // Apply locality restriction if specified
@@ -865,21 +891,22 @@ where
         let sub_builder = apply_transient_local_sub(sub_builder, &self.entity.qos);
         let inner = sub_builder.wait()?;
 
-        let lv_ke = self
-            .keyexpr_format
-            .liveliness_key_expr(&self.entity, &self.session.zid())?;
-        let lv_token = self
-            .session
-            .liveliness()
-            .declare_token((*lv_ke).clone())
-            .wait()?;
+        let group = crate::buffer_compat::declare(
+            &self.session,
+            &self.keyexpr_format,
+            &self.entity,
+            self.locality,
+            self.cpu_group,
+            true,
+            validated_handler,
+        )?;
 
         debug!("[SUB] Subscriber ready: topic={}", self.entity.topic);
 
         Ok(ZSub {
             entity: self.entity,
+            _group: group,
             _inner: inner,
-            _lv_token: lv_token,
             queue,
             events_mgr,
             graph: self.graph,
@@ -992,8 +1019,8 @@ where
 pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     pub entity: EndpointEntity,
     pub queue: Option<Arc<BoundedQueue<Q>>>,
+    _group: crate::buffer_compat::CpuGroup,
     _inner: AdvancedSubscriber<()>,
-    _lv_token: LivelinessToken,
     events_mgr: Arc<Mutex<EventsManager>>,
     graph: Arc<Graph>,
     /// Schema for dynamic message deserialization.
