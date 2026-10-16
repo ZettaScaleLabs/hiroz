@@ -407,9 +407,27 @@ fn typed_subscriber_survives_a_hostile_sample_on_the_group_key() {
         }
         println!("group route up");
 
+        // Drain the valid samples the wait loop left queued or in flight, so that
+        // neither the hostile receive nor the next-valid receive can be satisfied by one.
+        // The queue is empty once a receive times out.
+        let mut drained = 0;
+        loop {
+            match sub.recv_timeout(Duration::from_millis(500)) {
+                Ok(_) => drained += 1,
+                Err(err) if hiroz::error::is_timeout(&*err) => break,
+                Err(err) => panic!("drain: unexpected error: {err}"),
+            }
+        }
+        println!("drained: {drained}");
+
         limit_address_space();
         publisher.put(hostile_sample()).wait().expect("put hostile");
+        // The error must come from the decoder. A timeout would also be an `Err`, and a
+        // dead delivery path would then pass for a rejected sample.
         match sub.recv_timeout(Duration::from_secs(5)) {
+            Err(err) if hiroz::error::is_timeout(&*err) => {
+                panic!("hostile sample was not delivered: {err}")
+            }
             Err(err) => println!("hostile: {err}"),
             Ok(_) => panic!("hostile length must be an error"),
         }
