@@ -799,6 +799,7 @@ impl Write for Captured {
 /// key log once; a second key logs once; a subscriber that stays out logs nothing.
 #[test]
 fn joining_logs_the_group_key_once_per_key() {
+    const NAME: &str = "joining_logs_the_group_key_once_per_key";
     let out = Captured::default();
     let _guard = tracing_subscriber::fmt()
         .with_writer({
@@ -843,16 +844,40 @@ fn joining_logs_the_group_key_once_per_key() {
             group_key(topic, &UINT8)
         )
     };
-    assert_eq!(lines.len(), 2, "{text}");
-    assert!(
+    // Control: the joined subscribers exist, so a missing line is a missing log and not a missing
+    // join. The subscriber that stays out declares no group token.
+    let raw = raw_session(router.endpoint());
+    r1_assert!(
+        token_for(&raw, "log_b").ends_with("/backends:cpu:"),
+        NAME,
+        "control: the joined subscriber has no group token"
+    );
+    r1_assert!(
+        !token_for(&raw, "log_off").contains("backends:"),
+        NAME,
+        "control: the opted-out subscriber has a group token"
+    );
+    r1_assert!(
+        lines.len() == 2,
+        NAME,
+        "want one line per joined key, got {}: {text}",
+        lines.len()
+    );
+    r1_assert!(
         lines.iter().any(|l| l.ends_with(&expected("log_a"))),
-        "{text}"
+        NAME,
+        "no line for log_a: {text}"
     );
-    assert!(
+    r1_assert!(
         lines.iter().any(|l| l.ends_with(&expected("log_b"))),
-        "{text}"
+        NAME,
+        "no line for log_b: {text}"
     );
-    assert!(lines.iter().all(|l| l.contains(" INFO ")), "{text}");
+    r1_assert!(
+        lines.iter().all(|l| l.contains(" INFO ")),
+        NAME,
+        "a line is not at info level: {text}"
+    );
 }
 
 /// A router that denies the group key on every interface, as in the access-control check. A rule
