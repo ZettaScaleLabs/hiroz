@@ -747,6 +747,63 @@ fn dropping_the_subscriber_removes_its_token() {
     );
 }
 
+/// Cycle 3.5: when a joined typed subscriber is dropped, its callback does not run again for a
+/// sample on the group key. The callback runs on that key before the drop.
+#[test]
+fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    const NAME: &str = "dropping_a_joined_subscriber_stops_group_key_callbacks";
+    const AFTER_DROP_PUTS: usize = 10;
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    let calls = Arc::new(AtomicUsize::new(0));
+    let sub = node
+        .create_sub::<UInt8MultiArray>("/drop_cb_topic")
+        .build_with_callback({
+            let calls = calls.clone();
+            move |_msg| {
+                calls.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .expect("sub");
+    assert_token(
+        &token_for(&raw, "drop_cb_topic"),
+        shape("tok_node", "drop_cb_topic", &UINT8, true),
+    );
+    let key = group_key("drop_cb_topic", &UINT8);
+
+    // Positive control: the callback runs on the group key before the drop.
+    r1_assert!(
+        put_until(&raw, &key, &PAYLOAD, RECV, || calls.load(Ordering::SeqCst)
+            > 0),
+        NAME,
+        "control: no callback ran on {key} before the drop"
+    );
+    std::thread::sleep(POLL);
+    let before = calls.load(Ordering::SeqCst);
+    r1_assert!(
+        before >= 1,
+        NAME,
+        "control: {before} callbacks before the drop"
+    );
+
+    drop(sub);
+    for _ in 0..AFTER_DROP_PUTS {
+        raw.put(&key, PAYLOAD.to_vec()).wait().expect("put");
+    }
+    std::thread::sleep(QUIET);
+    let after = calls.load(Ordering::SeqCst);
+    r1_assert!(
+        after == before,
+        NAME,
+        "{} callbacks ran on {key} after the drop ({AFTER_DROP_PUTS} puts, {before} before)",
+        after - before
+    );
+}
+
 /// Cycle 3.3: a joined subscriber reads the group key, and `Locality::Remote` holds on that key.
 #[test]
 fn joined_subscriber_reads_the_group_key_with_its_locality() {
