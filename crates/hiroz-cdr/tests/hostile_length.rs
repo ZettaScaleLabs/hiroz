@@ -227,3 +227,28 @@ fn long_valid_sequence_still_decodes() {
     assert_eq!(v.len(), n as usize);
     assert_eq!(v[999], [3996, 3997, 3998, 3999]);
 }
+
+/// Pin: a sequence of zero-size elements. They occupy no bytes on the wire, but the length check
+/// still requires one remaining byte per declared element. A `Vec<()>` whose declared length
+/// exceeds the remaining bytes is therefore `UnexpectedEof`, although it would decode without the
+/// check. The control rows show that the same element type decodes when the bytes are present.
+#[test]
+fn zero_size_elements_need_a_byte_each() {
+    let decode = |len: u32, payload: usize| {
+        let mut body = length_only(len);
+        body.extend(std::iter::repeat_n(0u8, payload));
+        from_bytes::<Vec<()>, LittleEndian>(&body).map(|(v, _)| v.len())
+    };
+    // Controls: the decoder handles `Vec<()>` when the bytes exist.
+    assert_eq!(decode(0, 0).unwrap(), 0, "empty sequence");
+    assert_eq!(decode(3, 3).unwrap(), 3, "one byte per element");
+    // The pinned behavior.
+    assert!(
+        matches!(decode(3, 0), Err(Error::UnexpectedEof)),
+        "three zero-size elements, no bytes"
+    );
+    assert!(
+        matches!(decode(3, 2), Err(Error::UnexpectedEof)),
+        "three zero-size elements, two bytes"
+    );
+}
