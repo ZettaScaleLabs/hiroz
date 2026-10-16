@@ -600,6 +600,228 @@ fn f5_capture_reads_the_group_key_a_real_publisher_writes() {
     );
 }
 
+/// A plain client session on the router: it is no ROS entity, so it never matches a publisher.
+fn plain_session(endpoint: &str) -> zenoh::Session {
+    let mut config = zenoh::Config::default();
+    config.insert_json5("mode", "\"client\"").unwrap();
+    config
+        .insert_json5("connect/endpoints", &format!("[\"{endpoint}\"]"))
+        .unwrap();
+    config
+        .insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    zenoh::open(config).wait().expect("plain session")
+}
+
+/// The liveliness token of the one entity on `topic`, once it is visible. A token that never
+/// appears fails the test with the R1ASSERT marker of `name`.
+fn token_for(name: &str, session: &zenoh::Session, topic: &str) -> String {
+    let needle = format!("/%{topic}/");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let replies = session
+            .liveliness()
+            .get("@ros2_lv/**")
+            .timeout(Duration::from_secs(2))
+            .wait()
+            .expect("liveliness get");
+        let mut hits = Vec::new();
+        while let Ok(reply) = replies.recv() {
+            if let Ok(sample) = reply.result() {
+                let key = sample.key_expr().to_string();
+                if key.contains(&needle) {
+                    hits.push(key);
+                }
+            }
+        }
+        if hits.len() == 1 {
+            return hits.remove(0);
+        }
+        if Instant::now() >= deadline {
+            t1_harness::r1_fail(
+                name,
+                &format!("{} tokens for {topic}: {hits:?}", hits.len()),
+            );
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// Cycle 2.11: an older distro accepts the joined token and lists the subscriber. The test reads
+/// the token the older parser has to parse and the `ros2 topic info -v` text of the released
+/// CLI. The token must end in `backends:cpu:`: that field is what an older parser must tolerate,
+/// and a subscriber that never joined has none, so the test cannot pass without the join.
+#[test]
+fn old_parsers_list_a_joined_subscriber() {
+    const NAME: &str = "old_parsers_list_a_joined_subscriber";
+    assert!(
+        check_ros2_available(),
+        "ros2 is required: run this test where a released ROS 2 is installed"
+    );
+    let router = TestRouter::new();
+    let plain = plain_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("oldp_node").build().expect("node");
+    let _joined = node.create_sub::<UInt8MultiArray>("/oldp").build().unwrap();
+
+    let token = token_for(NAME, &plain, "oldp");
+    println!("T1TOKEN {NAME} {token}");
+    t1_harness::r1_assert_eq(
+        NAME,
+        token.ends_with("/backends:cpu:"),
+        true,
+        "the token ends in backends:cpu:",
+    );
+
+    // The released CLI parses the token of the joined subscriber. Discovery needs a moment, so
+    // read the listing until the subscriber shows or the time is out.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut text;
+    loop {
+        let out = Command::new("ros2")
+            .args([
+                "topic",
+                "info",
+                "/oldp",
+                "-v",
+                "--no-daemon",
+                "--spin-time",
+                "3",
+            ])
+            .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+            .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+            .output()
+            .expect("run ros2 topic info");
+        text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        if text.contains("Subscription count: 1") || Instant::now() >= deadline {
+            break;
+        }
+    }
+    println!("T1INFO {NAME}\n{text}");
+    t1_harness::r1_assert_eq(
+        NAME,
+        text.contains("Subscription count: 1"),
+        true,
+        &format!("the CLI lists one subscription: {text}"),
+    );
+    t1_harness::r1_assert_eq(
+        NAME,
+        text.contains("oldp_node") && text.contains("SUBSCRIPTION"),
+        true,
+        &format!("the CLI names the hiroz node as a subscription endpoint: {text}"),
+    );
+}
+
+#[cfg(not(any(feature = "kilted", feature = "lyrical")))]
+use hiroz_msgs::action_tutorials_interfaces::{FibonacciGoal, action::Fibonacci};
+#[cfg(any(feature = "kilted", feature = "lyrical"))]
+use hiroz_msgs::example_interfaces::{FibonacciGoal, action::Fibonacci};
+
+/// Cycle 2.15: the hiroz action client receives each feedback message of the released Fibonacci
+/// server once. The server of `action_tutorials_cpp` publishes the whole sequence after each
+/// step, so feedback number `i` holds `i + 3` numbers: the received lengths must be exactly
+/// `3, 4, ..., order + 1`, each once. The group key carries no sample, as the feedback is not a
+/// buffer topic.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn action_feedback_arrives_once_each_with_the_group_joined() {
+    use std::{
+        os::unix::process::CommandExt,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    const NAME: &str = "action_feedback_arrives_once_each_with_the_group_joined";
+    const ORDER: i32 = 6;
+    assert!(
+        check_ros2_available() && check_action_tutorials_cpp_available(),
+        "ros2 and action_tutorials_cpp are required: run this test where they are installed"
+    );
+    let router = TestRouter::new();
+    let plain = plain_session(router.endpoint());
+    let group = Arc::new(AtomicUsize::new(0));
+    let seen = group.clone();
+    let _group_sub = plain
+        .declare_subscriber("0/**/_buf_cpu")
+        .callback(move |_| {
+            seen.fetch_add(1, Ordering::SeqCst);
+        })
+        .wait()
+        .expect("group subscriber");
+
+    let server = Command::new("ros2")
+        .args(["run", "action_tutorials_cpp", "fibonacci_action_server"])
+        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .expect("spawn the Fibonacci action server");
+    let _server_guard = ProcessGuard::new(server, "fibonacci action server");
+    wait_for_ros_node("fibonacci_action_server", &router, Duration::from_secs(15));
+
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("t1_fib_client").build().expect("node");
+    let client = node
+        .create_action_client::<Fibonacci>("fibonacci")
+        .build()
+        .expect("client");
+
+    // The goal call waits for discovery of the server: retry it until the server accepts.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut goal_handle = loop {
+        match tokio::time::timeout(
+            Duration::from_secs(5),
+            client.send_goal(FibonacciGoal { order: ORDER }),
+        )
+        .await
+        {
+            Ok(Ok(handle)) => break handle,
+            _ if Instant::now() < deadline => tokio::time::sleep(Duration::from_millis(500)).await,
+            Ok(Err(e)) => t1_harness::r1_fail(NAME, &format!("the server never accepted: {e}")),
+            Err(_) => {
+                t1_harness::r1_fail(NAME, "the server never accepted: the goal call timed out")
+            }
+        }
+    };
+
+    let lengths = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let mut feedback = goal_handle.feedback().expect("feedback stream");
+    let sink = lengths.clone();
+    tokio::spawn(async move {
+        while let Some(fb) = feedback.recv().await {
+            #[cfg(any(feature = "kilted", feature = "lyrical"))]
+            let n = fb.sequence.len();
+            #[cfg(not(any(feature = "kilted", feature = "lyrical")))]
+            let n = fb.partial_sequence.len();
+            sink.lock().unwrap().push(n);
+        }
+    });
+    let result = tokio::time::timeout(Duration::from_secs(30), goal_handle.result())
+        .await
+        .expect("the goal finishes")
+        .expect("result");
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let got = lengths.lock().unwrap().clone();
+    let expected: Vec<usize> = (3..=(ORDER as usize + 1)).collect();
+    println!(
+        "T1FEEDBACK {NAME} LENGTHS={got:?} EXPECTED={expected:?} GROUP={} RESULT_LEN={}",
+        group.load(Ordering::SeqCst),
+        result.sequence.len()
+    );
+    t1_harness::r1_assert_eq(NAME, got, expected, "feedback lengths, each once in order");
+    t1_harness::r1_assert_eq(
+        NAME,
+        group.load(Ordering::SeqCst),
+        0,
+        "samples on the group key",
+    );
+}
+
 // ---- cells below need the join machinery of the lane: they name BufferGroup ----
 
 /// Cycle 2.13: a topic that is not a buffer topic delivers each sample once to a subscriber that
