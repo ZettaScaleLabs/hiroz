@@ -393,7 +393,7 @@ fn generate_cdr_deserialize_field(
                         }
                         #[cfg(not(target_endian = "little"))]
                         {
-                            let mut __v = Vec::new();
+                            let mut __v = Vec::with_capacity(__count.min(__r.remaining()));
                             for _ in 0..__count {
                                 __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
                             }
@@ -405,7 +405,7 @@ fn generate_cdr_deserialize_field(
                 quote! {
                     let #fname: Vec<#base_ty> = {
                         let __count = __r.read_sequence_length()?;
-                        let mut __v = Vec::new();
+                        let mut __v = Vec::with_capacity(__count.min(__r.remaining()));
                         for _ in 0..__count {
                             __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
                         }
