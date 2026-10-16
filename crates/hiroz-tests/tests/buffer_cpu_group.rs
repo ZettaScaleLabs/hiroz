@@ -1012,8 +1012,9 @@ impl Write for Captured {
     }
 }
 
-/// Cycle 4.1: one `info` line per group key and process names the key. Three subscribers on one
-/// key log once; a second key logs once; a subscriber that stays out logs nothing.
+/// Cycle 4.1: one `info` line per group key and process names the subscribed key and the group
+/// key. Three subscribers on one key log once; a second key logs once; a subscriber that stays
+/// out logs nothing.
 #[test]
 fn joining_logs_the_group_key_once_per_key() {
     const NAME: &str = "joining_logs_the_group_key_once_per_key";
@@ -1055,10 +1056,11 @@ fn joining_logs_the_group_key_once_per_key() {
         .collect();
     let expected = |topic: &str| {
         format!(
-            "joined the rmw_zenoh CPU buffer group: subscribed to key {}. A router access-control \
-             rule that denies this key drops buffer messages and reports no error. Allow this key \
-             wherever you allow its topic key.",
-            group_key(topic, &UINT8)
+            "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
+             key {group}. A router access-control rule that denies either key drops buffer \
+             messages and reports no error. Allow both keys wherever you allow its topic key.",
+            base = base_key(topic, &UINT8),
+            group = group_key(topic, &UINT8)
         )
     };
     // Control: the joined subscribers exist, so a missing line is a missing log and not a missing
