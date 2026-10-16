@@ -1,16 +1,21 @@
-pub mod t1_harness;
+pub mod buffer_rmw;
 
-use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::time::Duration;
+use std::{
+    process::{Child, Command, Stdio},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::Duration,
+};
 
 use hiroz::Builder;
-use nix::sys::signal::{self, Signal};
-use nix::unistd::Pid;
-use zenoh::Wait;
-use zenoh::config::WhatAmI;
+use nix::{
+    sys::signal::{self, Signal},
+    unistd::Pid,
+};
+use zenoh::{Wait, config::WhatAmI};
 
 /// Helper to manage background processes with automatic cleanup
 #[allow(dead_code)]
@@ -641,23 +646,4 @@ pub fn spawn_holder<T: Send + 'static>(
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     })
-}
-
-/// Assert with a marker that identifies the failing assertion by name.
-///
-/// On a false condition this panics with `R1ASSERT <name>: <message>`. A failure is
-/// attributed to the assertion only when its text holds `R1ASSERT <name>:`; a failed
-/// `unwrap()`, `expect()` or a bare timeout carries no marker.
-/// Wrap a timeout in this macro, for example `r1_assert!(got.is_ok(), "<name>", "no message")`.
-/// A test whose failure needs no attribution keeps a plain `assert!`.
-///
-/// Call it by its bare name from the test crate root, after `mod common;`.
-#[allow(unused_macros)]
-#[macro_export]
-macro_rules! r1_assert {
-    ($cond:expr, $name:expr, $($msg:tt)+) => {
-        if !$cond {
-            panic!("R1ASSERT {}: {}", $name, format!($($msg)+));
-        }
-    };
 }
