@@ -33,7 +33,11 @@ def run-tests [] {
     #
     # None were in `default-members`, so none ran here before `--workspace`.
     run-cmd "cargo nextest run --no-fail-fast --workspace --exclude hiroz-tests --exclude rmw-zenoh-rs -E 'not binary(shm_size_estimation)'"
-    run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy"
+    # A feature-gated suite compiles to nothing without its feature, so check it builds before running it.
+    run-cmd "cargo check -p hiroz-tests --tests --features ros-msgs,jazzy,raw-sub-tests"
+    run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy,raw-sub-tests"
+    # The raw interop cell needs both features and a ROS install to run. It compiles without the install, so check it here.
+    run-cmd "cargo check -p hiroz-tests --tests --features ros-interop,raw-sub-tests,jazzy"
 }
 
 def check-bundled-msgs [] {
