@@ -109,6 +109,22 @@ impl ModeDetector {
         }
     }
 
+    /// Prints `T1MODE <cell> GROUP=<g> BASE=<b>`, the line the cell runner turns into a result row.
+    pub fn report_mode(&self, cell: &str) {
+        let reading = self.read();
+        println!("T1MODE {cell} GROUP={} BASE={}", reading.group, reading.base);
+    }
+
+    /// Prints the result line of a cell that counts received messages: `T1RED <cell> RECEIVED=<k>
+    /// OF=<n> DETECTOR=group:<g>,base:<b>`. The cell runner appends `BUILD=<rc>`.
+    pub fn report_cell(&self, cell: &str, received: usize, of: usize) {
+        let reading = self.read();
+        println!(
+            "T1RED {cell} RECEIVED={received} OF={of} DETECTOR=group:{},base:{}",
+            reading.group, reading.base
+        );
+    }
+
     /// Waits up to `timeout` for a sample on either key, then judges the mode.
     pub fn require_buffer_mode(&self, timeout: Duration) -> Result<usize, DetectorError> {
         let _ = timeout;

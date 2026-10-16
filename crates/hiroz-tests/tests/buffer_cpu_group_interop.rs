@@ -248,6 +248,14 @@ fn mode_detector_fails_on_a_publisher_that_is_not_in_buffer_mode() {
         "ros2 is required: run this test where a Lyrical ROS 2 is installed"
     );
     let router = TestRouter::new();
+    // A publisher writes only while a ROS subscriber matches it. The detector is a plain session
+    // and is not one, so a hiroz subscriber of the same topic makes the publisher write.
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("modecell_node").build().expect("node");
+    let _matched = node
+        .create_sub::<hiroz_msgs::std_msgs::Float64MultiArray>("/modecell")
+        .build()
+        .unwrap();
     let detector = t1_harness::ModeDetector::new(router.endpoint(), MODE_NOBUF_BASE);
     wait_for_ready(Duration::from_secs(2));
 
@@ -271,7 +279,9 @@ fn mode_detector_fails_on_a_publisher_that_is_not_in_buffer_mode() {
         .expect("spawn ros2 topic pub");
     let _guard = ProcessGuard::new(publisher, "ros2 pub");
 
-    match detector.require_buffer_mode(Duration::from_secs(10)) {
+    let judged = detector.require_buffer_mode(Duration::from_secs(10));
+    detector.report_mode(NAME);
+    match judged {
         Err(t1_harness::DetectorError::NotInBufferMode { base, group }) => {
             t1_harness::r1_assert_eq(NAME, group, 0, "group key count");
             if base == 0 {
@@ -288,5 +298,148 @@ fn mode_detector_fails_on_a_publisher_that_is_not_in_buffer_mode() {
                 "the detector accepted or could not judge a publisher outside buffer mode: {other:?}"
             ),
         ),
+    }
+}
+
+const MODE_BUF_BASE: &str = "0/modebuf/std_msgs::msg::dds_::UInt8MultiArray_/RIHS01_5687e861b8d307a5e48b7515467ae7a5fc2daf805bd0ce6d8e9e604bade9f385";
+
+/// The detector accepts a publisher in buffer mode: the group key carries the samples and the
+/// base key none. A typed subscriber that joined the group makes the Lyrical publisher switch.
+#[test]
+fn mode_detector_reads_the_group_key_on_a_publisher_in_buffer_mode() {
+    const NAME: &str = "mode_detector_reads_the_group_key_on_a_publisher_in_buffer_mode";
+    assert!(
+        check_ros2_available(),
+        "ros2 is required: run this test where a Lyrical ROS 2 is installed"
+    );
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("modebuf_node").build().expect("node");
+    let _joined = node
+        .create_sub::<UInt8MultiArray>("/modebuf")
+        .build()
+        .unwrap();
+    let detector = t1_harness::ModeDetector::new(router.endpoint(), MODE_BUF_BASE);
+    wait_for_ready(Duration::from_secs(2));
+
+    let publisher = Command::new("ros2")
+        .args([
+            "topic",
+            "pub",
+            "/modebuf",
+            "std_msgs/msg/UInt8MultiArray",
+            "{data: [1, 2, 3]}",
+            "--rate",
+            "5",
+            "--times",
+            "30",
+        ])
+        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn ros2 topic pub");
+    let _guard = ProcessGuard::new(publisher, "ros2 pub");
+
+    let judged = detector.require_buffer_mode(Duration::from_secs(10));
+    detector.report_mode(NAME);
+    match judged {
+        Ok(group) if group > 0 => {}
+        other => t1_harness::r1_fail(
+            NAME,
+            &format!("the detector did not read the group key: {other:?}"),
+        ),
+    }
+    t1_harness::r1_assert_eq(NAME, detector.read().base, 0, "base key count");
+}
+
+/// Fixture F5, the row for a namespaced topic: the group key a released Lyrical publisher writes
+/// for `/f5ns/cell`, captured by `f5_capture_reads_the_group_key_a_real_publisher_writes`.
+const F5_NAMESPACED_GROUP_KEY: &str = "";
+
+/// Captures the group key of a namespaced topic from a real publisher in buffer mode and prints
+/// it as `F5_KEY=<key>`. A plain session subscribes on every group key and records the key
+/// expression of each sample, so the key is read from the wire and not derived from hiroz code.
+#[test]
+fn f5_capture_reads_the_group_key_a_real_publisher_writes() {
+    const NAME: &str = "f5_capture_reads_the_group_key_a_real_publisher_writes";
+    assert!(
+        check_ros2_available(),
+        "ros2 is required: run this test where a Lyrical ROS 2 is installed"
+    );
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("f5cell_node").build().expect("node");
+    let _joined = node
+        .create_sub::<UInt8MultiArray>("/f5ns/cell")
+        .build()
+        .unwrap();
+
+    let mut config = zenoh::Config::default();
+    config.insert_json5("mode", "\"client\"").unwrap();
+    config
+        .insert_json5("connect/endpoints", &format!("[\"{}\"]", router.endpoint()))
+        .unwrap();
+    config
+        .insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    let plain = zenoh::open(config).wait().expect("plain session");
+    let keys = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = keys.clone();
+    let _sub = plain
+        .declare_subscriber("0/**/_buf_cpu")
+        .callback(move |sample| {
+            let key = sample.key_expr().to_string();
+            let mut keys = seen.lock().unwrap();
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        })
+        .wait()
+        .expect("capture subscriber");
+    wait_for_ready(Duration::from_secs(2));
+
+    let publisher = Command::new("ros2")
+        .args([
+            "topic",
+            "pub",
+            "/f5ns/cell",
+            "std_msgs/msg/UInt8MultiArray",
+            "{data: [1, 2, 3]}",
+            "--rate",
+            "5",
+            "--times",
+            "30",
+        ])
+        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn ros2 topic pub");
+    let _guard = ProcessGuard::new(publisher, "ros2 pub");
+
+    let end = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < end && keys.lock().unwrap().is_empty() {
+        thread::sleep(Duration::from_millis(50));
+    }
+    let captured = keys.lock().unwrap().clone();
+    println!("F5_KEYS={}", captured.len());
+    for key in &captured {
+        println!("F5_KEY={key}");
+    }
+    t1_harness::r1_assert_eq(NAME, captured.len(), 1, "group keys captured");
+    let key = &captured[0];
+    if !(key.starts_with("0/f5ns") && key.ends_with("/_buf_cpu")) {
+        t1_harness::r1_fail(NAME, &format!("unexpected key shape: {key}"));
+    }
+    if !F5_NAMESPACED_GROUP_KEY.is_empty() {
+        t1_harness::r1_assert_eq(
+            NAME,
+            key.as_str(),
+            F5_NAMESPACED_GROUP_KEY,
+            "recorded F5 key",
+        );
     }
 }
