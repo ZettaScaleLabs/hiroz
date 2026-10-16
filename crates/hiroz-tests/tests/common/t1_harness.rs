@@ -253,7 +253,7 @@ impl std::fmt::Display for RmwGuardError {
             Self::NotFound => write!(f, "could not find librmw_zenoh_cpp.so"),
             Self::NotBufferAware { path, version } => write!(
                 f,
-                "the rmw_zenoh_cpp in this environment is not buffer-aware ({}, {}): run this test in an environment with the released 0.10.6 or later",
+                "the rmw_zenoh_cpp in this environment is not buffer-aware ({}, {}): the library has no `_buf_cpu` marker",
                 path.display(),
                 version.as_deref().map_or("version not found".to_owned(), |v| format!("version {v}")),
             ),
@@ -345,16 +345,33 @@ pub fn check_rmw_library(lib: &Path) -> Result<(), RmwGuardError> {
     }
 }
 
-/// Fails the test with a named reason unless the `rmw_zenoh_cpp` the publisher will load is
-/// buffer-aware. A cell that expects the group key calls it first, so a missing buffer mode is
-/// not read as a hiroz failure. Do not call it from a test that uses a non-buffer message type:
-/// that test is valid on any rmw.
-pub fn require_buffer_aware_rmw(name: &str) {
-    let judged = match find_rmw_library(&rmw_library_dirs()) {
+/// Judges the `rmw_zenoh_cpp` the publisher will load.
+fn judge_rmw() -> Result<(), RmwGuardError> {
+    match find_rmw_library(&rmw_library_dirs()) {
         Some(lib) => check_rmw_library(&lib),
         None => Err(RmwGuardError::NotFound),
-    };
-    if let Err(e) = judged {
-        r1_fail(name, &e.to_string());
+    }
+}
+
+/// The environment variable that turns a missing buffer mode from a logged skip into a failure.
+/// The runner of the green record sets it: a buffer cell must run there, never skip.
+pub const REQUIRE_BUFFER_RMW_ENV: &str = "T1_REQUIRE_BUFFER_RMW";
+
+/// The gate of a buffer cell: true when the `rmw_zenoh_cpp` the publisher will load is
+/// buffer-aware, so the cell may run. When it is not, the call prints
+/// `Skipping <name>: no buffer-aware rmw (<reason>)` and returns false, and the cell returns. The
+/// line is the explicit record that the cell did not run: a runner counts `Skipping` lines, and a
+/// pass with such a line is UNKNOWN for that cell, not a pass. When `T1_REQUIRE_BUFFER_RMW` is set
+/// the call fails the test instead, so the environment that holds the green record cannot skip.
+/// Do not call it from a compat cell: a test that uses a non-buffer message type is valid on any
+/// rmw.
+pub fn buffer_aware_rmw_or_skip(name: &str) -> bool {
+    match judge_rmw() {
+        Ok(()) => true,
+        Err(e) if std::env::var_os(REQUIRE_BUFFER_RMW_ENV).is_some() => r1_fail(name, &e.to_string()),
+        Err(e) => {
+            println!("Skipping {name}: no buffer-aware rmw ({e})");
+            false
+        }
     }
 }

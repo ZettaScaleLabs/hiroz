@@ -88,7 +88,7 @@ fn guard_names_each_reason_and_accepts_a_buffer_aware_library() {
     assert!(
         text.starts_with("the rmw_zenoh_cpp in this environment is not buffer-aware (")
             && text.contains("version not found")
-            && text.ends_with("the released 0.10.6 or later"),
+            && text.ends_with("the library has no `_buf_cpu` marker"),
         "{text}"
     );
 

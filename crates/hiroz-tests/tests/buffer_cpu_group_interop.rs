@@ -6,8 +6,13 @@
 //! buffer mode without depending on a subscriber starving: the group key must carry the samples
 //! and the base key none. A cell that reads a base key above 0 on Lyrical proves nothing.
 //!
-//! On an older distro the publisher has no buffer mode. The cells there are a no-regression check:
-//! every sample arrives on the base key.
+//! Two kinds of cell live here. A compat cell uses a message type with no unbounded `uint8[]`
+//! field, or reads a token, so it is valid on every distro and on any `rmw_zenoh_cpp`: every
+//! sample arrives on the base key, and it must pass on Humble, Jazzy, Kilted and Lyrical. A buffer
+//! cell needs a buffer-aware `rmw_zenoh_cpp` and calls `t1_harness::buffer_aware_rmw_or_skip`.
+//! Where the library has no buffer mode that call prints `Skipping <cell>: no buffer-aware rmw`
+//! and the cell returns. The runner of the green record sets `T1_REQUIRE_BUFFER_RMW`, which turns
+//! that skip into a failure.
 
 #![cfg(target_os = "linux")]
 #![cfg(feature = "ros-interop")]
@@ -343,7 +348,9 @@ fn joined_subscribers_receive_from_a_released_publisher() {
         check_ros2_available(),
         "ros2 is required: run this test where a released ROS 2 is installed"
     );
-    t1_harness::require_buffer_aware_rmw(NAME);
+    if !t1_harness::buffer_aware_rmw_or_skip(NAME) {
+        return;
+    }
     let runs = vec![
         run_kind!("uint8", "uint8", "/bufcell", 64, UInt8MultiArray, Blob),
         run_kind!("cloud", "cloud", "/bufcloud", 65536, PointCloud2, CloudBlob),
@@ -477,7 +484,9 @@ fn mode_detector_reads_the_group_key_on_a_publisher_in_buffer_mode() {
         check_ros2_available(),
         "ros2 is required: run this test where a Lyrical ROS 2 is installed"
     );
-    t1_harness::require_buffer_aware_rmw(NAME);
+    if !t1_harness::buffer_aware_rmw_or_skip(NAME) {
+        return;
+    }
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("modebuf_node").build().expect("node");
@@ -535,7 +544,9 @@ fn f5_capture_reads_the_group_key_a_real_publisher_writes() {
         check_ros2_available(),
         "ros2 is required: run this test where a Lyrical ROS 2 is installed"
     );
-    t1_harness::require_buffer_aware_rmw(NAME);
+    if !t1_harness::buffer_aware_rmw_or_skip(NAME) {
+        return;
+    }
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("f5cell_node").build().expect("node");
@@ -1001,7 +1012,9 @@ fn mixed_matched_set_delivers_each_sample_once() {
         check_ros2_available(),
         "ros2 is required: run this test where a released ROS 2 is installed"
     );
-    t1_harness::require_buffer_aware_rmw(NAME);
+    if !t1_harness::buffer_aware_rmw_or_skip(NAME) {
+        return;
+    }
     let runs = [
         ("aware", mixed_run("/mixaware", false, true)),
         ("mixed", mixed_run("/mixmixed", true, false)),
