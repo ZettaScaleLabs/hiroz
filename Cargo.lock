@@ -1938,6 +1938,7 @@ dependencies = [
  "hiroz",
  "hiroz-cdr",
  "hiroz-msgs",
+ "hiroz-protocol",
  "hiroz-schema",
  "nix 0.29.0",
  "once_cell",
