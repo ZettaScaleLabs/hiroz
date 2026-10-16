@@ -78,10 +78,12 @@ fn counter(
 /// publisher in buffer mode writes. The plain session is the mode detector and the count.
 #[test]
 fn joined_subscribers_receive_from_a_released_publisher() {
+    const NAME: &str = "joined_subscribers_receive_from_a_released_publisher";
     assert!(
         check_ros2_available(),
         "ros2 is required: run this test where a Lyrical ROS 2 is installed"
     );
+    t1_harness::require_buffer_aware_rmw(NAME);
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("bufcell_node").build().expect("node");
@@ -312,6 +314,7 @@ fn mode_detector_reads_the_group_key_on_a_publisher_in_buffer_mode() {
         check_ros2_available(),
         "ros2 is required: run this test where a Lyrical ROS 2 is installed"
     );
+    t1_harness::require_buffer_aware_rmw(NAME);
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("modebuf_node").build().expect("node");
@@ -369,6 +372,7 @@ fn f5_capture_reads_the_group_key_a_real_publisher_writes() {
         check_ros2_available(),
         "ros2 is required: run this test where a Lyrical ROS 2 is installed"
     );
+    t1_harness::require_buffer_aware_rmw(NAME);
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("f5cell_node").build().expect("node");

@@ -226,3 +226,11 @@ impl SeqCounter {
         self.corrupt
     }
 }
+
+/// Fails the test with a named reason unless the `rmw_zenoh_cpp` the publisher will load is
+/// buffer-aware. A cell that expects the group key calls it first, so a missing buffer mode is
+/// not read as a hiroz failure.
+pub fn require_buffer_aware_rmw(name: &str) {
+    // Stub: the check follows in the next commit.
+    let _ = name;
+}
