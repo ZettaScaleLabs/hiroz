@@ -233,6 +233,15 @@ typedef struct hiroz_context_config_t {
    * Added after all pre-existing fields to preserve ABI compatibility.
    */
   const char *namespace_;
+  /**
+   * Shared-memory pool size in bytes. When non-zero, the context attaches an
+   * SHM provider of this size, making the session SHM-capable so it can
+   * publish and receive payloads by shared-memory reference (zero-copy)
+   * instead of copying them over the transport. 0 disables SHM (default).
+   * Mirrors `ZContextBuilder::with_shm_pool_size`. Added after all
+   * pre-existing fields to preserve ABI compatibility.
+   */
+  uintptr_t shm_pool_bytes;
 } hiroz_context_config_t;
 
 /**
@@ -336,6 +345,11 @@ typedef struct hiroz_subscriber_t {
  * Callback type for receiving messages
  */
 typedef void (*hiroz_MessageCallback)(uintptr_t user_data, const uint8_t *data, uintptr_t len);
+
+/**
+ * CDR encapsulation header for little-endian encoding.
+ */
+#define hiroz_CDR_HEADER_LE { 0, 1, 0, 0, }
 
 
 
