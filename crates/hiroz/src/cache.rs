@@ -43,18 +43,17 @@
 //!     .build()?;
 //! ```
 
-use std::collections::BTreeMap;
-use std::marker::PhantomData;
-use std::sync::Arc;
-use std::time::SystemTime;
+use std::{collections::BTreeMap, marker::PhantomData, sync::Arc, time::SystemTime};
 
 use parking_lot::RwLock;
 use tracing::{debug, warn};
 use zenoh::Result;
 
-use crate::Builder;
-use crate::msg::{SerdeCdrSerdes, ZDeserializer, ZMessage};
-use crate::pubsub::ZSubBuilder;
+use crate::{
+    Builder,
+    msg::{SerdeCdrSerdes, ZDeserializer, ZMessage},
+    pubsub::ZSubBuilder,
+};
 
 // ---------------------------------------------------------------------------
 // Stamp strategy markers
@@ -305,6 +304,13 @@ impl<T: ZMessage, S> ZCacheBuilder<T, S, ZenohStamp> {
         self.sub_builder = self.sub_builder.with_qos(qos);
         self
     }
+
+    /// Choose whether the cache joins rmw_zenoh's CPU buffer group. See
+    /// [`ZSubBuilder::with_buffer_group`].
+    pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
+        self.sub_builder = self.sub_builder.with_buffer_group(group);
+        self
+    }
 }
 
 impl<T: ZMessage, S, F> ZCacheBuilder<T, S, ExtractorStamp<T, F>>
@@ -320,6 +326,13 @@ where
     /// Apply a QoS profile to the underlying subscriber.
     pub fn with_qos(mut self, qos: crate::qos::QosProfile) -> Self {
         self.sub_builder = self.sub_builder.with_qos(qos);
+        self
+    }
+
+    /// Choose whether the cache joins rmw_zenoh's CPU buffer group. See
+    /// [`ZSubBuilder::with_buffer_group`].
+    pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
+        self.sub_builder = self.sub_builder.with_buffer_group(group);
         self
     }
 }

@@ -607,6 +607,39 @@ fn cache_joins_the_group() {
     );
 }
 
+/// `Off` on a cache keeps it out of the group and it reads the base key. A cache on `Auto` for
+/// the same type joins, so a missing group token is the setting and not a dead setup.
+#[test]
+fn cache_with_group_off_stays_out() {
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    let off = node
+        .create_cache::<UInt8MultiArray>("/cache_off", 10)
+        .with_buffer_group(BufferGroup::Off)
+        .build()
+        .unwrap();
+    let _auto = node
+        .create_cache::<UInt8MultiArray>("/cache_auto", 10)
+        .build()
+        .unwrap();
+
+    assert_token(
+        &token_for(&raw, "cache_auto"),
+        shape("tok_node", "cache_auto", &UINT8, true),
+    );
+    assert_token(
+        &token_for(&raw, "cache_off"),
+        shape("tok_node", "cache_off", &UINT8, false),
+    );
+    let key = base_key("cache_off", &UINT8);
+    assert!(
+        put_until(&raw, &key, &PAYLOAD, RECV, || !off.is_empty()),
+        "cache_with_group_off_stays_out: the cache received nothing on {key}"
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Group keys, teardown and the subscription-before-token order
 // ---------------------------------------------------------------------------------------------
