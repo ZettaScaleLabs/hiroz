@@ -30,6 +30,10 @@ pub enum PinOutcome {
     /// glibc accepted both thresholds. The fields are the `mallopt` return codes.
     Pinned { mmap_rc: i32, trim_rc: i32 },
     /// glibc rejected a threshold. The fields are the `mallopt` return codes.
+    ///
+    /// The mmap threshold is set first. When glibc rejects it, the trim call is skipped and
+    /// `trim_rc` is 0, so both thresholds keep their defaults. A trim threshold of 256 MiB with
+    /// the default mmap threshold would measure worse than no pin.
     Rejected { mmap_rc: i32, trim_rc: i32 },
     /// The operator set a glibc environment variable. The pin changes nothing.
     OperatorSet,
@@ -68,8 +72,6 @@ pub const TRIM_THRESHOLD: i32 = 256 << 20;
 pub fn pin_large_message_thresholds() -> PinOutcome {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
-        const M_TRIM_THRESHOLD: core::ffi::c_int = -1;
-        const M_MMAP_THRESHOLD: core::ffi::c_int = -3;
         unsafe extern "C" {
             fn mallopt(param: core::ffi::c_int, value: core::ffi::c_int) -> core::ffi::c_int;
         }
@@ -78,16 +80,36 @@ pub fn pin_large_message_thresholds() -> PinOutcome {
         {
             return PinOutcome::OperatorSet;
         }
-        let mmap_rc = unsafe { mallopt(M_MMAP_THRESHOLD, MMAP_THRESHOLD) };
-        let trim_rc = unsafe { mallopt(M_TRIM_THRESHOLD, TRIM_THRESHOLD) };
-        if mmap_rc == 0 || trim_rc == 0 {
-            PinOutcome::Rejected { mmap_rc, trim_rc }
-        } else {
-            PinOutcome::Pinned { mmap_rc, trim_rc }
-        }
+        pin_with(|param, value| unsafe { mallopt(param, value) })
     }
     #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
     {
         PinOutcome::Unsupported
+    }
+}
+
+/// The decision of the pin, with the `mallopt` call injected. It exists so a test can drive the
+/// rejection path without a glibc that rejects. Applications call
+/// [`pin_large_message_thresholds`] instead.
+///
+/// `mallopt` takes the glibc parameter number and the value, and returns 1 on success and 0 on
+/// rejection. The function sets `M_MMAP_THRESHOLD` first and returns
+/// [`PinOutcome::Rejected`] with `trim_rc` 0, without a trim call, when that call is rejected.
+#[doc(hidden)]
+pub fn pin_with(mut mallopt: impl FnMut(i32, i32) -> i32) -> PinOutcome {
+    const M_TRIM_THRESHOLD: i32 = -1;
+    const M_MMAP_THRESHOLD: i32 = -3;
+    let mmap_rc = mallopt(M_MMAP_THRESHOLD, MMAP_THRESHOLD);
+    if mmap_rc == 0 {
+        return PinOutcome::Rejected {
+            mmap_rc,
+            trim_rc: 0,
+        };
+    }
+    let trim_rc = mallopt(M_TRIM_THRESHOLD, TRIM_THRESHOLD);
+    if trim_rc == 0 {
+        PinOutcome::Rejected { mmap_rc, trim_rc }
+    } else {
+        PinOutcome::Pinned { mmap_rc, trim_rc }
     }
 }
