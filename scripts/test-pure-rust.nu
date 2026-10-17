@@ -40,6 +40,22 @@ def run-tests [] {
     run-cmd "cargo check -p hiroz-tests --tests --features ros-interop,raw-sub-tests,jazzy"
 }
 
+def check-raw-suite-listed [] {
+    log-step "The raw subscriber suite is built"
+    # `buffer_cpu_group_raw` is gated on `raw-sub-tests`. A run without the feature compiles it to
+    # nothing and reports success, so the run above proves nothing unless the suite is listed.
+    let listed = (^cargo nextest list -p hiroz-tests --features ros-msgs,jazzy,raw-sub-tests --message-format oneline | complete)
+    if $listed.exit_code != 0 {
+        print $listed.stderr
+        error make {msg: "cargo nextest list failed for the raw subscriber suite"}
+    }
+    let found = ($listed.stdout | lines | where {|it| $it =~ 'buffer_cpu_group_raw '} | length)
+    print $"buffer_cpu_group_raw tests listed: ($found)"
+    if $found == 0 {
+        error make {msg: "no buffer_cpu_group_raw test is listed: the raw-sub-tests feature is off"}
+    }
+}
+
 def check-bundled-msgs [] {
     log-step "Check hiroz-msgs with bundled messages"
     run-cmd "cargo check -p hiroz-msgs"
@@ -250,6 +266,7 @@ def get-test-map [] {
     {
         clippy-workspace: { clippy-workspace }
         run-tests: { run-tests }
+        check-raw-suite-listed: { check-raw-suite-listed }
         check-bundled-msgs: { check-bundled-msgs }
         check-hu: { check-hu }
         check-examples: { check-examples }
@@ -267,6 +284,7 @@ def get-test-pipeline [] {
     [
         "clippy-workspace"
         "run-tests"
+        "check-raw-suite-listed"
         "check-bundled-msgs"
         "check-hu"
         "check-examples"
