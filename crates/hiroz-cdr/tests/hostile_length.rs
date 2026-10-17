@@ -272,21 +272,26 @@ fn zero_size_elements_decode_through_the_generic_path() {
         let mut reader = CdrReader::<LittleEndian>::new(&body);
         Vec::<T>::cdr_deserialize(&mut reader).map(|v| v.len())
     }
+    const NAME: &str = "zero_size_elements_decode_through_the_generic_path";
     // Controls: an element of one byte needs its byte.
-    assert_eq!(decode::<OneByte>(3, 3).unwrap(), 3, "one byte per element");
+    assert_eq!(
+        decode::<OneByte>(3, 3).ok(),
+        Some(3),
+        "{NAME}: one byte per element"
+    );
     assert!(
         decode::<OneByte>(3, 0).is_err(),
-        "zero_size_elements_decode_through_the_generic_path: a one-byte element needs its payload"
+        "{NAME}: a one-byte element needs its payload"
     );
-    assert_eq!(decode::<Unit>(0, 0).unwrap(), 0, "empty sequence");
+    assert_eq!(decode::<Unit>(0, 0).ok(), Some(0), "{NAME}: empty sequence");
     assert_eq!(
-        decode::<Unit>(3, 0).unwrap(),
-        3,
-        "zero-byte elements, no payload"
+        decode::<Unit>(3, 0).ok(),
+        Some(3),
+        "{NAME}: zero-byte elements, no payload"
     );
     assert_eq!(
-        decode::<Unit>(3, 2).unwrap(),
-        3,
-        "trailing bytes remain unread"
+        decode::<Unit>(3, 2).ok(),
+        Some(3),
+        "{NAME}: trailing bytes remain unread"
     );
 }
