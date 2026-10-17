@@ -43,6 +43,7 @@
 pub mod action;
 /// Attachment helpers for carrying metadata alongside messages.
 pub mod attachment;
+mod buffer_group;
 /// Timestamp-indexed, capacity-bounded message cache.
 pub mod cache;
 mod common;
@@ -105,6 +106,7 @@ pub mod utils;
 pub mod parameter;
 
 pub use attachment::GidArray;
+pub use buffer_group::BufferGroup;
 pub use entity::{TypeHash, TypeInfo};
 pub use hiroz_derive::MessageTypeInfo;
 pub use ros_msg::{ActionTypeInfo, MessageTypeInfo, ServiceTypeInfo, WithTypeInfo};

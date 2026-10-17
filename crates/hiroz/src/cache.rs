@@ -43,19 +43,17 @@
 //!     .build()?;
 //! ```
 
-use std::collections::BTreeMap;
-use std::marker::PhantomData;
-use std::sync::Arc;
-use std::time::SystemTime;
+use std::{collections::BTreeMap, marker::PhantomData, sync::Arc, time::SystemTime};
 
 use parking_lot::RwLock;
 use tracing::{debug, warn};
 use zenoh::Result;
-use zenoh::liveliness::LivelinessToken;
 
-use crate::Builder;
-use crate::msg::{SerdeCdrSerdes, ZDeserializer, ZMessage};
-use crate::pubsub::ZSubBuilder;
+use crate::{
+    Builder,
+    msg::{SerdeCdrSerdes, ZDeserializer, ZMessage},
+    pubsub::ZSubBuilder,
+};
 
 // ---------------------------------------------------------------------------
 // Stamp strategy markers
@@ -122,8 +120,8 @@ impl<T> CacheInner<T> {
 /// Dropping `ZCache` automatically deregisters the underlying Zenoh subscriber.
 pub struct ZCache<T: ZMessage> {
     inner: Arc<RwLock<CacheInner<T>>>,
+    _group: crate::buffer_group::Membership,
     _sub: zenoh::pubsub::Subscriber<()>,
-    _lv_token: LivelinessToken,
 }
 
 impl<T: ZMessage> ZCache<T> {
@@ -306,6 +304,13 @@ impl<T: ZMessage, S> ZCacheBuilder<T, S, ZenohStamp> {
         self.sub_builder = self.sub_builder.with_qos(qos);
         self
     }
+
+    /// Choose whether the cache joins rmw_zenoh's CPU buffer group. See
+    /// [`ZSubBuilder::with_buffer_group`].
+    pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
+        self.sub_builder = self.sub_builder.with_buffer_group(group);
+        self
+    }
 }
 
 impl<T: ZMessage, S, F> ZCacheBuilder<T, S, ExtractorStamp<T, F>>
@@ -321,6 +326,13 @@ where
     /// Apply a QoS profile to the underlying subscriber.
     pub fn with_qos(mut self, qos: crate::qos::QosProfile) -> Self {
         self.sub_builder = self.sub_builder.with_qos(qos);
+        self
+    }
+
+    /// Choose whether the cache joins rmw_zenoh's CPU buffer group. See
+    /// [`ZSubBuilder::with_buffer_group`].
+    pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
+        self.sub_builder = self.sub_builder.with_buffer_group(group);
         self
     }
 }
@@ -345,7 +357,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, lv_token) =
+        let (sub, group) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -375,8 +387,8 @@ where
         debug!("[CACHE] ZenohStamp cache ready");
         Ok(ZCache {
             inner,
+            _group: group,
             _sub: sub,
-            _lv_token: lv_token,
         })
     }
 }
@@ -402,7 +414,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, lv_token) =
+        let (sub, group) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -417,8 +429,8 @@ where
         debug!("[CACHE] ExtractorStamp cache ready");
         Ok(ZCache {
             inner,
+            _group: group,
             _sub: sub,
-            _lv_token: lv_token,
         })
     }
 }

@@ -1,3 +1,5 @@
+pub mod buffer_rmw;
+
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -203,6 +205,11 @@ impl TestRouter {
     /// then drops the listener before handing the port to Zenoh. This avoids
     /// PID-derived port collisions when multiple test binaries run in parallel.
     pub fn new() -> Self {
+        Self::with_config(|_| {})
+    }
+
+    /// Like [`TestRouter::new`], with `configure` applied to the router config before it opens.
+    pub fn with_config(configure: impl Fn(&mut zenoh::Config)) -> Self {
         // Ask the OS for a free port, release it, then let Zenoh bind it.
         // There is an inherent TOCTOU race between dropping the listener and
         // Zenoh binding the same port. We retry up to 5 times to handle the
@@ -235,6 +242,7 @@ impl TestRouter {
             // all connecting sessions as South and uses client-hat routing which can
             // suppress routing from zenoh-c 1.6.2 publishers to 1.9.0 client subscribers.
             let _ = config.insert_json5("gateway/south", "null");
+            configure(&mut config);
 
             match zenoh::open(config).wait() {
                 Ok(session) => {

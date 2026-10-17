@@ -384,10 +384,13 @@ impl ZNode {
         // consumer that answers GetTypeDescription for its subscribed type, as
         // ROS 2 nodes do. This is what lets `hu meter pub` resolve the schema
         // from a topic that only has a subscriber.
-        if let Some(schema) = T::message_schema() {
-            self.register_schema_with_type_description_service(&schema);
+        let schema = T::message_schema();
+        if let Some(schema) = &schema {
+            self.register_schema_with_type_description_service(schema);
         }
-        self.create_sub_impl(topic, Some(T::type_info()))
+        let mut builder = self.create_sub_impl(topic, Some(T::type_info()));
+        builder.has_buffer_fields = schema.map(|schema| schema.has_buffer_fields());
+        builder
     }
 
     #[doc(hidden)]
@@ -417,6 +420,8 @@ impl ZNode {
             dyn_schema: None,
             locality: None,
             expected_encoding: None,
+            buffer_group: Default::default(),
+            has_buffer_fields: None,
             _phantom_data: Default::default(),
         }
     }
@@ -455,7 +460,8 @@ impl ZNode {
             "[NOD] Creating cache: topic={}, capacity={}",
             topic, capacity
         );
-        let sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
+        let mut sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
+        sub_builder.has_buffer_fields = T::message_schema().map(|schema| schema.has_buffer_fields());
         ZCacheBuilder::new(sub_builder, capacity)
     }
 
@@ -643,6 +649,9 @@ impl ZNode {
     }
 
     /// Create a raw subscriber for FFI with optional QoS
+    ///
+    /// The subscriber stays out of rmw_zenoh's CPU buffer group and declares no liveliness token.
+    /// Use [`ZNode::create_raw_subscriber_with_group`] to join.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_qos<F>(
         &self,
@@ -651,6 +660,29 @@ impl ZNode {
         type_hash: &str,
         callback: F,
         qos: Option<crate::qos::QosProfile>,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(&[u8]) + Send + Sync + 'static,
+    {
+        self.create_raw_subscriber_inner(
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            qos,
+            crate::BufferGroup::Off,
+        )
+    }
+
+    #[cfg(feature = "ffi")]
+    fn create_raw_subscriber_inner<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        group: crate::BufferGroup,
     ) -> Result<crate::ffi::subscriber::RawSubscriber>
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
@@ -681,17 +713,77 @@ impl ZNode {
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
-        let subscriber = self
-            .session
-            .declare_subscriber((*topic_ke).clone())
-            .callback(move |sample| {
-                let payload = sample.payload().to_bytes();
-                callback(&payload);
-            })
-            .advanced();
-        let subscriber = apply_transient_local_sub(subscriber, &entity.qos).wait()?;
+        let key_expr = (*topic_ke).clone();
 
-        Ok(crate::ffi::subscriber::RawSubscriber { inner: subscriber })
+        // A raw subscriber has no message definition for `Auto` to inspect, so only `Cpu` joins.
+        let group = match group {
+            crate::BufferGroup::Cpu => crate::BufferGroup::Cpu,
+            crate::BufferGroup::Auto | crate::BufferGroup::Off => crate::BufferGroup::Off,
+        };
+        let join = crate::buffer_group::joins(group, None, &self.keyexpr_format, &entity);
+        // A raw subscriber that stays out declares nothing for the group, not even a token.
+        let plan = if join {
+            Some(crate::buffer_group::Plan::new(
+                &self.keyexpr_format,
+                &entity,
+                &self.session.zid(),
+                true,
+            )?)
+        } else {
+            None
+        };
+
+        let handler = move |sample: zenoh::sample::Sample| callback(&sample.payload().to_bytes());
+        let builder = match plan.as_ref().and_then(|p| p.group_key()) {
+            Some(group_key) => {
+                let base = key_expr.as_str().to_owned();
+                self.session
+                    .declare_subscriber(crate::buffer_group::union_key(&base)?)
+                    .callback(crate::buffer_group::only_base_and_group(
+                        base,
+                        group_key.to_owned(),
+                        handler,
+                    ))
+                    .advanced()
+            }
+            None => self
+                .session
+                .declare_subscriber(key_expr)
+                .callback(handler)
+                .advanced(),
+        };
+        let subscriber = apply_transient_local_sub(builder, &entity.qos).wait()?;
+        let membership = plan.map(|p| p.declare(&self.session)).transpose()?;
+
+        Ok(crate::ffi::subscriber::RawSubscriber {
+            _group: membership,
+            inner: subscriber,
+        })
+    }
+
+    /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group`
+    /// asks for it.
+    ///
+    /// A raw subscriber has no message definition, so `create_raw_subscriber_with_qos` stays out
+    /// of the group. Pass [`BufferGroup::Cpu`](crate::BufferGroup::Cpu) to join: the subscriber
+    /// then declares a token ending `backends:cpu:`, and one callback serves the base key and
+    /// `<key>/_buf_cpu`. There is no message definition for `Auto` to inspect, so `Auto` and
+    /// `Off` both stay out. A QoS or key expression format that `rmw_zenoh` does not serve on
+    /// the group key (transient-local, a custom format) stays out whatever `group` says.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_subscriber_with_group<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        group: crate::BufferGroup,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(&[u8]) + Send + Sync + 'static,
+    {
+        self.create_raw_subscriber_inner(topic, type_name, type_hash, callback, qos, group)
     }
 
     /// Create a raw service client for FFI (no type safety)

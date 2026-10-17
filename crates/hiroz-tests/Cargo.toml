@@ -12,6 +12,7 @@ publish = false
 hiroz = { path = "../hiroz", default-features = false, features = ["protobuf"] }
 hiroz-msgs = { path = "../hiroz-msgs", default-features = false, optional = true }
 hiroz-cdr = { path = "../hiroz-cdr" }
+hiroz-protocol = { path = "../hiroz-protocol" }
 hiroz-schema = { path = "../hiroz-schema" }
 protobuf_demo = { path = "../hiroz/examples/protobuf_demo" }
 
@@ -47,6 +48,8 @@ ros-interop = [
   "hiroz-msgs/action_tutorials_interfaces",
 ]
 python-interop = ["ros-msgs"]
+# Raw-subscriber tests. `hiroz/ffi` stays off elsewhere: `cargo clippy -D warnings` does not pass on the FFI modules.
+raw-sub-tests = ["ros-msgs", "hiroz/ffi"]
 hu-meter-tests = [
   "ros-msgs",
   "hiroz-msgs/example_interfaces",
