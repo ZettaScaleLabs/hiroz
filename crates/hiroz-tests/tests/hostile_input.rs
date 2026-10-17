@@ -150,6 +150,34 @@ fn dynamic_decoder_survives_a_hostile_sequence_length() {
     );
 }
 
+/// The `BoundedSequence` arm has its own reservation. The bound exceeds the hostile count,
+/// so the decoder reaches that reservation instead of rejecting the count.
+#[test]
+fn dynamic_decoder_survives_a_hostile_bounded_sequence_length() {
+    if is_child() {
+        let schema = MessageSchema::builder("test_msgs/msg/F64BoundedSeq")
+            .field(
+                "values",
+                FieldType::BoundedSequence(Box::new(FieldType::Float64), 200_000_000),
+            )
+            .build()
+            .expect("schema");
+        limit_address_space();
+        let err = DynamicMessage::from_cdr(&hostile_sample(), &schema)
+            .expect_err("hostile length must be an error");
+        println!("hostile: {err}");
+
+        // The same process decodes the next, valid sample.
+        let msg = DynamicMessage::from_cdr(&valid_f64_sample(3), &schema).expect("valid sample");
+        println!("next valid: {} elements", elements(&msg, "values").len());
+        return;
+    }
+    assert_child_survives(
+        "dynamic_decoder_survives_a_hostile_bounded_sequence_length",
+        &["hostile: ", "next valid: 3 elements"],
+    );
+}
+
 /// A long sequence that fits its payload still decodes.
 #[test]
 fn dynamic_decoder_decodes_a_long_valid_sequence() {
