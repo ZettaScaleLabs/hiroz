@@ -222,12 +222,12 @@ fn generated_decoder_survives_a_hostile_sequence_length() {
 
 mod common;
 
-/// A typed subscriber on its base key must outlive a hostile sample from a raw publisher.
+/// A typed subscriber must outlive a hostile sample from a raw publisher.
 /// The child builds the subscriber and the publisher, limits its address space, publishes
 /// the hostile sample and then a valid one. It must return an error for the first and the
 /// message for the second.
 #[test]
-fn typed_subscriber_survives_a_hostile_sample_on_the_base_key() {
+fn typed_subscriber_survives_a_hostile_sample() {
     use std::time::{Duration, Instant};
 
     use hiroz::{Builder, msg::ZMessage};
@@ -235,21 +235,21 @@ fn typed_subscriber_survives_a_hostile_sample_on_the_base_key() {
     use zenoh::Wait;
     use zenoh_buffers::buffer::Buffer;
 
-    const NAME: &str = "typed_subscriber_survives_a_hostile_sample_on_the_base_key";
+    const NAME: &str = "typed_subscriber_survives_a_hostile_sample";
 
     if is_child() {
         let router = common::TestRouter::new();
         let ctx = common::create_hiroz_context_with_endpoint(router.endpoint()).expect("context");
         let node = ctx.create_node("hostile_sub").build().expect("node");
         let sub = node
-            .create_sub::<UInt8MultiArray>("/hostile_base_key")
+            .create_sub::<UInt8MultiArray>("/hostile_sample_topic")
             .build()
             .expect("typed subscriber");
 
         // A raw session is the publisher; it shares no code with the typed path.
-        let key = hiroz_protocol::KeyExprFormat::default()
+        let key = hiroz::context::KeyExprFormat::default()
             .topic_key_expr(sub.entity())
-            .expect("base key");
+            .expect("topic key");
         let mut config = zenoh::Config::default();
         config.insert_json5("mode", "\"client\"").expect("mode");
         config
