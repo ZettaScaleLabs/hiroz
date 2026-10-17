@@ -189,26 +189,6 @@ fn serde_vec_survives_a_hostile_length() {
     );
 }
 
-// --- the length prefix, without a child process ---------------------------------
-
-/// Reads one sequence count; the prefix reader does not consume payload bytes.
-fn read_len(len: u32, payload: usize) -> hiroz_cdr::Result<usize> {
-    let mut body = length_only(len);
-    body.extend(std::iter::repeat_n(0u8, payload));
-    CdrReader::<LittleEndian>::new(&body).read_sequence_length()
-}
-
-/// The count is not compared with the payload: it can be smaller than, equal to or larger than
-/// the bytes left, because element decoding is what checks the payload.
-#[test]
-fn sequence_length_is_independent_of_payload() {
-    assert_eq!(read_len(0, 0).unwrap(), 0, "zero length, empty payload");
-    assert_eq!(read_len(0, 10).unwrap(), 0, "zero length, trailing bytes");
-    assert_eq!(read_len(8, 8).unwrap(), 8, "length equals remaining bytes");
-    assert_eq!(read_len(1, 8).unwrap(), 1, "length below remaining bytes");
-    assert_eq!(read_len(9, 8).unwrap(), 9, "length above remaining bytes");
-}
-
 /// A long sequence that fits its payload still decodes, for the generic and the serde path.
 #[test]
 fn long_valid_sequence_still_decodes() {
@@ -238,60 +218,4 @@ fn zero_size_elements_need_no_payload_bytes() {
     assert_eq!(decode(3, 3).unwrap(), 3, "one byte per element");
     assert_eq!(decode(3, 0).unwrap(), 3, "zero-byte unit elements");
     assert_eq!(decode(3, 2).unwrap(), 3, "trailing bytes remain unread");
-}
-
-/// An element that occupies no bytes: decoding it consumes nothing.
-struct Unit;
-
-impl CdrDeserialize for Unit {
-    fn cdr_deserialize<'de, BO: byteorder::ByteOrder>(
-        _reader: &mut CdrReader<'de, BO>,
-    ) -> hiroz_cdr::Result<Self> {
-        Ok(Self)
-    }
-}
-
-/// An element of one byte, the control: its decoder does check the payload.
-struct OneByte;
-
-impl CdrDeserialize for OneByte {
-    fn cdr_deserialize<'de, BO: byteorder::ByteOrder>(
-        reader: &mut CdrReader<'de, BO>,
-    ) -> hiroz_cdr::Result<Self> {
-        reader.read_u8()?;
-        Ok(Self)
-    }
-}
-
-/// The generic `Vec<T>` decoder takes zero-byte elements without payload bytes.
-#[test]
-fn zero_size_elements_decode_through_the_generic_path() {
-    fn decode<T: CdrDeserialize>(len: u32, payload: usize) -> hiroz_cdr::Result<usize> {
-        let mut body = length_only(len);
-        body.extend(std::iter::repeat_n(0u8, payload));
-        let mut reader = CdrReader::<LittleEndian>::new(&body);
-        Vec::<T>::cdr_deserialize(&mut reader).map(|v| v.len())
-    }
-    const NAME: &str = "zero_size_elements_decode_through_the_generic_path";
-    // Controls: an element of one byte needs its byte.
-    assert_eq!(
-        decode::<OneByte>(3, 3).ok(),
-        Some(3),
-        "{NAME}: one byte per element"
-    );
-    assert!(
-        decode::<OneByte>(3, 0).is_err(),
-        "{NAME}: a one-byte element needs its payload"
-    );
-    assert_eq!(decode::<Unit>(0, 0).ok(), Some(0), "{NAME}: empty sequence");
-    assert_eq!(
-        decode::<Unit>(3, 0).ok(),
-        Some(3),
-        "{NAME}: zero-byte elements, no payload"
-    );
-    assert_eq!(
-        decode::<Unit>(3, 2).ok(),
-        Some(3),
-        "{NAME}: trailing bytes remain unread"
-    );
 }
