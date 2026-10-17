@@ -1150,9 +1150,9 @@ fn router_allowing_only(key_exprs: &[String]) -> TestRouter {
     })
 }
 
-/// A default-deny router that allows `<topic key>` and not `<topic key>/**` is expected to starve
-/// a joined subscriber, because the joined subscriber declares `<topic key>/**`. An `Off`
-/// subscriber declares `<topic key>` and keeps receiving. This test measures whether it does.
+/// A default-deny router that allows `<topic key>` and not `<topic key>/**` starves a joined
+/// subscriber, because the joined subscriber declares `<topic key>/**`. The base key is starved
+/// too. An `Off` subscriber declares `<topic key>` and keeps receiving.
 ///
 /// Controls: an `Off` subscriber receives under the allow-only rule, so the puts reach the
 /// router and the rule lets the base key through. A joined subscriber receives once the rule
