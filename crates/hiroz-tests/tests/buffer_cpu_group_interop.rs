@@ -254,8 +254,11 @@ struct KindRun {
     arms: Vec<Arm>,
 }
 
-/// Runs a typed and a no-schema joined subscriber of one payload kind against one released
-/// publisher. A typed message holds `data` as a `ZBuf` and a no-schema message as a `Vec<u8>`.
+/// Runs four joined subscribers of one payload kind against one released publisher: a typed one,
+/// a no-schema one, a dynamic one that gets its schema from the message type, and a cache. A typed
+/// message holds `data` as a `ZBuf`, a no-schema message as a `Vec<u8>` and a dynamic message as
+/// bytes. The cache counts each message its stamp extractor sees, so a repeat shows although a
+/// cache keeps one entry per stamp.
 macro_rules! run_kind {
     ($kind:expr, $topic:expr, $size:expr, $M:ty, $B:ty) => {{
         let topic: &str = $topic;
@@ -264,14 +267,34 @@ macro_rules! run_kind {
         let node = ctx.create_node("cell_node").build().expect("node");
         let typed = node.create_sub::<$M>(topic).build().unwrap();
         let blob = node.create_sub::<$B>(topic).build().unwrap();
+        let dynamic = node
+            .create_dyn_sub(topic, <$M>::message_schema().expect("message schema"))
+            .build()
+            .unwrap();
+        let cached = Arc::new(Mutex::new(SeqSet::new($size)));
+        let sink = cached.clone();
+        let _cache = node
+            .create_cache::<$M>(topic, 4 * SAMPLES as usize)
+            .with_stamp(move |m: &$M| {
+                let data = m.data.contiguous();
+                sink.lock().unwrap().record(&data);
+                // A stamp per sequence number, so the cache never merges two messages.
+                let seq = data
+                    .get(..4)
+                    .map_or(0, |b| u32::from_le_bytes(b.try_into().unwrap()));
+                std::time::UNIX_EPOCH + Duration::from_millis(seq as u64)
+            })
+            .build()
+            .unwrap();
         let base = base_key(topic, <$M>::type_name(), &<$M>::type_hash());
         let keys = KeyCounts::new(router.endpoint(), &base);
         wait_for_ready(Duration::from_secs(2));
 
         let _released = spawn_released_subscriber(&router, $kind, topic);
         wait_for_ready(Duration::from_secs(2));
-        let mut guard = spawn_seq_publisher(&router, $kind, topic, $size, 3);
-        let (mut got_typed, mut got_blob) = (SeqSet::new($size), SeqSet::new($size));
+        let mut guard = spawn_seq_publisher(&router, $kind, topic, $size, 5);
+        let (mut got_typed, mut got_blob, mut got_dyn) =
+            (SeqSet::new($size), SeqSet::new($size), SeqSet::new($size));
         drain_until_published(&mut guard, |poll| {
             if let Ok(m) = typed.recv_timeout(poll) {
                 got_typed.record(&m.data.contiguous());
@@ -279,18 +302,28 @@ macro_rules! run_kind {
             if let Ok(m) = blob.recv_timeout(poll) {
                 got_blob.record(&m.data);
             }
+            if let Ok(m) = dynamic.recv_timeout(poll) {
+                let data = m.get_dynamic("data").expect("data field");
+                got_dyn.record(data.as_bytes().expect("data bytes"));
+            }
         });
+        let got_cache = cached.lock().unwrap();
         KindRun {
             kind: $kind,
             group: keys.group(),
             base: keys.base(),
-            arms: vec![arm("typed", &got_typed), arm("no_schema", &got_blob)],
+            arms: vec![
+                arm("typed", &got_typed),
+                arm("no_schema", &got_blob),
+                arm("dynamic", &got_dyn),
+                arm("cache", &got_cache),
+            ],
         }
     }};
 }
 
-/// A joined typed and a joined no-schema subscriber each receive every sample from a released
-/// publisher in buffer mode, for `UInt8MultiArray` and for `PointCloud2`. A plain session counts
+/// A joined typed, no-schema, dynamic and cache subscriber each receive every sample from a
+/// released publisher in buffer mode, for `UInt8MultiArray` and for `PointCloud2`. A plain session counts
 /// the samples per key: the group key carries all of them and the base key none, so the test
 /// cannot pass against a publisher that is not in buffer mode. The payload carries a sequence
 /// number, so a repeat and a gap show.
