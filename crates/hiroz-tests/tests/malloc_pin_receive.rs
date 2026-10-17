@@ -226,10 +226,11 @@ fn improvement_margin(pinned: &[f64], old: &[f64]) -> f64 {
 
 #[test]
 fn improvement_check_separates_the_two_measured_hosts_from_the_revert() {
-    // Synthetic samples with the medians and ranges measured on two hosts, in ms (n=5 per arm).
-    // Host 1: glibc 2.41, old pin 32.0 and 256 MiB pin 13.3. Host 2: glibc 2.42, old pin 47.0 and
-    // 256 MiB pin 18.6. The revert makes the pinned arm the old pin, so both arms come from one
-    // distribution.
+    // Synthetic samples, in ms (n=5 per arm), built around the medians of two hosts with ranges
+    // rounded up from the ranges measured there. The ranges are not the measured samples.
+    // Host 1 (glibc 2.41, reported, not re-run): old pin 32.0, 256 MiB pin 13.3.
+    // Host 2 (glibc 2.42): old pin 47.0, 256 MiB pin 18.6.
+    // The revert makes the pinned arm another sample of the old pin.
     let host1_old = [31.8, 31.9, 32.0, 32.0, 32.3];
     let host1_new = [13.2, 13.3, 13.3, 13.4, 13.4];
     let host2_old = [46.7, 46.8, 47.0, 47.7, 48.6];
@@ -237,10 +238,18 @@ fn improvement_check_separates_the_two_measured_hosts_from_the_revert() {
     for (old, new) in [(&host1_old, &host1_new), (&host2_old, &host2_new)] {
         let m = improvement_margin(new, old);
         assert!(improves(new, old, m), "the fix must pass: margin {m}");
-        // revert: the pinned arm is another sample of the old pin
-        let m = improvement_margin(old, old);
-        assert!(!improves(old, old, m), "the revert must fail: margin {m}");
+        // Revert: the pinned arm is an independent sample of the old pin. Shifting it down by the
+        // whole range of the old arm is the best case for a false pass.
+        let r = range(old);
+        let reverted: Vec<f64> = old.iter().map(|x| x - r).collect();
+        let m = improvement_margin(&reverted, old);
+        assert!(
+            !improves(&reverted, old, m),
+            "the revert must fail: margin {m}"
+        );
     }
+    // The margin must not be zero or the check would accept noise.
+    assert!(improvement_margin(&host2_new, &host2_old) >= 2.0 * range(&host2_old));
     // On host 1 no pin runs at 34.0 ms, slower than the old pin, so the pinned-not-slower check
     // passes the revert there. The improvement check is what fails it.
     let host1_none = [33.2, 33.9, 34.0, 34.1, 35.3];
