@@ -43,8 +43,16 @@ def run-tests [] {
 # The number of `#[test]` in `buffer_cpu_group_raw.rs`. Change it with the suite.
 const RAW_SUITE_TESTS = 9
 
-def check-raw-suite-listed [] {
+# `--os-name` exists so the host decision can be tested; it defaults to the real host.
+def check-raw-suite-listed [--os-name: string] {
     log-step "The raw subscriber suite is built"
+    # The suite is `#![cfg(target_os = "linux")]`, so it lists 0 tests on any other host. The guard
+    # catches a missing feature on Linux, where the suite exists, and skips elsewhere.
+    let os = ($os_name | default $nu.os-info.name)
+    if $os != "linux" {
+        print $"buffer_cpu_group_raw guard skipped: host is ($os), the suite is Linux-only"
+        return
+    }
     # `buffer_cpu_group_raw` is gated on `raw-sub-tests`. A run without the feature compiles it to
     # nothing and reports success, so the run above proves nothing unless the suite is listed.
     let listed = (^cargo nextest list -p hiroz-tests --features ros-msgs,jazzy,raw-sub-tests --message-format oneline | complete)
