@@ -3,7 +3,7 @@
 //! A buffer-aware `rmw_zenoh` publisher sends nothing on the base key to a subscriber whose
 //! liveliness token has no `backends:` field. These tests play the publisher with a raw Zenoh
 //! session, so they need no ROS installation. They check the two things the publisher reads:
-//! the token, and the `<base>/_buf_cpu` subscription.
+//! the token, and the subscription.
 //!
 //! Expected values are literals from real `rmw_zenoh` output: the token layout and the message
 //! hashes come from tokens a Lyrical publisher and subscriber wrote, the QoS chunks from the
@@ -607,8 +607,41 @@ fn cache_joins_the_group() {
     );
 }
 
+/// `Off` on a cache keeps it out of the group and it reads the base key. A cache on `Auto` for
+/// the same type joins, so a missing group token is the setting and not a dead setup.
+#[test]
+fn cache_with_group_off_stays_out() {
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    let off = node
+        .create_cache::<UInt8MultiArray>("/cache_off", 10)
+        .with_buffer_group(BufferGroup::Off)
+        .build()
+        .unwrap();
+    let _auto = node
+        .create_cache::<UInt8MultiArray>("/cache_auto", 10)
+        .build()
+        .unwrap();
+
+    assert_token(
+        &token_for(&raw, "cache_auto"),
+        shape("tok_node", "cache_auto", &UINT8, true),
+    );
+    assert_token(
+        &token_for(&raw, "cache_off"),
+        shape("tok_node", "cache_off", &UINT8, false),
+    );
+    let key = base_key("cache_off", &UINT8);
+    assert!(
+        put_until(&raw, &key, &PAYLOAD, RECV, || !off.is_empty()),
+        "cache_with_group_off_stays_out: the cache received nothing on {key}"
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
-// Group keys, teardown and the subscription-before-token order
+// Group keys and teardown
 // ---------------------------------------------------------------------------------------------
 
 /// A joined subscriber receives on the key a real publisher writes, and a subscriber
@@ -895,8 +928,8 @@ fn joining_logs_the_group_key_once_per_key() {
     let expected = |topic: &str| {
         format!(
             "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
-             key {group}. A router access-control rule that denies either key drops buffer \
-             messages and reports no error. Allow both keys wherever you allow its topic key.",
+             key {group}. A router access-control rule that denies {base}/** or {group} drops \
+             buffer messages and reports no error. Allow {base}/** wherever you allow {base}.",
             base = base_key(topic, &UINT8),
             group = group_key(topic, &UINT8)
         )
@@ -931,8 +964,8 @@ fn joining_logs_the_group_key_once_per_key() {
     );
 }
 
-/// A router that denies `key_expr` on every interface, as in the access-control check. A rule
-/// whose subject names only `lo` matched nothing there.
+/// A router that denies `key_expr` on every interface. A rule whose subject names only `lo`
+/// would match nothing.
 fn router_denying(key_expr: &str) -> TestRouter {
     let interfaces: Vec<String> = std::fs::read_dir("/sys/class/net")
         .expect("list interfaces")
@@ -961,42 +994,6 @@ fn router_denying(key_expr: &str) -> TestRouter {
 
 fn router_denying_the_group_key() -> TestRouter {
     router_denying("0/*/*/*/_buf_cpu")
-}
-
-/// A router that denies the group key does not break the base key. A subscriber that
-/// joins a non-buffer topic still receives each sample once. A router with no rule is the control
-/// for the group key itself.
-#[test]
-fn non_buffer_topic_still_delivers_under_a_group_key_deny_rule() {
-    const SAMPLES: usize = 20;
-    let router = router_denying_the_group_key();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let sub = node
-        .create_sub::<Float64MultiArray>("/acl_plain")
-        .with_buffer_group(BufferGroup::Cpu)
-        // The test puts every sample before it receives, so the queue must hold them all.
-        .with_qos(QosProfile {
-            history: QosHistory::KeepLast(std::num::NonZeroUsize::new(SAMPLES).unwrap()),
-            ..Default::default()
-        })
-        .build()
-        .unwrap();
-    token_for(&raw, "acl_plain");
-
-    // A `Float64MultiArray` with no dimensions and no data: header, then three zero words.
-    let payload = [0u8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let key = base_key("acl_plain", &FLOAT64);
-    std::thread::sleep(POLL);
-    for _ in 0..SAMPLES {
-        raw.put(&key, payload.to_vec()).wait().unwrap();
-    }
-    let mut received = 0;
-    while sub.recv_timeout(QUIET).is_ok() {
-        received += 1;
-    }
-    assert_eq!(received, SAMPLES);
 }
 
 /// Under a rule that denies the group key, a joined

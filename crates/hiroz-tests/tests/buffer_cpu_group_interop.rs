@@ -2,12 +2,12 @@
 //!
 //! A buffer-aware `rmw_zenoh_cpp` writes a message with an unbounded `uint8[]` field only on
 //! `<topic key>/_buf_cpu`, and only when a matched subscriber announces buffer support. A plain
-//! Zenoh session counts the samples per key, so a cell checks that the publisher really is in
+//! Zenoh session counts the samples per key, so a test checks that the publisher really is in
 //! buffer mode: the group key carries the samples and the base key none.
 //!
-//! Cells that need a buffer-aware `rmw_zenoh_cpp` call `buffer_rmw::buffer_aware_rmw_or_skip`.
-//! Without one they print `Skipping <cell>: ...` and return. Setting `HIROZ_REQUIRE_BUFFER_RMW`
-//! turns that skip into a failure. The other cells run on every distro.
+//! Tests that need a buffer-aware `rmw_zenoh_cpp` call `buffer_rmw::buffer_aware_rmw_or_skip`.
+//! Without one they print `Skipping <test>: ...` and return. Setting `HIROZ_REQUIRE_BUFFER_RMW`
+//! turns that skip into a failure. The other tests run on every distro.
 
 #![cfg(target_os = "linux")]
 #![cfg(feature = "ros-interop")]
@@ -101,7 +101,7 @@ impl hiroz::msg::ZMessage for CloudBlob {
     type Serdes = hiroz::msg::SerdeCdrSerdes<CloudBlob>;
 }
 
-/// The messages one cell publishes.
+/// The messages one test publishes.
 const SAMPLES: u32 = 30;
 
 /// The base key of a topic for the domain 0, as `rmw_zenoh_cpp` writes it.
@@ -116,7 +116,7 @@ fn base_key(topic: &str, type_name: &str, hash: &hiroz::TypeHash) -> String {
 
 /// The base key a released publisher writes for the topic of `entity`, in the key format of the
 /// distro this binary is built for. The type-hash segment is `RIHS01_...` on Jazzy and later and
-/// `TypeHashNotSupported` on Humble, so a cell that reads the base key must not spell the hash.
+/// `TypeHashNotSupported` on Humble, so a test that reads the base key must not spell the hash.
 fn entity_base_key(entity: &hiroz_protocol::EndpointEntity) -> String {
     hiroz_protocol::KeyExprFormat::default()
         .topic_key_expr(entity)
@@ -291,7 +291,7 @@ macro_rules! run_kind {
 
 /// A joined typed and a joined no-schema subscriber each receive every sample from a released
 /// publisher in buffer mode, for `UInt8MultiArray` and for `PointCloud2`. A plain session counts
-/// the samples per key: the group key carries all of them and the base key none, so the cell
+/// the samples per key: the group key carries all of them and the base key none, so the test
 /// cannot pass against a publisher that is not in buffer mode. The payload carries a sequence
 /// number, so a repeat and a gap show.
 #[test]
@@ -656,10 +656,10 @@ fn mixed_run(topic: &str, with_off: bool, with_released: bool) -> MixRun {
 }
 
 /// A buffer-aware publisher writes each sample once, on one key, whatever mix of subscribers is
-/// matched, and a joined hiroz subscriber delivers each sample once. The cell runs three matched
+/// matched, and a joined hiroz subscriber delivers each sample once. The test runs three matched
 /// sets: the joined subscriber with a released one, with an `Off` subscriber, and with both. A
 /// plain Zenoh subscriber on `<topic key>/**` counts the samples per key. In every set the group
-/// key carries all samples and the base key none. The cell prints every key that carried samples
+/// key carries all samples and the base key none. The test prints every key that carried samples
 /// and asserts only on those two counts. The `Off` subscriber reads the base key only, so it
 /// receives nothing.
 #[test]
@@ -707,6 +707,8 @@ fn mixed_matched_set_delivers_each_sample_once() {
         );
         assert_eq!(run.joined.duplicates, 0, "{NAME}: {set}: joined repeats");
         if let Some(off) = &run.off {
+            // A subscriber with no `backends:` field gets nothing from a buffer-aware publisher.
+            // This changes when the upstream publisher serves such subscribers on the base key.
             assert_eq!(off.received, 0, "{NAME}: {set}: off received");
         }
     }

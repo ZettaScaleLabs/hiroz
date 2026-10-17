@@ -1,21 +1,16 @@
 pub mod buffer_rmw;
 
-use std::{
-    process::{Child, Command, Stdio},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread,
-    time::Duration,
-};
+use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::Duration;
 
 use hiroz::Builder;
-use nix::{
-    sys::signal::{self, Signal},
-    unistd::Pid,
-};
-use zenoh::{Wait, config::WhatAmI};
+use nix::sys::signal::{self, Signal};
+use nix::unistd::Pid;
+use zenoh::Wait;
+use zenoh::config::WhatAmI;
 
 /// Helper to manage background processes with automatic cleanup
 #[allow(dead_code)]

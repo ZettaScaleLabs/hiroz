@@ -6,8 +6,7 @@
 //! the group does both.
 //!
 //! A joined subscriber has one subscription, on `<base>/**`. It reads the base key and the group
-//! key, and drops every other key under the base in process. It declares no second subscription,
-//! because the declaration time of a session grows with the square of its subscription count.
+//! key, and drops every other key under the base in process. It declares no second subscription.
 
 use std::{
     collections::HashSet,
@@ -16,12 +15,7 @@ use std::{
 
 use hiroz_protocol::{KeyExprFormat, qos::QosDurability};
 use tracing::{debug, info};
-use zenoh::{
-    Result, Wait,
-    key_expr::KeyExpr,
-    liveliness::LivelinessToken,
-    sample::Sample,
-};
+use zenoh::{Result, Wait, key_expr::KeyExpr, liveliness::LivelinessToken, sample::Sample};
 
 use crate::entity::EndpointEntity;
 
@@ -37,7 +31,8 @@ pub enum BufferGroup {
     /// `uint8[]`, directly or nested, or hiroz has no definition to ask. This is the default.
     #[default]
     Auto,
-    /// Join, whatever the message is.
+    /// Join, whatever the message is, except for a transient-local subscriber or a key format other
+    /// than `rmw_zenoh`'s.
     Cpu,
     /// Do not join.
     Off,
@@ -150,8 +145,8 @@ impl Drop for Membership {
     }
 }
 
-/// An operator learns here that the subscription and the group key need access-control rules: a
-/// router that denies either key drops buffer messages and reports no error. One line per group
+/// An operator learns here that the subscription needs an access-control rule: a router that
+/// denies `<base>/**` or the group key drops buffer messages and reports no error. One line per group
 /// key and process. `LOGGED` keeps one entry per joined topic key and is not pruned.
 fn log_once(base: &str, group: &str) {
     static LOGGED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -163,8 +158,8 @@ fn log_once(base: &str, group: &str) {
     if first {
         info!(
             "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
-             key {group}. A router access-control rule that denies either key drops buffer \
-             messages and reports no error. Allow both keys wherever you allow its topic key."
+             key {group}. A router access-control rule that denies {base}/** or {group} drops \
+             buffer messages and reports no error. Allow {base}/** wherever you allow {base}."
         );
     }
 }
