@@ -160,8 +160,9 @@ fn raw_opt_in_subscriber_receives_from_a_released_publisher() {
     wait_for_ready(Duration::from_secs(2));
     let _released = spawn_released_subscriber(&router, topic);
     wait_for_ready(Duration::from_secs(2));
-    // Three matched subscribers: the released one and the two raw ones.
-    let mut publisher = spawn_seq_publisher(&router, topic, 3);
+    // Two matched subscribers: the released one and the opted-in raw one. The default raw
+    // subscriber declares no token, so it does not match.
+    let mut publisher = spawn_seq_publisher(&router, topic, 2);
 
     // Wait for the publisher to exit, then give its last samples two seconds to arrive.
     let end = Instant::now() + Duration::from_secs(SAMPLES as u64 / 5 + 40);
