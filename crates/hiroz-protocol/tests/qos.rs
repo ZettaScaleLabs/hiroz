@@ -116,3 +116,273 @@ fn reject_invalid_duration_and_liveliness() {
         Err(QosDecodeError::InvalidLiveliness),
     );
 }
+
+// ---------------------------------------------------------------------------
+// Conformance with the chunk rmw_zenoh_cpp writes. The expected text comes
+// from fixtures captured from the real C++ code (see
+// `fixtures/rmw_zenoh_qos/README.md`); nothing here recomputes it.
+// ---------------------------------------------------------------------------
+
+const GRID: &str = include_str!("fixtures/rmw_zenoh_qos/qos_grid.tsv");
+const DEPTHS: &str = include_str!("fixtures/rmw_zenoh_qos/qos_depths.tsv");
+
+/// One fixture row: the rmw integers the C++ writer was given, and the chunk it wrote.
+struct Row {
+    rel: u32,
+    dur: u32,
+    hist: u32,
+    depth: usize,
+    deadline: (u64, u64),
+    lifespan: (u64, u64),
+    lv: u32,
+    lease: (u64, u64),
+    chunk: &'static str,
+}
+
+fn rows(fixture: &'static str) -> Vec<Row> {
+    fixture
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+        .map(|l| {
+            let (fields, chunk) = l.split_once('\t').expect("fixture row has a tab");
+            let n: Vec<u64> = fields
+                .split(' ')
+                .map(|v| v.parse().expect("fixture field is an integer"))
+                .collect();
+            assert_eq!(n.len(), 11, "{l}");
+            Row {
+                rel: n[0] as u32,
+                dur: n[1] as u32,
+                hist: n[2] as u32,
+                depth: n[3] as usize,
+                deadline: (n[4], n[5]),
+                lifespan: (n[6], n[7]),
+                lv: n[8] as u32,
+                lease: (n[9], n[10]),
+                chunk,
+            }
+        })
+        .collect()
+}
+
+fn profile_of(r: &Row) -> QosProfile {
+    let dur = |(sec, nsec)| QosDuration { sec, nsec };
+    QosProfile {
+        reliability: match r.rel {
+            1 => QosReliability::Reliable,
+            2 => QosReliability::BestEffort,
+            v => panic!("reliability {v}"),
+        },
+        durability: match r.dur {
+            1 => QosDurability::TransientLocal,
+            2 => QosDurability::Volatile,
+            v => panic!("durability {v}"),
+        },
+        history: match r.hist {
+            1 => QosHistory::KeepLast(r.depth),
+            2 => QosHistory::KeepAll,
+            v => panic!("history {v}"),
+        },
+        deadline: dur(r.deadline),
+        lifespan: dur(r.lifespan),
+        liveliness: match r.lv {
+            1 => QosLiveliness::Automatic,
+            3 => QosLiveliness::ManualByTopic,
+            v => panic!("liveliness {v}"),
+        },
+        liveliness_lease_duration: dur(r.lease),
+    }
+}
+
+/// `(row number, got, expected)` for every row whose chunk differs.
+fn chunk_mismatches(rows: &[Row]) -> Vec<(usize, String, &'static str)> {
+    rows.iter()
+        .enumerate()
+        .filter_map(|(i, r)| {
+            let got = profile_of(r).encode();
+            (got != r.chunk).then_some((i + 1, got, r.chunk))
+        })
+        .collect()
+}
+
+#[test]
+fn qos_chunk_equals_rmw_zenoh_for_every_grid_profile() {
+    let grid = rows(GRID);
+    assert_eq!(grid.len(), 576, "fixture is the whole grid");
+    let bad = chunk_mismatches(&grid);
+    assert!(
+        bad.is_empty(),
+        "R1ASSERT qos_chunk_equals_rmw_zenoh_for_every_grid_profile: {} of {} rows differ from rmw_zenoh; first 3 (row, hiroz, rmw_zenoh): {:?}",
+        bad.len(),
+        grid.len(),
+        &bad[..bad.len().min(3)]
+    );
+}
+
+/// The hiroz-default depth and keep-all profiles agree with the reference
+/// writer for every reliability, durability, and duration combination.
+#[test]
+fn default_depth_and_keep_all_grid_rows_match_rmw_zenoh() {
+    let kept: Vec<Row> = rows(GRID)
+        .into_iter()
+        .filter(|r| r.hist == 2 || r.depth == 10)
+        .collect();
+    assert_eq!(kept.len(), 192, "96 depth-10 rows and 96 keep-all rows");
+    let bad = chunk_mismatches(&kept);
+    assert!(
+        bad.is_empty(),
+        "{} rows regressed: {:?}",
+        bad.len(),
+        &bad[..bad.len().min(3)]
+    );
+}
+
+/// Keep-last profiles at rmw_zenoh's wire-default depth encode their history
+/// field as `,`, not `,42`, for every fixture combination.
+#[test]
+fn wire_default_depth_is_omitted_from_keep_last_history() {
+    let history_field = |chunk: &str| chunk.split(':').nth(2).map(str::to_string);
+    let grid = rows(GRID);
+    let depth_42: Vec<&Row> = grid
+        .iter()
+        .filter(|r| r.hist == 1 && r.depth == 42)
+        .collect();
+    assert_eq!(
+        depth_42.len(),
+        96,
+        "the depth-42 keep-last rows of the grid"
+    );
+    for r in depth_42 {
+        let always_depth = Some(",42".to_string());
+        assert_ne!(
+            history_field(r.chunk),
+            always_depth,
+            "fixture row {:?} lost its depth omission",
+            r.chunk
+        );
+        assert_eq!(
+            history_field(&profile_of(r).encode()),
+            history_field(r.chunk),
+            "encoder history field on depth-42 row {:?}",
+            r.chunk
+        );
+    }
+}
+
+const DECODE: &str = include_str!("fixtures/rmw_zenoh_qos/qos_decode.tsv");
+
+/// When hiroz decodes a chunk that rmw_zenoh parses, the fields equal the ones
+/// rmw_zenoh returns.
+///
+/// Rows marked `NULL` are chunks rejected by rmw_zenoh. hiroz intentionally
+/// accepts `:::,:,:,,`, so rejected rows are excluded from field comparison
+/// and enumerated explicitly to keep that compatibility boundary visible.
+#[test]
+fn qos_chunk_decodes_like_rmw_zenoh() {
+    let mut compared = 0;
+    let mut rejected = Vec::new();
+    for line in DECODE.lines() {
+        let (chunk, fields) = line.split_once('\t').expect("fixture row has a tab");
+        if fields == "NULL" {
+            rejected.push(chunk);
+            continue;
+        }
+        let row_text = format!("{fields}\t{chunk}");
+        let row = rows(Box::leak(row_text.into_boxed_str()))
+            .pop()
+            .expect("one row");
+        assert_eq!(
+            QosProfile::decode(chunk),
+            Ok(profile_of(&row)),
+            "chunk {chunk:?}, rmw_zenoh fields {fields:?}"
+        );
+        compared += 1;
+    }
+    assert_eq!(compared, 17, "19 fixture chunks, 2 rejected by rmw_zenoh");
+    assert_eq!(rejected, [":::,:,:,,", "::,:,:,:2,,"]);
+}
+
+/// When hiroz encodes depth 0 to 100 for each history kind, each chunk equals
+/// the writer's.
+///
+/// hiroz `KeepAll` carries no depth, but rmw_zenoh writes `2,` for depth 42
+/// and `2,0` for depth 0. One text cannot match both, so for keep-all the
+/// text is compared on the depth-42 row (in the grid) and here the chunk must
+/// decode back to `KeepAll`.
+#[test]
+fn qos_chunk_equals_rmw_zenoh_for_depths_0_to_100() {
+    let depths = rows(DEPTHS);
+    assert_eq!(
+        depths.len(),
+        408,
+        "4 reliability/durability pairs, 102 rows each"
+    );
+
+    let keep_last: Vec<Row> = depths.into_iter().filter(|r| r.hist == 1).collect();
+    assert_eq!(keep_last.len(), 404, "depths 0 to 100, 4 pairs");
+    let bad = chunk_mismatches(&keep_last);
+    assert!(
+        bad.is_empty(),
+        "R1ASSERT qos_chunk_equals_rmw_zenoh_for_depths_0_to_100: {} of {} keep-last rows differ from rmw_zenoh; first 3 (row, hiroz, rmw_zenoh): {:?}",
+        bad.len(),
+        keep_last.len(),
+        &bad[..bad.len().min(3)]
+    );
+
+    let keep_all: Vec<Row> = rows(DEPTHS).into_iter().filter(|r| r.hist == 2).collect();
+    assert_eq!(keep_all.len(), 4, "keep-all with depth 0, 4 pairs");
+    for r in &keep_all {
+        assert_eq!(
+            QosProfile::decode(r.chunk),
+            Ok(profile_of(r)),
+            "keep-all chunk {:?} does not round-trip",
+            r.chunk
+        );
+    }
+}
+
+/// `ManualByNode` is represented by key 2 in hiroz. rmw_zenoh has no key 2,
+/// rejects the complete chunk, and therefore does not discover the entity.
+#[test]
+fn manual_by_node_is_written_as_a_chunk_rmw_zenoh_rejects() {
+    let chunk = QosProfile {
+        history: QosHistory::KeepLast(RMW_ZENOH_DEFAULT_HISTORY_DEPTH),
+        liveliness: QosLiveliness::ManualByNode,
+        ..QosProfile::default()
+    }
+    .encode();
+    assert_eq!(chunk, "::,:,:,:2,,");
+    let rejected: Vec<&str> = DECODE
+        .lines()
+        .filter_map(|l| l.split_once('\t'))
+        .filter(|(_, fields)| *fields == "NULL")
+        .map(|(chunk, _)| chunk)
+        .collect();
+    assert!(
+        rejected.contains(&chunk.as_str()),
+        "rmw_zenoh no longer rejects {chunk:?}; rejected chunks: {rejected:?}"
+    );
+}
+
+const DURATIONS: &str = include_str!("fixtures/rmw_zenoh_qos/qos_durations.tsv");
+
+/// Each duration component is encoded independently: a default component is
+/// omitted while a non-default component is retained. These mixed-default
+/// profiles are not present in the main grid fixture.
+#[test]
+fn qos_chunk_equals_rmw_zenoh_when_one_duration_component_is_default() {
+    let durations = rows(DURATIONS);
+    assert_eq!(
+        durations.len(),
+        12,
+        "4 component pairs for each of deadline, lifespan and lease"
+    );
+    let bad = chunk_mismatches(&durations);
+    assert!(
+        bad.is_empty(),
+        "{} of {} rows differ from rmw_zenoh; first 3 (row, hiroz, rmw_zenoh): {:?}",
+        bad.len(),
+        durations.len(),
+        &bad[..bad.len().min(3)]
+    );
+}

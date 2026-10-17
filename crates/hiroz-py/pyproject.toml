@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "hiroz-py"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python bindings for hiroz: Native Rust ROS 2 implementation using Zenoh"
 requires-python = ">=3.8"
 license = { text = "Apache-2.0" }
@@ -24,7 +24,7 @@ classifiers = [
 ]
 dependencies = [
     "msgspec>=0.18.0",
-    "hiroz-msgs-py>=0.1.0",
+    "hiroz-msgs-py>=0.2.0",
 ]
 
 [tool.maturin]
