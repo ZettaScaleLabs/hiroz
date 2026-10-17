@@ -40,6 +40,9 @@ def run-tests [] {
     run-cmd "cargo check -p hiroz-tests --tests --features ros-interop,raw-sub-tests,jazzy"
 }
 
+# The number of `#[test]` in `buffer_cpu_group_raw.rs`. Change it with the suite.
+const RAW_SUITE_TESTS = 9
+
 def check-raw-suite-listed [] {
     log-step "The raw subscriber suite is built"
     # `buffer_cpu_group_raw` is gated on `raw-sub-tests`. A run without the feature compiles it to
@@ -50,9 +53,12 @@ def check-raw-suite-listed [] {
         error make {msg: "cargo nextest list failed for the raw subscriber suite"}
     }
     let found = ($listed.stdout | lines | where {|it| $it =~ 'buffer_cpu_group_raw '} | length)
-    print $"buffer_cpu_group_raw tests listed: ($found)"
+    print $"buffer_cpu_group_raw tests listed: ($found), expected: ($RAW_SUITE_TESTS)"
     if $found == 0 {
         error make {msg: "no buffer_cpu_group_raw test is listed: the raw-sub-tests feature is off"}
+    }
+    if $found != $RAW_SUITE_TESTS {
+        error make {msg: $"buffer_cpu_group_raw lists ($found) tests, expected ($RAW_SUITE_TESTS): a test is hidden or the count is stale"}
     }
 }
 
