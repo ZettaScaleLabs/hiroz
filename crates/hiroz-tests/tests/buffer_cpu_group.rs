@@ -1120,6 +1120,92 @@ fn denied_wide_key_starves_a_joined_subscriber() {
     );
 }
 
+/// A router with default-deny access control that allows only `key_exprs`, on every interface.
+/// This is the allow-list shape: the operator names the topic key and nothing else.
+fn router_allowing_only(key_exprs: &[String]) -> TestRouter {
+    let interfaces: Vec<String> = std::fs::read_dir("/sys/class/net")
+        .expect("list interfaces")
+        .map(|e| format!("\"{}\"", e.unwrap().file_name().to_string_lossy()))
+        .collect();
+    let keys: Vec<String> = key_exprs.iter().map(|k| format!("\"{k}\"")).collect();
+    let access_control = format!(
+        r#"{{
+            enabled: true,
+            default_permission: "deny",
+            rules: [{{
+                id: "allow_rule", permission: "allow",
+                messages: ["put", "declare_subscriber"], flows: ["egress", "ingress"],
+                key_exprs: [{}],
+            }}],
+            subjects: [{{ id: "all", interfaces: [{}] }}],
+            policies: [{{ rules: ["allow_rule"], subjects: ["all"] }}],
+        }}"#,
+        keys.join(","),
+        interfaces.join(",")
+    );
+    TestRouter::with_config(move |config| {
+        config
+            .insert_json5("access_control", &access_control)
+            .unwrap();
+    })
+}
+
+/// A default-deny router that allows `<topic key>` and not `<topic key>/**` is expected to starve
+/// a joined subscriber, because the joined subscriber declares `<topic key>/**`. An `Off`
+/// subscriber declares `<topic key>` and keeps receiving. This test measures whether it does.
+///
+/// Controls: an `Off` subscriber receives under the allow-only rule, so the puts reach the
+/// router and the rule lets the base key through. A joined subscriber receives once the rule
+/// also allows `<topic key>/**`, which is the remedy the docs give.
+#[test]
+fn allow_only_base_key_starves_a_joined_subscriber() {
+    let base = base_key("acl_allow", &UINT8);
+    let allow_base = router_allowing_only(&[base.clone()]);
+    let allow_both = router_allowing_only(&[base.clone(), format!("{base}/**")]);
+    let arrivals = |router: &TestRouter, mode: BufferGroup, key: &str| {
+        let raw = raw_session(router.endpoint());
+        let ctx = create_hiroz_context_with_router(router).expect("ctx");
+        let node = ctx.create_node("tok_node").build().expect("node");
+        let sub = node
+            .create_sub::<UInt8MultiArray>("/acl_allow")
+            .with_buffer_group(mode)
+            .build()
+            .expect("build returns Ok under a deny rule");
+        std::thread::sleep(POLL);
+        for _ in 0..20 {
+            raw.put(key, PAYLOAD.to_vec()).wait().unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let mut received = 0;
+        while sub.recv_timeout(POLL).is_ok() {
+            received += 1;
+        }
+        received
+    };
+    let check = |what: &str, received: usize, delivers: bool| {
+        assert!(
+            (received > 0) == delivers,
+            "allow_only_base_key_starves_a_joined_subscriber: {what}: received {received}, expected {}",
+            if delivers { "some" } else { "none" }
+        );
+    };
+    check(
+        "control: allow base only, Off, base key",
+        arrivals(&allow_base, BufferGroup::Off, &base),
+        true,
+    );
+    check(
+        "control: allow base and base/**, joined, base key",
+        arrivals(&allow_both, BufferGroup::Auto, &base),
+        true,
+    );
+    check(
+        "allow base only, joined, base key",
+        arrivals(&allow_base, BufferGroup::Auto, &base),
+        false,
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // The base subscription serves the group key
 // ---------------------------------------------------------------------------------------------
