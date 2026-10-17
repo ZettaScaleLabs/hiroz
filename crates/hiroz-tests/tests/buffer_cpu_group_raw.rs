@@ -142,6 +142,11 @@ fn put_until(
     false
 }
 
+fn raw_put(session: &zenoh::Session, key: &str) {
+    use zenoh::Wait;
+    session.put(key, PAYLOAD.to_vec()).wait().expect("put");
+}
+
 /// A raw callback that counts what it receives.
 fn counter() -> (Arc<AtomicUsize>, impl Fn(&[u8]) + Send + Sync + 'static) {
     let count = Arc::new(AtomicUsize::new(0));
@@ -258,11 +263,6 @@ fn raw_subscriber_with_the_opt_in_joins_and_one_callback_serves_both_keys() {
             "{NAME}: one put on {key} produced {got} callback calls"
         );
     }
-}
-
-fn raw_put(session: &zenoh::Session, key: &str) {
-    use zenoh::Wait;
-    session.put(key, PAYLOAD.to_vec()).wait().expect("put");
 }
 
 /// With a default and an opted-in raw subscriber side by side, only the opted-in one
