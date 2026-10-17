@@ -6,7 +6,7 @@
 //! space limit (`RLIMIT_AS`) and checks how the child ended. A cgroup memory
 //! limit does not trigger the abort: the reservation is not charged until touched.
 
-#![cfg(target_os = "linux")]
+#![cfg(all(target_os = "linux", feature = "ros-msgs"))]
 
 use std::process::{Command, Output};
 
@@ -31,6 +31,8 @@ fn limit_address_space() {
         .expect("VmSize in /proc/self/status");
     let limit = kb * 1024 + HEADROOM;
     setrlimit(Resource::RLIMIT_AS, limit, limit).expect("setrlimit RLIMIT_AS");
+    // The child aborts on purpose; a core dump would be large and slow.
+    setrlimit(Resource::RLIMIT_CORE, 0, 0).expect("setrlimit RLIMIT_CORE");
 }
 
 fn run_child(name: &str) -> Output {
@@ -150,8 +152,8 @@ fn dynamic_decoder_survives_a_hostile_sequence_length() {
     );
 }
 
-/// The `BoundedSequence` arm has its own reservation. The bound exceeds the hostile count,
-/// so the decoder reaches that reservation instead of rejecting the count.
+/// The `BoundedSequence` arm has its own reservation. The decoder does not check the bound,
+/// so this test reaches that reservation whatever bound the schema states.
 #[test]
 fn dynamic_decoder_survives_a_hostile_bounded_sequence_length() {
     if is_child() {
