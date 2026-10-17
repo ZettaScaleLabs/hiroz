@@ -65,6 +65,8 @@ pub mod ffi;
 pub mod graph;
 /// ROS 2 lifecycle node support (state machine, lifecycle publisher).
 pub mod lifecycle;
+/// Allocator pin for large message payloads (glibc only).
+pub mod malloc_pin;
 /// Typed message wrappers and helpers.
 pub mod msg;
 /// ROS 2 node creation and management.
