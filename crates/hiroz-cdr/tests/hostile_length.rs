@@ -53,6 +53,8 @@ fn limit_address_space() {
         .expect("VmSize in /proc/self/status");
     let limit = kb * 1024 + HEADROOM;
     setrlimit(Resource::RLIMIT_AS, limit, limit).expect("setrlimit RLIMIT_AS");
+    // The child aborts on purpose; a core dump would be large and slow.
+    setrlimit(Resource::RLIMIT_CORE, 0, 0).expect("setrlimit RLIMIT_CORE");
 }
 
 /// Re-run test `name` of this binary as a child with the hostile-length limit.
