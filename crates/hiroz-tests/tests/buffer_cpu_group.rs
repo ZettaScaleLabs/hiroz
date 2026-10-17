@@ -1160,7 +1160,7 @@ fn router_allowing_only(key_exprs: &[String]) -> TestRouter {
 #[test]
 fn allow_only_base_key_starves_a_joined_subscriber() {
     let base = base_key("acl_allow", &UINT8);
-    let allow_base = router_allowing_only(&[base.clone()]);
+    let allow_base = router_allowing_only(std::slice::from_ref(&base));
     let allow_both = router_allowing_only(&[base.clone(), format!("{base}/**")]);
     let arrivals = |router: &TestRouter, mode: BufferGroup, key: &str| {
         let raw = raw_session(router.endpoint());
