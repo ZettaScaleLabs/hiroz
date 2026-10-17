@@ -650,8 +650,7 @@ impl ZNode {
 
     /// Create a raw subscriber for FFI with optional QoS
     ///
-    /// The subscriber stays out of rmw_zenoh's CPU buffer group, so its liveliness token, if any,
-    /// has no `backends:` field.
+    /// The subscriber stays out of rmw_zenoh's CPU buffer group and declares no liveliness token.
     /// Use [`ZNode::create_raw_subscriber_with_group`] to join.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_qos<F>(
