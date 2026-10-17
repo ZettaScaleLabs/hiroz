@@ -120,6 +120,10 @@ fn apply_arm(arm: &str) -> String {
         let a = unsafe { mallopt(-3, mib(mmap)) };
         let b = unsafe { mallopt(-1, mib(trim)) };
         eprintln!("RAWPIN mmap_rc={a} trim_rc={b}");
+        if a == 0 || b == 0 {
+            eprintln!("PINGATE mallopt rejected the raw pin");
+            std::process::exit(EXIT_PIN_GATE);
+        }
         "raw".to_string()
     } else {
         assert_eq!(arm, "none", "unknown arm {arm}");

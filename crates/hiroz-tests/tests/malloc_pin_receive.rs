@@ -7,6 +7,11 @@
 //! min-max ranges. A control arm, the unpinned receive slowed by a deliberate delay, must fail
 //! the same check.
 //!
+//! A second check keeps the gain over the previous pin (`M_MMAP_THRESHOLD` 64 MiB, `M_TRIM_THRESHOLD`
+//! 64 MiB, the arm `raw:64:64`). The pinned median must be below the old-pin median by more than
+//! twice the larger min-max range of those two arms. A second set of the old pin, and the slowed
+//! arm, must fail that check.
+//!
 //! Opt-in: the test is `#[ignore]`d and CI does not run it. Its thresholds come from one quiet
 //! host (load average below 0.6). On a shared runner under load the unpinned receive drops
 //! messages (47 of 60 samples were seen) and the run says nothing about the pin. Run it on a
@@ -17,7 +22,7 @@
 //!     --run-ignored only -E 'test(=pinned_32mib_main_thread_receive_is_not_slower_than_unpinned)'
 //! ```
 //!
-//! The run takes about 3 minutes. The test prints the load average and glibc version first.
+//! The run takes about 277 s (25 receives of about 11 s each). The test prints the load average and glibc version first.
 //! Check the printed load before you read the result. CI still compiles this file, and it runs
 //! `operator_threshold_variable_fails_the_probe` here and the wiring test in
 //! `malloc_pin_wiring.rs`.
@@ -43,8 +48,10 @@ const HZ: u32 = 10;
 const COUNT: usize = 60;
 const REPEATS: usize = 5;
 const CONTROL_DELAY_MS: u64 = 10;
+/// The pin before this change: `M_MMAP_THRESHOLD` 64 MiB, `M_TRIM_THRESHOLD` 64 MiB.
+const OLD_PIN_ARM: &str = "raw:64:64";
 
-/// Longest wait for the output of one receiver. A run takes about 16 s.
+/// Longest wait for the output of one receiver. One receive takes about 11 s.
 const RECEIVER_LIMIT: Duration = Duration::from_secs(120);
 
 /// A child process that is killed and reaped when the guard drops, also on a panic.
@@ -138,6 +145,9 @@ fn run_once(arm: &str) -> f64 {
     if arm == "lib" {
         assert_eq!(field("pin="), "Pinned", "lib arm is not pinned: {line}");
     }
+    if arm == OLD_PIN_ARM {
+        assert_eq!(field("pin="), "raw", "old-pin arm is not pinned: {line}");
+    }
     // A run with a missing sample is UNKNOWN, never a measurement.
     let n = field("n=");
     assert_eq!(
@@ -202,6 +212,47 @@ fn control_detects(slowed: &[f64], unpinned: &[f64], pinned: &[f64]) -> bool {
     !not_slower(slowed, unpinned, tolerance)
 }
 
+/// `candidate` improves on the old pin when its median is below the old-pin median by more than
+/// `margin`.
+fn improves(candidate: &[f64], old: &[f64], margin: f64) -> bool {
+    median(candidate) < median(old) - margin
+}
+
+/// The margin of the improvement check: twice the larger min-max range of the pinned and the
+/// old-pin arm. A real gap must exceed the noise of both arms, each side counted once.
+fn improvement_margin(pinned: &[f64], old: &[f64]) -> f64 {
+    2.0 * range(pinned).max(range(old))
+}
+
+#[test]
+fn improvement_check_separates_the_two_measured_hosts_from_the_revert() {
+    // Synthetic samples with the medians and ranges measured on two hosts, in ms (n=5 per arm).
+    // Host 1: glibc 2.41, old pin 32.0 and 256 MiB pin 13.3. Host 2: glibc 2.42, old pin 47.0 and
+    // 256 MiB pin 18.6. The revert makes the pinned arm the old pin, so both arms come from one
+    // distribution.
+    let host1_old = [31.8, 31.9, 32.0, 32.0, 32.3];
+    let host1_new = [13.2, 13.3, 13.3, 13.4, 13.4];
+    let host2_old = [46.7, 46.8, 47.0, 47.7, 48.6];
+    let host2_new = [18.2, 18.4, 18.6, 18.7, 19.8];
+    for (old, new) in [(&host1_old, &host1_new), (&host2_old, &host2_new)] {
+        let m = improvement_margin(new, old);
+        assert!(improves(new, old, m), "the fix must pass: margin {m}");
+        // revert: the pinned arm is another sample of the old pin
+        let m = improvement_margin(old, old);
+        assert!(!improves(old, old, m), "the revert must fail: margin {m}");
+    }
+    // On host 1 no pin runs at 34.0 ms, slower than the old pin, so the pinned-not-slower check
+    // passes the revert there. The improvement check is what fails it.
+    let host1_none = [33.2, 33.9, 34.0, 34.1, 35.3];
+    assert!(not_slower(
+        &host1_old,
+        &host1_none,
+        pinned_tolerance(&host1_old, &host1_none)
+    ));
+    // the check also fails for an arm that is slower than the old pin
+    assert!(!improves(&[50.0; 5], &host2_old, 3.8));
+}
+
 #[test]
 fn control_tolerance_includes_the_pinned_range() {
     // Pinned is 15 ms slower in median and its range is 36 ms. A control of 10 ms over unpinned
@@ -224,25 +275,29 @@ fn pinned_32mib_main_thread_receive_is_not_slower_than_unpinned() {
         glibc_version()
     );
     let delayed = format!("none+delay{CONTROL_DELAY_MS}");
-    let (mut unpinned, mut pinned, mut slowed) = (vec![], vec![], vec![]);
+    // The old pin runs twice. The second set is the A/A control of the improvement check.
+    let arms = ["none", "lib", OLD_PIN_ARM, OLD_PIN_ARM, delayed.as_str()];
+    let mut samples: Vec<Vec<f64>> = vec![vec![]; arms.len()];
     for rep in 0..REPEATS {
-        // Alternate the order, so a drift in host load does not belong to one arm.
-        if rep % 2 == 0 {
-            unpinned.push(run_once("none"));
-            pinned.push(run_once("lib"));
-        } else {
-            pinned.push(run_once("lib"));
-            unpinned.push(run_once("none"));
+        // Rotate the order, so a drift in host load does not belong to one arm.
+        for k in 0..arms.len() {
+            let i = (k + rep) % arms.len();
+            samples[i].push(run_once(arms[i]));
         }
-        slowed.push(run_once(&delayed));
     }
+    let [unpinned, pinned, old, old_b, slowed] =
+        <[Vec<f64>; 5]>::try_from(samples).expect("five arms");
     println!(
-        "MEDIAN_P50_MS unpinned={:.3} pinned={:.3} slowed={:.3} ranges unpinned={:.3} pinned={:.3} slowed={:.3} n={REPEATS}",
+        "MEDIAN_P50_MS unpinned={:.3} pinned={:.3} old={:.3} old_b={:.3} slowed={:.3} ranges unpinned={:.3} pinned={:.3} old={:.3} old_b={:.3} slowed={:.3} n={REPEATS}",
         median(&unpinned),
         median(&pinned),
+        median(&old),
+        median(&old_b),
         median(&slowed),
         range(&unpinned),
         range(&pinned),
+        range(&old),
+        range(&old_b),
         range(&slowed),
     );
     // Control: the check must fire on the unpinned arm slowed on purpose. A control that passes the
@@ -250,6 +305,25 @@ fn pinned_32mib_main_thread_receive_is_not_slower_than_unpinned() {
     assert!(
         control_detects(&slowed, &unpinned, &pinned),
         "control failed: an unpinned receive slowed by {CONTROL_DELAY_MS} ms passed a check as loose as the pinned one"
+    );
+    // The improvement check keeps the gain over the previous pin (64/64), whatever no pin does on
+    // this host. Its null control: a second set of the old pin must not pass it.
+    let margin = improvement_margin(&pinned, &old);
+    assert!(
+        !improves(&old_b, &old, margin),
+        "improvement control failed: a second set of the old pin (median {:.3} ms) beats the first (median {:.3} ms) by more than {margin:.3} ms",
+        median(&old_b),
+        median(&old)
+    );
+    assert!(
+        !improves(&slowed, &old, margin),
+        "improvement control failed: the slowed arm passed the improvement check"
+    );
+    assert!(
+        improves(&pinned, &old, margin),
+        "pinned median {:.3} ms does not beat the old-pin median {:.3} ms by more than {margin:.3} ms",
+        median(&pinned),
+        median(&old)
     );
     assert!(
         not_slower(&pinned, &unpinned, pinned_tolerance(&pinned, &unpinned)),

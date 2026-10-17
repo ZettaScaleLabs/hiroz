@@ -1,7 +1,8 @@
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 2 }
 
-# The pin gate runs fifteen 32 MiB receives of about 16 s each, one after the other.
+# The pin gate runs 25 receives of 32 MiB, about 11 s each (about 277 s in total), one after the other.
+# The timeout of 120 s x 5 (600 s) covers that with margin.
 # The test is `#[ignore]`d. CI does not run it. See the profile `pin-timing` below.
 [[profile.default.overrides]]
 filter = 'test(=pinned_32mib_main_thread_receive_is_not_slower_than_unpinned)'
