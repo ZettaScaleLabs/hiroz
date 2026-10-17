@@ -25,6 +25,7 @@
 
 /// Result of one call to [`pin_large_message_thresholds`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PinOutcome {
     /// glibc accepted both thresholds. The fields are the `mallopt` return codes.
     Pinned { mmap_rc: i32, trim_rc: i32 },
