@@ -1,4 +1,4 @@
-//! Helpers for the cells that read from a released, buffer-aware `rmw_zenoh_cpp`.
+//! Helpers for the tests that read from a released, buffer-aware `rmw_zenoh_cpp`.
 
 #![allow(dead_code)]
 
@@ -17,8 +17,8 @@ pub const GROUP_SUFFIX: &str = "_buf_cpu";
 /// test instead of skipping it.
 pub const REQUIRE_ENV: &str = "HIROZ_REQUIRE_BUFFER_RMW";
 
-/// True when the `rmw_zenoh_cpp` the cell will load has buffer support, which shows as the
-/// group suffix in its library. Otherwise the cell prints `Skipping <name>: <reason>` and the
+/// True when the `rmw_zenoh_cpp` the test will load has buffer support, which shows as the
+/// group suffix in its library. Otherwise the test prints `Skipping <name>: <reason>` and the
 /// caller returns, or the test fails when `HIROZ_REQUIRE_BUFFER_RMW` is set.
 pub fn buffer_aware_rmw_or_skip(name: &str) -> bool {
     let dirs = |var: &str, sub: &str| -> Vec<PathBuf> {
