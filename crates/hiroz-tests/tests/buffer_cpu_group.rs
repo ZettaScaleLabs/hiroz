@@ -895,8 +895,8 @@ fn joining_logs_the_group_key_once_per_key() {
     let expected = |topic: &str| {
         format!(
             "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
-             key {group}. A router access-control rule that denies either key drops buffer \
-             messages and reports no error. Allow both keys wherever you allow its topic key.",
+             key {group}. A router access-control rule that denies {base}/** or {group} drops \
+             buffer messages and reports no error. Allow {base}/** wherever you allow {base}.",
             base = base_key(topic, &UINT8),
             group = group_key(topic, &UINT8)
         )
