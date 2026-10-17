@@ -253,6 +253,9 @@ jobs:
 
       - name: Run interop tests
         shell: bash
+        env:
+          # Only the lyrical image has a buffer-aware rmw_zenoh_cpp: a skipped buffer test fails there.
+          HIROZ_REQUIRE_BUFFER_RMW: ${{ matrix.distro == 'lyrical' && '1' || '' }}
         run: |
           source /opt/ros/${{ matrix.distro }}/setup.bash
           export RMW_IMPLEMENTATION=rmw_zenoh_cpp
@@ -260,10 +263,10 @@ jobs:
           FEATURES="${{ matrix.hiroz_feature }}"
           if [ "$FEATURES" = "humble" ]; then
             cargo nextest run -p hiroz-tests --profile interop \
-              --no-default-features --features ros-interop,humble
+              --no-default-features --features ros-interop,humble,raw-sub-tests
           else
             cargo nextest run -p hiroz-tests --profile interop \
-              --features "ros-interop,$FEATURES"
+              --features "ros-interop,raw-sub-tests,$FEATURES"
             # dynamic_subscriber tests are all #[ignore]'d in CI (ros2 topic
             # pub isn't graph-visible under CI's rmw_zenoh_cpp — see
             # headless_test.rs). --no-tests=warn keeps that from failing the job.

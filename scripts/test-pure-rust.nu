@@ -33,7 +33,41 @@ def run-tests [] {
     #
     # None were in `default-members`, so none ran here before `--workspace`.
     run-cmd "cargo nextest run --no-fail-fast --workspace --exclude hiroz-tests --exclude rmw-zenoh-rs -E 'not binary(shm_size_estimation)'"
-    run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy"
+    # A feature-gated suite compiles to nothing without its feature, so check it builds before running it.
+    run-cmd "cargo check -p hiroz-tests --tests --features ros-msgs,jazzy,raw-sub-tests"
+    run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy,raw-sub-tests"
+    # The raw interop cell needs both features and a ROS install to run. It compiles without the install, so check it here.
+    run-cmd "cargo check -p hiroz-tests --tests --features ros-interop,raw-sub-tests,jazzy"
+}
+
+# The number of `#[test]` in `buffer_cpu_group_raw.rs`. Change it with the suite.
+const RAW_SUITE_TESTS = 9
+
+# `--os-name` exists so the host decision can be tested; it defaults to the real host.
+def check-raw-suite-listed [--os-name: string] {
+    log-step "The raw subscriber suite is built"
+    # The suite is `#![cfg(target_os = "linux")]`, so it lists 0 tests on any other host. The guard
+    # catches a missing feature on Linux, where the suite exists, and skips elsewhere.
+    let os = ($os_name | default $nu.os-info.name)
+    if $os != "linux" {
+        print $"buffer_cpu_group_raw guard skipped: host is ($os), the suite is Linux-only"
+        return
+    }
+    # `buffer_cpu_group_raw` is gated on `raw-sub-tests`. A run without the feature compiles it to
+    # nothing and reports success, so the run above proves nothing unless the suite is listed.
+    let listed = (^cargo nextest list -p hiroz-tests --features ros-msgs,jazzy,raw-sub-tests --message-format oneline | complete)
+    if $listed.exit_code != 0 {
+        print $listed.stderr
+        error make {msg: "cargo nextest list failed for the raw subscriber suite"}
+    }
+    let found = ($listed.stdout | lines | where {|it| $it =~ 'buffer_cpu_group_raw '} | length)
+    print $"buffer_cpu_group_raw tests listed: ($found), expected: ($RAW_SUITE_TESTS)"
+    if $found == 0 {
+        error make {msg: "no buffer_cpu_group_raw test is listed: the raw-sub-tests feature is off"}
+    }
+    if $found != $RAW_SUITE_TESTS {
+        error make {msg: $"buffer_cpu_group_raw lists ($found) tests, expected ($RAW_SUITE_TESTS): a test is hidden or the count is stale"}
+    }
 }
 
 def check-bundled-msgs [] {
@@ -246,6 +280,7 @@ def get-test-map [] {
     {
         clippy-workspace: { clippy-workspace }
         run-tests: { run-tests }
+        check-raw-suite-listed: { check-raw-suite-listed }
         check-bundled-msgs: { check-bundled-msgs }
         check-hu: { check-hu }
         check-examples: { check-examples }
@@ -263,6 +298,7 @@ def get-test-pipeline [] {
     [
         "clippy-workspace"
         "run-tests"
+        "check-raw-suite-listed"
         "check-bundled-msgs"
         "check-hu"
         "check-examples"
