@@ -12,6 +12,9 @@
 //! - The pin changes the allocator of the whole process. It overrides any earlier `mallopt`
 //!   call of the host application. It detects only the two glibc environment variables `MALLOC_TRIM_THRESHOLD_` and
 //!   `MALLOC_MMAP_THRESHOLD_`, not `GLIBC_TUNABLES`.
+//! - The raise of the trim threshold from 64 MiB to 256 MiB speeds up receives on the main
+//!   thread only. On a spawned thread the receive latency and the resident memory are the same
+//!   as with the previous 64 MiB threshold (see [`TRIM_THRESHOLD`]).
 //! - A message of 64 MiB or more is always served by `mmap` and sees no benefit. At 64 MiB
 //!   the receive latency was the same with no pin, with the previous 64/64 pin and with this
 //!   pin.
@@ -48,14 +51,18 @@ pub const MMAP_THRESHOLD: i32 = 64 << 20;
 /// It must stay above the free heap top that a receive leaves behind. A 32 MiB payload leaves
 /// two 32 MiB buffers. The measured system time per message with a threshold of 64 MiB is
 /// consistent with glibc trimming the heap on every message, so the receive pays page faults
-/// again. No trace of `brk` or `madvise` calls confirmed this. The process keeps up to this many free bytes at the heap
-/// top of each arena, so a larger value costs resident memory after a burst of large messages.
+/// again. No trace of `brk` or `madvise` calls confirmed this. The main arena keeps up to this
+/// many free bytes at its heap top, so a larger value costs resident memory after a burst of
+/// large messages.
 ///
 /// Measured cost: a typed `UInt8MultiArray` of 32 MiB at 10 Hz, received on the main thread
 /// (glibc 2.42, a quiet 16-core AMD host, n=5 per arm). Steady RSS was 163.4-163.7 MiB with the pin and
-/// 91.7-99.5 MiB without it. The peak RSS did not change. Only the main-thread arena was
-/// measured. Every other arena (callback threads, `async_recv`) can retain up to this
-/// threshold, and that is not measured.
+/// 91.7-99.5 MiB without it. The peak RSS did not change. The same receive on a spawned thread (glibc 2.42, one AMD host, n=5 per arm)
+/// gave 27.6 ms with this pin and 27.8 ms with the previous 64 MiB trim threshold, against 39.5 ms
+/// with no pin, and the same steady RSS for both pins. So the raise from 64 to 256 MiB changes
+/// nothing off the main thread. The cause was not traced. The gain over no pin there comes from
+/// the mmap threshold. Operators can keep their own values with `MALLOC_TRIM_THRESHOLD_` or
+/// `MALLOC_MMAP_THRESHOLD_`.
 pub const TRIM_THRESHOLD: i32 = 256 << 20;
 
 /// Pin the glibc allocator thresholds for large message payloads.
