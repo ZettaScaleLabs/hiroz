@@ -14,7 +14,7 @@
 //!   `MALLOC_MMAP_THRESHOLD_`, not `GLIBC_TUNABLES`.
 //! - The raise of the trim threshold from 64 MiB to 256 MiB speeds up receives on the main
 //!   thread only. On a spawned thread the receive latency and the resident memory are the same
-//!   as with the previous 64 MiB threshold (see [`TRIM_THRESHOLD`]).
+//!   as with the previous 64 MiB threshold (see [`crate::malloc_pin::TRIM_THRESHOLD`]).
 //! - A message of 64 MiB or more is always served by `mmap` and sees no benefit. At 64 MiB
 //!   the receive latency was the same with no pin, with the previous 64/64 pin and with this
 //!   pin.
