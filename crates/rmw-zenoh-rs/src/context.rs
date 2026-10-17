@@ -388,8 +388,8 @@ pub extern "C" fn rmw_init(
                 trim_rc
             );
         }
-        hiroz::malloc_pin::PinOutcome::OperatorSet
-        | hiroz::malloc_pin::PinOutcome::Unsupported => {}
+        // OperatorSet, Unsupported and any variant added later stay silent.
+        _ => {}
     }
 
     // Log RMW initialization
