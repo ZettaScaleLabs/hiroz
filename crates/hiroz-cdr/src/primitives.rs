@@ -350,7 +350,7 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
 
     /// Read a sequence length prefix.
     ///
-    /// # Safety
+    /// # Limits
     /// The maximum count prevents unbounded iteration. It does not prove that the
     /// elements are present in the input.
     ///
