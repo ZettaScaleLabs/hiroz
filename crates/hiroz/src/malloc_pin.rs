@@ -45,7 +45,7 @@ pub const MMAP_THRESHOLD: i32 = 64 << 20;
 /// top of each arena, so a larger value costs resident memory after a burst of large messages.
 ///
 /// Measured cost: a typed `UInt8MultiArray` of 32 MiB at 10 Hz, received on the main thread
-/// (glibc 2.42, gamma-cuda, n=5 per arm). Steady RSS was 163.4-163.7 MiB with the pin and
+/// (glibc 2.42, a quiet 16-core AMD host, n=5 per arm). Steady RSS was 163.4-163.7 MiB with the pin and
 /// 91.7-99.5 MiB without it. The peak RSS did not change. Only the main-thread arena was
 /// measured. Every other arena (callback threads, `async_recv`) can retain up to this
 /// threshold, and that is not measured.
