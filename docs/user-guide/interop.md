@@ -94,3 +94,19 @@ just -f crates/hiroz-go/justfile run-example subscriber
 ```
 
 For more detail see [Go Quick Start](../bindings/go-quick-start.md).
+
+---
+
+## Buffer messages from Lyrical publishers
+
+A ROS 2 Lyrical `rmw_zenoh_cpp` publisher treats an unbounded `uint8[]` or `byte[]` field as a buffer, also inside a nested message. Examples are `sensor_msgs/Image` and `sensor_msgs/PointCloud2`. If a matched subscriber announces buffer support, the publisher writes the message on `<topic key>/_buf_cpu` and never on `<topic key>`. For each matched subscriber that does not announce it, the publisher also writes `<topic key>/_buf/<gid>`. The `humble`, `jazzy` and `kilted` branches of `rmw_zenoh` carry no buffer support (they have no `backends` field in the liveliness key-expression code), so the interop tests that need one skip on those distros.
+
+A hiroz subscriber joins this group when the end of its liveliness token is `backends:cpu:`. It then reads `<topic key>/**`, which includes the base key and the group key, and drops every other key under the topic key in process. The payload is plain CDR. The publisher writes a full payload on `<topic key>/_buf/<gid>` for each matched subscriber outside the group. The wide subscription receives those writes and drops them, so with K such subscribers a payload reaches the joined process K extra times per message. This follows from the subscription pattern and is not measured.
+
+`BufferGroup::Auto` is the default. A typed subscriber, a dynamic subscriber or a cache joins when its message has an unbounded `uint8[]` or `byte[]`, directly or nested, or when hiroz has no message definition to ask. The feedback and status subscribers of an action client have no message definition to ask, so they join under `Auto`, unless their QoS is transient-local. The Python bindings build a typed subscriber with no message definition, so they join under `Auto`. A subscriber with no definition joins on every topic it subscribes to, not only on buffer topics, and declares the wider subscription and the token each time. To keep the previous token and routing, call `with_buffer_group(BufferGroup::Off)` on the subscriber builder or the cache builder. `BufferGroup::Cpu` joins whatever the message is, except for a transient-local subscriber or a custom key expression format. The action client and the Python bindings have no `Off` switch yet.
+
+Raw subscribers do not join. The Go bindings create raw subscribers, so they do not join. A transient-local subscriber and a subscriber with a custom key expression format never join. `rmw-zenoh-rs` subscriptions use `Off`: they do not join yet.
+
+If you use access control, allow `<topic key>/**` wherever you allow `<topic key>`. A joined subscriber declares `<topic key>/**`. A router that allows `<topic key>` and not `<topic key>/**` therefore starves every joined subscriber of that topic, on the base key too: no error is raised and `build` returns `Ok`. A subscriber set to `Off` declares `<topic key>` and keeps receiving. This holds for a subscriber with no message definition on any topic, buffer topic or not. A router rule that denies only the group key starves a joined subscriber on a buffer topic, and the base key still delivers. A rule on `<topic key>/**` also starves a subscriber set to `Off`, because `<topic key>/**` includes `<topic key>`. A Python or action-client user has no `Off` switch, so the only remedy for them is the router rule. hiroz writes one `info` log line per group key and process when a subscriber joins.
+
+A subscriber with no `backends:` field receives nothing from a buffer-aware publisher until [ros2/rmw_zenoh#1078](https://github.com/ros2/rmw_zenoh/pull/1078) is released. This covers `Off` subscribers, transient-local subscribers, subscribers with a custom key expression format and `rmw-zenoh-rs` subscriptions.
