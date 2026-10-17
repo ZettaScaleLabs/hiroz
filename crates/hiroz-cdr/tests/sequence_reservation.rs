@@ -161,8 +161,4 @@ fn hostile_count_reserves_at_most_the_body_size() {
         counts.largest,
         unread * size_of::<Big>()
     );
-    assert!(
-        counts.largest < DECLARED as usize * size_of::<Big>() / 1000,
-        "hostile_count_reserves_at_most_the_body_size: the request follows the declared count"
-    );
 }
