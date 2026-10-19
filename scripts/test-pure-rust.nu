@@ -55,7 +55,7 @@ def check-raw-suite-listed [--os-name: string] {
     # `run-tests` must take its features from `$RAW_FEATURES`: a literal there is not what the listing below checks.
     # This reads the script text, so it holds on every host.
     let uses = (open --raw $THIS_SCRIPT | lines | where {|it|
-        ($it | str contains 'run-cmd') and ($it | str contains 'hiroz-tests') and ($it | str contains 'cargo') and (not ($it | str contains 'ros-interop')) and (($it | str contains 'cargo check') or ($it | str contains 'nextest run'))
+        ($it | str contains 'run-cmd') and ($it | str contains '-p hiroz-tests') and ($it | str contains 'cargo') and (not ($it | str contains 'ros-interop')) and (($it | str contains 'cargo check') or ($it | str contains 'nextest run'))
     })
     let hardcoded = ($uses | where {|it| not ($it | str contains '($RAW_FEATURES)')})
     if ($hardcoded | is-not-empty) or ($uses | length) != 2 {
