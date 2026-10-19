@@ -51,8 +51,12 @@ fn parse_duration(s: &str, default: &QosDuration) -> Result<QosDuration, QosDeco
 }
 
 impl QosProfile {
-    /// Encode QoS to string for liveliness token.
-    /// Format matches rmw_zenoh_cpp: [reliability]:[durability]:[history],[depth]:[deadline_sec],[deadline_nsec]:[lifespan_sec],[lifespan_nsec]:[liveliness_kind],[lease_sec],[lease_nsec]
+    /// Encodes QoS in the compact format used by rmw_zenoh liveliness tokens:
+    /// `[reliability]:[durability]:[history],[depth]:[deadline_sec],[deadline_nsec]:[lifespan_sec],[lifespan_nsec]:[liveliness_kind],[lease_sec],[lease_nsec]`.
+    ///
+    /// `KeepAll` encodes as `2,` because [`QosHistory::KeepAll`] carries no
+    /// depth. rmw_zenoh may instead emit `2,0` when its profile has depth zero.
+    /// [`QosLiveliness::ManualByNode`] encodes as `2`, which rmw_zenoh rejects.
     pub fn encode(&self) -> String {
         use alloc::format;
         let default_qos = Self::default();
@@ -77,17 +81,12 @@ impl QosProfile {
             ""
         };
 
-        // History format: <history_kind>,<depth>
-        // Only include kind if non-default, always include depth
+        // rmw_zenoh represents history as <history_kind>,<depth>. Keep-last
+        // omits the kind, and also omits its wire-default depth of 42.
         let history = match self.history {
-            QosHistory::KeepLast(depth) => {
-                if self.history != default_qos.history {
-                    format!("1,{}", depth)
-                } else {
-                    format!(",{}", depth)
-                }
-            }
-            QosHistory::KeepAll => "2,".to_string(),
+            QosHistory::KeepLast(RMW_ZENOH_DEFAULT_HISTORY_DEPTH) => String::from(","),
+            QosHistory::KeepLast(depth) => format!(",{}", depth),
+            QosHistory::KeepAll => String::from("2,"),
         };
 
         let deadline = format!(
@@ -102,12 +101,8 @@ impl QosProfile {
         );
 
         // Liveliness kind - empty if default (RMW values: 1=Automatic,
-        // 2=ManualByNode, 3=ManualByTopic). rmw_zenoh_cpp itself never
-        // encodes or decodes 2 (MANUAL_BY_NODE was deprecated and removed
-        // from RMW); hiroz still carries the variant and encodes it as 2 for
-        // completeness, but a peer running rmw_zenoh_cpp will not decode it
-        // distinctly -- a pre-existing upstream limitation, not one this
-        // encoder introduces.
+        // 2=ManualByNode, 3=ManualByTopic). hiroz retains ManualByNode even
+        // though RMW no longer does; rmw_zenoh rejects tokens containing key 2.
         let liveliness_kind = if self.liveliness != default_qos.liveliness {
             match self.liveliness {
                 QosLiveliness::Automatic => "1",

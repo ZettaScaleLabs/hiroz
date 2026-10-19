@@ -121,7 +121,7 @@ jobs:
 
       - name: Install Nushell
         run: |
-          NU_VERSION=0.102.0
+          NU_VERSION=0.116.1
           ARCH=$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')
           NU_TARBALL="nu-${NU_VERSION}-${ARCH}-unknown-linux-gnu"
           # Download to a file. Do not pipe into tar.

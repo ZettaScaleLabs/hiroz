@@ -32,6 +32,29 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  release-notes:
+    name: Release-note breaking markers
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Install Nushell
+        uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
+        with:
+          version: "0.116.1"
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff  # v2
+        with:
+          tool: git-cliff@2.13.1
+
+      - name: Check breaking markers
+        run: nu scripts/test-cliff-breaking.nu
+
   formatting:
     name: Check Formatting
     runs-on: ubuntu-latest
@@ -141,6 +164,7 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
+          cache: false
           toolchain: stable
           components: clippy, rustfmt
 
@@ -349,12 +373,15 @@ jobs:
         if: runner.os == 'Linux'
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
+          # The pure-Rust checks only need the large preinstalled packages.
+          # Keep the runner tool cache and unrelated language/container images
+          # intact so this cleanup does not spend several minutes deleting them.
           large-packages: true
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          docker-images: true
+          tool-cache: false
+          android: false
+          dotnet: false
+          haskell: false
+          docker-images: false
           swap-storage: false
 
       - name: Install Nix (Linux)
@@ -397,6 +424,7 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
+          cache: false
           toolchain: stable
           target: wasm32-wasip2
           components: clippy, rustfmt
@@ -533,7 +561,7 @@ jobs:
       - name: Install nushell
         uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
         with:
-          version: "0.113.1"
+          version: "0.116.1"
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
@@ -575,17 +603,17 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
+          cache: false
           toolchain: stable
           target: wasm32-wasip2
 
-      - name: Install nushell and jq
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq
-          cargo install nu --locked --version 0.113.1
-          # No `|| true`: a swallowed install failure resurfaces three steps
-          # later as `nu: command not found`, which names neither the cause
-          # nor the step that caused it.
-          nu --version
+      - name: Install Nushell
+        uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
+        with:
+          version: '0.116.1'
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
@@ -599,7 +627,7 @@ jobs:
       # a pre-release tag depends on, which is the defect that broke the first
       # pre-release ever cut on the other channel.
       - name: Release workflow version semantics
-        run: bash scripts/test-release-version-semantics.sh
+        run: nu scripts/test-release-version-semantics.nu
 
       - name: Installer refusal paths
         run: bash scripts/test-install-hu.sh
@@ -847,6 +875,7 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
+          cache: false
           toolchain: stable
 
       - name: Setup Rust cache
@@ -857,7 +886,7 @@ jobs:
       - name: Install Nushell
         uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
         with:
-          version: '0.102'
+          version: '0.116.1'
 
       - name: Go vet (static analysis)
         run: nu scripts/test-go.nu --vet-only
