@@ -1,8 +1,12 @@
-//! `rmw_init` must call the allocator pin.
+//! File-wide count of the allocator pin call in `context.rs`.
 //!
 //! `rmw-zenoh-rs` needs ROS headers to build, so this test reads its source instead of calling
-//! `rmw_init`. It fails when the call to `hiroz::malloc_pin::pin_large_message_thresholds` is
-//! removed from `context.rs`, or when it is only commented out with `//` or `/* */`.
+//! `rmw_init`. It counts the lines of `context.rs` that contain the full path
+//! `hiroz::malloc_pin::pin_large_message_thresholds()`, and asserts that exactly one line
+//! matches. The test fails when the call is removed, when it is commented out on its own line
+//! with `//` or inside `/* */`, when it occurs more than once, or when it is written under a
+//! shortened path (for example after a `use` import). A trailing comment after code on the
+//! same line does not hide the call: that line still counts as the call.
 //!
 //! The match is file-wide in `context.rs`. It is not scoped to `rmw_init`, so a call in any
 //! other function satisfies it. It does not fail when the call is present but unreachable,
@@ -48,6 +52,8 @@ fn pin_calls(src: &str) -> Vec<usize> {
         .collect()
 }
 
+/// Counts the allocator pin call file-wide in `context.rs`, in context with the comment
+/// stripping above, and expects exactly one. It does not check which function holds the call.
 #[test]
 fn rmw_init_calls_the_allocator_pin() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(CONTEXT_RS);
