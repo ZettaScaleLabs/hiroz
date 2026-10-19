@@ -943,11 +943,12 @@ fn joined_subscriber_reads_the_group_key_with_its_locality() {
     );
 }
 
-/// A hostile sample on the group key reaches a joined typed subscriber as a decode error, and the
-/// next valid sample still arrives. The first field is a sequence whose length prefix is far above
-/// the decoder's ceiling, and no data follows.
+/// A sample on the group key whose sequence length is over the decoder's ceiling reaches a joined
+/// typed subscriber as a decode error, and the next valid sample still arrives. The first field is
+/// a sequence whose length prefix is far above the ceiling, and no data follows. This covers that
+/// one check. It does not cover other malformed shapes, such as a short buffer or a bad header.
 #[test]
-fn typed_subscriber_survives_a_hostile_sample_on_the_group_key() {
+fn typed_subscriber_survives_a_length_over_the_ceiling_on_the_group_key() {
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
@@ -964,13 +965,13 @@ fn typed_subscriber_survives_a_hostile_sample_on_the_group_key() {
             sub.recv_timeout(POLL),
             Err(e) if e.to_string().contains("exceeds maximum")
         )),
-        "typed_subscriber_survives_a_hostile_sample_on_the_group_key: no decode error for the hostile sample on {key}"
+        "typed_subscriber_survives_a_length_over_the_ceiling_on_the_group_key: no decode error for the hostile sample on {key}"
     );
     assert!(
         put_until(&raw, &key, &PAYLOAD, RECV, || sub
             .recv_timeout(POLL)
             .is_ok()),
-        "typed_subscriber_survives_a_hostile_sample_on_the_group_key: no valid sample after the hostile one"
+        "typed_subscriber_survives_a_length_over_the_ceiling_on_the_group_key: no valid sample after the hostile one"
     );
 }
 
@@ -1004,8 +1005,8 @@ fn group_subscription_is_declared_before_the_token_is_visible() {
         .expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
 
-    // A matching listener makes the raw session ask the node for its subscribers. The node must
-    // have that request before it declares a subscription, so the listeners come first.
+    // The raw session declares a matching listener on each key before the node declares anything.
+    // The check below reads the matching state when the token callback runs.
     let publishers: Arc<Vec<_>> = Arc::new(
         (0..TRIALS)
             .map(|i| {
@@ -1055,14 +1056,13 @@ fn group_subscription_is_declared_before_the_token_is_visible() {
         if seen[i].load(SeqCst) != 1 {
             wrong.push((i, seen[i].load(SeqCst)));
         }
-        if wrong.len() > TRIALS / 10 {
+        if !wrong.is_empty() {
             break;
         }
     }
     assert!(
-        wrong.len() <= TRIALS / 10,
-        "group_subscription_is_declared_before_the_token_is_visible: no match at the token, or no token, in {} of {TRIALS} trials (trial, state: 0 no token, 2 no match): {wrong:?}",
-        wrong.len()
+        wrong.is_empty(),
+        "group_subscription_is_declared_before_the_token_is_visible: no match at the token, or no token (trial, state: 0 no token, 2 no match): {wrong:?}"
     );
 }
 
@@ -1239,13 +1239,26 @@ fn denied_group_key_starves_silently_while_the_base_key_flows() {
 }
 
 /// Under a rule that denies the group key, a subscriber on a topic with no buffer stays out of the
-/// group and still receives on the base key.
+/// group and still receives on the base key. Control: on the same router, a joined subscriber on a
+/// buffer topic receives nothing on its group key, so the rule is in force.
 #[test]
 fn non_buffer_topic_still_delivers_under_a_group_key_deny_rule() {
     let denying = router_denying_the_group_key();
     let raw = raw_session(denying.endpoint());
     let ctx = create_hiroz_context_with_router(&denying).expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
+    let twin = node
+        .create_sub::<UInt8MultiArray>("/acl_plain_twin")
+        .build()
+        .expect("build returns Ok under a deny rule");
+    token_for(&raw, "acl_plain_twin");
+    let twin_key = group_key("acl_plain_twin", &UINT8);
+    assert!(
+        !put_until(&raw, &twin_key, &PAYLOAD, QUIET, || twin
+            .recv_timeout(POLL)
+            .is_ok()),
+        "non_buffer_topic_still_delivers_under_a_group_key_deny_rule: control: the joined twin received on {twin_key}, so the rule does not bite"
+    );
     let sub = node
         .create_sub::<Float64MultiArray>("/acl_plain")
         .build()
