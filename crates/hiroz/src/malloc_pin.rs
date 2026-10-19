@@ -56,8 +56,8 @@ pub const MMAP_THRESHOLD: i32 = 64 << 20;
 /// large messages.
 ///
 /// Measured cost: a typed `UInt8MultiArray` of 32 MiB at 10 Hz, received on the main thread
-/// (glibc 2.42, a quiet 16-core AMD host, n=5 per arm). Steady RSS was 163.4-163.7 MiB with the pin and
-/// 91.7-99.5 MiB without it. The peak RSS did not change. The same receive on a spawned thread (glibc 2.42, one AMD host, n=5 per arm)
+/// (glibc 2.42, a 16-core AMD host, n=5 per arm). Steady RSS was 163.4-163.7 MiB with the pin and
+/// 91.7-98.4 MiB without it. The peak RSS stayed within 1 MiB across the arms. The same receive on a spawned thread (glibc 2.42, one AMD host, n=5 per arm)
 /// gave 27.6 ms with this pin and 27.8 ms with the previous 64 MiB trim threshold, against 39.5 ms
 /// with no pin, and the same steady RSS for both pins. So the raise from 64 to 256 MiB changes
 /// nothing off the main thread. The cause was not traced. The gain over no pin there comes from
