@@ -5,6 +5,9 @@
 
 use lib/common.nu *
 
+# The features of the raw subscriber suite. `run-tests` and `check-raw-suite-listed` both read this list, so the guard checks the build that runs.
+const RAW_FEATURES = "ros-msgs,jazzy,raw-sub-tests"
+
 # ============================================================================
 # Test Functions
 # ============================================================================
@@ -34,8 +37,8 @@ def run-tests [] {
     # None were in `default-members`, so none ran here before `--workspace`.
     run-cmd "cargo nextest run --no-fail-fast --workspace --exclude hiroz-tests --exclude rmw-zenoh-rs -E 'not binary(shm_size_estimation)'"
     # A feature-gated suite compiles to nothing without its feature, so check it builds before running it.
-    run-cmd "cargo check -p hiroz-tests --tests --features ros-msgs,jazzy,raw-sub-tests"
-    run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy,raw-sub-tests"
+    run-cmd $"cargo check -p hiroz-tests --tests --features ($RAW_FEATURES)"
+    run-cmd $"cargo nextest run --no-fail-fast -p hiroz-tests --features ($RAW_FEATURES)"
     # The raw interop cell needs both features and a ROS install to run. It compiles without the install, so check it here.
     run-cmd "cargo check -p hiroz-tests --tests --features ros-interop,raw-sub-tests,jazzy"
 }
@@ -43,7 +46,7 @@ def run-tests [] {
 # The number of `#[test]` in `buffer_cpu_group_raw.rs`. Change it with the suite.
 const RAW_SUITE_TESTS = 9
 
-# `--os-name` exists so the host decision can be tested; it defaults to the real host.
+# `--os-name` (also a flag of `main`) names the host, so the host decision can be tested; it defaults to the real host.
 def check-raw-suite-listed [--os-name: string] {
     log-step "The raw subscriber suite is built"
     # The suite is `#![cfg(target_os = "linux")]`, so it lists 0 tests on any other host. The guard
@@ -55,7 +58,7 @@ def check-raw-suite-listed [--os-name: string] {
     }
     # `buffer_cpu_group_raw` is gated on `raw-sub-tests`. A run without the feature compiles it to
     # nothing and reports success, so the run above proves nothing unless the suite is listed.
-    let listed = (^cargo nextest list -p hiroz-tests --features ros-msgs,jazzy,raw-sub-tests --message-format oneline | complete)
+    let listed = (^cargo nextest list -p hiroz-tests --features $RAW_FEATURES --message-format oneline | complete)
     if $listed.exit_code != 0 {
         print $listed.stderr
         error make {msg: "cargo nextest list failed for the raw subscriber suite"}
@@ -276,11 +279,11 @@ def test-shm [] {
 # Test Suite Configuration
 # ============================================================================
 
-def get-test-map [] {
+def get-test-map [os_name: string] {
     {
         clippy-workspace: { clippy-workspace }
         run-tests: { run-tests }
-        check-raw-suite-listed: { check-raw-suite-listed }
+        check-raw-suite-listed: { check-raw-suite-listed --os-name $os_name }
         check-bundled-msgs: { check-bundled-msgs }
         check-hu: { check-hu }
         check-examples: { check-examples }
@@ -324,6 +327,7 @@ def get-test-pipeline [] {
 #   ./test-pure-rust.nu --list               # List available test functions
 def main [
     --list                # List available test functions
+    --os-name: string     # Host OS name for the raw suite guard (default: this host)
     ...tests: string      # Specific test functions to run (optional)
 ] {
     if $list {
@@ -332,7 +336,7 @@ def main [
         return
     }
 
-    let test_map = get-test-map
+    let test_map = get-test-map ($os_name | default $nu.os-info.name)
     let pipeline = get-test-pipeline
 
     let tests_to_run = if ($tests | is-empty) { $pipeline } else { $tests }
