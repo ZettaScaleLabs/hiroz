@@ -1516,3 +1516,63 @@ fn other_groups_of_the_topic_never_reach_a_joined_subscriber() {
         "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: nothing arrived on {base}"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// The interop page
+// ---------------------------------------------------------------------------------------------
+
+/// Every claim in the buffer section of the interop page ends with `(not tested)` or with
+/// `(tested: ...)` naming tests that exist in this directory. A claim is a sentence. The check
+/// reports a claim with no marker and a marker that names a missing test, and two controls show
+/// that it does.
+#[test]
+fn interop_page_marks_every_claim_tested_or_not_tested() {
+    let tests_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests");
+    let page = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/user-guide/interop.md"
+    ))
+    .expect("the interop page");
+    let section = page
+        .split("\n## Buffer messages from Lyrical publishers\n")
+        .nth(1)
+        .expect("the buffer section");
+    let sources: String = std::fs::read_dir(tests_dir)
+        .unwrap()
+        .filter_map(|e| std::fs::read_to_string(e.unwrap().path()).ok())
+        .collect();
+    let problems = |text: &str| -> Vec<String> {
+        text.split("\n\n")
+            .filter(|p| !p.trim_start().starts_with("A claim in this section"))
+            .flat_map(|p| p.split(". "))
+            .map(|s| s.trim().trim_end_matches('.').to_owned())
+            .filter(|s| !s.is_empty() && !s.ends_with("(not tested)"))
+            .filter(|s| {
+                let names = s
+                    .strip_suffix(')')
+                    .and_then(|s| s.rsplit_once("(tested: "))
+                    .map(|(_, names)| names.split('`').skip(1).step_by(2).collect::<Vec<_>>());
+                match names {
+                    Some(names) if !names.is_empty() => {
+                        names.iter().any(|n| !sources.contains(&format!("fn {n}(")))
+                    }
+                    _ => true,
+                }
+            })
+            .collect()
+    };
+    let bad = problems(section);
+    assert!(
+        bad.is_empty(),
+        "interop_page_marks_every_claim_tested_or_not_tested: {} claims have no valid marker: {bad:#?}",
+        bad.len()
+    );
+    // Controls: a claim that loses its marker, and a marker that names no test, are reported.
+    let unmarked = section.replacen("(not tested).", ".", 1);
+    let missing = section.replacen("`cache_joins_the_group`", "`no_such_test`", 1);
+    assert_eq!(
+        (problems(&unmarked).len(), problems(&missing).len()),
+        (1, 1),
+        "interop_page_marks_every_claim_tested_or_not_tested: control: the check missed a claim"
+    );
+}
