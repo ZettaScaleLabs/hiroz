@@ -975,10 +975,10 @@ fn typed_subscriber_survives_a_hostile_sample_on_the_group_key() {
 }
 
 /// When the token becomes visible, the group subscription is already declared. A raw peer
-/// session, linked straight to the node, sees two events for each subscriber: the token, and a
-/// subscriber matching a publisher it declared on the group key. The node declares them in this
-/// order on one link, and one counter stamps them, so the test needs no clock. The match must come
-/// first.
+/// session, linked straight to the node, has declared a publisher on the group key for each trial.
+/// The node declares its subscription and then its token on one link. So when the raw session
+/// sees the token, its publisher must already match the subscription. The check runs inside the
+/// callback that reports the token.
 #[test]
 fn group_subscription_is_declared_before_the_token_is_visible() {
     use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
@@ -1004,68 +1004,64 @@ fn group_subscription_is_declared_before_the_token_is_visible() {
         .expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
 
-    // A stamp of 0 means the event has not been seen.
-    let clock = Arc::new(AtomicUsize::new(1));
-    let stamps = || Arc::new((0..TRIALS).map(|_| AtomicUsize::new(0)).collect::<Vec<_>>());
-    let (matched, tokens) = (stamps(), stamps());
+    // A matching listener makes the raw session ask the node for its subscribers. The node must
+    // have that request before it declares a subscription, so the listeners come first.
+    let publishers: Arc<Vec<_>> = Arc::new(
+        (0..TRIALS)
+            .map(|i| {
+                let key = group_key(&format!("order_{i}"), &UINT8);
+                raw.declare_publisher(key).wait().unwrap()
+            })
+            .collect(),
+    );
+    let _listeners: Vec<_> = publishers
+        .iter()
+        .map(|p| p.matching_listener().callback(|_| {}).wait().unwrap())
+        .collect();
+    std::thread::sleep(Duration::from_secs(1));
+
+    // Per trial: 0 token not seen, 1 matched when the token was seen, 2 not matched.
+    let seen: Arc<Vec<AtomicUsize>> = Arc::new((0..TRIALS).map(|_| AtomicUsize::new(0)).collect());
     let _watch = raw
         .liveliness()
         .declare_subscriber("@ros2_lv/**")
         .callback({
-            let (tokens, clock) = (tokens.clone(), clock.clone());
+            let (publishers, seen) = (publishers.clone(), seen.clone());
             move |sample| {
-                let key = sample.key_expr().as_str();
-                let trial = key
+                let trial = sample
+                    .key_expr()
+                    .as_str()
                     .split('/')
                     .find_map(|c| c.strip_prefix("%order_")?.parse::<usize>().ok());
                 if let (SampleKind::Put, Some(i)) = (sample.kind(), trial) {
-                    tokens[i].store(clock.fetch_add(1, SeqCst), SeqCst);
+                    let matching = publishers[i].matching_status().wait().unwrap().matching();
+                    seen[i].store(if matching { 1 } else { 2 }, SeqCst);
                 }
             }
         })
         .wait()
         .unwrap();
 
-    let mut keep = Vec::new();
     let mut wrong = Vec::new();
     for i in 0..TRIALS {
-        let publisher = raw
-            .declare_publisher(group_key(&format!("order_{i}"), &UINT8))
-            .wait()
-            .unwrap();
-        let listener = publisher
-            .matching_listener()
-            .callback({
-                let (matched, clock) = (matched.clone(), clock.clone());
-                move |status| {
-                    if status.matching() {
-                        matched[i].store(clock.fetch_add(1, SeqCst), SeqCst);
-                    }
-                }
-            })
-            .wait()
-            .unwrap();
         let _sub = node
             .create_sub::<UInt8MultiArray>(&format!("/order_{i}"))
             .build()
             .unwrap();
         let end = Instant::now() + Duration::from_secs(1);
-        while (matched[i].load(SeqCst) == 0 || tokens[i].load(SeqCst) == 0) && Instant::now() < end
-        {
+        while seen[i].load(SeqCst) == 0 && Instant::now() < end {
             std::thread::sleep(Duration::from_millis(2));
         }
-        let (m, t) = (matched[i].load(SeqCst), tokens[i].load(SeqCst));
-        if !(0 < m && m < t) {
-            wrong.push((i, m, t));
+        if seen[i].load(SeqCst) != 1 {
+            wrong.push((i, seen[i].load(SeqCst)));
         }
-        keep.push((publisher, listener));
         if wrong.len() > TRIALS / 10 {
             break;
         }
     }
     assert!(
         wrong.len() <= TRIALS / 10,
-        "group_subscription_is_declared_before_the_token_is_visible: token before match, or an event missing, in {} of {TRIALS} trials (trial, match stamp, token stamp): {wrong:?}",
+        "group_subscription_is_declared_before_the_token_is_visible: no match at the token, or no token, in {} of {TRIALS} trials (trial, state: 0 no token, 2 no match): {wrong:?}",
         wrong.len()
     );
 }
