@@ -6,7 +6,10 @@
 use lib/common.nu *
 
 # The features of the raw subscriber suite. `run-tests` and `check-raw-suite-listed` both read this list, so the guard checks the build that runs.
+# The guard also reads this file and fails when a `run-tests` line for `hiroz-tests` spells its own feature list instead of `$RAW_FEATURES`.
+# Outside the guard: the `ros-interop,raw-sub-tests,jazzy` literal of the `cargo check` line at the end of `run-tests`, and the feature literals of `test-ros.nu` and the CI workflow. Dropping `raw-sub-tests` from one of those does not fail the guard.
 const RAW_FEATURES = "ros-msgs,jazzy,raw-sub-tests"
+const THIS_SCRIPT = path self
 
 # ============================================================================
 # Test Functions
@@ -49,6 +52,15 @@ const RAW_SUITE_TESTS = 9
 # `--os-name` (also a flag of `main`) names the host, so the host decision can be tested; it defaults to the real host.
 def check-raw-suite-listed [--os-name: string] {
     log-step "The raw subscriber suite is built"
+    # `run-tests` must take its features from `$RAW_FEATURES`: a literal there is not what the listing below checks.
+    # This reads the script text, so it holds on every host.
+    let uses = (open --raw $THIS_SCRIPT | lines | where {|it|
+        ($it | str contains 'run-cmd') and ($it | str contains 'hiroz-tests') and ($it | str contains 'cargo') and (not ($it | str contains 'ros-interop')) and (($it | str contains 'cargo check') or ($it | str contains 'nextest run'))
+    })
+    let hardcoded = ($uses | where {|it| not ($it | str contains '($RAW_FEATURES)')})
+    if ($hardcoded | is-not-empty) or ($uses | length) != 2 {
+        error make {msg: $"run-tests must build hiroz-tests with the RAW_FEATURES constant on exactly 2 lines, found ($uses | length) lines, ($hardcoded | length) of them with their own feature list"}
+    }
     # The suite is `#![cfg(target_os = "linux")]`, so it lists 0 tests on any other host. The guard
     # catches a missing feature on Linux, where the suite exists, and skips elsewhere.
     let os = ($os_name | default $nu.os-info.name)

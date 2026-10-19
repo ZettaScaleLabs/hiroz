@@ -18,10 +18,11 @@ exit 0
 '
 
 # Run the script at `script` with the stub first on PATH. Returns the `complete` record and the stub log.
-def run-guard [script: path, dir: path, mode: string, args: list<string>] {
+def run-guard [script: path, dir: path, mode: string, args: list<string>, count_delta: int = 0] {
     let log = ($dir | path join cargo.log)
     rm -f $log
-    let count = (open --raw $SOURCE | parse --regex 'const RAW_SUITE_TESTS = (\d+)' | get capture0.0)
+    # `count_delta` is added to the stub count: 0 gives the real count of the suite, another value a wrong one.
+    let count = ((open --raw $SOURCE | parse --regex 'const RAW_SUITE_TESTS = (\d+)' | get capture0.0 | into int) + $count_delta)
     let result = (with-env {PATH: ($env.PATH | prepend ($dir | path join bin)), STUB_LOG: $log, STUB_MODE: $mode, STUB_COUNT: $count} {
         ^$nu.current-exe $script ...$args | complete
     })
@@ -42,7 +43,7 @@ def main [] {
     ^ln -s ($SCRIPTS | path join lib) ($dir | path join lib)
 
     # A copy of the script with `raw-sub-tests` removed from every line except the guard's own
-    # `nextest list` line: the drift the guard exists to catch.
+    # `nextest list` line: the shared constant drifts, and every command that reads it drifts with it.
     let mutant = ($dir | path join mutant.nu)
     let lines = (open --raw $SOURCE | lines)
     let mutated = ($lines | each {|l| if ($l | str contains 'nextest list') { $l } else { $l | str replace --all ',raw-sub-tests' '' } })
@@ -55,7 +56,30 @@ def main [] {
     $ok = ((verdict guard_passes_on_the_unmutated_script ($control.result.exit_code == 0) $"rc=($control.result.exit_code)") and $ok)
 
     let drift = (run-guard $mutant $dir normal [check-raw-suite-listed])
-    $ok = ((verdict guard_fails_when_run_tests_drops_the_feature ($changed > 0 and $drift.result.exit_code != 0 and ($drift.result.stdout | str contains "feature is off")) $"changed=($changed) rc=($drift.result.exit_code)") and $ok)
+    $ok = ((verdict guard_fails_when_the_shared_constant_drops_the_feature ($changed > 0 and $drift.result.exit_code != 0 and ($drift.result.stdout | str contains "feature is off")) $"changed=($changed) rc=($drift.result.exit_code)") and $ok)
+
+    # `run-tests` spells its own feature list on one line and the constant is untouched: drift the constant cannot show.
+    let spell = {|features| $lines | each {|l| if ($l | str contains 'nextest run --no-fail-fast -p hiroz-tests') { $l | str replace '($RAW_FEATURES)' $features } else { $l } } }
+    let literal = ($dir | path join literal.nu)
+    let spelled = (do $spell "ros-msgs,jazzy")
+    $spelled | str join (char newline) | save --force $literal
+    let spelled_changed = ($lines | zip $spelled | where {|p| $p.0 != $p.1} | length)
+    let hardcoded = (run-guard $literal $dir normal [check-raw-suite-listed])
+    let hardcoded_text = $"($hardcoded.result.stdout)($hardcoded.result.stderr)"
+    $ok = ((verdict guard_fails_when_run_tests_drops_the_feature_in_its_own_literal ($spelled_changed == 1 and $hardcoded.result.exit_code != 0 and ($hardcoded_text | str contains "RAW_FEATURES")) $"changed=($spelled_changed) rc=($hardcoded.result.exit_code)") and $ok)
+
+    # Control: the same literal with the feature still fails. The guard demands the constant, not only the feature.
+    let right = ($dir | path join right.nu)
+    (do $spell "ros-msgs,jazzy,raw-sub-tests") | str join (char newline) | save --force $right
+    let right_run = (run-guard $right $dir normal [check-raw-suite-listed])
+    $ok = ((verdict guard_fails_when_run_tests_spells_the_right_features_itself ($right_run.result.exit_code != 0) $"rc=($right_run.result.exit_code)") and $ok)
+
+    # A stub that lists one test too few, and one too many: the count check must fail for both.
+    for delta in [-1 1] {
+        let wrong = (run-guard $SOURCE $dir normal [check-raw-suite-listed] $delta)
+        let wrong_ok = ($wrong.result.exit_code != 0 and ($"($wrong.result.stdout)($wrong.result.stderr)" | str contains "count is stale"))
+        $ok = ((verdict $"guard_fails_when_the_stub_count_is_off_by_($delta)" $wrong_ok $"rc=($wrong.result.exit_code)") and $ok)
+    }
 
     let skipped = (run-guard $SOURCE $dir fail [--os-name macos check-raw-suite-listed])
     let skip_ok = ($skipped.result.exit_code == 0 and ($skipped.result.stdout | str contains "skipped") and ($skipped.log | is-empty))
