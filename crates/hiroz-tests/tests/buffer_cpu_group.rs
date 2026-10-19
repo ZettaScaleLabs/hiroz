@@ -1049,7 +1049,7 @@ fn group_subscription_is_declared_before_the_token_is_visible() {
             .create_sub::<UInt8MultiArray>(&format!("/order_{i}"))
             .build()
             .unwrap();
-        let end = Instant::now() + Duration::from_secs(1);
+        let end = Instant::now() + RECV;
         while seen[i].load(SeqCst) == 0 && Instant::now() < end {
             std::thread::sleep(Duration::from_millis(2));
         }
@@ -1251,7 +1251,10 @@ fn non_buffer_topic_still_delivers_under_a_group_key_deny_rule() {
         .create_sub::<UInt8MultiArray>("/acl_plain_twin")
         .build()
         .expect("build returns Ok under a deny rule");
-    token_for(&raw, "acl_plain_twin");
+    assert!(
+        joined(&raw, "acl_plain_twin"),
+        "non_buffer_topic_still_delivers_under_a_group_key_deny_rule: control: the twin did not join the group"
+    );
     let twin_key = group_key("acl_plain_twin", &UINT8);
     assert!(
         !put_until(&raw, &twin_key, &PAYLOAD, QUIET, || twin
@@ -1259,6 +1262,8 @@ fn non_buffer_topic_still_delivers_under_a_group_key_deny_rule() {
             .is_ok()),
         "non_buffer_topic_still_delivers_under_a_group_key_deny_rule: control: the joined twin received on {twin_key}, so the rule does not bite"
     );
+    // A group-key rule cannot touch this subscriber: it reads the base key only, so its delivery is
+    // unaffected by construction. The joined twin above shows the rule does bite.
     let sub = node
         .create_sub::<Float64MultiArray>("/acl_plain")
         .build()

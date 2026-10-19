@@ -10,6 +10,8 @@ use lib/common.nu *
 # Outside the guard: the `ros-interop,raw-sub-tests,jazzy` literal of the `cargo check` line at the end of `run-tests`, and the feature literals of `test-ros.nu` and the CI workflow. Dropping `raw-sub-tests` from one of those does not fail the guard.
 const RAW_FEATURES = "ros-msgs,jazzy,raw-sub-tests"
 const THIS_SCRIPT = path self
+# The trailing comment of the `run-cmd` line that checks a feature set other than the raw suite. The guard does not count that line.
+const OTHER_CELL_MARK = " # raw-guard: other cell"
 
 # ============================================================================
 # Test Functions
@@ -43,7 +45,7 @@ def run-tests [] {
     run-cmd $"cargo check -p hiroz-tests --tests --features ($RAW_FEATURES)"
     run-cmd $"cargo nextest run --no-fail-fast -p hiroz-tests --features ($RAW_FEATURES)"
     # The raw interop cell needs both features and a ROS install to run. It compiles without the install, so check it here.
-    run-cmd "cargo check -p hiroz-tests --tests --features ros-interop,raw-sub-tests,jazzy"
+    run-cmd "cargo check -p hiroz-tests --tests --features ros-interop,raw-sub-tests,jazzy" # raw-guard: other cell
 }
 
 # The number of `#[test]` in `buffer_cpu_group_raw.rs`. Change it with the suite.
@@ -54,8 +56,9 @@ def check-raw-suite-listed [--os-name: string] {
     log-step "The raw subscriber suite is built"
     # `run-tests` must take its features from `$RAW_FEATURES`: a literal there is not what the listing below checks.
     # This reads the script text, so it holds on every host.
+    # A line counts when it has the shape of a `run-cmd` that checks or runs `hiroz-tests`. The one such line that is another cell carries the `OTHER_CELL_MARK` comment. This line does not start with `run-cmd`, so it never counts itself.
     let uses = (open --raw $THIS_SCRIPT | lines | where {|it|
-        ($it | str contains 'run-cmd') and ($it | str contains '-p hiroz-tests') and ($it | str contains 'cargo') and (not ($it | str contains 'ros-interop')) and (($it | str contains 'cargo check') or ($it | str contains 'nextest run'))
+        ($it =~ '^\s*run-cmd \$?"cargo (check|nextest run) .*-p hiroz-tests') and (not ($it | str ends-with $OTHER_CELL_MARK))
     })
     let hardcoded = ($uses | where {|it| not ($it | str contains '($RAW_FEATURES)')})
     if ($hardcoded | is-not-empty) or ($uses | length) != 2 {

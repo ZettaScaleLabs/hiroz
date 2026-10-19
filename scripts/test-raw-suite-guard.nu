@@ -69,10 +69,31 @@ def main [] {
     $ok = ((verdict guard_fails_when_run_tests_drops_the_feature_in_its_own_literal ($spelled_changed == 1 and $hardcoded.result.exit_code != 0 and ($hardcoded_text | str contains "RAW_FEATURES")) $"changed=($spelled_changed) rc=($hardcoded.result.exit_code)") and $ok)
 
     # Control: the same literal with the feature still fails. The guard demands the constant, not only the feature.
+    # The failure must carry the guard's own message: a nonzero exit alone also holds for a script that does not parse.
+    let fails_on_literal = {|run| $run.result.exit_code != 0 and ($"($run.result.stdout)($run.result.stderr)" | str contains "RAW_FEATURES constant")}
     let right = ($dir | path join right.nu)
     (do $spell "ros-msgs,jazzy,raw-sub-tests") | str join (char newline) | save --force $right
     let right_run = (run-guard $right $dir normal [check-raw-suite-listed])
-    $ok = ((verdict guard_fails_when_run_tests_spells_the_right_features_itself ($right_run.result.exit_code != 0) $"rc=($right_run.result.exit_code)") and $ok)
+    $ok = ((verdict guard_fails_when_run_tests_spells_the_right_features_itself (do $fails_on_literal $right_run) $"rc=($right_run.result.exit_code)") and $ok)
+
+    # Detector control: a copy that fails for a different reason (a deliberately broken parse) exits nonzero too, and must not satisfy the check above.
+    let broken = ($dir | path join broken.nu)
+    ((open --raw $right) + "\nlet broken = (") | save --force $broken
+    let broken_run = (run-guard $broken $dir normal [check-raw-suite-listed])
+    $ok = ((verdict guard_message_check_rejects_a_failure_for_another_reason ($broken_run.result.exit_code != 0 and not (do $fails_on_literal $broken_run)) $"rc=($broken_run.result.exit_code)") and $ok)
+
+    # The selector names the lines it counts by their shape, not by the name of the `ros-interop` feature: renaming that feature on the `run-cmd` lines changes nothing.
+    let renamed = ($dir | path join renamed.nu)
+    open --raw $SOURCE | str replace --all --regex '(?m)^(\s*run-cmd .*)ros-interop' '${1}ros-renamed' | save --force $renamed
+    let renamed_run = (run-guard $renamed $dir normal [check-raw-suite-listed])
+    $ok = ((verdict guard_passes_when_the_ros_interop_feature_is_renamed ($renamed_run.result.exit_code == 0) $"rc=($renamed_run.result.exit_code)") and $ok)
+
+    # The one line that is not the raw suite carries a marker. Without it the guard counts that line and fails on the count: the marker is the dependency.
+    let unmarked = ($dir | path join unmarked.nu)
+    let marked_lines = ($lines | where {|l| ($l | str trim | str starts-with 'run-cmd') and ($l | str ends-with ' # raw-guard: other cell')})
+    open --raw $SOURCE | str replace --all --regex '(?m)^(\s*run-cmd .*) # raw-guard: other cell$' '$1' | save --force $unmarked
+    let unmarked_run = (run-guard $unmarked $dir normal [check-raw-suite-listed])
+    $ok = ((verdict guard_counts_the_other_cell_line_when_its_marker_is_removed ((($marked_lines | length) == 1) and $unmarked_run.result.exit_code != 0 and ($"($unmarked_run.result.stdout)($unmarked_run.result.stderr)" | str contains "exactly 2 lines")) $"marked=($marked_lines | length) rc=($unmarked_run.result.exit_code)") and $ok)
 
     # A stub that lists one test too few, and one too many: the count check must fail for both.
     for delta in [-1 1] {
