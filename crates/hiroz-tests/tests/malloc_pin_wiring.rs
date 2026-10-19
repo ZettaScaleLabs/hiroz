@@ -2,8 +2,12 @@
 //!
 //! `rmw-zenoh-rs` needs ROS headers to build, so this test reads its source instead of calling
 //! `rmw_init`. It fails when the call to `hiroz::malloc_pin::pin_large_message_thresholds` is
-//! removed from `rmw_init`, or when it is only commented out with `//` or `/* */`. It does not fail when the call
-//! is present but unreachable.
+//! removed from `context.rs`, or when it is only commented out with `//` or `/* */`.
+//!
+//! The match is file-wide in `context.rs`. It is not scoped to `rmw_init`, so a call in any
+//! other function satisfies it. It does not fail when the call is present but unreachable,
+//! when it sits in a string literal, when it is inside a `#[cfg(test)]` block, or when it is
+//! behind a `cfg` that is off.
 
 use std::path::Path;
 
