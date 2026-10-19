@@ -13,7 +13,7 @@
 Pre-built wheels are available for Linux (x86_64, aarch64) and macOS (aarch64),
 Python 3.11+. No Rust toolchain required.
 
-Pick a release version from the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases) and substitute `<version>` below (e.g. `v0.2.0`).
+Pick a release version from the [Releases page](https://github.com/ZettaScaleLabs/hiroz/releases) and substitute `<version>` below (e.g. `v0.2.1`).
 
 **Jazzy / Kilted / Lyrical / Rolling:**
 
