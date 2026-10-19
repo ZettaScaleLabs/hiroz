@@ -99,6 +99,11 @@ fn typed_decoder_accepts_a_count_at_the_boundary() {
         body.extend(std::iter::repeat_n(7u8, payload));
         Vec::<u8>::cdr_deserialize(&mut CdrReader::<LittleEndian>::new(&body))
     };
-    assert_eq!(decode(4, 4).expect("count equals unread bytes"), [7; 4]);
-    assert!(decode(5, 4).is_err(), "count above unread bytes");
+    const NAME: &str = "typed_decoder_accepts_a_count_at_the_boundary";
+    assert_eq!(
+        decode(4, 4).ok(),
+        Some(vec![7; 4]),
+        "{NAME}: count equals unread bytes"
+    );
+    assert!(decode(5, 4).is_err(), "{NAME}: count above unread bytes");
 }
