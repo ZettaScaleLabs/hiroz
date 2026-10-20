@@ -676,7 +676,10 @@ where
     /// Choose whether this subscriber joins rmw_zenoh's CPU buffer group.
     ///
     /// The default, [`BufferGroup::Auto`](crate::BufferGroup::Auto), joins when the message has
-    /// an unbounded `uint8[]` or hiroz has no message definition to ask.
+    /// an unbounded `uint8[]` or hiroz has no message definition to ask. A joined subscriber
+    /// subscribes on `<topic key>/**`, which a router access-control rule must allow. A
+    /// transient-local subscriber and a key format other than `rmw_zenoh`'s never join. See
+    /// [`BufferGroup`](crate::BufferGroup) for the routing and access-control effects.
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
         self.buffer_group = group;
         self

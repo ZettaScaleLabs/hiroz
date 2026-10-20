@@ -21,7 +21,20 @@ use crate::entity::EndpointEntity;
 
 /// Whether a subscriber joins rmw_zenoh's CPU buffer group.
 ///
-/// Set it with `with_buffer_group` on the subscriber builder.
+/// Set it with `with_buffer_group` on the subscriber or cache builder. The default is
+/// [`BufferGroup::Auto`].
+///
+/// A joined subscriber declares one subscription on `<topic key>/**` in place of `<topic key>`. It
+/// reads the topic key and the group key `<topic key>/_buf_cpu`, and its liveliness token announces
+/// the group. Other keys under the topic key still reach the process and are discarded there.
+///
+/// The wider key matters to router access control. A rule that allows `<topic key>` and not
+/// `<topic key>/**` starves a joined subscriber and raises no error. Allow `<topic key>/**` wherever
+/// you allow `<topic key>`, or choose [`BufferGroup::Off`].
+///
+/// A transient-local subscriber never joins, and neither does a subscriber on a key format other
+/// than `rmw_zenoh`'s, whatever the setting. The interoperability chapter of the user guide gives
+/// the details.
 ///
 /// New values may be added in a minor release, so match it with a wildcard arm.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

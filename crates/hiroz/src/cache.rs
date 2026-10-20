@@ -325,8 +325,11 @@ where
 }
 
 impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
-    /// Choose whether the cache joins rmw_zenoh's CPU buffer group. See
-    /// [`ZSubBuilder::with_buffer_group`].
+    /// Choose whether the cache joins rmw_zenoh's CPU buffer group. The setting holds before or
+    /// after [`with_stamp`](ZCacheBuilder::with_stamp). A joined cache subscribes on
+    /// `<topic key>/**`, which a router access-control rule must allow. See
+    /// [`BufferGroup`](crate::BufferGroup) for the routing effects and the cases that never join,
+    /// and [`ZSubBuilder::with_buffer_group`] for the default.
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
         self.sub_builder = self.sub_builder.with_buffer_group(group);
         self
