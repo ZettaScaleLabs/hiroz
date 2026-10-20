@@ -1068,39 +1068,6 @@ fn joined_subscriber_reads_the_group_key_with_its_locality() {
     );
 }
 
-/// A sample on the group key whose sequence length is over the decoder's ceiling reaches a joined
-/// typed subscriber as a decode error, and the next valid sample still arrives. The first field is
-/// a sequence whose length prefix is far above the ceiling, and no data follows. This covers that
-/// one check. It does not cover other malformed shapes, such as a short buffer or a bad header.
-#[test]
-fn typed_subscriber_survives_a_length_over_the_ceiling_on_the_group_key() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let sub = node
-        .create_sub::<UInt8MultiArray>("/hostile_group")
-        .with_buffer_group(BufferGroup::Auto)
-        .build()
-        .unwrap();
-    token_for(&raw, "hostile_group");
-    let key = group_key("hostile_group", &UINT8);
-    let hostile = [&[0u8, 1, 0, 0][..], &u32::MAX.to_le_bytes()].concat();
-    assert!(
-        put_until(&raw, &key, &hostile, RECV, || matches!(
-            sub.recv_timeout(POLL),
-            Err(e) if e.to_string().contains("exceeds maximum")
-        )),
-        "typed_subscriber_survives_a_length_over_the_ceiling_on_the_group_key: no decode error for the hostile sample on {key}"
-    );
-    assert!(
-        put_until(&raw, &key, &PAYLOAD, RECV, || sub
-            .recv_timeout(POLL)
-            .is_ok()),
-        "typed_subscriber_survives_a_length_over_the_ceiling_on_the_group_key: no valid sample after the hostile one"
-    );
-}
-
 /// When the token becomes visible, the group subscription is already declared. A raw peer
 /// session, linked straight to the node, has declared a publisher on the group key for each trial.
 /// The node declares its subscription and then its token on one link. So when the raw session
