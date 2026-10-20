@@ -165,9 +165,9 @@ fn log_once(base: &str, group: &str) {
     };
     let line = || {
         format!(
-        "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
-         key {group}. A router access-control rule that denies {base}/** or {group} drops \
-         buffer messages and reports no error. Allow {base}/** wherever you allow {base}."
+            "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
+             key {group}. A router access-control rule that denies {base}/** or {group} drops \
+             buffer messages and reports no error. Allow {base}/** wherever you allow {base}."
         )
     };
     match first {
