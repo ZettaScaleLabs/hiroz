@@ -923,6 +923,44 @@ fn dropping_a_joined_cache_stops_group_key_updates() {
     );
 }
 
+/// A joined cache fills from the base key and from the group key. A publisher that is not buffer
+/// aware writes the base key, and a buffer-aware publisher writes the group key, so the cache needs
+/// both. Each key puts a valid sample of its own, and the test reads the identity of the message the
+/// cache holds. A cache that read the group key alone would never hold the base sample. The test
+/// runs the cache under `Auto` on a buffer topic and under `Cpu`.
+#[test]
+fn joined_cache_receives_from_the_base_key_and_the_group_key() {
+    const NAME: &str = "joined_cache_receives_from_the_base_key_and_the_group_key";
+    const GROUP: u32 = 7;
+    const BASE_KEY: u32 = 8;
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    for (topic, mode) in [("jc_auto", BufferGroup::Auto), ("jc_cpu", BufferGroup::Cpu)] {
+        let cache = node
+            .create_cache::<UInt8MultiArray>(&format!("/{topic}"), 1000)
+            .with_buffer_group(mode)
+            .build()
+            .expect("cache");
+        assert_token(
+            &token_for(&raw, topic),
+            shape("tok_node", topic, &UINT8, true),
+        );
+        for (key, want) in [
+            (group_key(topic, &UINT8), GROUP),
+            (base_key(topic, &UINT8), BASE_KEY),
+        ] {
+            assert!(
+                put_until(&raw, &key, &tagged(want), RECV, || cached(&cache)
+                    .contains(&want)),
+                "{NAME}: the {mode:?} cache of {topic} never held sample {want} from {key}: holds {:?}",
+                cached(&cache)
+            );
+        }
+    }
+}
+
 /// A joined subscriber reads the group key, and `Locality::Remote` holds on that key.
 #[test]
 fn joined_subscriber_reads_the_group_key_with_its_locality() {
