@@ -23,7 +23,7 @@ use std::{
 
 use buffer_rmw::{GROUP_SUFFIX, KeyCounts, SeqSet, client_session};
 use common::{buffer_rmw, *};
-use hiroz::{Builder, MessageTypeInfo};
+use hiroz::{BufferGroup, Builder, MessageTypeInfo};
 use hiroz_msgs::{sensor_msgs::PointCloud2, std_msgs::UInt8MultiArray};
 use serde::{Deserialize, Serialize};
 use zenoh_buffers::buffer::SplitBuffer;
@@ -265,10 +265,19 @@ macro_rules! run_kind {
         let router = TestRouter::new();
         let ctx = create_hiroz_context_with_router(&router).expect("ctx");
         let node = ctx.create_node("cell_node").build().expect("node");
-        let typed = node.create_sub::<$M>(topic).build().unwrap();
-        let blob = node.create_sub::<$B>(topic).build().unwrap();
+        let typed = node
+            .create_sub::<$M>(topic)
+            .with_buffer_group(BufferGroup::Auto)
+            .build()
+            .unwrap();
+        let blob = node
+            .create_sub::<$B>(topic)
+            .with_buffer_group(BufferGroup::Auto)
+            .build()
+            .unwrap();
         let dynamic = node
             .create_dyn_sub(topic, <$M>::message_schema().expect("message schema"))
+            .with_buffer_group(BufferGroup::Auto)
             .build()
             .unwrap();
         let cached = Arc::new(Mutex::new(SeqSet::new($size)));
@@ -284,6 +293,7 @@ macro_rules! run_kind {
                     .map_or(0, |b| u32::from_le_bytes(b.try_into().unwrap()));
                 std::time::UNIX_EPOCH + Duration::from_millis(seq as u64)
             })
+            .with_buffer_group(BufferGroup::Auto)
             .build()
             .unwrap();
         let base = base_key(topic, <$M>::type_name(), &<$M>::type_hash());
@@ -419,7 +429,11 @@ fn old_parsers_list_a_joined_subscriber() {
     let plain = client_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("oldp_node").build().expect("node");
-    let _joined = node.create_sub::<UInt8MultiArray>("/oldp").build().unwrap();
+    let _joined = node
+        .create_sub::<UInt8MultiArray>("/oldp")
+        .with_buffer_group(BufferGroup::Auto)
+        .build()
+        .unwrap();
 
     let token = token_for(NAME, &plain, "oldp");
     assert!(
@@ -472,9 +486,10 @@ use hiroz_msgs::example_interfaces::{FibonacciGoal, action::Fibonacci};
 /// The hiroz action client receives each feedback message of the released Fibonacci server once.
 /// The server of `action_tutorials_cpp` publishes the whole sequence after each step, so
 /// feedback number `i` holds `i + 3` numbers: the received lengths must be exactly
-/// `3, 4, ..., order + 1`. The group key carries no sample, as feedback is not a buffer topic.
+/// `3, 4, ..., order + 1`. The action client has no `BufferGroup` switch, so it stays out of the
+/// group. The group key carries no sample, as feedback is not a buffer topic.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn action_feedback_arrives_once_each_with_the_group_joined() {
+async fn action_feedback_arrives_once_each() {
     use std::{
         os::unix::process::CommandExt,
         sync::atomic::{AtomicUsize, Ordering},
@@ -482,7 +497,7 @@ async fn action_feedback_arrives_once_each_with_the_group_joined() {
 
     use zenoh::Wait;
 
-    const NAME: &str = "action_feedback_arrives_once_each_with_the_group_joined";
+    const NAME: &str = "action_feedback_arrives_once_each";
     const ORDER: i32 = 6;
     assert!(
         check_ros2_available() && check_action_tutorials_cpp_available(),
@@ -651,7 +666,11 @@ fn mixed_run(topic: &str, with_off: bool, with_released: bool) -> MixRun {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("mix_node").build().expect("node");
-    let joined = node.create_sub::<UInt8MultiArray>(topic).build().unwrap();
+    let joined = node
+        .create_sub::<UInt8MultiArray>(topic)
+        .with_buffer_group(BufferGroup::Auto)
+        .build()
+        .unwrap();
     let off = with_off.then(|| {
         node.create_sub::<UInt8MultiArray>(topic)
             .with_buffer_group(hiroz::BufferGroup::Off)
