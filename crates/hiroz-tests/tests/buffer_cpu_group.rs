@@ -16,16 +16,19 @@
 mod common;
 
 use std::{
+    cell::RefCell,
+    collections::BTreeSet,
     io::Write,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use common::*;
 use hiroz::{
     BufferGroup, Builder, MessageTypeInfo,
+    cache::ZCache,
     context::ZContextBuilder,
-    dynamic::{FieldType, MessageSchema},
+    dynamic::{DynamicMessage, FieldType, MessageSchema},
     qos::{QosDurability, QosHistory, QosProfile},
 };
 use hiroz_msgs::std_msgs::{Float64MultiArray, UInt8MultiArray};
@@ -41,6 +44,8 @@ use zenoh::{Wait, sample::SampleKind};
 const RECV: Duration = Duration::from_secs(3);
 const QUIET: Duration = Duration::from_millis(1500);
 const POLL: Duration = Duration::from_millis(200);
+/// The wait for a further sample after one has arrived.
+const DRAIN: Duration = Duration::from_millis(5);
 
 /// A message type as a token and a key write it.
 struct Wire {
@@ -232,6 +237,7 @@ fn put_until(
         if done() {
             return true;
         }
+        std::thread::sleep(DRAIN);
     }
     false
 }
@@ -295,13 +301,77 @@ impl hiroz::action::ZAction for NoSchemaAction {
     }
 }
 
-/// An empty `UInt8MultiArray`, `Float64MultiArray` or `Blob`: header, no dimensions, offset 0 and
-/// no data. It decodes as each of the three.
-const EMPTY: [u8; 16] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+/// The delivery phases of a table row. Each phase puts a payload of its own on the row, so the
+/// sample a row receives says which phase it came from.
+const GROUP_IN: u32 = 1;
+const GROUP_OUT: u32 = 2;
+const BASE: u32 = 3;
 
-/// One subscriber of a table. The table states what its token must announce. `probe` reads one
-/// sample from the subscriber and says whether it got one. `delivery` is the message type to put
-/// on the subscriber's keys, and `None` where the test has no independent key to put on.
+/// The identity of the sample that `phase` puts on row number `row`.
+fn tag(row: usize, phase: u32) -> u32 {
+    (row as u32 + 1) * 10 + phase
+}
+
+/// A `UInt8MultiArray`, `Float64MultiArray` or `Blob` that carries `tag` in `layout.data_offset`:
+/// header, no dimensions, the tag and no data. It decodes as each of the three.
+fn tagged(tag: u32) -> Vec<u8> {
+    let mut bytes = vec![0, 1, 0, 0, 0, 0, 0, 0];
+    bytes.extend_from_slice(&tag.to_le_bytes());
+    bytes.extend_from_slice(&[0, 0, 0, 0]);
+    bytes
+}
+
+/// A message that carries a sample identity in `layout.data_offset`.
+trait Tagged {
+    fn tag(&self) -> u32;
+}
+impl Tagged for UInt8MultiArray {
+    fn tag(&self) -> u32 {
+        self.layout.data_offset
+    }
+}
+impl Tagged for Float64MultiArray {
+    fn tag(&self) -> u32 {
+        self.layout.data_offset
+    }
+}
+impl Tagged for Blob {
+    fn tag(&self) -> u32 {
+        self.layout.data_offset
+    }
+}
+impl Tagged for DynamicMessage {
+    fn tag(&self) -> u32 {
+        self.get::<u32>("layout.data_offset")
+            .expect("layout.data_offset")
+    }
+}
+
+/// The identities of the samples a subscriber has queued. `recv` waits the given time for one sample.
+fn drain<T: Tagged>(mut recv: impl FnMut(Duration) -> Option<T>) -> Vec<u32> {
+    let mut tags = Vec::new();
+    let mut wait = POLL;
+    while let Some(message) = recv(wait) {
+        tags.push(message.tag());
+        wait = DRAIN;
+    }
+    tags
+}
+
+/// The identities of every message a cache holds.
+fn cached<T: Tagged + hiroz::msg::ZMessage>(cache: &ZCache<T>) -> Vec<u32> {
+    let end = SystemTime::now() + Duration::from_secs(3600);
+    cache
+        .get_interval(SystemTime::UNIX_EPOCH, end)
+        .iter()
+        .map(|message| message.tag())
+        .collect()
+}
+
+/// One subscriber of a table. The table states what its token must announce. `probe` returns the
+/// identity of every sample the subscriber holds that the previous call did not return, and a cache
+/// returns all it holds. `delivery` is the message type to put on the subscriber's keys, and `None`
+/// where the test has no independent key to put on.
 struct Row {
     node: &'static str,
     topic: &'static str,
@@ -310,7 +380,7 @@ struct Row {
     delivery: Option<&'static Wire>,
     joined: bool,
     qos: &'static str,
-    probe: Box<dyn Fn() -> bool>,
+    probe: Box<dyn Fn() -> Vec<u32>>,
 }
 
 impl Row {
@@ -318,7 +388,7 @@ impl Row {
         topic: &'static str,
         wire: &'static Wire,
         joined: bool,
-        probe: Box<dyn Fn() -> bool>,
+        probe: Box<dyn Fn() -> Vec<u32>>,
     ) -> Row {
         Row {
             node: "tok_node",
@@ -355,17 +425,20 @@ impl Row {
             delivery: None,
             joined,
             qos: DEFAULT_QOS,
-            probe: Box::new(|| false),
+            probe: Box::new(Vec::new),
         }
     }
 }
 
 /// Check every row of a table against what a raw publisher sees. A row's token must be the whole
-/// token of its shape, with the group field if and only if the row joined. A row that joined must
-/// receive a sample put on its group key. A row that stays out must receive nothing on the group
-/// key, and must still receive a sample put on its base key: that is its live positive control,
-/// and the joined twins of the table are the others. Rows that join and have a probe prove the
-/// group key delivers, so they need no base-key check.
+/// token of its shape, with the group field if and only if the row joined.
+///
+/// Each delivery phase puts a payload of its own, so a late sample of one phase cannot pass for
+/// another. A row that joined must receive the sample of the group phase. A row that stays out must
+/// receive the sample of the base phase: that is its live positive control, and it is separate from
+/// the check that no sample of the group phase arrived. That check runs last, after the base sample
+/// arrived, so a delayed group sample has had time to show. A joined row proves its group key only.
+/// Other tests check the base key of a joined subscriber and of a joined cache.
 fn check_rows(raw: &zenoh::Session, table: &str, rows: &[Row]) {
     for row in rows {
         let shape = Shape {
@@ -378,35 +451,55 @@ fn check_rows(raw: &zenoh::Session, table: &str, rows: &[Row]) {
         };
         assert_token(&token_for(raw, row.topic), shape);
     }
-    let delivered: Vec<&Row> = rows.iter().filter(|r| r.delivery.is_some()).collect();
-    for row in delivered.iter().filter(|r| r.joined) {
+    let delivered: Vec<(usize, &Row)> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.delivery.is_some())
+        .collect();
+    // Every identity a row has shown so far.
+    let seen: Vec<RefCell<BTreeSet<u32>>> = rows.iter().map(|_| RefCell::default()).collect();
+    let observe = |i: usize, row: &Row, want: u32| {
+        seen[i].borrow_mut().extend((row.probe)());
+        seen[i].borrow().contains(&want)
+    };
+    for &(i, row) in delivered.iter().filter(|(_, r)| r.joined) {
         let key = group_key(row.topic, row.delivery.unwrap());
+        let want = tag(i, GROUP_IN);
         assert!(
-            put_until(raw, &key, &EMPTY, RECV, || (row.probe)()),
-            "{table}: the joined row {} received nothing on {key}",
-            row.topic
+            put_until(raw, &key, &tagged(want), RECV, || observe(i, row, want)),
+            "{table}: the joined row {} did not receive its group sample {want} on {key}: saw {:?}",
+            row.topic,
+            seen[i].borrow()
         );
     }
-    for row in delivered.iter().filter(|r| !r.joined) {
+    for &(i, row) in delivered.iter().filter(|(_, r)| !r.joined) {
         let key = group_key(row.topic, row.delivery.unwrap());
         for _ in 0..5 {
-            raw.put(&key, EMPTY.to_vec()).wait().expect("put");
+            raw.put(&key, tagged(tag(i, GROUP_OUT)))
+                .wait()
+                .expect("put");
         }
     }
-    std::thread::sleep(POLL);
-    for row in delivered.iter().filter(|r| !r.joined) {
-        let wire = row.delivery.unwrap();
+    for &(i, row) in delivered.iter().filter(|(_, r)| !r.joined) {
+        let key = base_key(row.topic, row.delivery.unwrap());
+        let want = tag(i, BASE);
         assert!(
-            !(row.probe)(),
-            "{table}: the row {} stays out and received a sample on {}",
+            put_until(raw, &key, &tagged(want), RECV, || observe(i, row, want)),
+            "{table}: control: the row {} did not receive its base sample {want} on {key}: saw {:?}",
             row.topic,
-            group_key(row.topic, wire)
+            seen[i].borrow()
         );
-        let key = base_key(row.topic, wire);
+    }
+    std::thread::sleep(POLL);
+    for &(i, row) in delivered.iter().filter(|(_, r)| !r.joined) {
+        let leaked = tag(i, GROUP_OUT);
+        observe(i, row, leaked);
         assert!(
-            put_until(raw, &key, &EMPTY, RECV, || (row.probe)()),
-            "{table}: control: the row {} received nothing on its base key {key}",
-            row.topic
+            !seen[i].borrow().contains(&leaked),
+            "{table}: the row {} stays out and received its group sample {leaked} on {}: saw {:?}",
+            row.topic,
+            group_key(row.topic, row.delivery.unwrap()),
+            seen[i].borrow()
         );
     }
 }
@@ -419,7 +512,7 @@ macro_rules! typed_row {
             $topic,
             &$wire,
             $joined,
-            Box::new(move || sub.recv_timeout(POLL).is_ok()),
+            Box::new(move || drain(|wait| sub.recv_timeout(wait).ok())),
         )
     }};
 }
@@ -535,7 +628,7 @@ fn dynamic_subscriber_join_policy() {
             let message = UInt8MultiArray::message_schema().unwrap();
             let $b = node.create_dyn_sub(concat!("/", $topic), message);
             let sub = $cfg.build().unwrap();
-            let probe = Box::new(move || sub.recv_timeout(POLL).is_ok());
+            let probe = Box::new(move || drain(|wait| sub.recv_timeout(wait).ok()));
             Row::wired($topic, &UINT8, $joined, probe)
         }};
     }
@@ -560,14 +653,14 @@ fn dynamic_subscriber_join_policy() {
 
 macro_rules! cache_row {
     ($node:expr, $T:ty, $topic:expr, $wire:expr, $joined:expr, |$b:ident| $cfg:expr) => {{
-        let $b = $node.create_cache::<$T>(concat!("/", $topic), 10);
+        let $b = $node.create_cache::<$T>(concat!("/", $topic), 1000);
         let cache = $cfg.build().unwrap();
-        Row::wired($topic, &$wire, $joined, Box::new(move || !cache.is_empty()))
+        Row::wired($topic, &$wire, $joined, Box::new(move || cached(&cache)))
     }};
 }
 
-/// The join policy of a cache. A cache of a buffer type joins and fills from the group key. A cache
-/// of a type with no byte field stays out. `Off` keeps a cache out of the group and it fills from
+/// The join policy of a cache. The cache holds 1000 messages, so no sample of a phase can push out
+/// another. A cache of a buffer type joins and fills from the group key. A cache of a type with no byte field stays out. `Off` keeps a cache out of the group and it fills from
 /// the base key, whether `with_buffer_group` comes before or after `with_stamp`. A cache that never
 /// sets the group joins with a stamp too, so a missing token is the setting and not a dead setup.
 #[test]
@@ -828,6 +921,44 @@ fn dropping_a_joined_cache_stops_group_key_updates() {
         "dropping_a_joined_cache_stops_group_key_updates: {} samples reached the dropped cache on {key} ({AFTER_DROP_PUTS} puts, {before} before)",
         after - before
     );
+}
+
+/// A joined cache fills from the base key and from the group key. A publisher that is not buffer
+/// aware writes the base key, and a buffer-aware publisher writes the group key, so the cache needs
+/// both. Each key puts a valid sample of its own, and the test reads the identity of the message the
+/// cache holds. A cache that read the group key alone would never hold the base sample. The test
+/// runs the cache under `Auto` on a buffer topic and under `Cpu`.
+#[test]
+fn joined_cache_receives_from_the_base_key_and_the_group_key() {
+    const NAME: &str = "joined_cache_receives_from_the_base_key_and_the_group_key";
+    const GROUP: u32 = 7;
+    const BASE_KEY: u32 = 8;
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    for (topic, mode) in [("jc_auto", BufferGroup::Auto), ("jc_cpu", BufferGroup::Cpu)] {
+        let cache = node
+            .create_cache::<UInt8MultiArray>(&format!("/{topic}"), 1000)
+            .with_buffer_group(mode)
+            .build()
+            .expect("cache");
+        assert_token(
+            &token_for(&raw, topic),
+            shape("tok_node", topic, &UINT8, true),
+        );
+        for (key, want) in [
+            (group_key(topic, &UINT8), GROUP),
+            (base_key(topic, &UINT8), BASE_KEY),
+        ] {
+            assert!(
+                put_until(&raw, &key, &tagged(want), RECV, || cached(&cache)
+                    .contains(&want)),
+                "{NAME}: the {mode:?} cache of {topic} never held sample {want} from {key}: holds {:?}",
+                cached(&cache)
+            );
+        }
+    }
 }
 
 /// A joined subscriber reads the group key, and `Locality::Remote` holds on that key.
@@ -1303,26 +1434,29 @@ fn router_access_control_starves_a_joined_subscriber_silently() {
 ///
 /// Control 1 shows the subscription is wide: a raw publisher on each other key sees a matching
 /// subscriber. Without it, "nothing arrived" cannot tell a filter from a subscription that is too
-/// narrow. Control 2 shows the group key and the base key still deliver.
+/// narrow. Control 2 shows the group key and the base key still deliver. Each key puts a payload of
+/// its own and the callback records it, so the base check cannot pass on a late group sample.
 #[test]
 fn other_groups_of_the_topic_never_reach_a_joined_subscriber() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     const PUTS: usize = 10;
+    const OTHER: u32 = 1;
+    const GROUP: u32 = 2;
+    const BASE_KEY: u32 = 3;
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
-    let calls = Arc::new(AtomicUsize::new(0));
+    // The identity of every sample the callback has seen.
+    let seen = Arc::new(Mutex::new(Vec::<u32>::new()));
     let _sub = node
         .create_sub::<UInt8MultiArray>("/iso_groups")
         .with_buffer_group(BufferGroup::Auto)
         .build_with_callback({
-            let calls = calls.clone();
-            move |_msg| {
-                calls.fetch_add(1, Ordering::SeqCst);
-            }
+            let seen = seen.clone();
+            move |msg| seen.lock().unwrap().push(msg.tag())
         })
         .expect("sub");
+    let has = |tag: u32| seen.lock().unwrap().contains(&tag);
     token_for(&raw, "iso_groups");
 
     let base = base_key("iso_groups", &UINT8);
@@ -1347,28 +1481,27 @@ fn other_groups_of_the_topic_never_reach_a_joined_subscriber() {
             "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: no subscription matches {key}, so the subscriber's key is not wide"
         );
         for _ in 0..PUTS {
-            publisher.put(PAYLOAD.to_vec()).wait().expect("put");
+            publisher.put(tagged(OTHER)).wait().expect("put");
         }
     }
     std::thread::sleep(QUIET);
-    let leaked = calls.load(Ordering::SeqCst);
+    let leaked = seen.lock().unwrap().clone();
     assert!(
-        leaked == 0,
-        "other_groups_of_the_topic_never_reach_a_joined_subscriber: {leaked} callbacks ran for samples on other keys under {base}"
+        leaked.is_empty(),
+        "other_groups_of_the_topic_never_reach_a_joined_subscriber: {} callbacks ran for samples on other keys under {base}",
+        leaked.len()
     );
 
-    // Control 2: the group key and the base key deliver.
+    // Control 2: the group key and the base key deliver, each its own sample.
     let group = group_key("iso_groups", &UINT8);
     assert!(
-        put_until(&raw, &group, &PAYLOAD, RECV, || calls
-            .load(Ordering::SeqCst)
-            > 0),
-        "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: nothing arrived on {group}"
+        put_until(&raw, &group, &tagged(GROUP), RECV, || has(GROUP)),
+        "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: sample {GROUP} never arrived on {group}: saw {:?}",
+        seen.lock().unwrap()
     );
-    let after_group = calls.load(Ordering::SeqCst);
     assert!(
-        put_until(&raw, &base, &PAYLOAD, RECV, || calls.load(Ordering::SeqCst)
-            > after_group),
-        "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: nothing arrived on {base}"
+        put_until(&raw, &base, &tagged(BASE_KEY), RECV, || has(BASE_KEY)),
+        "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: sample {BASE_KEY} never arrived on {base}: saw {:?}",
+        seen.lock().unwrap()
     );
 }
