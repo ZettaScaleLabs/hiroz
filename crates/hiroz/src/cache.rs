@@ -120,7 +120,8 @@ impl<T> CacheInner<T> {
 /// Dropping `ZCache` automatically deregisters the underlying Zenoh subscriber.
 pub struct ZCache<T: ZMessage> {
     inner: Arc<RwLock<CacheInner<T>>>,
-    _group: crate::buffer_group::Membership,
+    /// Declared first, so it drops first: the token goes before the subscription that serves it.
+    _token: zenoh::liveliness::LivelinessToken,
     _sub: zenoh::pubsub::Subscriber<()>,
 }
 
@@ -357,7 +358,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, group) =
+        let (sub, token) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -387,7 +388,7 @@ where
         debug!("[CACHE] ZenohStamp cache ready");
         Ok(ZCache {
             inner,
-            _group: group,
+            _token: token,
             _sub: sub,
         })
     }
@@ -414,7 +415,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, group) =
+        let (sub, token) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -429,7 +430,7 @@ where
         debug!("[CACHE] ExtractorStamp cache ready");
         Ok(ZCache {
             inner,
-            _group: group,
+            _token: token,
             _sub: sub,
         })
     }

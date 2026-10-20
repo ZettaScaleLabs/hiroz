@@ -755,7 +755,7 @@ where
     }
 
     /// Build a raw Zenoh subscriber with a sample-level callback, returning
-    /// the subscriber and its CPU buffer group membership (the liveliness token). A joined
+    /// the subscriber and its liveliness token. A joined
     /// subscriber subscribes on `<base>/**`, which serves the group key.
     ///
     /// This is the canonical subscriber setup path used by [`ZCache`] so that
@@ -768,7 +768,7 @@ where
         callback: F,
     ) -> Result<(
         zenoh::pubsub::Subscriber<()>,
-        crate::buffer_group::Membership,
+        zenoh::liveliness::LivelinessToken,
     )>
     where
         F: Fn(Sample) + Send + Sync + 'static,
@@ -808,9 +808,9 @@ where
                 .wait()?,
         };
 
-        let membership = plan.declare(&self.session)?;
+        let token = plan.declare(&self.session)?;
 
-        Ok((sub, membership))
+        Ok((sub, token))
     }
 
     /// What the subscriber declares for the group: its token, and the group key when it joins.
@@ -925,13 +925,13 @@ where
         let sub_builder = apply_transient_local_sub(sub_builder, &self.entity.qos);
         let inner = sub_builder.wait()?;
 
-        let group = plan.declare(&self.session)?;
+        let token = plan.declare(&self.session)?;
 
         debug!("[SUB] Subscriber ready: topic={}", self.entity.topic);
 
         Ok(ZSub {
             entity: self.entity,
-            _group: group,
+            _token: token,
             _inner: inner,
             queue,
             events_mgr,
@@ -1045,8 +1045,10 @@ where
 pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     pub entity: EndpointEntity,
     pub queue: Option<Arc<BoundedQueue<Q>>>,
-    /// Declared first, so it drops first: the token goes before the subscriptions it announces.
-    _group: crate::buffer_group::Membership,
+    /// Declared first, so it drops first: the token goes before the subscription that serves it.
+    /// This shortens the time the group is advertised and not served. It does not stop a remote
+    /// publisher, and a sample already in flight can still arrive after the subscription is gone.
+    _token: zenoh::liveliness::LivelinessToken,
     _inner: AdvancedSubscriber<()>,
     events_mgr: Arc<Mutex<EventsManager>>,
     graph: Arc<Graph>,

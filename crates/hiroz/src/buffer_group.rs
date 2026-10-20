@@ -97,15 +97,14 @@ impl Plan {
 
     /// Declare the token. The subscriber's own subscription, on `<base>/**`, already serves the
     /// group key, so a publisher that reads the token finds a subscription.
-    pub(crate) fn declare(self, session: &zenoh::Session) -> Result<Membership> {
+    pub(crate) fn declare(self, session: &zenoh::Session) -> Result<LivelinessToken> {
         if let Some((base, group)) = &self.keys {
             log_once(base, group);
         }
-        let token = session
+        Ok(session
             .liveliness()
             .declare_token(KeyExpr::try_from(self.token_key)?)
-            .wait()?;
-        Ok(Membership { token: Some(token) })
+            .wait()?)
     }
 }
 
@@ -129,20 +128,6 @@ where
         if key == base || key == group_key {
             handler(sample);
         }
-    }
-}
-
-/// What a subscriber holds for the group. Drop it before anything else the subscriber owns.
-pub(crate) struct Membership {
-    token: Option<LivelinessToken>,
-}
-
-impl Drop for Membership {
-    /// Undeclare the token locally before the subscription that serves it goes away. This shortens
-    /// the time the group is advertised and not served. It does not make a remote publisher stop
-    /// sending, and a sample already in flight can still arrive after the subscription is gone.
-    fn drop(&mut self) {
-        drop(self.token.take());
     }
 }
 
