@@ -675,8 +675,9 @@ where
 
     /// Choose whether this subscriber joins rmw_zenoh's CPU buffer group.
     ///
-    /// The default, [`BufferGroup::Auto`](crate::BufferGroup::Auto), joins when the message has
-    /// an unbounded `uint8[]` or hiroz has no message definition to ask.
+    /// The default, [`BufferGroup::Off`](crate::BufferGroup::Off), does not join.
+    /// [`BufferGroup::Auto`](crate::BufferGroup::Auto) joins when the message has an unbounded
+    /// `uint8[]` or hiroz has no message definition to ask.
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
         self.buffer_group = group;
         self

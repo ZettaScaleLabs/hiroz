@@ -715,7 +715,8 @@ impl ZNode {
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
         let key_expr = (*topic_ke).clone();
 
-        // A raw subscriber has no message definition for `Auto` to inspect, so only `Cpu` joins.
+        // A raw subscriber has no message definition, and `Auto` deliberately behaves as `Off` for
+        // it: only `Cpu` joins. A typed subscriber without a definition does join under `Auto`.
         let group = match group {
             crate::BufferGroup::Cpu => crate::BufferGroup::Cpu,
             crate::BufferGroup::Auto | crate::BufferGroup::Off => crate::BufferGroup::Off,
@@ -767,9 +768,9 @@ impl ZNode {
     /// A raw subscriber has no message definition, so `create_raw_subscriber_with_qos` stays out
     /// of the group. Pass [`BufferGroup::Cpu`](crate::BufferGroup::Cpu) to join: the subscriber
     /// then declares a token ending `backends:cpu:`, and one callback serves the base key and
-    /// `<key>/_buf_cpu`. There is no message definition for `Auto` to inspect, so `Auto` and
-    /// `Off` both stay out. A QoS or key expression format that `rmw_zenoh` does not serve on
-    /// the group key (transient-local, a custom format) stays out whatever `group` says.
+    /// `<key>/_buf_cpu`. `Auto` deliberately behaves as `Off` here, unlike a typed subscriber
+    /// without a definition, so `Auto` and `Off` both stay out. A QoS or key expression format that
+    /// `rmw_zenoh` does not serve on the group key (transient-local, a custom format) stays out whatever `group` says.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_group<F>(
         &self,
