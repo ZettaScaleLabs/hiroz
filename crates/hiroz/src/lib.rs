@@ -43,7 +43,10 @@
 pub mod action;
 /// Attachment helpers for carrying metadata alongside messages.
 pub mod attachment;
-mod buffer_group;
+/// Subscriber side of the rmw_zenoh CPU buffer group. Only [`BufferGroup`] is public API; the
+/// rest is exposed for tests.
+#[doc(hidden)]
+pub mod buffer_group;
 /// Timestamp-indexed, capacity-bounded message cache.
 pub mod cache;
 mod common;

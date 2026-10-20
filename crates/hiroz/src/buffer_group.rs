@@ -65,14 +65,15 @@ pub(crate) fn joins(
 
 /// What a subscriber will declare: the token string and, when joining, the group key. Computing
 /// it declares nothing.
-pub(crate) struct Plan {
+#[doc(hidden)]
+pub struct Plan {
     token_key: String,
     /// The topic key and the group key, when joining.
     keys: Option<(String, String)>,
 }
 
 impl Plan {
-    pub(crate) fn new(
+    pub fn new(
         format: &KeyExprFormat,
         entity: &EndpointEntity,
         zid: &zenoh::session::ZenohId,
@@ -97,9 +98,9 @@ impl Plan {
 
     /// Declare the token. The subscriber's own subscription, on `<base>/**`, already serves the
     /// group key, so a publisher that reads the token finds a subscription.
-    pub(crate) fn declare(self, session: &zenoh::Session) -> Result<LivelinessToken> {
+    pub fn declare(self, session: &zenoh::Session) -> Result<LivelinessToken> {
         if let Some((base, group)) = &self.keys {
-            log_once(base, group);
+            log_join(base, group);
         }
         Ok(session
             .liveliness()
@@ -131,22 +132,79 @@ where
     }
 }
 
-/// An operator learns here that the subscription needs an access-control rule: a router that
-/// denies `<base>/**` or the group key drops buffer messages and reports no error. One line per group
-/// key and process, for the first `LOG_KEYS` keys. `LOGGED` holds at most that many keys. A joined
-/// key past the limit is logged at `debug` level on every join, so the set stays bounded.
-fn log_once(base: &str, group: &str) {
-    static LOGGED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    let first = {
-        let mut logged = LOGGED.get_or_init(Default::default).lock().unwrap();
-        if logged.len() < LOG_KEYS {
-            Some(logged.insert(group.to_owned()))
-        } else if logged.contains(group) {
-            Some(false)
-        } else {
-            None
+/// The most group keys the process-wide join log remembers.
+#[doc(hidden)]
+pub const LOG_KEYS: usize = 1024;
+
+/// What the join log does for one join.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JoinLogLevel {
+    /// The key is new and the set has room: log at `info` level.
+    Info,
+    /// The key is already logged: log nothing.
+    Skip,
+    /// The key is new and the set is full: log at `debug` level and keep nothing.
+    Debug,
+}
+
+/// The decision state of the join log: at most `cap` group keys, each logged once at `info` level.
+/// A key past the cap is logged at `debug` level on every join and never stored, so the set stays
+/// bounded. It does no logging and holds no lock. The process uses one instance, behind its
+/// join log.
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct JoinLog {
+    cap: usize,
+    keys: HashSet<String>,
+}
+
+impl JoinLog {
+    /// A log that remembers at most `cap` keys.
+    pub fn new(cap: usize) -> Self {
+        Self {
+            cap,
+            keys: HashSet::new(),
         }
-    };
+    }
+
+    /// Record one join of `group` and say how to log it.
+    pub fn record(&mut self, group: &str) -> JoinLogLevel {
+        if self.keys.len() < self.cap {
+            if self.keys.insert(group.to_owned()) {
+                JoinLogLevel::Info
+            } else {
+                JoinLogLevel::Skip
+            }
+        } else if self.keys.contains(group) {
+            JoinLogLevel::Skip
+        } else {
+            JoinLogLevel::Debug
+        }
+    }
+
+    /// How many keys the log holds now.
+    pub fn len(&self) -> usize {
+        self.keys.len()
+    }
+
+    /// Whether the log holds no key.
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+}
+
+/// An operator learns here that the subscription needs an access-control rule: a router that
+/// denies `<base>/**` or the group key drops buffer messages and reports no error. The process
+/// logs one line per group key for the first [`LOG_KEYS`] keys, and a key past the limit at `debug`
+/// level on every join.
+fn log_join(base: &str, group: &str) {
+    static LOGGED: OnceLock<Mutex<JoinLog>> = OnceLock::new();
+    let level = LOGGED
+        .get_or_init(|| Mutex::new(JoinLog::new(LOG_KEYS)))
+        .lock()
+        .unwrap()
+        .record(group);
     let line = || {
         format!(
             "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
@@ -154,12 +212,9 @@ fn log_once(base: &str, group: &str) {
              buffer messages and reports no error. Allow {base}/** wherever you allow {base}."
         )
     };
-    match first {
-        Some(true) => info!("{}", line()),
-        Some(false) => {}
-        None => debug!("{}", line()),
+    match level {
+        JoinLogLevel::Info => info!("{}", line()),
+        JoinLogLevel::Skip => {}
+        JoinLogLevel::Debug => debug!("{}", line()),
     }
 }
-
-/// The most group keys `log_once` remembers.
-const LOG_KEYS: usize = 1024;
