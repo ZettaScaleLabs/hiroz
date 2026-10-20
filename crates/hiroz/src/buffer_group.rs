@@ -21,20 +21,21 @@ use crate::entity::EndpointEntity;
 
 /// Whether a subscriber joins rmw_zenoh's CPU buffer group.
 ///
-/// Set it with `with_buffer_group` on the subscriber builder.
+/// Set it with `with_buffer_group` on the subscriber builder. The default is [`BufferGroup::Off`]:
+/// a subscriber joins only when the caller asks for [`BufferGroup::Auto`] or [`BufferGroup::Cpu`].
 ///
 /// New values may be added in a minor release, so match it with a wildcard arm.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum BufferGroup {
     /// Join when the message may carry a buffer: the message definition has an unbounded
-    /// `uint8[]`, directly or nested, or hiroz has no definition to ask. This is the default.
-    #[default]
+    /// `uint8[]`, directly or nested, or hiroz has no definition to ask.
     Auto,
     /// Join, whatever the message is, except for a transient-local subscriber or a key format other
     /// than `rmw_zenoh`'s.
     Cpu,
-    /// Do not join.
+    /// Do not join. This is the default.
+    #[default]
     Off,
 }
 
@@ -138,8 +139,9 @@ pub(crate) struct Membership {
 }
 
 impl Drop for Membership {
-    /// Undeclare the token first, so publishers stop sending to the group key before the
-    /// subscription that serves it goes away.
+    /// Undeclare the token locally before the subscription that serves it goes away. This shortens
+    /// the time the group is advertised and not served. It does not make a remote publisher stop
+    /// sending, and a sample already in flight can still arrive after the subscription is gone.
     fn drop(&mut self) {
         drop(self.token.take());
     }
@@ -147,19 +149,33 @@ impl Drop for Membership {
 
 /// An operator learns here that the subscription needs an access-control rule: a router that
 /// denies `<base>/**` or the group key drops buffer messages and reports no error. One line per group
-/// key and process. `LOGGED` keeps one entry per joined topic key and is not pruned.
+/// key and process, for the first `LOG_KEYS` keys. `LOGGED` holds at most that many keys. A joined
+/// key past the limit is logged at `debug` level on every join, so the set stays bounded.
 fn log_once(base: &str, group: &str) {
     static LOGGED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    let first = LOGGED
-        .get_or_init(Default::default)
-        .lock()
-        .unwrap()
-        .insert(group.to_owned());
-    if first {
-        info!(
+    let first = {
+        let mut logged = LOGGED.get_or_init(Default::default).lock().unwrap();
+        if logged.len() < LOG_KEYS {
+            Some(logged.insert(group.to_owned()))
+        } else if logged.contains(group) {
+            Some(false)
+        } else {
+            None
+        }
+    };
+    let line = || {
+        format!(
             "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
              key {group}. A router access-control rule that denies {base}/** or {group} drops \
              buffer messages and reports no error. Allow {base}/** wherever you allow {base}."
-        );
+        )
+    };
+    match first {
+        Some(true) => info!("{}", line()),
+        Some(false) => {}
+        None => debug!("{}", line()),
     }
 }
+
+/// The most group keys `log_once` remembers.
+const LOG_KEYS: usize = 1024;

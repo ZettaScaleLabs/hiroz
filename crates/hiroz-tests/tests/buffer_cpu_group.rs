@@ -31,7 +31,12 @@ use hiroz::{
 use hiroz_msgs::std_msgs::{Float64MultiArray, UInt8MultiArray};
 use hiroz_protocol::{KeyExprFormat, KeyExprFormatterAdapter, RmwZenohFormatter};
 use serde::{Deserialize, Serialize};
-use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};
+use tracing_subscriber::{
+    Layer,
+    filter::{LevelFilter, Targets},
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
+};
 use zenoh::{Wait, sample::SampleKind};
 
 const RECV: Duration = Duration::from_secs(3);
@@ -277,25 +282,24 @@ impl hiroz::action::ZAction for NoSchemaAction {
     }
 }
 
-/// With no schema and `Auto`, a typed subscriber joins, and so do the feedback and status
-/// subscribers of an action client built for an action with no schema. A typed subscriber with
-/// a schema joins too, so a missing group token cannot come from a dead setup.
+/// With no schema and `Auto`, a typed subscriber joins. A typed subscriber with a schema joins
+/// too, so a missing group token cannot come from a dead setup.
 #[test]
 fn typed_subscriber_without_schema_joins() {
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
-    let _unknown = node.create_sub::<Blob>("/no_schema").build().unwrap();
+    let _unknown = node
+        .create_sub::<Blob>("/no_schema")
+        .with_buffer_group(BufferGroup::Auto)
+        .build()
+        .unwrap();
     let _known = node
         .create_sub::<UInt8MultiArray>("/with_schema")
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
-    let _client = node
-        .create_action_client::<NoSchemaAction>("no_schema_action")
-        .build()
-        .unwrap();
-
     assert_token(
         &token_for(&raw, "with_schema"),
         shape("tok_node", "with_schema", &UINT8, true),
@@ -304,39 +308,61 @@ fn typed_subscriber_without_schema_joins() {
         &token_for(&raw, "no_schema"),
         shape("tok_node", "no_schema", &UINT8, true),
     );
-    for (what, topic) in [
-        ("feedback", "no_schema_action%_action%feedback"),
-        ("status", "no_schema_action%_action%status"),
-    ] {
-        let token = token_for(&raw, topic);
-        assert!(
-            token.ends_with("/backends:cpu:"),
-            "typed_subscriber_without_schema_joins: the {what} subscriber has no group token: {token}"
-        );
-    }
 }
 
-/// The feedback and status subscribers of an action client with no schema join on topics that
-/// carry no buffer, as a typed subscriber with no schema does in the same run.
+/// A subscriber that never calls `with_buffer_group` stays out of the group, for a typed
+/// message, a message with no schema, a dynamic message, a cache and the feedback and status
+/// subscribers of an action client. The same typed message on `Auto` joins, so a missing group
+/// token comes from the default and not from a dead setup.
 #[test]
-fn no_schema_callers_follow_the_rule() {
+fn default_subscribers_stay_out() {
+    assert_eq!(
+        BufferGroup::default(),
+        BufferGroup::Off,
+        "default_subscribers_stay_out: the default group"
+    );
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
-    let _twin = node.create_sub::<Blob>("/caller_twin").build().unwrap();
-    let _client = node
-        .create_action_client::<NoSchemaAction>("caller_action")
+    let _control = node
+        .create_sub::<UInt8MultiArray>("/def_control")
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
+    let _typed = node
+        .create_sub::<UInt8MultiArray>("/def_typed")
+        .build()
+        .unwrap();
+    let _blob = node.create_sub::<Blob>("/def_blob").build().unwrap();
+    let _dynamic = node
+        .create_dyn_sub("/def_dyn", UInt8MultiArray::message_schema().unwrap())
+        .build()
+        .unwrap();
+    let _cache = node
+        .create_cache::<UInt8MultiArray>("/def_cache", 10)
+        .build()
+        .unwrap();
+    let _client = node
+        .create_action_client::<NoSchemaAction>("def_action")
+        .build()
+        .unwrap();
+
+    assert!(
+        joined(&raw, "def_control"),
+        "default_subscribers_stay_out: control: the Auto subscriber has no group token"
+    );
     for topic in [
-        "caller_twin",
-        "caller_action%_action%feedback",
-        "caller_action%_action%status",
+        "def_typed",
+        "def_blob",
+        "def_dyn",
+        "def_cache",
+        "def_action%_action%feedback",
+        "def_action%_action%status",
     ] {
         assert!(
-            joined(&raw, topic),
-            "no_schema_callers_follow_the_rule: no group token on {topic}"
+            !joined(&raw, topic),
+            "default_subscribers_stay_out: a default subscriber joined on {topic}"
         );
     }
 }
@@ -353,7 +379,11 @@ fn opt_out_stays_out_without_a_schema() {
         .with_buffer_group(BufferGroup::Off)
         .build()
         .unwrap();
-    let _auto = node.create_sub::<Blob>("/blob_opt_in").build().unwrap();
+    let _auto = node
+        .create_sub::<Blob>("/blob_opt_in")
+        .with_buffer_group(BufferGroup::Auto)
+        .build()
+        .unwrap();
     assert!(
         joined(&raw, "blob_opt_in"),
         "opt_out_stays_out_without_a_schema: control: the Auto twin has no group token"
@@ -373,9 +403,14 @@ fn typed_subscriber_without_byte_fields_does_not_join() {
     let node = ctx.create_node("tok_node").build().expect("node");
     let _plain = node
         .create_sub::<Float64MultiArray>("/plain")
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
-    let _twin = node.create_sub::<UInt8MultiArray>("/twin").build().unwrap();
+    let _twin = node
+        .create_sub::<UInt8MultiArray>("/twin")
+        .with_buffer_group(BufferGroup::Auto)
+        .build()
+        .unwrap();
     assert!(
         joined(&raw, "twin"),
         "typed_subscriber_without_byte_fields_does_not_join: control: the buffer twin has no group token"
@@ -406,6 +441,7 @@ fn joined_subscriber_token_carries_the_writers_qos_chunk() {
                     history: QosHistory::KeepLast(std::num::NonZeroUsize::new(*depth).unwrap()),
                     ..Default::default()
                 })
+                .with_buffer_group(BufferGroup::Auto)
                 .build()
                 .unwrap()
         })
@@ -426,10 +462,12 @@ fn typed_subscriber_with_buffer_fields_joins() {
     let node = ctx.create_node("tok_node").build().expect("node");
     let _typed = node
         .create_sub::<UInt8MultiArray>("/typed_buf")
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
     let _dynamic = node
         .create_dyn_sub("/dyn_buf", UInt8MultiArray::message_schema().unwrap())
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
 
@@ -462,6 +500,7 @@ fn dynamic_subscriber_joins_for_nested_and_unbounded_byte_fields() {
         .iter()
         .map(|(topic, ft)| {
             node.create_dyn_sub(&format!("/{topic}"), schema(ft.clone()))
+                .with_buffer_group(BufferGroup::Auto)
                 .build()
                 .unwrap()
         })
@@ -497,6 +536,7 @@ fn dynamic_subscriber_with_bounded_or_fixed_bytes_does_not_join() {
         .iter()
         .map(|(topic, ft, _)| {
             node.create_dyn_sub(&format!("/{topic}"), schema(ft.clone()))
+                .with_buffer_group(BufferGroup::Auto)
                 .build()
                 .unwrap()
         })
@@ -527,7 +567,11 @@ fn opt_out_announces_no_backends() {
         .with_buffer_group(BufferGroup::Off)
         .build()
         .unwrap();
-    let _auto = node.create_sub::<UInt8MultiArray>("/auto").build().unwrap();
+    let _auto = node
+        .create_sub::<UInt8MultiArray>("/auto")
+        .with_buffer_group(BufferGroup::Auto)
+        .build()
+        .unwrap();
     let _blob_off = node
         .create_sub::<Blob>("/blob_off")
         .with_buffer_group(BufferGroup::Off)
@@ -562,6 +606,7 @@ fn cpu_joins_a_type_without_byte_fields() {
         .unwrap();
     let _auto = node
         .create_sub::<Float64MultiArray>("/unforced")
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
 
@@ -659,11 +704,13 @@ fn cache_joins_the_group() {
     let node = ctx.create_node("tok_node").build().expect("node");
     let cache = node
         .create_cache::<UInt8MultiArray>("/cache_topic", 10)
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
 
     let _plain = node
         .create_cache::<Float64MultiArray>("/cache_plain", 10)
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
 
@@ -697,6 +744,7 @@ fn cache_with_group_off_stays_out() {
         .unwrap();
     let _auto = node
         .create_cache::<UInt8MultiArray>("/cache_auto", 10)
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
 
@@ -729,9 +777,14 @@ fn joined_subscriber_receives_on_the_key_a_real_publisher_writes() {
     let node = ctx.create_node("tok_node").build().expect("node");
     let typed = node
         .create_sub::<UInt8MultiArray>("/recv_typed")
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
-    let blob = node.create_sub::<Blob>("/recv_blob").build().unwrap();
+    let blob = node
+        .create_sub::<Blob>("/recv_blob")
+        .with_buffer_group(BufferGroup::Auto)
+        .build()
+        .unwrap();
     token_for(&raw, "recv_typed");
     token_for(&raw, "recv_blob");
 
@@ -776,6 +829,7 @@ fn dropping_the_subscriber_removes_its_token() {
     let node = ctx.create_node("tok_node").build().expect("node");
     let sub = node
         .create_sub::<UInt8MultiArray>("/drop_topic")
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
     assert_token(
@@ -815,6 +869,7 @@ fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
     let calls = Arc::new(AtomicUsize::new(0));
     let sub = node
         .create_sub::<UInt8MultiArray>("/drop_cb_topic")
+        .with_buffer_group(BufferGroup::Auto)
         .build_with_callback({
             let calls = calls.clone();
             move |_msg| {
@@ -878,6 +933,7 @@ fn dropping_a_joined_cache_stops_group_key_updates() {
                 SystemTime::now()
             }
         })
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .expect("cache");
     assert_token(
@@ -924,6 +980,7 @@ fn joined_subscriber_reads_the_group_key_with_its_locality() {
     let sub = node
         .create_sub::<UInt8MultiArray>("/loc_topic")
         .with_locality(zenoh::sample::Locality::Remote)
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
     token_for(&raw, "loc_topic");
@@ -955,6 +1012,7 @@ fn typed_subscriber_survives_a_length_over_the_ceiling_on_the_group_key() {
     let node = ctx.create_node("tok_node").build().expect("node");
     let sub = node
         .create_sub::<UInt8MultiArray>("/hostile_group")
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
     token_for(&raw, "hostile_group");
@@ -1047,6 +1105,7 @@ fn group_subscription_is_declared_before_the_token_is_visible() {
     for i in 0..TRIALS {
         let _sub = node
             .create_sub::<UInt8MultiArray>(&format!("/order_{i}"))
+            .with_buffer_group(BufferGroup::Auto)
             .build()
             .unwrap();
         let end = Instant::now() + RECV;
@@ -1103,11 +1162,16 @@ fn joining_logs_the_group_key_once_per_key() {
     let _a: Vec<_> = (0..3)
         .map(|_| {
             node.create_sub::<UInt8MultiArray>("/log_a")
+                .with_buffer_group(BufferGroup::Auto)
                 .build()
                 .unwrap()
         })
         .collect();
-    let _b = node.create_sub::<Blob>("/log_b").build().unwrap();
+    let _b = node
+        .create_sub::<Blob>("/log_b")
+        .with_buffer_group(BufferGroup::Auto)
+        .build()
+        .unwrap();
     let _out = node
         .create_sub::<UInt8MultiArray>("/log_off")
         .with_buffer_group(BufferGroup::Off)
@@ -1115,6 +1179,7 @@ fn joining_logs_the_group_key_once_per_key() {
         .unwrap();
     let _plain = node
         .create_sub::<Float64MultiArray>("/log_plain")
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
 
@@ -1159,6 +1224,65 @@ fn joining_logs_the_group_key_once_per_key() {
     assert!(
         lines.iter().all(|l| l.contains(" INFO ")),
         "joining_logs_the_group_key_once_per_key: a line is not at info level: {text}"
+    );
+}
+
+/// The process remembers a bounded number of group keys for the one-line log. A joined subscriber
+/// on a key past that bound logs at `debug` and not at `info`, so a process that joins many
+/// topics keeps no unbounded state.
+#[test]
+fn join_log_remembers_a_bounded_number_of_keys() {
+    const NAME: &str = "join_log_remembers_a_bounded_number_of_keys";
+    const CAP: usize = 1024;
+    const TOPICS: usize = CAP + 16;
+    let out = Captured::default();
+    // Only the `hiroz` targets are captured at debug level: debug spans of the transport would
+    // cross threads that carry no subscriber.
+    let _guard = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer({
+                    let out = out.clone();
+                    move || out.clone()
+                })
+                .with_ansi(false)
+                .with_filter(Targets::new().with_target("hiroz", LevelFilter::DEBUG)),
+        )
+        .set_default();
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("cap_node").build().expect("node");
+    let subs: Vec<_> = (0..TOPICS)
+        .map(|i| {
+            node.create_sub::<UInt8MultiArray>(&format!("/cap_{i}"))
+                .with_buffer_group(BufferGroup::Auto)
+                .build()
+                .unwrap()
+        })
+        .collect();
+
+    let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("CPU buffer group"))
+        .collect();
+    let info = lines.iter().filter(|l| l.contains(" INFO ")).count();
+    let debug = lines.iter().filter(|l| l.contains(" DEBUG ")).count();
+    // Control: every subscriber joined and each join logged once at some level, so a short count
+    // is a missing log and not a missing join.
+    assert_eq!(subs.len(), TOPICS, "{NAME}: control: subscribers built");
+    assert_eq!(
+        info + debug,
+        TOPICS,
+        "{NAME}: control: want one line per joined key, got {info} info and {debug} debug"
+    );
+    assert!(
+        info > 0,
+        "{NAME}: control: no line at info level, the log never fired"
+    );
+    assert!(
+        info <= CAP,
+        "{NAME}: {info} keys logged at info level, the bound is {CAP}"
     );
 }
 
@@ -1207,6 +1331,7 @@ fn denied_group_key_starves_silently_while_the_base_key_flows() {
         let node = ctx.create_node("tok_node").build().expect("node");
         let sub = node
             .create_sub::<UInt8MultiArray>(&format!("/{topic}"))
+            .with_buffer_group(BufferGroup::Auto)
             .build()
             .expect("build returns Ok under a deny rule");
         token_for(&raw, topic);
@@ -1249,6 +1374,7 @@ fn non_buffer_topic_still_delivers_under_a_group_key_deny_rule() {
     let node = ctx.create_node("tok_node").build().expect("node");
     let twin = node
         .create_sub::<UInt8MultiArray>("/acl_plain_twin")
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .expect("build returns Ok under a deny rule");
     assert!(
@@ -1266,6 +1392,7 @@ fn non_buffer_topic_still_delivers_under_a_group_key_deny_rule() {
     // unaffected by construction. The joined twin above shows the rule does bite.
     let sub = node
         .create_sub::<Float64MultiArray>("/acl_plain")
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .expect("build returns Ok under a deny rule");
     assert!(
@@ -1474,6 +1601,7 @@ fn other_groups_of_the_topic_never_reach_a_joined_subscriber() {
     let calls = Arc::new(AtomicUsize::new(0));
     let _sub = node
         .create_sub::<UInt8MultiArray>("/iso_groups")
+        .with_buffer_group(BufferGroup::Auto)
         .build_with_callback({
             let calls = calls.clone();
             move |_msg| {

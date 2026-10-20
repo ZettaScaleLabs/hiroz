@@ -23,7 +23,7 @@ use std::{
 
 use buffer_rmw::{GROUP_SUFFIX, KeyCounts, SeqSet, client_session};
 use common::{buffer_rmw, *};
-use hiroz::{Builder, MessageTypeInfo};
+use hiroz::{BufferGroup, Builder, MessageTypeInfo};
 use hiroz_msgs::{sensor_msgs::PointCloud2, std_msgs::UInt8MultiArray};
 use serde::{Deserialize, Serialize};
 use zenoh_buffers::buffer::SplitBuffer;
@@ -126,8 +126,9 @@ fn entity_base_key(entity: &hiroz_protocol::EndpointEntity) -> String {
 }
 
 /// A released `rclpy` publisher of a message with a `data` field of `size` bytes. Message number
-/// `seq` carries `seq` as 4 little-endian bytes in `data`. It waits for `subs` matched
-/// subscribers, then publishes `n` messages at 5 Hz.
+/// `seq` carries `seq` as 4 little-endian bytes in `data`. The kind `plain` publishes a
+/// `Float64MultiArray` with `seq` as its first element, and `size` is unused. It waits for `subs`
+/// matched subscribers, then publishes `n` messages at 5 Hz.
 const SEQ_PUBLISHER: &str = r#"
 import sys, time, rclpy
 kind, topic, n, size, subs = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
@@ -135,6 +136,8 @@ rclpy.init()
 node = rclpy.create_node('seq_pub')
 if kind == 'uint8':
     from std_msgs.msg import UInt8MultiArray as Msg
+elif kind == 'plain':
+    from std_msgs.msg import Float64MultiArray as Msg
 else:
     from sensor_msgs.msg import PointCloud2 as Msg
 pub = node.create_publisher(Msg, topic, 10)
@@ -147,6 +150,11 @@ for seq in range(n):
     data = bytearray(size)
     data[0:4] = seq.to_bytes(4, 'little')
     m = Msg()
+    if kind == 'plain':
+        m.data = [float(seq), 2.0]
+        pub.publish(m)
+        rclpy.spin_once(node, timeout_sec=0.2)
+        continue
     if kind != 'uint8':
         m.header.frame_id = 'cloud'
         m.height = 1
@@ -265,10 +273,19 @@ macro_rules! run_kind {
         let router = TestRouter::new();
         let ctx = create_hiroz_context_with_router(&router).expect("ctx");
         let node = ctx.create_node("cell_node").build().expect("node");
-        let typed = node.create_sub::<$M>(topic).build().unwrap();
-        let blob = node.create_sub::<$B>(topic).build().unwrap();
+        let typed = node
+            .create_sub::<$M>(topic)
+            .with_buffer_group(BufferGroup::Auto)
+            .build()
+            .unwrap();
+        let blob = node
+            .create_sub::<$B>(topic)
+            .with_buffer_group(BufferGroup::Auto)
+            .build()
+            .unwrap();
         let dynamic = node
             .create_dyn_sub(topic, <$M>::message_schema().expect("message schema"))
+            .with_buffer_group(BufferGroup::Auto)
             .build()
             .unwrap();
         let cached = Arc::new(Mutex::new(SeqSet::new($size)));
@@ -284,6 +301,7 @@ macro_rules! run_kind {
                     .map_or(0, |b| u32::from_le_bytes(b.try_into().unwrap()));
                 std::time::UNIX_EPOCH + Duration::from_millis(seq as u64)
             })
+            .with_buffer_group(BufferGroup::Auto)
             .build()
             .unwrap();
         let base = base_key(topic, <$M>::type_name(), &<$M>::type_hash());
@@ -419,7 +437,11 @@ fn old_parsers_list_a_joined_subscriber() {
     let plain = client_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("oldp_node").build().expect("node");
-    let _joined = node.create_sub::<UInt8MultiArray>("/oldp").build().unwrap();
+    let _joined = node
+        .create_sub::<UInt8MultiArray>("/oldp")
+        .with_buffer_group(BufferGroup::Auto)
+        .build()
+        .unwrap();
 
     let token = token_for(NAME, &plain, "oldp");
     assert!(
@@ -472,9 +494,10 @@ use hiroz_msgs::example_interfaces::{FibonacciGoal, action::Fibonacci};
 /// The hiroz action client receives each feedback message of the released Fibonacci server once.
 /// The server of `action_tutorials_cpp` publishes the whole sequence after each step, so
 /// feedback number `i` holds `i + 3` numbers: the received lengths must be exactly
-/// `3, 4, ..., order + 1`. The group key carries no sample, as feedback is not a buffer topic.
+/// `3, 4, ..., order + 1`. The action client has no `BufferGroup` switch, so it stays out of the
+/// group. The group key carries no sample, as feedback is not a buffer topic.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn action_feedback_arrives_once_each_with_the_group_joined() {
+async fn action_feedback_arrives_once_each() {
     use std::{
         os::unix::process::CommandExt,
         sync::atomic::{AtomicUsize, Ordering},
@@ -482,7 +505,7 @@ async fn action_feedback_arrives_once_each_with_the_group_joined() {
 
     use zenoh::Wait;
 
-    const NAME: &str = "action_feedback_arrives_once_each_with_the_group_joined";
+    const NAME: &str = "action_feedback_arrives_once_each";
     const ORDER: i32 = 6;
     assert!(
         check_ros2_available() && check_action_tutorials_cpp_available(),
@@ -567,7 +590,9 @@ async fn action_feedback_arrives_once_each_with_the_group_joined() {
 }
 
 /// A topic that is not a buffer topic delivers each sample once to a subscriber that joined the
-/// group: its count equals the base key count, and the group key carries nothing.
+/// group. Message `seq` carries `seq` as its first element, so the test names every sample that
+/// arrived and every one that arrived twice. The base key carries the samples and the group key
+/// nothing.
 #[test]
 fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
     const NAME: &str = "non_buffer_topic_delivers_each_sample_once_with_the_group_joined";
@@ -586,53 +611,47 @@ fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
     let keys = KeyCounts::new(router.endpoint(), &entity_base_key(joined.entity()));
     wait_for_ready(Duration::from_secs(2));
 
-    const PUBLISHED: usize = 30;
-    let publisher = Command::new("ros2")
-        .args([
-            "topic",
-            "pub",
-            "/plaincell",
-            "std_msgs/msg/Float64MultiArray",
-            "{data: [1.0, 2.0]}",
-            "--rate",
-            "5",
-            "--times",
-            &PUBLISHED.to_string(),
-        ])
-        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
-        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn ros2 topic pub");
-    let _guard = ProcessGuard::new(publisher, "ros2 pub");
-
+    let mut publisher = spawn_seq_publisher(&router, "plain", "/plaincell", 0, 1);
+    let mut seen = std::collections::BTreeSet::new();
+    let mut repeats = 0;
     let mut received = 0;
-    let end = Instant::now() + Duration::from_secs(PUBLISHED as u64 / 5 + 8);
-    while Instant::now() < end && keys.base() < PUBLISHED {
-        received += joined.recv_timeout(Duration::from_millis(100)).is_ok() as usize;
-    }
-    while joined.recv_timeout(Duration::from_millis(500)).is_ok() {
-        received += 1;
-    }
+    drain_until_published(&mut publisher, |poll| {
+        if let Ok(m) = joined.recv_timeout(poll) {
+            received += 1;
+            if !seen.insert(m.data[0] as u32) {
+                repeats += 1;
+            }
+        }
+    });
+    let status = publisher
+        .child
+        .as_mut()
+        .and_then(|c| c.try_wait().ok().flatten());
 
+    let missing: Vec<u32> = (0..SAMPLES).filter(|s| !seen.contains(s)).collect();
     println!(
-        "RESULT {NAME}: received={received} of {PUBLISHED} group={} base={}",
+        "RESULT {NAME}: received={received} of {SAMPLES} repeats={repeats} missing={missing:?} \
+         group={} base={}",
         keys.group(),
         keys.base()
     );
-    // The base key carries the samples, so the topic is not a buffer topic.
+    // Control: the publisher ran to the end, so a missing sample is a lost sample.
     assert!(
-        keys.base() >= PUBLISHED * 2 / 3,
-        "{NAME}: the base key carried {} of {PUBLISHED}",
+        status.is_some_and(|s| s.success()),
+        "{NAME}: control: the publisher did not exit with success: {status:?}"
+    );
+    // The base key carries the samples, so the topic is not a buffer topic.
+    assert_eq!(keys.group(), 0, "{NAME}: group key count");
+    assert!(
+        keys.base() >= SAMPLES as usize * 2 / 3,
+        "{NAME}: the base key carried {} of {SAMPLES}",
         keys.base()
     );
-    assert_eq!(keys.group(), 0, "{NAME}: group key count");
-    assert_eq!(
-        received,
-        keys.base(),
-        "{NAME}: received against the base key"
+    assert!(
+        missing.is_empty(),
+        "{NAME}: samples never received: {missing:?}"
     );
+    assert_eq!(repeats, 0, "{NAME}: samples received twice");
 }
 
 /// What one matched set read: the key counts and each subscriber.
@@ -651,7 +670,11 @@ fn mixed_run(topic: &str, with_off: bool, with_released: bool) -> MixRun {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("mix_node").build().expect("node");
-    let joined = node.create_sub::<UInt8MultiArray>(topic).build().unwrap();
+    let joined = node
+        .create_sub::<UInt8MultiArray>(topic)
+        .with_buffer_group(BufferGroup::Auto)
+        .build()
+        .unwrap();
     let off = with_off.then(|| {
         node.create_sub::<UInt8MultiArray>(topic)
             .with_buffer_group(hiroz::BufferGroup::Off)
