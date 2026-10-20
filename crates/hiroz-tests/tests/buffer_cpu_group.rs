@@ -903,47 +903,12 @@ fn joined_subscriber_receives_on_the_key_a_real_publisher_writes() {
     assert_eq!(got.unwrap().data, vec![1, 2, 3]);
 }
 
-/// Dropping a joined subscriber removes its token. The token is present before.
+/// Dropping a joined typed subscriber removes its token and stops its callback on the group key.
+/// The token is present and the callback runs on that key before the drop.
 #[test]
-fn dropping_the_subscriber_removes_its_token() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let sub = node
-        .create_sub::<UInt8MultiArray>("/drop_topic")
-        .with_buffer_group(BufferGroup::Auto)
-        .build()
-        .unwrap();
-    assert_token(
-        &token_for(&raw, "drop_topic"),
-        shape("tok_node", "drop_topic", &UINT8, true),
-    );
-
-    drop(sub);
-    let deadline = Instant::now() + RECV;
-    let mut left = tokens(&raw)
-        .iter()
-        .filter(|k| k.contains("/%drop_topic/"))
-        .count();
-    while left > 0 && Instant::now() < deadline {
-        std::thread::sleep(POLL);
-        left = tokens(&raw)
-            .iter()
-            .filter(|k| k.contains("/%drop_topic/"))
-            .count();
-    }
-    assert!(
-        left == 0,
-        "dropping_the_subscriber_removes_its_token: the token outlived the subscriber: {left} left"
-    );
-}
-
-/// When a joined typed subscriber is dropped, its callback does not run again for a
-/// sample on the group key. The callback runs on that key before the drop.
-#[test]
-fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
+fn dropping_a_joined_typed_subscriber_removes_its_token_and_stops_callbacks() {
     use std::sync::atomic::{AtomicUsize, Ordering};
+    const NAME: &str = "dropping_a_joined_typed_subscriber_removes_its_token_and_stops_callbacks";
     const AFTER_DROP_PUTS: usize = 10;
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
@@ -951,7 +916,7 @@ fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
     let node = ctx.create_node("tok_node").build().expect("node");
     let calls = Arc::new(AtomicUsize::new(0));
     let sub = node
-        .create_sub::<UInt8MultiArray>("/drop_cb_topic")
+        .create_sub::<UInt8MultiArray>("/drop_topic")
         .with_buffer_group(BufferGroup::Auto)
         .build_with_callback({
             let calls = calls.clone();
@@ -961,25 +926,41 @@ fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
         })
         .expect("sub");
     assert_token(
-        &token_for(&raw, "drop_cb_topic"),
-        shape("tok_node", "drop_cb_topic", &UINT8, true),
+        &token_for(&raw, "drop_topic"),
+        shape("tok_node", "drop_topic", &UINT8, true),
     );
-    let key = group_key("drop_cb_topic", &UINT8);
+    let key = group_key("drop_topic", &UINT8);
 
     // Positive control: the callback runs on the group key before the drop.
     assert!(
         put_until(&raw, &key, &PAYLOAD, RECV, || calls.load(Ordering::SeqCst)
             > 0),
-        "dropping_a_joined_subscriber_stops_group_key_callbacks: control: no callback ran on {key} before the drop"
+        "{NAME}: control: no callback ran on {key} before the drop"
     );
     std::thread::sleep(POLL);
     let before = calls.load(Ordering::SeqCst);
     assert!(
         before >= 1,
-        "dropping_a_joined_subscriber_stops_group_key_callbacks: control: {before} callbacks before the drop"
+        "{NAME}: control: {before} callbacks before the drop"
     );
 
     drop(sub);
+    let deadline = Instant::now() + RECV;
+    let count = || {
+        tokens(&raw)
+            .iter()
+            .filter(|k| k.contains("/%drop_topic/"))
+            .count()
+    };
+    let mut left = count();
+    while left > 0 && Instant::now() < deadline {
+        std::thread::sleep(POLL);
+        left = count();
+    }
+    assert!(
+        left == 0,
+        "{NAME}: the token outlived the subscriber: {left} left"
+    );
     for _ in 0..AFTER_DROP_PUTS {
         raw.put(&key, PAYLOAD.to_vec()).wait().expect("put");
     }
@@ -987,7 +968,7 @@ fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
     let after = calls.load(Ordering::SeqCst);
     assert!(
         after == before,
-        "dropping_a_joined_subscriber_stops_group_key_callbacks: {} callbacks ran on {key} after the drop ({AFTER_DROP_PUTS} puts, {before} before)",
+        "{NAME}: {} callbacks ran on {key} after the drop ({AFTER_DROP_PUTS} puts, {before} before)",
         after - before
     );
 }
