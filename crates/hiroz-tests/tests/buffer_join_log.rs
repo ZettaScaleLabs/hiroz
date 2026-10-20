@@ -6,7 +6,46 @@
 
 #![cfg(feature = "ros-msgs")]
 
-use hiroz::buffer_group::{JoinLog, JoinLogLevel, LOG_KEYS};
+mod common;
+
+use std::{
+    io::Write,
+    sync::{Arc, Mutex},
+};
+
+use common::*;
+use hiroz::{
+    BufferGroup, Builder,
+    buffer_group::{JoinLog, JoinLogLevel, LOG_KEYS, Plan},
+};
+use hiroz_msgs::std_msgs::UInt8MultiArray;
+use hiroz_protocol::KeyExprFormat;
+use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};
+use zenoh::Wait;
+
+#[derive(Clone, Default)]
+struct Captured(Arc<Mutex<Vec<u8>>>);
+impl Write for Captured {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn session(endpoint: &str) -> zenoh::Session {
+    let mut config = zenoh::Config::default();
+    config.insert_json5("mode", "\"client\"").unwrap();
+    config
+        .insert_json5("connect/endpoints", &format!("[\"{endpoint}\"]"))
+        .unwrap();
+    config
+        .insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    zenoh::open(config).wait().expect("session")
+}
 
 /// A key logs at `info` level once, a repeat logs nothing, and a new key past the cap logs at
 /// `debug` level and is not stored. A key stored before the cap stays known after it.
@@ -66,4 +105,67 @@ fn join_log_stores_no_more_than_its_cap_under_many_keys() {
 #[test]
 fn join_log_cap_is_the_documented_bound() {
     assert_eq!(LOG_KEYS, 1024, "join_log_cap_is_the_documented_bound");
+}
+
+/// A token declaration that fails logs no join, and the next successful join of the same key
+/// still takes the one `info` line. The failing session is closed, so the declaration is the only
+/// step of the join that fails.
+#[test]
+fn a_failed_token_declaration_logs_no_join() {
+    const NAME: &str = "a_failed_token_declaration_logs_no_join";
+    let out = Captured::default();
+    let _guard = tracing_subscriber::fmt()
+        .with_writer({
+            let out = out.clone();
+            move || out.clone()
+        })
+        .with_ansi(false)
+        .with_max_level(LevelFilter::INFO)
+        .finish()
+        .set_default();
+    let lines = || {
+        let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+        text.lines()
+            .filter(|l| l.contains("CPU buffer group"))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("wiring_node").build().expect("node");
+    // Off declares no group, so building it logs nothing. Its entity names the topic to join.
+    let probe = node
+        .create_sub::<UInt8MultiArray>("/wiring_probe")
+        .with_buffer_group(BufferGroup::Off)
+        .build()
+        .expect("probe subscriber");
+    let live = session(router.endpoint());
+    let dead = session(router.endpoint());
+    dead.close().wait().expect("close");
+    let plan = |s: &zenoh::Session| {
+        Plan::new(&KeyExprFormat::RmwZenoh, &probe.entity, &s.zid(), true).expect("plan")
+    };
+
+    assert!(
+        plan(&dead).declare(&dead).is_err(),
+        "{NAME}: control: a token declaration on a closed session succeeded"
+    );
+    assert!(
+        lines().is_empty(),
+        "{NAME}: a failed declaration logged a join: {:?}",
+        lines()
+    );
+    let _token = plan(&live)
+        .declare(&live)
+        .expect("declare on the open session");
+    let after = lines();
+    assert_eq!(
+        after.len(),
+        1,
+        "{NAME}: want one line for the successful join: {after:?}"
+    );
+    assert!(
+        after[0].contains(" INFO ") && after[0].contains("/wiring_probe/**"),
+        "{NAME}: the line is not an info line for the key: {after:?}"
+    );
 }
