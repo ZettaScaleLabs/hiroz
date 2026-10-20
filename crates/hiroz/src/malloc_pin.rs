@@ -12,14 +12,13 @@
 //! - The pin changes the allocator of the whole process. It overrides any earlier `mallopt`
 //!   call of the host application. It detects only the two glibc environment variables `MALLOC_TRIM_THRESHOLD_` and
 //!   `MALLOC_MMAP_THRESHOLD_`, not `GLIBC_TUNABLES`.
-//! - The raise of the trim threshold from 64 MiB to 256 MiB sped up receives on the main
-//!   thread in the tested workload. In the tested spawned-thread workload the receive latency and
-//!   the resident memory matched the previous 64 MiB threshold (see
-//!   [`crate::malloc_pin::TRIM_THRESHOLD`]). Other workloads were not measured.
-//! - At a payload of 64 MiB the receive latency was the same with no pin, with the previous
-//!   64/64 pin and with this pin. glibc serves a request at or above the mmap threshold with
-//!   `mmap` unless `M_MMAP_MAX` disables it, and the size of a request need not equal the
-//!   size of the message.
+//! - The raise of the trim threshold from 64 MiB to 256 MiB speeds up a 32 MiB typed receive
+//!   on the main thread. A receive on a spawned thread, and receives of 8 MiB or less, match the
+//!   64 MiB threshold. Figures, conditions and what they do not cover are in
+//!   [`crate::malloc_pin::TRIM_THRESHOLD`].
+//! - Payloads of 64 MiB and more were not measured. glibc serves a request at or above the
+//!   mmap threshold with `mmap` unless `M_MMAP_MAX` disables it, and the size of a request need
+//!   not equal the size of the message.
 //! - The timing gate for the pin (`malloc_pin_receive.rs` in `hiroz-tests`) is opt-in. CI does
 //!   not run it, because it holds only on a quiet host (load average below 0.6). The command is
 //!   in the module doc of that test.
@@ -39,7 +38,7 @@ pub enum PinOutcome {
     /// The mmap threshold is set first. When glibc rejects it, the trim call is skipped and
     /// `trim_rc` is 0, which means the call was not attempted. The call then leaves the earlier
     /// settings of both thresholds unchanged. A trim threshold of 256 MiB without the mmap
-    /// threshold would measure worse than no pin.
+    /// threshold is a combination that was not measured.
     Rejected { mmap_rc: i32, trim_rc: i32 },
     /// The operator set a glibc environment variable. The pin changes nothing.
     OperatorSet,
@@ -52,20 +51,39 @@ pub const MMAP_THRESHOLD: i32 = 64 << 20;
 /// Value of `M_TRIM_THRESHOLD`, in bytes.
 ///
 /// It must stay above the free heap top that a receive leaves behind. A 32 MiB payload leaves
-/// two 32 MiB buffers. The measured system time per message with a threshold of 64 MiB is
-/// consistent with glibc trimming the heap on every message, so the receive pays page faults
-/// again. No trace of `brk` or `madvise` calls confirmed this. The main arena keeps up to this
-/// many free bytes at its heap top, so a larger value costs resident memory after a burst of
-/// large messages.
+/// two 32 MiB buffers. With a threshold of 64 MiB the receiver spent about 30 ms of system time
+/// per message at 32 MiB on the main thread, against about 6 ms with 256 MiB (medians of n=5,
+/// ranges 29.7-30.5 and 5.8-6.5 ms, same conditions as below). That is consistent with glibc
+/// trimming the heap on every message, so the receive pays page faults again. No trace of `brk`
+/// or `madvise` calls confirmed this.
 ///
-/// Measured cost: a typed `UInt8MultiArray` of 32 MiB at 10 Hz, received on the main thread
-/// (glibc 2.42, a 16-core AMD host, n=5 per arm). Steady RSS was 163.4-163.7 MiB with the pin and
-/// 91.7-98.4 MiB without it. The peak RSS stayed within 1 MiB across the arms. The same receive on a spawned thread (glibc 2.42, one AMD host, n=5 per arm)
-/// gave 27.6 ms with this pin and 27.8 ms with the previous 64 MiB trim threshold, against 39.5 ms
-/// with no pin, and the same steady RSS for both pins. So the raise from 64 to 256 MiB showed no
-/// change in that spawned-thread workload. The cause was not traced, and arena assignment
-/// depends on `MALLOC_ARENA_MAX` and on earlier frees, so other workloads can differ. Both pins
-/// share the gain over no pin there, so it does not come from the raise. Operators can keep their own values with `MALLOC_TRIM_THRESHOLD_` or
+/// Measured effect of the raise from 64 to 256 MiB. Every figure is a median over n=5 fresh
+/// receiver processes per arm and case, each with its own median p50 over 60 messages.
+/// The build is `--release`, on one 16-core AMD host with glibc 2.42, one binary for all
+/// arms. The receiver is pinned to cores. The path is a typed `UInt8MultiArray` on direct
+/// loopback TCP with `recv_timeout`, at 10 Hz. Arms are no pin, the previous 64/64 pin, and this
+/// 64/256 pin.
+///
+/// - 32 MiB, main thread: this pin 18.8 ms, no pin 36.1 ms, the 64/64 pin 42.7 ms. The three
+///   ranges are disjoint, so the 64/64 pin was slower than no pin there.
+/// - 32 MiB, spawned thread: this pin 24.0 ms and the 64/64 pin 24.1 ms overlap. Both are below
+///   no pin at 35.9 ms, with disjoint ranges. The raise adds nothing there.
+/// - 8 MiB and 1 MiB: this pin and the 64/64 pin overlap. On the main thread both are below no
+///   pin, with disjoint ranges. On a spawned thread all three arms overlap.
+/// - Resident memory at 32 MiB (VmRSS read in the receiver after each message): about 40 MiB
+///   more than no pin, 143.6 against 103.7 MiB, for either pin. At 8 MiB the pins cost about
+///   8 MiB more on a spawned thread and nothing on the main thread. The 256 MiB value adds no
+///   resident memory over the 64 MiB value. The no-pin value is bimodal, so compare the
+///   ordering and not the point value. Peak RSS is equal across arms.
+///
+/// The main arena keeps up to this many free bytes at its heap top, so a larger value can cost
+/// resident memory after a burst of large messages. These measurements showed no such cost
+/// above the 64 MiB value.
+///
+/// These figures do not cover any executor, any RMW, other message types, SHM or router
+/// transports, other hosts or glibc versions, message sizes between 1, 8 and 32 MiB, or sizes
+/// above 32 MiB. Arena assignment depends on `MALLOC_ARENA_MAX` and on earlier frees, so other
+/// workloads can differ. Operators can keep their own values with `MALLOC_TRIM_THRESHOLD_` or
 /// `MALLOC_MMAP_THRESHOLD_`.
 pub const TRIM_THRESHOLD: i32 = 256 << 20;
 
@@ -74,7 +92,7 @@ pub const TRIM_THRESHOLD: i32 = 256 << 20;
 /// Both calls are needed together. `mallopt()` on either parameter disables glibc's automatic
 /// adjustment of both (see `mallopt(3)`). Pinning `M_TRIM_THRESHOLD` alone leaves
 /// `M_MMAP_THRESHOLD` at its 128 KiB default, so every payload-sized buffer goes through
-/// `mmap`, which measures worse than no pin. glibc's own dynamic ceiling for
+/// `mmap`. glibc's own dynamic ceiling for
 /// `M_MMAP_THRESHOLD` is about 32 MiB, so the 64 MiB value is a deliberate override that glibc
 /// would never reach on its own. Skips both calls when the operator has set
 /// `MALLOC_TRIM_THRESHOLD_` or `MALLOC_MMAP_THRESHOLD_`: those two explicit deployment choices
