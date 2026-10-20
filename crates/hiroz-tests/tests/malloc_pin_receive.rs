@@ -24,8 +24,8 @@
 //!
 //! The run takes about 277 s (25 receives of about 11 s each). The test prints the load average and glibc version first.
 //! Check the printed load before you read the result. CI still compiles this file, and it runs
-//! `operator_threshold_variable_fails_the_probe` here and the wiring test in
-//! `malloc_pin_wiring.rs`.
+//! `operator_threshold_variable_fails_the_probe`, the id checks, the production override check
+//! and the wiring test in `malloc_pin_wiring.rs`.
 //!
 //! Population: direct loopback TCP, no router, no SHM, a typed `UInt8MultiArray` received
 //! with `recv_timeout`. The test says nothing about `async_recv`, callbacks or other types.
@@ -148,7 +148,8 @@ fn run_once(arm: &str) -> f64 {
     if arm == OLD_PIN_ARM {
         assert_eq!(field("pin="), "raw", "old-pin arm is not pinned: {line}");
     }
-    // A run with a missing sample is UNKNOWN, never a measurement.
+    // The receiver already stopped the run on a lost or repeated id (`IDGATE`). A run with fewer
+    // samples than asked for is UNKNOWN, never a measurement.
     let n = field("n=");
     assert_eq!(
         n,
