@@ -158,7 +158,11 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};
+    use tracing_subscriber::{
+        filter::{LevelFilter, Targets},
+        layer::SubscriberExt,
+        util::SubscriberInitExt,
+    };
 
     use super::*;
 
@@ -197,14 +201,16 @@ mod tests {
     #[test]
     fn a_join_is_logged_after_the_token_exists() {
         let out = Captured::default();
-        let _guard = tracing_subscriber::fmt()
-            .with_writer({
-                let out = out.clone();
-                move || out.clone()
-            })
-            .with_ansi(false)
-            .with_max_level(LevelFilter::DEBUG)
-            .finish()
+        let _guard = tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer({
+                        let out = out.clone();
+                        move || out.clone()
+                    })
+                    .with_ansi(false),
+            )
+            .with(Targets::new().with_target("hiroz", LevelFilter::DEBUG))
             .set_default();
         let lines = || {
             let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();

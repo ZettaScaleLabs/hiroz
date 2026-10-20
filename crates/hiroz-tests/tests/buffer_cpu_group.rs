@@ -31,7 +31,11 @@ use hiroz::{
 use hiroz_msgs::std_msgs::{Float64MultiArray, UInt8MultiArray};
 use hiroz_protocol::{KeyExprFormat, KeyExprFormatterAdapter, RmwZenohFormatter};
 use serde::{Deserialize, Serialize};
-use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};
+use tracing_subscriber::{
+    filter::{LevelFilter, Targets},
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
+};
 use zenoh::{Wait, sample::SampleKind};
 
 const RECV: Duration = Duration::from_secs(3);
@@ -1211,14 +1215,18 @@ impl Write for Captured {
 #[test]
 fn joining_logs_the_group_key_at_debug_level() {
     let out = Captured::default();
-    let _guard = tracing_subscriber::fmt()
-        .with_writer({
-            let out = out.clone();
-            move || out.clone()
-        })
-        .with_ansi(false)
-        .with_max_level(LevelFilter::DEBUG)
-        .finish()
+    // Only the hiroz target is enabled: a debug span of another crate would cross threads and
+    // break the thread-local subscriber.
+    let _guard = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer({
+                    let out = out.clone();
+                    move || out.clone()
+                })
+                .with_ansi(false),
+        )
+        .with(Targets::new().with_target("hiroz", LevelFilter::DEBUG))
         .set_default();
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
