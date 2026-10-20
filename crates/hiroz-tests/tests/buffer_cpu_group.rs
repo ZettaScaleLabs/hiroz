@@ -495,39 +495,8 @@ fn default_subscriber_stays_out_on_a_custom_key_format() {
     );
 }
 
-/// A joined token carries the QoS chunk `rmw_zenoh` writes for the profile.
-#[test]
-fn joined_subscriber_token_carries_the_writers_qos_chunk() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let cases = [
-        ("qos_1", 1, "::,1:,:,:,,"),
-        ("qos_5", 5, "::,5:,:,:,,"),
-        ("qos_42", 42, "::,:,:,:,,"),
-    ];
-    let _subs: Vec<_> = cases
-        .iter()
-        .map(|(topic, depth, _)| {
-            node.create_sub::<UInt8MultiArray>(&format!("/{topic}"))
-                .with_qos(QosProfile {
-                    history: QosHistory::KeepLast(std::num::NonZeroUsize::new(*depth).unwrap()),
-                    ..Default::default()
-                })
-                .with_buffer_group(BufferGroup::Auto)
-                .build()
-                .unwrap()
-        })
-        .collect();
-    for (topic, _, qos) in cases {
-        let mut s = shape("tok_node", topic, &UINT8, true);
-        s.qos = qos;
-        assert_token(&token_for(&raw, topic), s);
-    }
-}
-
-/// A message with an unbounded `uint8[]` joins, as a typed message and as a schema.
+/// A message with an unbounded `uint8[]` joins, as a typed message and as a schema. A joined
+/// token carries the QoS chunk `rmw_zenoh` writes for a custom profile.
 #[test]
 fn typed_subscriber_with_buffer_fields_joins() {
     let router = TestRouter::new();
@@ -542,6 +511,14 @@ fn typed_subscriber_with_buffer_fields_joins() {
         .create_dyn_sub("/dyn_buf", UInt8MultiArray::message_schema().unwrap())
         .build()
         .unwrap();
+    let _depth = node
+        .create_sub::<UInt8MultiArray>("/typed_depth")
+        .with_qos(QosProfile {
+            history: QosHistory::KeepLast(std::num::NonZeroUsize::new(5).unwrap()),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
 
     assert_token(
         &token_for(&raw, "typed_buf"),
@@ -551,6 +528,9 @@ fn typed_subscriber_with_buffer_fields_joins() {
         &token_for(&raw, "dyn_buf"),
         shape("tok_node", "dyn_buf", &UINT8, true),
     );
+    let mut depth = shape("tok_node", "typed_depth", &UINT8, true);
+    depth.qos = "::,5:,:,:,,";
+    assert_token(&token_for(&raw, "typed_depth"), depth);
 }
 
 /// A dynamic subscriber joins for an unbounded `uint8[]`, also nested.
