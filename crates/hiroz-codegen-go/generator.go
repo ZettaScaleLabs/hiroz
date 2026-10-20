@@ -69,6 +69,37 @@ func emitUnpackAlign(g *CodeBuilder, align int) {
 	g.P("offset += (%d - offset%%%d) %% %d", align, align, align)
 }
 
+// emitArrLenCheck emits the bound on a decoded sequence length. Every element
+// of a string, primitive, time or duration sequence takes at least one byte on
+// the wire, so a length above the bytes left cannot be valid. The check runs
+// before `make`: a hostile 32-bit length would otherwise reserve gigabytes, and
+// a Go out-of-memory abort cannot be recovered. `arrLen < 0` covers the
+// overflow of int(uint32) on 32-bit targets.
+func emitArrLenCheck(g *CodeBuilder) {
+	g.P("if arrLen < 0 || arrLen > len(data)-offset { return offset, fmt.Errorf(\"sequence length %%d exceeds the %%d bytes left\", arrLen, len(data)-offset) }")
+}
+
+// emitCustomSeqUnpack emits the decode of a sequence of nested messages. The
+// element type is not known here, and a message with no fields takes zero
+// bytes, so a valid sequence can be longer than the bytes left. The length is
+// therefore not rejected: the reservation is capped at the bytes left and the
+// slice grows as elements decode. An element that needs bytes fails with a
+// short-buffer error as soon as the input ends.
+func emitCustomSeqUnpack(g *CodeBuilder, fieldAccess, elemType string) {
+	g.P("if arrLen < 0 { return offset, fmt.Errorf(\"sequence length %%d is negative\", arrLen) }")
+	g.P("capHint := arrLen")
+	g.P("if left := len(data) - offset; capHint > left { capHint = left }")
+	g.P("%s = make([]%s, 0, capHint)", fieldAccess, elemType)
+	g.P("for i := 0; i < arrLen; i++ {")
+	g.In()
+	g.P("var elem %s", elemType)
+	g.P("offset, err = elem.UnpackFromRawAt(data, offset)")
+	g.P("if err != nil { return offset, err }")
+	g.P("%s = append(%s, elem)", fieldAccess, fieldAccess)
+	g.Out()
+	g.P("}")
+}
+
 // fieldsHaveNested reports whether any field requires a nested unpack call
 // that would assign to `err`. Used to decide whether to declare `var err
 // error` at the top of the unpack body.
@@ -496,6 +527,7 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for string array length\") }")
 			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 			g.P("offset += 4")
+			emitArrLenCheck(g)
 			g.P("%s = make([]string, arrLen)", fieldAccess)
 			g.P("for i := 0; i < arrLen; i++ {")
 			g.In()
@@ -550,13 +582,7 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
 			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 			g.P("offset += 4")
-			g.P("%s = make([]%s, arrLen)", fieldAccess, fieldToGoBaseTypeInPkg(field, g.currentPkg))
-			g.P("for i := 0; i < arrLen; i++ {")
-			g.In()
-			g.P("offset, err = %s[i].UnpackFromRawAt(data, offset)", fieldAccess)
-			g.P("if err != nil { return offset, err }")
-			g.Out()
-			g.P("}")
+			emitCustomSeqUnpack(g, fieldAccess, fieldToGoBaseTypeInPkg(field, g.currentPkg))
 		} else {
 			g.P("offset, err = %s.UnpackFromRawAt(data, offset)", fieldAccess)
 			g.P("if err != nil { return offset, err }")
@@ -573,6 +599,7 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
 			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 			g.P("offset += 4")
+			emitArrLenCheck(g)
 			g.P("%s = make([]%s, arrLen)", fieldAccess, fieldToGoBaseTypeInPkg(field, g.currentPkg))
 			g.P("for i := 0; i < arrLen; i++ {")
 			g.In()
@@ -662,6 +689,7 @@ func generatePrimitiveUnpackCode(g *CodeBuilder, field FieldDefinition, align in
 		g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
 		g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 		g.P("offset += 4")
+		emitArrLenCheck(g)
 		elemType := fieldToGoBaseTypeInPkg(field, g.currentPkg)
 		g.P("%s = make([]%s, arrLen)", fieldAccess, elemType)
 		g.P("for i := 0; i < arrLen; i++ {")
