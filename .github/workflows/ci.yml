@@ -116,12 +116,14 @@ jobs:
         if: runner.os == 'Linux'
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
+          # Pure-Rust job: only the large preinstalled packages are removed. The
+          # step logs `df -h /` before and after, so the margin stays visible.
           large-packages: true
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          docker-images: true
+          tool-cache: false
+          android: false
+          dotnet: false
+          haskell: false
+          docker-images: false
           swap-storage: false
 
       - name: Install Nix (Linux)
@@ -222,12 +224,14 @@ jobs:
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
+          # Pure-Rust job: only the large preinstalled packages are removed. The
+          # step logs `df -h /` before and after, so the margin stays visible.
           large-packages: true
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          docker-images: true
+          tool-cache: false
+          android: false
+          dotnet: false
+          haskell: false
+          docker-images: false
           swap-storage: false
 
       - name: Install Nix (Linux)
@@ -701,12 +705,14 @@ jobs:
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
+          # Pure-Rust job: only the large preinstalled packages are removed. The
+          # step logs `df -h /` before and after, so the margin stays visible.
           large-packages: true
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          docker-images: true
+          tool-cache: false
+          android: false
+          dotnet: false
+          haskell: false
+          docker-images: false
           swap-storage: false
 
       - name: Install Nix
@@ -759,12 +765,14 @@ jobs:
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
+          # Pure-Rust job: only the large preinstalled packages are removed. The
+          # step logs `df -h /` before and after, so the margin stays visible.
           large-packages: true
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          docker-images: true
+          tool-cache: false
+          android: false
+          dotnet: false
+          haskell: false
+          docker-images: false
           swap-storage: false
 
       - name: Install Nix
@@ -818,12 +826,14 @@ jobs:
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # main
         with:
+          # Pure-Rust job: only the large preinstalled packages are removed. The
+          # step logs `df -h /` before and after, so the margin stays visible.
           large-packages: true
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          docker-images: true
+          tool-cache: false
+          android: false
+          dotnet: false
+          haskell: false
+          docker-images: false
           swap-storage: false
 
       - name: Install Nix
