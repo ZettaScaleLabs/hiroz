@@ -165,7 +165,9 @@ fn a_failed_token_declaration_logs_no_join() {
         "{NAME}: want one line for the successful join: {after:?}"
     );
     assert!(
-        after[0].contains(" INFO ") && after[0].contains("/wiring_probe/**"),
+        after[0].contains(" INFO ")
+            && after[0].contains("0/wiring_probe/")
+            && after[0].contains("/**, which includes"),
         "{NAME}: the line is not an info line for the key: {after:?}"
     );
 }
