@@ -236,6 +236,20 @@ fn put_until(
     false
 }
 
+/// The value of `counter` once it stops rising. `put_until` stops at the first sample, but samples
+/// it put before then can still be in flight, so a read after a fixed sleep can be too early.
+fn settled(counter: &std::sync::atomic::AtomicUsize) -> usize {
+    let mut last = counter.load(std::sync::atomic::Ordering::SeqCst);
+    loop {
+        std::thread::sleep(POLL);
+        let now = counter.load(std::sync::atomic::Ordering::SeqCst);
+        if now == last {
+            return now;
+        }
+        last = now;
+    }
+}
+
 /// A one-field message schema, to give a dynamic subscriber a definition to inspect.
 fn schema(field_type: FieldType) -> Arc<MessageSchema> {
     MessageSchema::builder("pkg/msg/M")
@@ -721,8 +735,7 @@ fn dropping_a_joined_typed_subscriber_removes_its_token_and_stops_callbacks() {
             > 0),
         "{NAME}: control: no callback ran on {key} before the drop"
     );
-    std::thread::sleep(POLL);
-    let before = calls.load(Ordering::SeqCst);
+    let before = settled(&calls);
     assert!(
         before >= 1,
         "{NAME}: control: {before} callbacks before the drop"
@@ -797,8 +810,7 @@ fn dropping_a_joined_cache_stops_group_key_updates() {
             > 0),
         "dropping_a_joined_cache_stops_group_key_updates: control: no sample reached the cache on {key} before the drop"
     );
-    std::thread::sleep(POLL);
-    let before = stamped.load(Ordering::SeqCst);
+    let before = settled(&stamped);
     assert!(
         before >= 1 && !cache.is_empty(),
         "dropping_a_joined_cache_stops_group_key_updates: control: {before} samples stamped, cache empty: {}",
