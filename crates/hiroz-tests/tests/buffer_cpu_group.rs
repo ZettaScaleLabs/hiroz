@@ -1205,11 +1205,11 @@ impl Write for Captured {
     }
 }
 
-/// One `info` line per group key and process names the subscribed key and the group
-/// key. Three subscribers on one key log once; a second key logs once; a subscriber that stays
-/// out logs nothing.
+/// Each join logs one `debug` line that names the subscribed key and the group key. Three
+/// subscribers on one key log three lines; a second key logs one; a subscriber that stays out logs
+/// nothing.
 #[test]
-fn joining_logs_the_group_key_once_per_key() {
+fn joining_logs_the_group_key_at_debug_level() {
     let out = Captured::default();
     let _guard = tracing_subscriber::fmt()
         .with_writer({
@@ -1217,7 +1217,7 @@ fn joining_logs_the_group_key_once_per_key() {
             move || out.clone()
         })
         .with_ansi(false)
-        .with_max_level(LevelFilter::INFO)
+        .with_max_level(LevelFilter::DEBUG)
         .finish()
         .set_default();
     let router = TestRouter::new();
@@ -1266,28 +1266,36 @@ fn joining_logs_the_group_key_once_per_key() {
     let raw = raw_session(router.endpoint());
     assert!(
         token_for(&raw, "log_b").ends_with("/backends:cpu:"),
-        "joining_logs_the_group_key_once_per_key: control: the joined subscriber has no group token"
+        "joining_logs_the_group_key_at_debug_level: control: the joined subscriber has no group token"
     );
     assert!(
         !token_for(&raw, "log_off").contains("backends:"),
-        "joining_logs_the_group_key_once_per_key: control: the opted-out subscriber has a group token"
+        "joining_logs_the_group_key_at_debug_level: control: the opted-out subscriber has a group token"
     );
+    let count = |topic: &str| {
+        lines
+            .iter()
+            .filter(|l| l.ends_with(&expected(topic)))
+            .count()
+    };
     assert!(
-        lines.len() == 2,
-        "joining_logs_the_group_key_once_per_key: want one line per joined key, got {}: {text}",
+        lines.len() == 4,
+        "joining_logs_the_group_key_at_debug_level: want one line per join, got {}: {text}",
         lines.len()
     );
-    assert!(
-        lines.iter().any(|l| l.ends_with(&expected("log_a"))),
-        "joining_logs_the_group_key_once_per_key: no line for log_a: {text}"
+    assert_eq!(
+        count("log_a"),
+        3,
+        "joining_logs_the_group_key_at_debug_level: lines for log_a: {text}"
+    );
+    assert_eq!(
+        count("log_b"),
+        1,
+        "joining_logs_the_group_key_at_debug_level: lines for log_b: {text}"
     );
     assert!(
-        lines.iter().any(|l| l.ends_with(&expected("log_b"))),
-        "joining_logs_the_group_key_once_per_key: no line for log_b: {text}"
-    );
-    assert!(
-        lines.iter().all(|l| l.contains(" INFO ")),
-        "joining_logs_the_group_key_once_per_key: a line is not at info level: {text}"
+        lines.iter().all(|l| l.contains(" DEBUG ")),
+        "joining_logs_the_group_key_at_debug_level: a line is not at debug level: {text}"
     );
 }
 
