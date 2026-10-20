@@ -1190,7 +1190,7 @@ fn group_subscription_is_declared_before_the_token_is_visible() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The info log and access control
+// The debug log and access control
 // ---------------------------------------------------------------------------------------------
 
 #[derive(Clone, Default)]

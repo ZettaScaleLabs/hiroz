@@ -8,13 +8,8 @@
 //! A joined subscriber has one subscription, on `<base>/**`. It reads the base key and the group
 //! key, and drops every other key under the base in process. It declares no second subscription.
 
-use std::{
-    collections::HashSet,
-    sync::{Mutex, OnceLock},
-};
-
 use hiroz_protocol::{KeyExprFormat, qos::QosDurability};
-use tracing::{debug, info};
+use tracing::debug;
 use zenoh::{Result, Wait, key_expr::KeyExpr, liveliness::LivelinessToken, sample::Sample};
 
 use crate::entity::EndpointEntity;
@@ -78,15 +73,14 @@ pub(crate) fn joins(
 
 /// What a subscriber will declare: the token string and, when joining, the group key. Computing
 /// it declares nothing.
-#[doc(hidden)]
-pub struct Plan {
+pub(crate) struct Plan {
     token_key: String,
     /// The topic key and the group key, when joining.
     keys: Option<(String, String)>,
 }
 
 impl Plan {
-    pub fn new(
+    pub(crate) fn new(
         format: &KeyExprFormat,
         entity: &EndpointEntity,
         zid: &zenoh::session::ZenohId,
@@ -109,10 +103,10 @@ impl Plan {
         self.keys.as_ref().map(|(_, group)| group.as_str())
     }
 
-    /// Declare the token, then log the join. A declaration that fails logs nothing and leaves the
-    /// key's `info` line for a later join. The subscriber's own subscription, on `<base>/**`,
-    /// already serves the group key, so a publisher that reads the token finds a subscription.
-    pub fn declare(self, session: &zenoh::Session) -> Result<LivelinessToken> {
+    /// Declare the token, then log the join. A declaration that fails logs nothing. The subscriber's
+    /// own subscription, on `<base>/**`, already serves the group key, so a publisher that reads the
+    /// token finds a subscription.
+    pub(crate) fn declare(self, session: &zenoh::Session) -> Result<LivelinessToken> {
         let token = session
             .liveliness()
             .declare_token(KeyExpr::try_from(self.token_key)?)
@@ -147,91 +141,100 @@ where
     }
 }
 
-/// What the join log does for one join.
-#[doc(hidden)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum JoinLogLevel {
-    /// The key is new and the set has room: log at `info` level.
-    Info,
-    /// The key is already logged: log nothing.
-    Skip,
-    /// The key is new and the set is full: log at `debug` level and keep nothing.
-    Debug,
-}
-
-/// The decision state of the join log: at most `cap` group keys, each logged once at `info` level.
-/// A key past the cap is logged at `debug` level on every join and never stored, so the set stays
-/// bounded. It does no logging and holds no lock. The process uses one instance, behind its
-/// join log.
-#[doc(hidden)]
-#[derive(Debug)]
-pub struct JoinLog {
-    cap: usize,
-    keys: HashSet<String>,
-}
-
-impl JoinLog {
-    /// The most group keys the process-wide join log remembers. A function, not a constant, so that
-    /// the C header generator does not export it.
-    pub const fn process_cap() -> usize {
-        1024
-    }
-
-    /// A log that remembers at most `cap` keys.
-    pub fn new(cap: usize) -> Self {
-        Self {
-            cap,
-            keys: HashSet::new(),
-        }
-    }
-
-    /// Record one join of `group` and say how to log it.
-    pub fn record(&mut self, group: &str) -> JoinLogLevel {
-        if self.keys.len() < self.cap {
-            if self.keys.insert(group.to_owned()) {
-                JoinLogLevel::Info
-            } else {
-                JoinLogLevel::Skip
-            }
-        } else if self.keys.contains(group) {
-            JoinLogLevel::Skip
-        } else {
-            JoinLogLevel::Debug
-        }
-    }
-
-    /// How many keys the log holds now.
-    pub fn len(&self) -> usize {
-        self.keys.len()
-    }
-
-    /// Whether the log holds no key.
-    pub fn is_empty(&self) -> bool {
-        self.keys.is_empty()
-    }
-}
-
-/// An operator learns here that the subscription needs an access-control rule: a router that
-/// denies `<base>/**` or the group key drops buffer messages and reports no error. The process
-/// logs one line per group key for the first [`JoinLog::process_cap`] keys, and a key past the limit
-/// at `debug` level on every join.
+/// Log one join. An operator learns here that the subscription needs an access-control rule: a
+/// router that denies `<base>/**` or the group key drops buffer messages and reports no error.
 fn log_join(base: &str, group: &str) {
-    static LOGGED: OnceLock<Mutex<JoinLog>> = OnceLock::new();
-    let level = LOGGED
-        .get_or_init(|| Mutex::new(JoinLog::new(JoinLog::process_cap())))
-        .lock()
-        .unwrap()
-        .record(group);
-    let line = || {
-        format!(
-            "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
-             key {group}. A router access-control rule that denies {base}/** or {group} drops \
-             buffer messages and reports no error. Allow {base}/** wherever you allow {base}."
-        )
+    debug!(
+        "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes key \
+         {group}. A router access-control rule that denies {base}/** or {group} drops buffer \
+         messages and reports no error. Allow {base}/** wherever you allow {base}."
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::Write,
+        sync::{Arc, Mutex},
     };
-    match level {
-        JoinLogLevel::Info => info!("{}", line()),
-        JoinLogLevel::Skip => {}
-        JoinLogLevel::Debug => debug!("{}", line()),
+
+    use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};
+
+    use super::*;
+
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Captured {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn session() -> zenoh::Session {
+        let mut config = zenoh::Config::default();
+        config
+            .insert_json5("scouting/multicast/enabled", "false")
+            .unwrap();
+        zenoh::open(config).wait().expect("session")
+    }
+
+    fn plan() -> Plan {
+        Plan {
+            token_key: "test/join/token".to_owned(),
+            keys: Some(("test/join".to_owned(), "test/join/_buf_cpu".to_owned())),
+        }
+    }
+
+    /// A failed token declaration logs no join, and a successful one logs one `debug` line that
+    /// names the base key and the group key. The failing session is closed, so the declaration is
+    /// the only step that fails.
+    #[test]
+    fn a_join_is_logged_after_the_token_exists() {
+        let out = Captured::default();
+        let _guard = tracing_subscriber::fmt()
+            .with_writer({
+                let out = out.clone();
+                move || out.clone()
+            })
+            .with_ansi(false)
+            .with_max_level(LevelFilter::DEBUG)
+            .finish()
+            .set_default();
+        let lines = || {
+            let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+            text.lines()
+                .filter(|l| l.contains("CPU buffer group"))
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+
+        let dead = session();
+        dead.close().wait().expect("close");
+        assert!(
+            plan().declare(&dead).is_err(),
+            "control: a token declaration on a closed session succeeded"
+        );
+        assert!(
+            lines().is_empty(),
+            "a failed declaration logged a join: {:?}",
+            lines()
+        );
+
+        let live = session();
+        let _token = plan().declare(&live).expect("declare on an open session");
+        let after = lines();
+        assert_eq!(after.len(), 1, "want one line for the join: {after:?}");
+        assert!(
+            after[0].contains(" DEBUG ")
+                && after[0].contains("subscribed to key test/join/**")
+                && after[0].contains("includes key test/join/_buf_cpu."),
+            "the line is not a debug line naming both keys: {after:?}"
+        );
     }
 }

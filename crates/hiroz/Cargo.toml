@@ -59,6 +59,7 @@ paste = "1.0"
 hiroz-msgs = { path = "../hiroz-msgs" }
 hiroz-codegen = { path = "../hiroz-codegen" }
 serial_test = "3.0"
+tracing-subscriber = "0.3"
 
 [build-dependencies]
 serde = { workspace = true, features = ["serde_derive"] }
