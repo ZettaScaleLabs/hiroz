@@ -96,16 +96,18 @@ impl Plan {
         self.keys.as_ref().map(|(_, group)| group.as_str())
     }
 
-    /// Declare the token. The subscriber's own subscription, on `<base>/**`, already serves the
-    /// group key, so a publisher that reads the token finds a subscription.
+    /// Declare the token, then log the join. A declaration that fails logs nothing and leaves the
+    /// key's `info` line for a later join. The subscriber's own subscription, on `<base>/**`,
+    /// already serves the group key, so a publisher that reads the token finds a subscription.
     pub fn declare(self, session: &zenoh::Session) -> Result<LivelinessToken> {
+        let token = session
+            .liveliness()
+            .declare_token(KeyExpr::try_from(self.token_key)?)
+            .wait()?;
         if let Some((base, group)) = &self.keys {
             log_join(base, group);
         }
-        Ok(session
-            .liveliness()
-            .declare_token(KeyExpr::try_from(self.token_key)?)
-            .wait()?)
+        Ok(token)
     }
 }
 
