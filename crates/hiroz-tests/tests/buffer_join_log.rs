@@ -16,7 +16,7 @@ use std::{
 use common::*;
 use hiroz::{
     BufferGroup, Builder,
-    buffer_group::{JoinLog, JoinLogLevel, LOG_KEYS, Plan},
+    buffer_group::{JoinLog, JoinLogLevel, Plan},
 };
 use hiroz_msgs::std_msgs::UInt8MultiArray;
 use hiroz_protocol::KeyExprFormat;
@@ -104,7 +104,11 @@ fn join_log_stores_no_more_than_its_cap_under_many_keys() {
 /// The process-wide log holds the number of keys the user guide states.
 #[test]
 fn join_log_cap_is_the_documented_bound() {
-    assert_eq!(LOG_KEYS, 1024, "join_log_cap_is_the_documented_bound");
+    assert_eq!(
+        JoinLog::process_cap(),
+        1024,
+        "join_log_cap_is_the_documented_bound"
+    );
 }
 
 /// A token declaration that fails logs no join, and the next successful join of the same key

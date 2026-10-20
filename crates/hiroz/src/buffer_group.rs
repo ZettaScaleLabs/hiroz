@@ -147,10 +147,6 @@ where
     }
 }
 
-/// The most group keys the process-wide join log remembers.
-#[doc(hidden)]
-pub const LOG_KEYS: usize = 1024;
-
 /// What the join log does for one join.
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -175,6 +171,12 @@ pub struct JoinLog {
 }
 
 impl JoinLog {
+    /// The most group keys the process-wide join log remembers. A function, not a constant, so that
+    /// the C header generator does not export it.
+    pub const fn process_cap() -> usize {
+        1024
+    }
+
     /// A log that remembers at most `cap` keys.
     pub fn new(cap: usize) -> Self {
         Self {
@@ -211,12 +213,12 @@ impl JoinLog {
 
 /// An operator learns here that the subscription needs an access-control rule: a router that
 /// denies `<base>/**` or the group key drops buffer messages and reports no error. The process
-/// logs one line per group key for the first [`LOG_KEYS`] keys, and a key past the limit at `debug`
-/// level on every join.
+/// logs one line per group key for the first [`JoinLog::process_cap`] keys, and a key past the limit
+/// at `debug` level on every join.
 fn log_join(base: &str, group: &str) {
     static LOGGED: OnceLock<Mutex<JoinLog>> = OnceLock::new();
     let level = LOGGED
-        .get_or_init(|| Mutex::new(JoinLog::new(LOG_KEYS)))
+        .get_or_init(|| Mutex::new(JoinLog::new(JoinLog::process_cap())))
         .lock()
         .unwrap()
         .record(group);
