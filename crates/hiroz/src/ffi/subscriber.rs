@@ -9,6 +9,8 @@ pub type MessageCallback = extern "C" fn(user_data: usize, data: *const u8, len:
 
 /// Raw subscriber wrapper that keeps the zenoh subscriber alive
 pub struct RawSubscriber {
+    /// Declared first, so it drops first: the token goes before the subscription it announces.
+    pub(crate) _group: Option<crate::buffer_group::Membership>,
     pub inner: AdvancedSubscriber<()>,
 }
 

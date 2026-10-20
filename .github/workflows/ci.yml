@@ -55,6 +55,9 @@ jobs:
       - name: Check breaking markers
         run: nu scripts/test-cliff-breaking.nu
 
+      - name: Check the raw suite guard
+        run: nu scripts/test-raw-suite-guard.nu
+
   formatting:
     name: Check Formatting
     runs-on: ubuntu-latest
@@ -206,6 +209,14 @@ jobs:
             source /tmp/nix-dev-env.sh
           fi
           nu scripts/test-pure-rust.nu run-tests
+        shell: bash
+
+      - name: Check the raw subscriber suite is built
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            source /tmp/nix-dev-env.sh
+          fi
+          nu scripts/test-pure-rust.nu check-raw-suite-listed
         shell: bash
 
   no-ros-shm:
