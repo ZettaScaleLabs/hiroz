@@ -180,3 +180,188 @@ func TestRoundtripValuesMatch(t *testing.T) {
 	}
 }
 `
+
+// hostileCase is one decode probe run in its own `go test` subprocess. A
+// subprocess per case matters: a Go out-of-memory abort kills the whole
+// process and cannot be recovered, so one shared process would hide every case
+// after the first abort.
+type hostileCase struct {
+	name   string
+	goarch string // empty: the host architecture
+}
+
+// hostileProbeSource holds the probe tests of the hostile-length round trip.
+// Each probe feeds a hand-built CDR body to one generated decoder.
+//
+// The bytes of every hostile body are `00 01 00 00` (encapsulation header),
+// then a 4-byte sequence length of 0xFFFFFFFF, then nothing.
+const hostileProbeSource = `package main_test
+
+import (
+	"runtime"
+	"testing"
+
+	"roundtripprobe/test_msgs"
+)
+
+var hostileLen = []byte{0x00, 0x01, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff}
+
+// allocated runs f and returns the bytes the Go allocator handed out during it.
+// A reservation counts even when the OS has not touched its pages, so the
+// measure does not depend on overcommit settings.
+func allocated(f func()) uint64 {
+	var a, b runtime.MemStats
+	runtime.ReadMemStats(&a)
+	f()
+	runtime.ReadMemStats(&b)
+	return b.TotalAlloc - a.TotalAlloc
+}
+
+// rejects decodes raw and requires an error, a small allocation and no panic.
+func rejects(t *testing.T, raw []byte, decode func([]byte) error) {
+	t.Helper()
+	var err error
+	n := allocated(func() { err = decode(raw) })
+	if err == nil {
+		t.Errorf("hostile length decoded without an error")
+	}
+	if n > 1<<20 {
+		t.Errorf("hostile length reserved %d bytes before it failed", n)
+	}
+}
+
+func TestHostileStringArray(t *testing.T) {
+	var m test_msgs.StrArr
+	rejects(t, hostileLen, m.DeserializeCDR)
+}
+
+func TestHostilePrimitiveArray(t *testing.T) {
+	var m test_msgs.PrimArr
+	rejects(t, hostileLen, m.DeserializeCDR)
+}
+
+func TestHostileCustomArray(t *testing.T) {
+	var m test_msgs.CustomArr
+	rejects(t, hostileLen, m.DeserializeCDR)
+}
+
+// A length one above the bytes left is rejected; a length equal to the bytes
+// left decodes. The pair pins the boundary from both sides.
+func TestPrimitiveBoundary(t *testing.T) {
+	var ok test_msgs.BytesArr
+	if err := ok.DeserializeCDR([]byte{0x00, 0x01, 0x00, 0x00, 3, 0, 0, 0, 7, 8, 9}); err != nil {
+		t.Fatalf("length equal to the bytes left was rejected: %v", err)
+	}
+	if len(ok.V) != 3 || ok.V[0] != 7 || ok.V[2] != 9 {
+		t.Fatalf("decoded %v, want [7 8 9]", ok.V)
+	}
+	var over test_msgs.BytesArr
+	if err := over.DeserializeCDR([]byte{0x00, 0x01, 0x00, 0x00, 4, 0, 0, 0, 7, 8, 9}); err == nil {
+		t.Fatalf("length one above the bytes left decoded without an error")
+	}
+}
+
+// An element of a message with no fields takes zero bytes, so a valid
+// sequence of them is longer than the bytes left. The bound must not reject it.
+func TestSequenceOfEmptyMessagesDecodes(t *testing.T) {
+	var m test_msgs.EmptyArr
+	if err := m.DeserializeCDR([]byte{0x00, 0x01, 0x00, 0x00, 0xe8, 0x03, 0, 0}); err != nil {
+		t.Fatalf("a valid sequence of 1000 empty messages was rejected: %v", err)
+	}
+	if len(m.V) != 1000 {
+		t.Fatalf("decoded %d elements, want 1000", len(m.V))
+	}
+}
+`
+
+func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
+	// A skip is not a pass: the reason names the missing tool.
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("go binary not found on PATH; skipping hostile sequence length test: %v", err)
+	}
+
+	u8 := FieldType{Kind: "UInt8"}
+	seq := func(name string, ft FieldType) []FieldDefinition {
+		return []FieldDefinition{{Name: "v", FieldType: ft, IsArray: true, ArrayKind: "unbounded"}}
+	}
+	str := func(s string) *string { return &s }
+	custom := func(name string) FieldType {
+		return FieldType{Kind: "Custom", Package: str("test_msgs"), Name: str(name)}
+	}
+	// Time and Duration arrays have no runtime probe: the generated code for such
+	// a field does not compile (the slice element type falls back to interface{}).
+	// Their bound is checked as text in TestGenerateUnpackBoundsArrayLength.
+	msgs := []MessageDefinition{
+		{Package: "test_msgs", Name: "Empty", FullName: "test_msgs/Empty"},
+		{Package: "test_msgs", Name: "One", FullName: "test_msgs/One", Fields: []FieldDefinition{
+			{Name: "x", FieldType: FieldType{Kind: "Int32"}},
+		}},
+		{Package: "test_msgs", Name: "StrArr", FullName: "test_msgs/StrArr", Fields: seq("v", FieldType{Kind: "String"})},
+		{Package: "test_msgs", Name: "PrimArr", FullName: "test_msgs/PrimArr", Fields: seq("v", FieldType{Kind: "Float64"})},
+		{Package: "test_msgs", Name: "BytesArr", FullName: "test_msgs/BytesArr", Fields: seq("v", u8)},
+		{Package: "test_msgs", Name: "CustomArr", FullName: "test_msgs/CustomArr", Fields: seq("v", custom("One"))},
+		{Package: "test_msgs", Name: "EmptyArr", FullName: "test_msgs/EmptyArr", Fields: seq("v", custom("Empty"))},
+	}
+
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module roundtripprobe\n\ngo 1.23\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	for _, m := range msgs {
+		code, err := GenerateGoMessage(m, "roundtripprobe")
+		if err != nil {
+			t.Fatalf("GenerateGoMessage(%s) failed: %v", m.Name, err)
+		}
+		dir := filepath.Join(tmp, m.Package)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, strings.ToLower(m.Name)+".go"), code, 0o644); err != nil {
+			t.Fatalf("write %s: %v", m.Name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "probe_test.go"), []byte(hostileProbeSource), 0o644); err != nil {
+		t.Fatalf("write probe_test.go: %v", err)
+	}
+
+	cases := []hostileCase{
+		{name: "TestHostileStringArray"},
+		{name: "TestHostilePrimitiveArray"},
+		{name: "TestHostileCustomArray"},
+		{name: "TestPrimitiveBoundary"},
+		{name: "TestSequenceOfEmptyMessagesDecodes"},
+		// On a 32-bit target int(uint32) of 0xFFFFFFFF is negative.
+		{name: "TestHostilePrimitiveArray", goarch: "386"},
+		{name: "TestHostileStringArray", goarch: "386"},
+	}
+	for _, c := range cases {
+		label := c.name
+		if c.goarch != "" {
+			label += "/" + c.goarch
+		}
+		t.Run(label, func(t *testing.T) {
+			cmd := exec.Command(goBin, "test", "-count=1", "-run", "^"+c.name+"$", "-v", ".")
+			cmd.Dir = tmp
+			cmd.Env = append(os.Environ(),
+				"GOFLAGS=-mod=mod",
+				"GOMODCACHE="+filepath.Join(tmp, ".gomodcache"),
+				"GOCACHE="+filepath.Join(tmp, ".gocache"),
+			)
+			if c.goarch != "" {
+				cmd.Env = append(cmd.Env, "GOARCH="+c.goarch, "CGO_ENABLED=0")
+			}
+			out, err := cmd.CombinedOutput()
+			text := string(out)
+			if err != nil {
+				if c.goarch != "" && strings.Contains(text, "exec format error") {
+					t.Skipf("host cannot run GOARCH=%s binaries: UNKNOWN, not a pass", c.goarch)
+				}
+				t.Fatalf("probe %s failed: %v\n----- combined output -----\n%s", label, err, strings.TrimSpace(text))
+			}
+			if !strings.Contains(text, "--- PASS: "+c.name) {
+				t.Fatalf("probe %s printed no PASS line:\n%s", label, text)
+			}
+		})
+	}
+}

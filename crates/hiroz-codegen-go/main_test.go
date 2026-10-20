@@ -482,3 +482,42 @@ func TestGenerateUnpackField(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateUnpackBoundsArrayLength(t *testing.T) {
+	// A weak check by design: it reads the generated text, so it is not the main
+	// test. The runtime test is TestRoundtripRejectsHostileSequenceLength.
+	str := func(s string) *string { return &s }
+	cases := []struct {
+		name string
+		ft   FieldType
+	}{
+		{"string", FieldType{Kind: "String"}},
+		{"primitive", FieldType{Kind: "Float64"}},
+		{"time", FieldType{Kind: "Time"}},
+		{"custom", FieldType{Kind: "Custom", Package: str("test_msgs"), Name: str("Other")}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			msg := MessageDefinition{
+				Package: "test_msgs", Name: "Arr", FullName: "test_msgs/Arr",
+				Fields: []FieldDefinition{{Name: "v", FieldType: c.ft, IsArray: true, ArrayKind: "unbounded"}},
+			}
+			code, err := GenerateGoMessage(msg, "test")
+			if err != nil {
+				t.Fatalf("GenerateGoMessage failed: %v", err)
+			}
+			src := string(code)
+			read := strings.Index(src, "arrLen := int(")
+			mk := strings.Index(src, "m.V = make([]")
+			if read < 0 || mk < read {
+				t.Fatalf("cannot find the length read (%d) before the make (%d)", read, mk)
+			}
+			// Between the length read and the make, the source must compare the
+			// length with the bytes left and reject a negative length.
+			between := src[read:mk]
+			if !strings.Contains(between, "len(data)") || !strings.Contains(between, "arrLen < 0") {
+				t.Errorf("no length bound between the length read and the make:\n%s", between)
+			}
+		})
+	}
+}
