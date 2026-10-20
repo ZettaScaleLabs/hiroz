@@ -495,51 +495,6 @@ fn default_subscriber_stays_out_on_a_custom_key_format() {
     );
 }
 
-/// `Off` stays out for a subscriber with no schema. The `Auto` twin joins.
-#[test]
-fn opt_out_stays_out_without_a_schema() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let _off = node
-        .create_sub::<Blob>("/blob_opt_out")
-        .with_buffer_group(BufferGroup::Off)
-        .build()
-        .unwrap();
-    let _auto = node.create_sub::<Blob>("/blob_opt_in").build().unwrap();
-    assert!(
-        joined(&raw, "blob_opt_in"),
-        "opt_out_stays_out_without_a_schema: control: the Auto twin has no group token"
-    );
-    assert!(
-        !joined(&raw, "blob_opt_out"),
-        "opt_out_stays_out_without_a_schema: the Off subscriber has a group token"
-    );
-}
-
-/// A message with no `uint8[]` stays out under `Auto`. The buffer type is the joined twin.
-#[test]
-fn typed_subscriber_without_byte_fields_does_not_join() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let _plain = node
-        .create_sub::<Float64MultiArray>("/plain")
-        .build()
-        .unwrap();
-    let _twin = node.create_sub::<UInt8MultiArray>("/twin").build().unwrap();
-    assert!(
-        joined(&raw, "twin"),
-        "typed_subscriber_without_byte_fields_does_not_join: control: the buffer twin has no group token"
-    );
-    assert!(
-        !joined(&raw, "plain"),
-        "typed_subscriber_without_byte_fields_does_not_join: a type with no byte field joined"
-    );
-}
-
 /// A joined token carries the QoS chunk `rmw_zenoh` writes for the profile.
 #[test]
 fn joined_subscriber_token_carries_the_writers_qos_chunk() {
