@@ -1086,51 +1086,6 @@ fn router_denying_the_group_key() -> TestRouter {
     router_denying("0/*/*/*/_buf_cpu")
 }
 
-/// Under a rule that denies the group key, a joined
-/// subscriber on a buffer topic gets nothing on that key, `build` returns `Ok`, and the base key
-/// still flows. Without the rule the same subscriber receives on the group key.
-#[test]
-fn denied_group_key_starves_silently_while_the_base_key_flows() {
-    let denying = router_denying_the_group_key();
-    let open = TestRouter::new();
-    let arrivals = |router: &TestRouter, topic: &str, key: &str| {
-        let raw = raw_session(router.endpoint());
-        let ctx = create_hiroz_context_with_router(router).expect("ctx");
-        let node = ctx.create_node("tok_node").build().expect("node");
-        let sub = node
-            .create_sub::<UInt8MultiArray>(&format!("/{topic}"))
-            .with_buffer_group(BufferGroup::Auto)
-            .build()
-            .expect("build returns Ok under a deny rule");
-        token_for(&raw, topic);
-        std::thread::sleep(POLL);
-        for _ in 0..20 {
-            raw.put(key, PAYLOAD.to_vec()).wait().unwrap();
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let mut received = 0;
-        while sub.recv_timeout(POLL).is_ok() {
-            received += 1;
-        }
-        received
-    };
-    let group = group_key("acl_buf", &UINT8);
-    let base = base_key("acl_buf", &UINT8);
-    assert!(
-        arrivals(&open, "acl_buf", &group) > 0,
-        "control: open router, group key"
-    );
-    assert_eq!(
-        arrivals(&denying, "acl_buf", &group),
-        0,
-        "group key under the rule"
-    );
-    assert!(
-        arrivals(&denying, "acl_buf", &base) > 0,
-        "base key under the rule"
-    );
-}
-
 /// A router with default-deny access control that allows only `key_exprs`, on every interface.
 /// This is the allow-list shape: the operator names the topic key and nothing else.
 fn router_allowing_only(key_exprs: &[String]) -> TestRouter {
@@ -1165,126 +1120,165 @@ fn router_allowing_only(key_exprs: &[String]) -> TestRouter {
     })
 }
 
-/// A default-deny router that allows `<topic key>` and not `<topic key>/**` starves a joined
-/// subscriber, because the joined subscriber declares `<topic key>/**`. The base key is starved
-/// too. An `Off` subscriber declares `<topic key>` and keeps receiving.
-///
-/// Controls: an `Off` subscriber receives under the allow-only rule, so the puts reach the
-/// router and the rule lets the base key through. A joined subscriber receives once the rule
-/// also allows `<topic key>/**`, which is the remedy the docs give.
-#[test]
-fn allow_only_base_key_starves_a_joined_subscriber() {
-    let base = base_key("acl_allow", &UINT8);
-    let allow_base = router_allowing_only(std::slice::from_ref(&base));
-    let allow_both = router_allowing_only(&[base.clone(), format!("{base}/**")]);
-    let arrivals = |router: &TestRouter, mode: BufferGroup, key: &str| {
-        let raw = raw_session(router.endpoint());
-        let ctx = create_hiroz_context_with_router(router).expect("ctx");
-        let node = ctx.create_node("tok_node").build().expect("node");
-        let sub = node
-            .create_sub::<UInt8MultiArray>("/acl_allow")
-            .with_buffer_group(mode)
-            .build()
-            .expect("build returns Ok under a deny rule");
-        // The token is declared after the subscription, so a visible token ends the wait for it.
-        token_for(&raw, "acl_allow");
-        for _ in 0..20 {
-            raw.put(key, PAYLOAD.to_vec()).wait().unwrap();
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let mut received = 0;
-        while sub.recv_timeout(POLL).is_ok() {
-            received += 1;
-        }
-        received
-    };
-    let check = |what: &str, received: usize, delivers: bool| {
-        assert!(
-            (received > 0) == delivers,
-            "allow_only_base_key_starves_a_joined_subscriber: {what}: received {received}, expected {}",
-            if delivers { "some" } else { "none" }
-        );
-    };
-    check(
-        "control: allow base only, Off, base key",
-        arrivals(&allow_base, BufferGroup::Off, &base),
-        true,
-    );
-    check(
-        "control: allow base and base/**, joined, base key",
-        arrivals(&allow_both, BufferGroup::Auto, &base),
-        true,
-    );
-    check(
-        "allow base only, joined, base key",
-        arrivals(&allow_base, BufferGroup::Auto, &base),
-        false,
-    );
+/// `Num` as a token and a key write it: a message with no schema and no byte field.
+const NUM: Wire = Wire {
+    name: "test_msgs::msg::dds_::Num_",
+    hash: "RIHS01_0000000000000000000000000000000000000000000000000000000000000000",
+};
+
+/// CDR header and one little-endian u32.
+const NUM_PAYLOAD: [u8; 8] = [0, 1, 0, 0, 7, 0, 0, 0];
+
+/// One subscriber under a router rule. Each case of a run has its own topic. `num` selects the
+/// message with no schema, and otherwise the subscriber reads a buffer type. `group` selects the
+/// key a raw publisher puts on: the group key or the base key.
+struct AclCase {
+    topic: &'static str,
+    num: bool,
+    mode: BufferGroup,
+    group: bool,
+    delivers: bool,
 }
 
-/// A subscriber with no message definition joins on every topic, so the router rule that allows
-/// only `<topic key>` starves it on a topic that carries no buffer too. The message has no byte
-/// field. An `Off` subscriber of the same type keeps receiving under that rule, and the no-schema
-/// subscriber receives once the rule also allows `<topic key>/**`.
-#[test]
-fn allow_only_base_key_starves_a_no_schema_subscriber() {
-    const WIRE: Wire = Wire {
-        name: "test_msgs::msg::dds_::Num_",
-        hash: "RIHS01_0000000000000000000000000000000000000000000000000000000000000000",
-    };
-    // CDR header and one little-endian u32.
-    const NUM_PAYLOAD: [u8; 8] = [0, 1, 0, 0, 7, 0, 0, 0];
-    let base = base_key("acl_no_schema", &WIRE);
-    let allow_base = router_allowing_only(std::slice::from_ref(&base));
-    let allow_both = router_allowing_only(&[base.clone(), format!("{base}/**")]);
-    let arrivals = |router: &TestRouter, mode: BufferGroup| {
-        let raw = raw_session(router.endpoint());
-        let ctx = create_hiroz_context_with_router(router).expect("ctx");
-        let node = ctx.create_node("tok_node").build().expect("node");
-        let sub = node
-            .create_sub::<Num>("/acl_no_schema")
-            .with_buffer_group(mode)
-            .build()
-            .expect("build returns Ok under a deny rule");
-        // The token is declared after the subscription, so a visible token ends the wait for it.
-        let token = token_for(&raw, "acl_no_schema");
+impl AclCase {
+    fn wire(&self) -> &'static Wire {
+        if self.num { &NUM } else { &UINT8 }
+    }
+
+    fn key(&self) -> String {
+        if self.group {
+            group_key(self.topic, self.wire())
+        } else {
+            base_key(self.topic, self.wire())
+        }
+    }
+}
+
+/// Build one subscriber per case on a node of `router`, put samples on each case's key, and check
+/// what reached it. `build` returns `Ok` under every rule: the starvation is silent.
+fn run_acl_cases(name: &str, router: &TestRouter, cases: &[AclCase]) {
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    let subs: Vec<Box<dyn Fn() -> bool>> = cases
+        .iter()
+        .map(|c| -> Box<dyn Fn() -> bool> {
+            let topic = format!("/{}", c.topic);
+            if c.num {
+                let sub = node
+                    .create_sub::<Num>(&topic)
+                    .with_buffer_group(c.mode)
+                    .build()
+                    .expect("build returns Ok under a deny rule");
+                Box::new(move || sub.recv_timeout(POLL).is_ok())
+            } else {
+                let sub = node
+                    .create_sub::<UInt8MultiArray>(&topic)
+                    .with_buffer_group(c.mode)
+                    .build()
+                    .expect("build returns Ok under a deny rule");
+                Box::new(move || sub.recv_timeout(POLL).is_ok())
+            }
+        })
+        .collect();
+    // The token is declared after the subscription, so a visible token ends the wait for it.
+    for c in cases {
+        let token = token_for(&raw, c.topic);
         assert_eq!(
             token.ends_with("/backends:cpu:"),
-            mode == BufferGroup::Auto,
-            "allow_only_base_key_starves_a_no_schema_subscriber: token for {mode:?}: {token}"
+            c.mode == BufferGroup::Auto,
+            "{name}: token for {} ({:?}): {token}",
+            c.topic,
+            c.mode
         );
-        for _ in 0..20 {
-            raw.put(&base, NUM_PAYLOAD.to_vec()).wait().unwrap();
-            std::thread::sleep(Duration::from_millis(10));
+    }
+    for _ in 0..20 {
+        for c in cases {
+            let payload: &[u8] = if c.num { &NUM_PAYLOAD } else { &PAYLOAD };
+            raw.put(c.key(), payload.to_vec()).wait().unwrap();
         }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    for (c, recv) in cases.iter().zip(&subs) {
         let mut received = 0;
-        while sub.recv_timeout(POLL).is_ok() {
+        while recv() {
             received += 1;
         }
-        received
-    };
-    let check = |what: &str, received: usize, delivers: bool| {
         assert!(
-            (received > 0) == delivers,
-            "allow_only_base_key_starves_a_no_schema_subscriber: {what}: received {received}, expected {}",
-            if delivers { "some" } else { "none" }
+            (received > 0) == c.delivers,
+            "{name}: {} ({:?}, group key {}): received {received}, expected {}",
+            c.topic,
+            c.mode,
+            c.group,
+            if c.delivers { "some" } else { "none" }
         );
+    }
+}
+
+/// A router that denies by default and allows the base key of every case, and the keys under each
+/// base key when `wide` is set.
+fn router_allowing_cases(cases: &[AclCase], wide: bool) -> TestRouter {
+    let mut keys = Vec::new();
+    for c in cases {
+        let base = base_key(c.topic, c.wire());
+        if wide {
+            keys.push(format!("{base}/**"));
+        }
+        keys.push(base);
+    }
+    router_allowing_only(&keys)
+}
+
+/// Router access control starves a joined subscriber silently. A joined subscriber declares
+/// `<topic key>/**`, so a default-deny router that allows `<topic key>` and not `<topic key>/**`
+/// starves it, and `build` still returns `Ok`. This holds for a buffer type and for a subscriber
+/// with no message definition, which joins on a topic that carries no buffer too. A rule that
+/// denies the group key starves the group key and leaves the base key flowing.
+///
+/// Controls in the same test: an `Off` subscriber receives under the allow-only rule, so the puts
+/// reach the router and the rule lets the base key through. A joined subscriber receives once the
+/// rule also allows `<topic key>/**`, which is the remedy the docs give. Without the deny rule the
+/// same joined subscriber receives on the group key.
+#[test]
+fn router_access_control_starves_a_joined_subscriber_silently() {
+    const NAME: &str = "router_access_control_starves_a_joined_subscriber_silently";
+    use BufferGroup::{Auto, Off};
+    let case = |topic, num, mode, group, delivers| AclCase {
+        topic,
+        num,
+        mode,
+        group,
+        delivers,
     };
-    check(
-        "control: allow base only, Off, base key",
-        arrivals(&allow_base, BufferGroup::Off),
-        true,
+
+    // Allow the topic key only. Each joined subscriber is starved, each Off subscriber is not.
+    let allow_base = [
+        case("al_buf_off", false, Off, false, true),
+        case("al_num_off", true, Off, false, true),
+        case("al_buf", false, Auto, false, false),
+        case("al_num", true, Auto, false, false),
+    ];
+    run_acl_cases(
+        NAME,
+        &router_allowing_cases(&allow_base, false),
+        &allow_base,
     );
-    check(
-        "control: allow base and base/**, no schema, base key",
-        arrivals(&allow_both, BufferGroup::Auto),
-        true,
-    );
-    check(
-        "allow base only, no schema, base key",
-        arrivals(&allow_base, BufferGroup::Auto),
-        false,
-    );
+
+    // Allow the topic key and everything under it, the remedy the docs give.
+    let allow_wide = [
+        case("aw_buf", false, Auto, false, true),
+        case("aw_num", true, Auto, false, true),
+    ];
+    run_acl_cases(NAME, &router_allowing_cases(&allow_wide, true), &allow_wide);
+
+    // Deny the group key. The same joined subscriber receives on the group key of an open router.
+    let open = [case("ad_buf", false, Auto, true, true)];
+    run_acl_cases(NAME, &TestRouter::new(), &open);
+    let deny = [
+        case("ad_group", false, Auto, true, false),
+        case("ad_base", false, Auto, false, true),
+    ];
+    run_acl_cases(NAME, &router_denying_the_group_key(), &deny);
 }
 
 // ---------------------------------------------------------------------------------------------
