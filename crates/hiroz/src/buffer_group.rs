@@ -148,19 +148,33 @@ impl Drop for Membership {
 
 /// An operator learns here that the subscription needs an access-control rule: a router that
 /// denies `<base>/**` or the group key drops buffer messages and reports no error. One line per group
-/// key and process. `LOGGED` keeps one entry per joined topic key and is not pruned.
+/// key and process, for the first `LOG_KEYS` keys. `LOGGED` holds at most that many keys. A joined
+/// key past the limit is logged at `debug` level on every join, so the set stays bounded.
 fn log_once(base: &str, group: &str) {
     static LOGGED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    let first = LOGGED
-        .get_or_init(Default::default)
-        .lock()
-        .unwrap()
-        .insert(group.to_owned());
-    if first {
-        info!(
-            "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
-             key {group}. A router access-control rule that denies {base}/** or {group} drops \
-             buffer messages and reports no error. Allow {base}/** wherever you allow {base}."
-        );
+    let first = {
+        let mut logged = LOGGED.get_or_init(Default::default).lock().unwrap();
+        if logged.len() < LOG_KEYS {
+            Some(logged.insert(group.to_owned()))
+        } else if logged.contains(group) {
+            Some(false)
+        } else {
+            None
+        }
+    };
+    let line = || {
+        format!(
+        "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
+         key {group}. A router access-control rule that denies {base}/** or {group} drops \
+         buffer messages and reports no error. Allow {base}/** wherever you allow {base}."
+        )
+    };
+    match first {
+        Some(true) => info!("{}", line()),
+        Some(false) => {}
+        None => debug!("{}", line()),
     }
 }
+
+/// The most group keys `log_once` remembers.
+const LOG_KEYS: usize = 1024;
