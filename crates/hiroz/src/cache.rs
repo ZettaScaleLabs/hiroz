@@ -120,7 +120,8 @@ impl<T> CacheInner<T> {
 /// Dropping `ZCache` automatically deregisters the underlying Zenoh subscriber.
 pub struct ZCache<T: ZMessage> {
     inner: Arc<RwLock<CacheInner<T>>>,
-    /// Declared first, so it drops first: the token goes before the subscription that serves it.
+    /// Declared before the subscription, so it drops first: the token goes before the subscription
+    /// that serves it.
     _token: zenoh::liveliness::LivelinessToken,
     _sub: zenoh::pubsub::Subscriber<()>,
 }

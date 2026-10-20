@@ -1042,7 +1042,8 @@ where
 pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     pub entity: EndpointEntity,
     pub queue: Option<Arc<BoundedQueue<Q>>>,
-    /// Declared first, so it drops first: the token goes before the subscription that serves it.
+    /// Declared before the subscription, so it drops first: the token goes before the subscription
+    /// that serves it.
     /// This shortens the time the group is advertised and not served. It does not stop a remote
     /// publisher, and a sample already in flight can still arrive after the subscription is gone.
     _token: zenoh::liveliness::LivelinessToken,
