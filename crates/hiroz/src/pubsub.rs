@@ -866,7 +866,7 @@ where
 
         // Wrap handler with encoding validation if expected encoding is set
         let expected_encoding = self.expected_encoding.clone();
-        let validated_handler = Arc::new(move |sample: Sample| {
+        let validated_handler = move |sample: Sample| {
             observe_loss(&loss, &sample);
             // Validate encoding if expected encoding is set
             if let Some(ref expected) = expected_encoding {
@@ -886,7 +886,7 @@ where
                 }
             }
             handler.handle(sample)
-        });
+        };
 
         // Build an AdvancedSubscriber and configure based on durability
         let plan = self.group_plan()?;
@@ -896,10 +896,7 @@ where
                 let handler = crate::buffer_group::only_base_and_group(
                     base.clone(),
                     group_key.to_owned(),
-                    {
-                        let handler = validated_handler.clone();
-                        move |sample| handler(sample)
-                    },
+                    validated_handler,
                 );
                 self.session
                     .declare_subscriber(crate::buffer_group::union_key(&base)?)
@@ -909,10 +906,7 @@ where
             None => self
                 .session
                 .declare_subscriber(key_expr)
-                .callback({
-                    let handler = validated_handler.clone();
-                    move |sample| handler(sample)
-                })
+                .callback(validated_handler)
                 .advanced(),
         };
 
