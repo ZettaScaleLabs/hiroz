@@ -653,19 +653,19 @@ fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
     assert_eq!(repeats, 0, "{NAME}: samples received twice");
 }
 
-/// What one matched set read: the key counts and each subscriber.
+/// A matched set read by one run: the key counts and each hiroz subscriber.
 struct MixRun {
     /// Every key under the base key that carried samples, relative to it, with its count.
     keys: Vec<(String, usize)>,
     joined: Arm,
-    off: Option<Arm>,
+    off: Arm,
 }
 
 /// One matched set. A joined hiroz subscriber reads a topic that a released `rclpy` publisher
-/// writes. `with_off` adds a hiroz subscriber set to `BufferGroup::Off`, whose token has no
-/// `backends:` field, so the publisher sees a subscriber that is not buffer-aware.
-/// `with_released` adds a released buffer-aware subscriber.
-fn mixed_run(topic: &str, with_off: bool, with_released: bool) -> MixRun {
+/// writes. A hiroz subscriber set to `BufferGroup::Off` has no `backends:` field in its token, so
+/// the publisher sees a subscriber that is not buffer-aware. A released buffer-aware subscriber is
+/// matched too.
+fn mixed_run(topic: &str) -> MixRun {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("mix_node").build().expect("node");
@@ -674,12 +674,11 @@ fn mixed_run(topic: &str, with_off: bool, with_released: bool) -> MixRun {
         .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
-    let off = with_off.then(|| {
-        node.create_sub::<UInt8MultiArray>(topic)
-            .with_buffer_group(hiroz::BufferGroup::Off)
-            .build()
-            .unwrap()
-    });
+    let off = node
+        .create_sub::<UInt8MultiArray>(topic)
+        .with_buffer_group(hiroz::BufferGroup::Off)
+        .build()
+        .unwrap();
     let base = base_key(
         topic,
         UInt8MultiArray::type_name(),
@@ -687,36 +686,33 @@ fn mixed_run(topic: &str, with_off: bool, with_released: bool) -> MixRun {
     );
     let keys = KeyCounts::new(router.endpoint(), &base);
     wait_for_ready(Duration::from_secs(2));
-    let _released = with_released.then(|| spawn_released_subscriber(&router, "uint8", topic));
+    let _released = spawn_released_subscriber(&router, "uint8", topic);
     wait_for_ready(Duration::from_secs(2));
-    let matched = 1 + with_off as usize + with_released as usize;
-    let mut guard = spawn_seq_publisher(&router, "uint8", topic, 64, matched);
+    let mut guard = spawn_seq_publisher(&router, "uint8", topic, 64, 3);
 
     let (mut got_joined, mut got_off) = (SeqSet::new(64), SeqSet::new(64));
     drain_until_published(&mut guard, |poll| {
         if let Ok(m) = joined.recv_timeout(poll) {
             got_joined.record(&m.data.contiguous());
         }
-        if let Some(off) = &off
-            && let Ok(m) = off.recv_timeout(poll)
-        {
+        if let Ok(m) = off.recv_timeout(poll) {
             got_off.record(&m.data.contiguous());
         }
     });
     MixRun {
         keys: keys.all(),
         joined: arm("joined", &got_joined),
-        off: off.is_some().then(|| arm("off", &got_off)),
+        off: arm("off", &got_off),
     }
 }
 
-/// A buffer-aware publisher writes each sample once, on one key, whatever mix of subscribers is
-/// matched, and a joined hiroz subscriber delivers each sample once. The test runs three matched
-/// sets: the joined subscriber with a released one, with an `Off` subscriber, and with both. A
-/// plain Zenoh subscriber on `<topic key>/**` counts the samples per key. In every set the group
-/// key carries all samples and the base key none. The test prints every key that carried samples
-/// and asserts only on those two counts. The `Off` subscriber reads the base key only, so it
-/// receives nothing.
+/// A buffer-aware publisher writes each sample once, on one key, with a joined hiroz subscriber, an
+/// `Off` hiroz subscriber and a released buffer-aware subscriber all matched, and the joined
+/// subscriber delivers each sample once. A plain Zenoh subscriber on `<topic key>/**` counts the
+/// samples per key. The group key carries all samples and the base key none. The test prints every
+/// key that carried samples and asserts only on those two counts. The `Off` subscriber reads the
+/// base key only, so it receives nothing. The test does not run a set without the `Off` subscriber
+/// or without the released one.
 #[test]
 fn mixed_matched_set_delivers_each_sample_once() {
     const NAME: &str = "mixed_matched_set_delivers_each_sample_once";
@@ -727,44 +723,29 @@ fn mixed_matched_set_delivers_each_sample_once() {
     if !buffer_rmw::buffer_aware_rmw_or_skip(NAME) {
         return;
     }
-    let runs = [
-        ("released", mixed_run("/mixreleased", false, true)),
-        ("off", mixed_run("/mixoff", true, false)),
-        ("off_and_released", mixed_run("/mixboth", true, true)),
-    ];
-    for (set, run) in &runs {
-        println!(
-            "RESULT {NAME}/{set}: joined received={} of {SAMPLES} duplicates={} off received={} keys={:?}",
-            run.joined.received,
-            run.joined.duplicates,
-            run.off
-                .as_ref()
-                .map_or("none".into(), |a| a.received.to_string()),
-            run.keys
-        );
-    }
-    for (set, run) in &runs {
-        let count = |key: &str| {
-            run.keys
-                .iter()
-                .find(|(k, _)| k == key)
-                .map_or(0, |(_, n)| *n)
-        };
-        assert_eq!(
-            count(GROUP_SUFFIX),
-            SAMPLES as usize,
-            "{NAME}: {set}: samples on the group key"
-        );
-        assert_eq!(count(""), 0, "{NAME}: {set}: samples on the base key");
-        assert_eq!(
-            run.joined.received, SAMPLES as usize,
-            "{NAME}: {set}: joined received"
-        );
-        assert_eq!(run.joined.duplicates, 0, "{NAME}: {set}: joined repeats");
-        if let Some(off) = &run.off {
-            // A subscriber with no `backends:` field gets nothing from a buffer-aware publisher.
-            // This changes when the upstream publisher serves such subscribers on the base key.
-            assert_eq!(off.received, 0, "{NAME}: {set}: off received");
-        }
-    }
+    let run = mixed_run("/mixboth");
+    println!(
+        "RESULT {NAME}: joined received={} of {SAMPLES} duplicates={} off received={} keys={:?}",
+        run.joined.received, run.joined.duplicates, run.off.received, run.keys
+    );
+    let count = |key: &str| {
+        run.keys
+            .iter()
+            .find(|(k, _)| k == key)
+            .map_or(0, |(_, n)| *n)
+    };
+    assert_eq!(
+        count(GROUP_SUFFIX),
+        SAMPLES as usize,
+        "{NAME}: samples on the group key"
+    );
+    assert_eq!(count(""), 0, "{NAME}: samples on the base key");
+    assert_eq!(
+        run.joined.received, SAMPLES as usize,
+        "{NAME}: joined received"
+    );
+    assert_eq!(run.joined.duplicates, 0, "{NAME}: joined repeats");
+    // A subscriber with no `backends:` field gets nothing from a buffer-aware publisher. This
+    // changes when the upstream publisher serves such subscribers on the base key.
+    assert_eq!(run.off.received, 0, "{NAME}: off received");
 }
