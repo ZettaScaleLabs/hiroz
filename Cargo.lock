@@ -1793,7 +1793,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hiroz"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "byteorder",
  "clap",
@@ -1832,7 +1832,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-cdr"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -1844,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-codegen"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "hex",
@@ -1865,8 +1865,9 @@ dependencies = [
 
 [[package]]
 name = "hiroz-derive"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
+ "hiroz-schema",
  "proc-macro2",
  "quote",
  "syn 2.0.110",
@@ -1874,7 +1875,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-msgs"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -1897,20 +1898,22 @@ dependencies = [
 
 [[package]]
 name = "hiroz-protocol"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
+ "hiroz-schema",
  "zenoh",
 ]
 
 [[package]]
 name = "hiroz-py"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "flume",
  "hiroz",
  "hiroz-cdr",
  "hiroz-msgs",
+ "hiroz-schema",
  "once_cell",
  "pyo3",
  "serde",
@@ -1921,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-schema"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "hex",
@@ -1932,7 +1935,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-tests"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "hiroz",
  "hiroz-cdr",
@@ -1954,7 +1957,7 @@ dependencies = [
 
 [[package]]
 name = "hiroz-union"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -3286,7 +3289,7 @@ dependencies = [
 
 [[package]]
 name = "protobuf_demo"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "hiroz",
@@ -3711,7 +3714,7 @@ dependencies = [
 
 [[package]]
 name = "rmw-zenoh-rs"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bindgen",
  "cxx",
@@ -3720,6 +3723,7 @@ dependencies = [
  "hiroz",
  "hiroz-cdr",
  "hiroz-protocol",
+ "hiroz-schema",
  "parking_lot",
  "serde",
  "strum 0.27.2",
