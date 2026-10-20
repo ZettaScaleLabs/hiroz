@@ -1,6 +1,6 @@
 //! A raw subscriber stays out of rmw_zenoh's CPU buffer group unless the caller opts in.
 //!
-//! A raw subscriber has no message definition for `BufferGroup::Auto` to inspect, so only
+//! `BufferGroup::Auto` deliberately behaves as `Off` for a raw subscriber, so only
 //! `create_raw_subscriber_with_group(.., BufferGroup::Cpu)` joins. These tests play the publisher
 //! with a plain Zenoh session, so they need no ROS installation. They check what a publisher
 //! reads: the liveliness token, and which keys reach the callback. Every assertion that filters
@@ -168,6 +168,7 @@ fn raw_subscriber_without_opt_in_announces_no_backends() {
 
     let _twin = node
         .create_sub::<UInt8MultiArray>("/raw_default_twin")
+        .with_buffer_group(hiroz::BufferGroup::Auto)
         .build()
         .expect("typed twin");
     let (count, callback) = counter();
@@ -216,6 +217,7 @@ fn raw_subscriber_with_the_opt_in_joins_and_one_callback_serves_both_keys() {
 
     let _twin = node
         .create_sub::<UInt8MultiArray>("/raw_optin_twin")
+        .with_buffer_group(hiroz::BufferGroup::Auto)
         .build()
         .expect("typed twin");
     let (count, callback) = counter();
@@ -385,7 +387,7 @@ fn dropping_an_opted_in_raw_subscriber_stops_group_key_callbacks() {
     );
 
     drop(sub);
-    // Wait for the token to go, which means the undeclarations have reached the router.
+    // Wait for the token undeclaration to become visible to the router query.
     let deadline = Instant::now() + RECV;
     while !tokens_of(&raw, "raw_drop_topic").is_empty() && Instant::now() < deadline {
         std::thread::sleep(POLL);
