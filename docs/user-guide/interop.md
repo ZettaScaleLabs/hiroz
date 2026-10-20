@@ -99,7 +99,7 @@ For more detail see [Go Quick Start](../bindings/go-quick-start.md).
 
 ## Buffer messages from Lyrical publishers
 
-A claim in this section ends with a marker. The marker `(tested: name)` names the tests that cover the claim. A test checks that each named test exists. It does not check that the named test proves the whole claim. The marker `(not tested)` says that no test covers it.
+A claim in this section ends with a marker. The marker `(tested: name)` names the tests that cover the claim. Review, and not a test, decides whether a named test proves the whole claim. The marker `(not tested)` says that no test covers it.
 
 A ROS 2 Lyrical `rmw_zenoh_cpp` publisher treats an unbounded `uint8[]` or `byte[]` field as a buffer, also inside a nested message (not tested). Examples are `sensor_msgs/Image` and `sensor_msgs/PointCloud2` (not tested). If a matched subscriber announces buffer support, the publisher writes the message on `<topic key>/_buf_cpu` and never on `<topic key>` (tested: `joined_subscribers_receive_from_a_released_publisher`; this test needs a released Lyrical install and skips without one). For each matched subscriber that does not announce it, the publisher also writes `<topic key>/_buf/<gid>` (not tested). The `humble`, `jazzy` and `kilted` branches of `rmw_zenoh` carry no buffer support (they have no `backends` field in the liveliness key-expression code), so the interop tests that need one skip on those distros (not tested).
 
