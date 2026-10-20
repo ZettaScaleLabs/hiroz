@@ -250,7 +250,7 @@ fn joined(session: &zenoh::Session, topic: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The join matrix
+// The join policy, one table per builder
 // ---------------------------------------------------------------------------------------------
 
 /// An action whose messages have no schema: every type is a hand-written serde type.
@@ -281,199 +281,151 @@ impl hiroz::action::ZAction for NoSchemaAction {
     }
 }
 
-/// With no schema and `Auto`, a typed subscriber joins, and so do the feedback and status
-/// subscribers of an action client built for an action with no schema. A typed subscriber with
-/// a schema joins too, so a missing group token cannot come from a dead setup.
-#[test]
-fn typed_subscriber_without_schema_joins() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let _unknown = node.create_sub::<Blob>("/no_schema").build().unwrap();
-    let _known = node
-        .create_sub::<UInt8MultiArray>("/with_schema")
-        .build()
-        .unwrap();
-    let _client = node
-        .create_action_client::<NoSchemaAction>("no_schema_action")
-        .build()
-        .unwrap();
+/// An empty `UInt8MultiArray`, `Float64MultiArray` or `Blob`: header, no dimensions, offset 0 and
+/// no data. It decodes as each of the three.
+const EMPTY: [u8; 16] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-    assert_token(
-        &token_for(&raw, "with_schema"),
-        shape("tok_node", "with_schema", &UINT8, true),
-    );
-    assert_token(
-        &token_for(&raw, "no_schema"),
-        shape("tok_node", "no_schema", &UINT8, true),
-    );
-    for (what, topic) in [
-        ("feedback", "no_schema_action%_action%feedback"),
-        ("status", "no_schema_action%_action%status"),
-    ] {
-        let token = token_for(&raw, topic);
+/// One subscriber of a table. The table states what its token must announce. `probe` reads one
+/// sample from the subscriber and says whether it got one. `delivery` is the message type to put
+/// on the subscriber's keys, and `None` where the test has no independent key to put on.
+struct Row {
+    node: &'static str,
+    topic: &'static str,
+    name: &'static str,
+    hash: Option<String>,
+    delivery: Option<&'static Wire>,
+    joined: bool,
+    qos: &'static str,
+    probe: Box<dyn Fn() -> bool>,
+}
+
+impl Row {
+    fn wired(
+        topic: &'static str,
+        wire: &'static Wire,
+        joined: bool,
+        probe: Box<dyn Fn() -> bool>,
+    ) -> Row {
+        Row {
+            node: "tok_node",
+            topic,
+            name: wire.name,
+            hash: Some(wire.key_hash()),
+            delivery: Some(wire),
+            joined,
+            qos: DEFAULT_QOS,
+            probe,
+        }
+    }
+
+    /// The row is on the node of this name.
+    fn on(mut self, node: &'static str) -> Row {
+        self.node = node;
+        self
+    }
+
+    /// The row's token carries this QoS chunk.
+    fn qos(mut self, qos: &'static str) -> Row {
+        self.qos = qos;
+        self
+    }
+
+    /// A subscriber of an ad-hoc schema: the hash is whatever hiroz derives, and nothing is put on
+    /// its keys.
+    fn adhoc(topic: &'static str, joined: bool) -> Row {
+        Row {
+            node: "tok_node",
+            topic,
+            name: "pkg::msg::dds_::M_",
+            hash: None,
+            delivery: None,
+            joined,
+            qos: DEFAULT_QOS,
+            probe: Box::new(|| false),
+        }
+    }
+}
+
+/// Check every row of a table against what a raw publisher sees. A row's token must be the whole
+/// token of its shape, with the group field if and only if the row joined. A row that joined must
+/// receive a sample put on its group key. A row that stays out must receive nothing on the group
+/// key, and must still receive a sample put on its base key: that is its live positive control,
+/// and the joined twins of the table are the others. Rows that join and have a probe prove the
+/// group key delivers, so they need no base-key check.
+fn check_rows(raw: &zenoh::Session, table: &str, rows: &[Row]) {
+    for row in rows {
+        let shape = Shape {
+            node: row.node,
+            topic: row.topic,
+            name: row.name,
+            hash: row.hash.clone(),
+            qos: row.qos,
+            joined: row.joined,
+        };
+        assert_token(&token_for(raw, row.topic), shape);
+    }
+    let delivered: Vec<&Row> = rows.iter().filter(|r| r.delivery.is_some()).collect();
+    for row in delivered.iter().filter(|r| r.joined) {
+        let key = group_key(row.topic, row.delivery.unwrap());
         assert!(
-            token.ends_with("/backends:cpu:"),
-            "typed_subscriber_without_schema_joins: the {what} subscriber has no group token: {token}"
+            put_until(raw, &key, &EMPTY, RECV, || (row.probe)()),
+            "{table}: the joined row {} received nothing on {key}",
+            row.topic
+        );
+    }
+    for row in delivered.iter().filter(|r| !r.joined) {
+        let key = group_key(row.topic, row.delivery.unwrap());
+        for _ in 0..5 {
+            raw.put(&key, EMPTY.to_vec()).wait().expect("put");
+        }
+    }
+    std::thread::sleep(POLL);
+    for row in delivered.iter().filter(|r| !r.joined) {
+        let wire = row.delivery.unwrap();
+        assert!(
+            !(row.probe)(),
+            "{table}: the row {} stays out and received a sample on {}",
+            row.topic,
+            group_key(row.topic, wire)
+        );
+        let key = base_key(row.topic, wire);
+        assert!(
+            put_until(raw, &key, &EMPTY, RECV, || (row.probe)()),
+            "{table}: control: the row {} received nothing on its base key {key}",
+            row.topic
         );
     }
 }
 
-/// The feedback and status subscribers of an action client with no schema join on topics that
-/// carry no buffer, as a typed subscriber with no schema does in the same run.
-#[test]
-fn no_schema_callers_follow_the_rule() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let _twin = node.create_sub::<Blob>("/caller_twin").build().unwrap();
-    let _client = node
-        .create_action_client::<NoSchemaAction>("caller_action")
-        .build()
-        .unwrap();
-    for topic in [
-        "caller_twin",
-        "caller_action%_action%feedback",
-        "caller_action%_action%status",
-    ] {
-        assert!(
-            joined(&raw, topic),
-            "no_schema_callers_follow_the_rule: no group token on {topic}"
-        );
-    }
+macro_rules! typed_row {
+    ($node:expr, $T:ty, $topic:expr, $wire:expr, $joined:expr, |$b:ident| $cfg:expr) => {{
+        let $b = $node.create_sub::<$T>(concat!("/", $topic));
+        let sub = $cfg.build().unwrap();
+        Row::wired(
+            $topic,
+            &$wire,
+            $joined,
+            Box::new(move || sub.recv_timeout(POLL).is_ok()),
+        )
+    }};
 }
 
-/// The default group is `Auto`.
+/// The join policy of a typed subscriber, one row per case. Each row that stays out has a joined
+/// twin that differs in the property under test only: `def_typed` for `Off`, `float_cpu` for
+/// `Auto` on a type with no byte field, `vol_default` and `vol_cpu` for transient-local,
+/// `fmt_rmw_cpu` for the custom key format. A message with no schema (`Blob`) joins by default and
+/// follows `Off` like a typed one. The token of every row is the whole expected token.
 #[test]
-fn default_group_is_auto() {
+fn typed_subscriber_join_policy() {
     assert_eq!(
         BufferGroup::default(),
         BufferGroup::Auto,
-        "default_group_is_auto: the default group"
+        "typed_subscriber_join_policy: the default group"
     );
-}
-
-/// A subscriber that never calls `with_buffer_group` joins on a buffer topic, for a typed
-/// message, a message with no schema, a dynamic message and a cache. The same typed message on
-/// `Off` stays out, so the join comes from the default and not from a dead setup.
-#[test]
-fn default_subscriber_joins_a_buffer_topic() {
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
-    let _typed = node
-        .create_sub::<UInt8MultiArray>("/def_typed")
-        .build()
-        .unwrap();
-    let _blob = node.create_sub::<Blob>("/def_blob").build().unwrap();
-    let _dynamic = node
-        .create_dyn_sub("/def_dyn", UInt8MultiArray::message_schema().unwrap())
-        .build()
-        .unwrap();
-    let _cache = node
-        .create_cache::<UInt8MultiArray>("/def_cache", 10)
-        .build()
-        .unwrap();
-    let _off = node
-        .create_sub::<UInt8MultiArray>("/def_off")
-        .with_buffer_group(BufferGroup::Off)
-        .build()
-        .unwrap();
-
-    assert!(
-        !joined(&raw, "def_off"),
-        "default_subscriber_joins_a_buffer_topic: control: the Off subscriber has a group token"
-    );
-    for topic in ["def_typed", "def_blob", "def_dyn", "def_cache"] {
-        assert!(
-            joined(&raw, topic),
-            "default_subscriber_joins_a_buffer_topic: no group token on {topic}"
-        );
-    }
-}
-
-/// A subscriber on the default stays out when its QoS is transient-local, because `rmw_zenoh`
-/// serves that history on the base key only. The volatile twin joins.
-#[test]
-fn default_subscriber_stays_out_when_transient_local() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let qos = |durability| QosProfile {
-        durability,
-        ..Default::default()
-    };
-    let _transient = node
-        .create_sub::<UInt8MultiArray>("/def_transient")
-        .with_qos(qos(QosDurability::TransientLocal))
-        .build()
-        .unwrap();
-    let _volatile = node
-        .create_sub::<UInt8MultiArray>("/def_volatile")
-        .with_qos(qos(QosDurability::Volatile))
-        .build()
-        .unwrap();
-
-    assert!(
-        joined(&raw, "def_volatile"),
-        "default_subscriber_stays_out_when_transient_local: control: the volatile twin has no group token"
-    );
-    assert!(
-        !joined(&raw, "def_transient"),
-        "default_subscriber_stays_out_when_transient_local: the transient-local subscriber joined"
-    );
-}
-
-/// The feedback subscriber of an action client stays out of the group when its QoS is
-/// transient-local, because `rmw_zenoh` serves that history on the base key only. The feedback
-/// subscriber of a volatile client joins as the control. Status is left at its default.
-#[test]
-fn action_client_feedback_with_transient_local_qos_stays_out() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let qos = |durability| QosProfile {
-        durability,
-        ..Default::default()
-    };
-    let _transient = node
-        .create_action_client::<NoSchemaAction>("tl_transient")
-        .with_feedback_topic_qos(qos(QosDurability::TransientLocal))
-        .build()
-        .unwrap();
-    let _volatile = node
-        .create_action_client::<NoSchemaAction>("tl_volatile")
-        .with_feedback_topic_qos(qos(QosDurability::Volatile))
-        .build()
-        .unwrap();
-
-    assert!(
-        joined(&raw, "tl_volatile%_action%feedback"),
-        "action_client_feedback_with_transient_local_qos_stays_out: control: the volatile feedback subscriber has no group token"
-    );
-    assert!(
-        !joined(&raw, "tl_transient%_action%feedback"),
-        "action_client_feedback_with_transient_local_qos_stays_out: the transient-local feedback subscriber joined"
-    );
-}
-
-/// A subscriber on the default stays out of the group on a key format other than `rmw_zenoh`'s.
-/// The same node setup on the `rmw_zenoh` format joins.
-#[test]
-fn default_subscriber_stays_out_on_a_custom_key_format() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let _rmw = node
-        .create_sub::<UInt8MultiArray>("/def_format_rmw")
-        .build()
-        .unwrap();
     let custom_ctx = ZContextBuilder::default()
         .keyexpr_format(KeyExprFormat::Custom(Arc::new(KeyExprFormatterAdapter::<
             RmwZenohFormatter,
@@ -483,196 +435,165 @@ fn default_subscriber_stays_out_on_a_custom_key_format() {
         .with_mode("client")
         .build()
         .expect("custom ctx");
-    let custom_node = custom_ctx.create_node("tok_node2").build().unwrap();
-    let _custom = custom_node
-        .create_sub::<UInt8MultiArray>("/def_format_custom")
-        .build()
-        .unwrap();
-
-    assert!(
-        joined(&raw, "def_format_rmw"),
-        "default_subscriber_stays_out_on_a_custom_key_format: control: the rmw_zenoh format has no group token"
-    );
-    assert!(
-        !joined(&raw, "def_format_custom"),
-        "default_subscriber_stays_out_on_a_custom_key_format: the custom format joined"
-    );
-}
-
-/// A message with an unbounded `uint8[]` joins, as a typed message and as a schema. A joined
-/// token carries the QoS chunk `rmw_zenoh` writes for a custom profile.
-#[test]
-fn typed_subscriber_with_buffer_fields_joins() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let _typed = node
-        .create_sub::<UInt8MultiArray>("/typed_buf")
-        .build()
-        .unwrap();
-    let _dynamic = node
-        .create_dyn_sub("/dyn_buf", UInt8MultiArray::message_schema().unwrap())
-        .build()
-        .unwrap();
-    let _depth = node
-        .create_sub::<UInt8MultiArray>("/typed_depth")
-        .with_qos(QosProfile {
-            history: QosHistory::KeepLast(std::num::NonZeroUsize::new(5).unwrap()),
-            ..Default::default()
-        })
-        .build()
-        .unwrap();
-
-    assert_token(
-        &token_for(&raw, "typed_buf"),
-        shape("tok_node", "typed_buf", &UINT8, true),
-    );
-    assert_token(
-        &token_for(&raw, "dyn_buf"),
-        shape("tok_node", "dyn_buf", &UINT8, true),
-    );
-    let mut depth = shape("tok_node", "typed_depth", &UINT8, true);
-    depth.qos = "::,5:,:,:,,";
-    assert_token(&token_for(&raw, "typed_depth"), depth);
-}
-
-/// A dynamic subscriber joins for an unbounded `uint8[]`, also nested.
-#[test]
-fn dynamic_subscriber_joins_for_nested_and_unbounded_byte_fields() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let bytes = || FieldType::Sequence(Box::new(FieldType::Uint8));
-    let msg = || Box::new(FieldType::Message(schema(bytes())));
-    let cases = [
-        ("dyn_bytes", bytes()),
-        ("dyn_nested", *msg()),
-        ("dyn_array", FieldType::Array(msg(), 2)),
-        ("dyn_seq", FieldType::Sequence(msg())),
+    let custom = custom_ctx.create_node("tok_node2").build().unwrap();
+    let qos = |durability| QosProfile {
+        durability,
+        ..Default::default()
+    };
+    let (off, cpu) = (BufferGroup::Off, BufferGroup::Cpu);
+    let (tl, vol) = (QosDurability::TransientLocal, QosDurability::Volatile);
+    const TL_QOS: &str = ":1:,10:,:,:,,";
+    const DEPTH_QOS: &str = "::,5:,:,:,,";
+    let depth = QosProfile {
+        history: QosHistory::KeepLast(std::num::NonZeroUsize::new(5).unwrap()),
+        ..Default::default()
+    };
+    let rows = vec![
+        // The default joins a buffer type, with or without a schema, and follows the QoS depth.
+        typed_row!(node, UInt8MultiArray, "def_typed", UINT8, true, |b| b),
+        typed_row!(node, Blob, "def_blob", UINT8, true, |b| b),
+        typed_row!(node, UInt8MultiArray, "depth5", UINT8, true, |b| b
+            .with_qos(depth))
+        .qos(DEPTH_QOS),
+        // Off stays out, with or without a schema.
+        typed_row!(node, UInt8MultiArray, "def_off", UINT8, false, |b| b
+            .with_buffer_group(off)),
+        typed_row!(node, Blob, "blob_off", UINT8, false, |b| b
+            .with_buffer_group(off)),
+        // Auto stays out of a type with no byte field, and Cpu forces the join.
+        typed_row!(node, Float64MultiArray, "float_auto", FLOAT64, false, |b| b),
+        typed_row!(node, Float64MultiArray, "float_cpu", FLOAT64, true, |b| b
+            .with_buffer_group(cpu)),
+        // Transient-local stays out on the default and when forced. The volatile twins join.
+        typed_row!(node, UInt8MultiArray, "tl_default", UINT8, false, |b| b
+            .with_qos(qos(tl)))
+        .qos(TL_QOS),
+        typed_row!(node, UInt8MultiArray, "vol_default", UINT8, true, |b| b
+            .with_qos(qos(vol))),
+        typed_row!(node, UInt8MultiArray, "tl_cpu", UINT8, false, |b| b
+            .with_qos(qos(tl))
+            .with_buffer_group(cpu))
+        .qos(TL_QOS),
+        typed_row!(node, UInt8MultiArray, "vol_cpu", UINT8, true, |b| b
+            .with_qos(qos(vol))
+            .with_buffer_group(cpu)),
+        // A custom key format stays out on the default and when forced. The rmw_zenoh format joins.
+        typed_row!(node, UInt8MultiArray, "fmt_rmw_cpu", UINT8, true, |b| b
+            .with_buffer_group(cpu)),
+        typed_row!(custom, UInt8MultiArray, "fmt_custom", UINT8, false, |b| b).on("tok_node2"),
+        typed_row!(
+            custom,
+            UInt8MultiArray,
+            "fmt_custom_cpu",
+            UINT8,
+            false,
+            |b| b.with_buffer_group(cpu)
+        )
+        .on("tok_node2"),
     ];
-    let _subs: Vec<_> = cases
-        .iter()
-        .map(|(topic, ft)| {
-            node.create_dyn_sub(&format!("/{topic}"), schema(ft.clone()))
-                .build()
-                .unwrap()
-        })
-        .collect();
-    for (topic, _) in cases {
-        let s = Shape {
-            node: "tok_node",
-            topic,
-            name: "pkg::msg::dds_::M_",
-            hash: None,
-            qos: DEFAULT_QOS,
-            joined: true,
-        };
-        assert_token(&token_for(&raw, topic), s);
-    }
+    check_rows(&raw, "typed_subscriber_join_policy", &rows);
 }
 
-/// A bounded sequence or a fixed array of `uint8` is no buffer. The unbounded twin shows the
-/// same schema shape joins.
+/// The join policy of a dynamic subscriber. The schema decides under `Auto`: an unbounded `uint8[]`
+/// joins, directly or nested in a message, an array or a sequence, and a bounded sequence or a
+/// fixed array of `uint8` does not. The unbounded twin `dyn_bytes` shows the same schema shape
+/// joins. `Off` stays out of a schema that would join.
 #[test]
-fn dynamic_subscriber_with_bounded_or_fixed_bytes_does_not_join() {
+fn dynamic_subscriber_join_policy() {
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
     let u8s = || Box::new(FieldType::Uint8);
-    let cases = [
-        ("dyn_twin", FieldType::Sequence(u8s()), true),
-        ("dyn_bounded", FieldType::BoundedSequence(u8s(), 4), false),
-        ("dyn_fixed", FieldType::Array(u8s(), 4), false),
-    ];
-    let _subs: Vec<_> = cases
-        .iter()
-        .map(|(topic, ft, _)| {
-            node.create_dyn_sub(&format!("/{topic}"), schema(ft.clone()))
+    let bytes = || FieldType::Sequence(u8s());
+    let msg = || Box::new(FieldType::Message(schema(bytes())));
+    macro_rules! adhoc_row {
+        ($topic:expr, $joined:expr, $ft:expr) => {{
+            let sub = node
+                .create_dyn_sub(concat!("/", $topic), schema($ft))
                 .build()
-                .unwrap()
-        })
-        .collect();
-    for (topic, _, joined) in cases {
-        let s = Shape {
-            node: "tok_node",
-            topic,
-            name: "pkg::msg::dds_::M_",
-            hash: None,
-            qos: DEFAULT_QOS,
-            joined,
-        };
-        assert_token(&token_for(&raw, topic), s);
+                .unwrap();
+            (Row::adhoc($topic, $joined), sub)
+        }};
     }
+    macro_rules! uint8_row {
+        ($topic:expr, $joined:expr, |$b:ident| $cfg:expr) => {{
+            let message = UInt8MultiArray::message_schema().unwrap();
+            let $b = node.create_dyn_sub(concat!("/", $topic), message);
+            let sub = $cfg.build().unwrap();
+            let probe = Box::new(move || sub.recv_timeout(POLL).is_ok());
+            Row::wired($topic, &UINT8, $joined, probe)
+        }};
+    }
+    let (r1, _s1) = adhoc_row!("dyn_bytes", true, bytes());
+    let (r2, _s2) = adhoc_row!("dyn_nested", true, *msg());
+    let (r3, _s3) = adhoc_row!("dyn_array", true, FieldType::Array(msg(), 2));
+    let (r4, _s4) = adhoc_row!("dyn_seq", true, FieldType::Sequence(msg()));
+    let (r5, _s5) = adhoc_row!("dyn_bounded", false, FieldType::BoundedSequence(u8s(), 4));
+    let (r6, _s6) = adhoc_row!("dyn_fixed", false, FieldType::Array(u8s(), 4));
+    let rows = vec![
+        uint8_row!("dyn_default", true, |b| b),
+        uint8_row!("dyn_off", false, |b| b.with_buffer_group(BufferGroup::Off)),
+        r1,
+        r2,
+        r3,
+        r4,
+        r5,
+        r6,
+    ];
+    check_rows(&raw, "dynamic_subscriber_join_policy", &rows);
 }
 
-/// `Off` stays out of the group on a buffer topic, with or without a schema. `Auto` on the same
-/// type joins.
+macro_rules! cache_row {
+    ($node:expr, $T:ty, $topic:expr, $wire:expr, $joined:expr, |$b:ident| $cfg:expr) => {{
+        let $b = $node.create_cache::<$T>(concat!("/", $topic), 10);
+        let cache = $cfg.build().unwrap();
+        Row::wired($topic, &$wire, $joined, Box::new(move || !cache.is_empty()))
+    }};
+}
+
+/// The join policy of a cache. A cache of a buffer type joins and fills from the group key. A cache
+/// of a type with no byte field stays out. `Off` keeps a cache out of the group and it fills from
+/// the base key, whether `with_buffer_group` comes before or after `with_stamp`. A cache that never
+/// sets the group joins with a stamp too, so a missing token is the setting and not a dead setup.
 #[test]
-fn opt_out_announces_no_backends() {
+fn cache_join_policy() {
+    let stamp = |_: &UInt8MultiArray| std::time::SystemTime::now();
+    let off = BufferGroup::Off;
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
-    let _off = node
-        .create_sub::<UInt8MultiArray>("/off")
-        .with_buffer_group(BufferGroup::Off)
-        .build()
-        .unwrap();
-    let _auto = node.create_sub::<UInt8MultiArray>("/auto").build().unwrap();
-    let _blob_off = node
-        .create_sub::<Blob>("/blob_off")
-        .with_buffer_group(BufferGroup::Off)
-        .build()
-        .unwrap();
-
-    assert_token(
-        &token_for(&raw, "off"),
-        shape("tok_node", "off", &UINT8, false),
-    );
-    assert_token(
-        &token_for(&raw, "blob_off"),
-        shape("tok_node", "blob_off", &UINT8, false),
-    );
-    assert_token(
-        &token_for(&raw, "auto"),
-        shape("tok_node", "auto", &UINT8, true),
-    );
+    let rows = vec![
+        cache_row!(node, UInt8MultiArray, "cache_default", UINT8, true, |b| b),
+        cache_row!(node, UInt8MultiArray, "cache_stamped", UINT8, true, |b| b
+            .with_stamp(stamp)),
+        cache_row!(
+            node,
+            Float64MultiArray,
+            "cache_plain",
+            FLOAT64,
+            false,
+            |b| b
+        ),
+        cache_row!(node, UInt8MultiArray, "cache_off", UINT8, false, |b| b
+            .with_buffer_group(off)),
+        cache_row!(node, UInt8MultiArray, "order_before", UINT8, false, |b| b
+            .with_buffer_group(off)
+            .with_stamp(stamp)),
+        cache_row!(node, UInt8MultiArray, "order_after", UINT8, false, |b| b
+            .with_stamp(stamp)
+            .with_buffer_group(off)),
+    ];
+    check_rows(&raw, "cache_join_policy", &rows);
 }
 
-/// `Cpu` joins a type that has no byte field. `Auto` on the same type stays out.
+/// The join policy of an action client. With no schema the feedback and status subscribers join on
+/// topics that carry no buffer, as a typed subscriber with no schema does. A transient-local
+/// feedback subscriber stays out, and the feedback subscriber of a volatile client joins as the
+/// control.
 #[test]
-fn cpu_joins_a_type_without_byte_fields() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let _forced = node
-        .create_sub::<Float64MultiArray>("/forced")
-        .with_buffer_group(BufferGroup::Cpu)
-        .build()
-        .unwrap();
-    let _auto = node
-        .create_sub::<Float64MultiArray>("/unforced")
-        .build()
-        .unwrap();
-
-    assert_token(
-        &token_for(&raw, "forced"),
-        shape("tok_node", "forced", &FLOAT64, true),
-    );
-    assert_token(
-        &token_for(&raw, "unforced"),
-        shape("tok_node", "unforced", &FLOAT64, false),
-    );
-}
-
-/// `rmw_zenoh` serves transient-local history on the base key only, so a
-/// transient-local subscriber stays out even when forced. The volatile twin joins.
-#[test]
-fn transient_local_stays_out_even_when_forced() {
+fn action_client_join_policy() {
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
@@ -681,171 +602,30 @@ fn transient_local_stays_out_even_when_forced() {
         durability,
         ..Default::default()
     };
+    let _default = node
+        .create_action_client::<NoSchemaAction>("ac_default")
+        .build()
+        .unwrap();
     let _transient = node
-        .create_sub::<UInt8MultiArray>("/transient")
-        .with_qos(qos(QosDurability::TransientLocal))
-        .with_buffer_group(BufferGroup::Cpu)
+        .create_action_client::<NoSchemaAction>("ac_transient")
+        .with_feedback_topic_qos(qos(QosDurability::TransientLocal))
         .build()
         .unwrap();
     let _volatile = node
-        .create_sub::<UInt8MultiArray>("/volatile")
-        .with_qos(qos(QosDurability::Volatile))
-        .with_buffer_group(BufferGroup::Cpu)
+        .create_action_client::<NoSchemaAction>("ac_volatile")
+        .with_feedback_topic_qos(qos(QosDurability::Volatile))
         .build()
         .unwrap();
-
-    // The writer omits a default-valued chunk field; the transient-local chunk is `:1:,10:,:,:,,`.
-    let mut s = shape("tok_node", "transient", &UINT8, false);
-    s.qos = ":1:,10:,:,:,,";
-    assert_token(&token_for(&raw, "transient"), s);
-    assert_token(
-        &token_for(&raw, "volatile"),
-        shape("tok_node", "volatile", &UINT8, true),
-    );
-}
-
-/// Only the `rmw_zenoh` key format has the group. A custom format stays out even when
-/// forced. The same node on the `rmw_zenoh` format joins.
-#[test]
-fn custom_key_format_stays_out_even_when_forced() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let _rmw = node
-        .create_sub::<UInt8MultiArray>("/format_rmw")
-        .with_buffer_group(BufferGroup::Cpu)
-        .build()
-        .unwrap();
-    let custom_ctx = ZContextBuilder::default()
-        .keyexpr_format(KeyExprFormat::Custom(Arc::new(KeyExprFormatterAdapter::<
-            RmwZenohFormatter,
-        >::new())))
-        .disable_multicast_scouting()
-        .with_connect_endpoints([router.endpoint()])
-        .with_mode("client")
-        .build()
-        .expect("custom ctx");
-    let custom_node = custom_ctx.create_node("tok_node2").build().unwrap();
-    let _custom = custom_node
-        .create_sub::<UInt8MultiArray>("/format_custom")
-        .with_buffer_group(BufferGroup::Cpu)
-        .build()
-        .unwrap();
-
-    assert_token(
-        &token_for(&raw, "format_rmw"),
-        shape("tok_node", "format_rmw", &UINT8, true),
-    );
-    assert_token(
-        &token_for(&raw, "format_custom"),
-        shape("tok_node2", "format_custom", &UINT8, false),
-    );
-}
-
-/// A cache of a buffer type joins and receives on the group key. A cache of a type
-/// with no byte field stays out.
-#[test]
-fn cache_joins_the_group() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let cache = node
-        .create_cache::<UInt8MultiArray>("/cache_topic", 10)
-        .build()
-        .unwrap();
-
-    let _plain = node
-        .create_cache::<Float64MultiArray>("/cache_plain", 10)
-        .build()
-        .unwrap();
-
-    assert_token(
-        &token_for(&raw, "cache_topic"),
-        shape("tok_node", "cache_topic", &UINT8, true),
-    );
-    assert_token(
-        &token_for(&raw, "cache_plain"),
-        shape("tok_node", "cache_plain", &FLOAT64, false),
-    );
-    let key = group_key("cache_topic", &UINT8);
-    assert!(
-        put_until(&raw, &key, &PAYLOAD, RECV, || !cache.is_empty()),
-        "cache_joins_the_group: cache received nothing on {key}"
-    );
-}
-
-/// `Off` on a cache keeps it out of the group and it reads the base key. A cache on `Auto` for
-/// the same type joins, so a missing group token is the setting and not a dead setup.
-#[test]
-fn cache_with_group_off_stays_out() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let off = node
-        .create_cache::<UInt8MultiArray>("/cache_off", 10)
-        .with_buffer_group(BufferGroup::Off)
-        .build()
-        .unwrap();
-    let _auto = node
-        .create_cache::<UInt8MultiArray>("/cache_auto", 10)
-        .build()
-        .unwrap();
-
-    assert_token(
-        &token_for(&raw, "cache_auto"),
-        shape("tok_node", "cache_auto", &UINT8, true),
-    );
-    assert_token(
-        &token_for(&raw, "cache_off"),
-        shape("tok_node", "cache_off", &UINT8, false),
-    );
-    let key = base_key("cache_off", &UINT8);
-    assert!(
-        put_until(&raw, &key, &PAYLOAD, RECV, || !off.is_empty()),
-        "cache_with_group_off_stays_out: the cache received nothing on {key}"
-    );
-}
-
-/// The group setting of a cache holds in either call order around `with_stamp`. A cache that
-/// never sets it joins, so a missing group token is the setting and not a dead setup.
-#[test]
-fn cache_group_setting_holds_in_either_call_order() {
-    const NAME: &str = "cache_group_setting_holds_in_either_call_order";
-    let stamp = |_: &UInt8MultiArray| std::time::SystemTime::now();
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let _before = node
-        .create_cache::<UInt8MultiArray>("/order_before", 10)
-        .with_buffer_group(BufferGroup::Off)
-        .with_stamp(stamp)
-        .build()
-        .unwrap();
-    let _after = node
-        .create_cache::<UInt8MultiArray>("/order_after", 10)
-        .with_stamp(stamp)
-        .with_buffer_group(BufferGroup::Off)
-        .build()
-        .unwrap();
-    let _default = node
-        .create_cache::<UInt8MultiArray>("/order_default", 10)
-        .with_stamp(stamp)
-        .build()
-        .unwrap();
-
-    assert_token(
-        &token_for(&raw, "order_default"),
-        shape("tok_node", "order_default", &UINT8, true),
-    );
-    for topic in ["order_before", "order_after"] {
-        let token = token_for(&raw, topic);
-        assert!(
-            !token.contains("backends:"),
-            "{NAME}: the cache on {topic} joined: {token}"
+    for (topic, expected) in [
+        ("ac_default%_action%feedback", true),
+        ("ac_default%_action%status", true),
+        ("ac_volatile%_action%feedback", true),
+        ("ac_transient%_action%feedback", false),
+    ] {
+        assert_eq!(
+            joined(&raw, topic),
+            expected,
+            "action_client_join_policy: group token on {topic}"
         );
     }
 }
