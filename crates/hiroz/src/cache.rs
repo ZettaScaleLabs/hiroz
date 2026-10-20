@@ -305,13 +305,6 @@ impl<T: ZMessage, S> ZCacheBuilder<T, S, ZenohStamp> {
         self.sub_builder = self.sub_builder.with_qos(qos);
         self
     }
-
-    /// Choose whether the cache joins rmw_zenoh's CPU buffer group. See
-    /// [`ZSubBuilder::with_buffer_group`].
-    pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
-        self.sub_builder = self.sub_builder.with_buffer_group(group);
-        self
-    }
 }
 
 impl<T: ZMessage, S, F> ZCacheBuilder<T, S, ExtractorStamp<T, F>>
@@ -329,7 +322,9 @@ where
         self.sub_builder = self.sub_builder.with_qos(qos);
         self
     }
+}
 
+impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
     /// Choose whether the cache joins rmw_zenoh's CPU buffer group. See
     /// [`ZSubBuilder::with_buffer_group`].
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {

@@ -870,6 +870,47 @@ fn cache_with_group_off_stays_out() {
     );
 }
 
+/// The group setting of a cache holds in either call order around `with_stamp`. A cache that
+/// never sets it joins, so a missing group token is the setting and not a dead setup.
+#[test]
+fn cache_group_setting_holds_in_either_call_order() {
+    const NAME: &str = "cache_group_setting_holds_in_either_call_order";
+    let stamp = |_: &UInt8MultiArray| std::time::SystemTime::now();
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    let _before = node
+        .create_cache::<UInt8MultiArray>("/order_before", 10)
+        .with_buffer_group(BufferGroup::Off)
+        .with_stamp(stamp)
+        .build()
+        .unwrap();
+    let _after = node
+        .create_cache::<UInt8MultiArray>("/order_after", 10)
+        .with_stamp(stamp)
+        .with_buffer_group(BufferGroup::Off)
+        .build()
+        .unwrap();
+    let _default = node
+        .create_cache::<UInt8MultiArray>("/order_default", 10)
+        .with_stamp(stamp)
+        .build()
+        .unwrap();
+
+    assert_token(
+        &token_for(&raw, "order_default"),
+        shape("tok_node", "order_default", &UINT8, true),
+    );
+    for topic in ["order_before", "order_after"] {
+        let token = token_for(&raw, topic);
+        assert!(
+            !token.contains("backends:"),
+            "{NAME}: the cache on {topic} joined: {token}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Group keys and teardown
 // ---------------------------------------------------------------------------------------------
