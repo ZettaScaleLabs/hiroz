@@ -424,6 +424,40 @@ fn default_subscriber_stays_out_when_transient_local() {
     );
 }
 
+/// The feedback subscriber of an action client stays out of the group when its QoS is
+/// transient-local, because `rmw_zenoh` serves that history on the base key only. The feedback
+/// subscriber of a volatile client joins as the control. Status is left at its default.
+#[test]
+fn action_client_feedback_with_transient_local_qos_stays_out() {
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    let qos = |durability| QosProfile {
+        durability,
+        ..Default::default()
+    };
+    let _transient = node
+        .create_action_client::<NoSchemaAction>("tl_transient")
+        .with_feedback_topic_qos(qos(QosDurability::TransientLocal))
+        .build()
+        .unwrap();
+    let _volatile = node
+        .create_action_client::<NoSchemaAction>("tl_volatile")
+        .with_feedback_topic_qos(qos(QosDurability::Volatile))
+        .build()
+        .unwrap();
+
+    assert!(
+        joined(&raw, "tl_volatile%_action%feedback"),
+        "action_client_feedback_with_transient_local_qos_stays_out: control: the volatile feedback subscriber has no group token"
+    );
+    assert!(
+        !joined(&raw, "tl_transient%_action%feedback"),
+        "action_client_feedback_with_transient_local_qos_stays_out: the transient-local feedback subscriber joined"
+    );
+}
+
 /// A subscriber on the default stays out of the group on a key format other than `rmw_zenoh`'s.
 /// The same node setup on the `rmw_zenoh` format joins.
 #[test]
@@ -1589,6 +1623,71 @@ fn allow_only_base_key_starves_a_joined_subscriber() {
     check(
         "allow base only, joined, base key",
         arrivals(&allow_base, BufferGroup::Auto, &base),
+        false,
+    );
+}
+
+/// A subscriber with no message definition joins on every topic, so the router rule that allows
+/// only `<topic key>` starves it on a topic that carries no buffer too. The message has no byte
+/// field. An `Off` subscriber of the same type keeps receiving under that rule, and the no-schema
+/// subscriber receives once the rule also allows `<topic key>/**`.
+#[test]
+fn allow_only_base_key_starves_a_no_schema_subscriber() {
+    const WIRE: Wire = Wire {
+        name: "test_msgs::msg::dds_::Num_",
+        hash: "RIHS01_0000000000000000000000000000000000000000000000000000000000000000",
+    };
+    // CDR header and one little-endian u32.
+    const NUM_PAYLOAD: [u8; 8] = [0, 1, 0, 0, 7, 0, 0, 0];
+    let base = base_key("acl_no_schema", &WIRE);
+    let allow_base = router_allowing_only(std::slice::from_ref(&base));
+    let allow_both = router_allowing_only(&[base.clone(), format!("{base}/**")]);
+    let arrivals = |router: &TestRouter, mode: BufferGroup| {
+        let raw = raw_session(router.endpoint());
+        let ctx = create_hiroz_context_with_router(router).expect("ctx");
+        let node = ctx.create_node("tok_node").build().expect("node");
+        let sub = node
+            .create_sub::<Num>("/acl_no_schema")
+            .with_buffer_group(mode)
+            .build()
+            .expect("build returns Ok under a deny rule");
+        // The token is declared after the subscription, so a visible token ends the wait for it.
+        let token = token_for(&raw, "acl_no_schema");
+        assert_eq!(
+            token.ends_with("/backends:cpu:"),
+            mode == BufferGroup::Auto,
+            "allow_only_base_key_starves_a_no_schema_subscriber: token for {mode:?}: {token}"
+        );
+        for _ in 0..20 {
+            raw.put(&base, NUM_PAYLOAD.to_vec()).wait().unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let mut received = 0;
+        while sub.recv_timeout(POLL).is_ok() {
+            received += 1;
+        }
+        received
+    };
+    let check = |what: &str, received: usize, delivers: bool| {
+        assert!(
+            (received > 0) == delivers,
+            "allow_only_base_key_starves_a_no_schema_subscriber: {what}: received {received}, expected {}",
+            if delivers { "some" } else { "none" }
+        );
+    };
+    check(
+        "control: allow base only, Off, base key",
+        arrivals(&allow_base, BufferGroup::Off),
+        true,
+    );
+    check(
+        "control: allow base and base/**, no schema, base key",
+        arrivals(&allow_both, BufferGroup::Auto),
+        true,
+    );
+    check(
+        "allow base only, no schema, base key",
+        arrivals(&allow_base, BufferGroup::Auto),
         false,
     );
 }
