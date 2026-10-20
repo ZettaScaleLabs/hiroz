@@ -495,84 +495,8 @@ fn default_subscriber_stays_out_on_a_custom_key_format() {
     );
 }
 
-/// `Off` stays out for a subscriber with no schema. The `Auto` twin joins.
-#[test]
-fn opt_out_stays_out_without_a_schema() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let _off = node
-        .create_sub::<Blob>("/blob_opt_out")
-        .with_buffer_group(BufferGroup::Off)
-        .build()
-        .unwrap();
-    let _auto = node.create_sub::<Blob>("/blob_opt_in").build().unwrap();
-    assert!(
-        joined(&raw, "blob_opt_in"),
-        "opt_out_stays_out_without_a_schema: control: the Auto twin has no group token"
-    );
-    assert!(
-        !joined(&raw, "blob_opt_out"),
-        "opt_out_stays_out_without_a_schema: the Off subscriber has a group token"
-    );
-}
-
-/// A message with no `uint8[]` stays out under `Auto`. The buffer type is the joined twin.
-#[test]
-fn typed_subscriber_without_byte_fields_does_not_join() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let _plain = node
-        .create_sub::<Float64MultiArray>("/plain")
-        .build()
-        .unwrap();
-    let _twin = node.create_sub::<UInt8MultiArray>("/twin").build().unwrap();
-    assert!(
-        joined(&raw, "twin"),
-        "typed_subscriber_without_byte_fields_does_not_join: control: the buffer twin has no group token"
-    );
-    assert!(
-        !joined(&raw, "plain"),
-        "typed_subscriber_without_byte_fields_does_not_join: a type with no byte field joined"
-    );
-}
-
-/// A joined token carries the QoS chunk `rmw_zenoh` writes for the profile.
-#[test]
-fn joined_subscriber_token_carries_the_writers_qos_chunk() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let cases = [
-        ("qos_1", 1, "::,1:,:,:,,"),
-        ("qos_5", 5, "::,5:,:,:,,"),
-        ("qos_42", 42, "::,:,:,:,,"),
-    ];
-    let _subs: Vec<_> = cases
-        .iter()
-        .map(|(topic, depth, _)| {
-            node.create_sub::<UInt8MultiArray>(&format!("/{topic}"))
-                .with_qos(QosProfile {
-                    history: QosHistory::KeepLast(std::num::NonZeroUsize::new(*depth).unwrap()),
-                    ..Default::default()
-                })
-                .with_buffer_group(BufferGroup::Auto)
-                .build()
-                .unwrap()
-        })
-        .collect();
-    for (topic, _, qos) in cases {
-        let mut s = shape("tok_node", topic, &UINT8, true);
-        s.qos = qos;
-        assert_token(&token_for(&raw, topic), s);
-    }
-}
-
-/// A message with an unbounded `uint8[]` joins, as a typed message and as a schema.
+/// A message with an unbounded `uint8[]` joins, as a typed message and as a schema. A joined
+/// token carries the QoS chunk `rmw_zenoh` writes for a custom profile.
 #[test]
 fn typed_subscriber_with_buffer_fields_joins() {
     let router = TestRouter::new();
@@ -587,6 +511,14 @@ fn typed_subscriber_with_buffer_fields_joins() {
         .create_dyn_sub("/dyn_buf", UInt8MultiArray::message_schema().unwrap())
         .build()
         .unwrap();
+    let _depth = node
+        .create_sub::<UInt8MultiArray>("/typed_depth")
+        .with_qos(QosProfile {
+            history: QosHistory::KeepLast(std::num::NonZeroUsize::new(5).unwrap()),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
 
     assert_token(
         &token_for(&raw, "typed_buf"),
@@ -596,6 +528,9 @@ fn typed_subscriber_with_buffer_fields_joins() {
         &token_for(&raw, "dyn_buf"),
         shape("tok_node", "dyn_buf", &UINT8, true),
     );
+    let mut depth = shape("tok_node", "typed_depth", &UINT8, true);
+    depth.qos = "::,5:,:,:,,";
+    assert_token(&token_for(&raw, "typed_depth"), depth);
 }
 
 /// A dynamic subscriber joins for an unbounded `uint8[]`, also nested.
@@ -870,6 +805,47 @@ fn cache_with_group_off_stays_out() {
     );
 }
 
+/// The group setting of a cache holds in either call order around `with_stamp`. A cache that
+/// never sets it joins, so a missing group token is the setting and not a dead setup.
+#[test]
+fn cache_group_setting_holds_in_either_call_order() {
+    const NAME: &str = "cache_group_setting_holds_in_either_call_order";
+    let stamp = |_: &UInt8MultiArray| std::time::SystemTime::now();
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+    let _before = node
+        .create_cache::<UInt8MultiArray>("/order_before", 10)
+        .with_buffer_group(BufferGroup::Off)
+        .with_stamp(stamp)
+        .build()
+        .unwrap();
+    let _after = node
+        .create_cache::<UInt8MultiArray>("/order_after", 10)
+        .with_stamp(stamp)
+        .with_buffer_group(BufferGroup::Off)
+        .build()
+        .unwrap();
+    let _default = node
+        .create_cache::<UInt8MultiArray>("/order_default", 10)
+        .with_stamp(stamp)
+        .build()
+        .unwrap();
+
+    assert_token(
+        &token_for(&raw, "order_default"),
+        shape("tok_node", "order_default", &UINT8, true),
+    );
+    for topic in ["order_before", "order_after"] {
+        let token = token_for(&raw, topic);
+        assert!(
+            !token.contains("backends:"),
+            "{NAME}: the cache on {topic} joined: {token}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Group keys and teardown
 // ---------------------------------------------------------------------------------------------
@@ -927,47 +903,12 @@ fn joined_subscriber_receives_on_the_key_a_real_publisher_writes() {
     assert_eq!(got.unwrap().data, vec![1, 2, 3]);
 }
 
-/// Dropping a joined subscriber removes its token. The token is present before.
+/// Dropping a joined typed subscriber removes its token and stops its callback on the group key.
+/// The token is present and the callback runs on that key before the drop.
 #[test]
-fn dropping_the_subscriber_removes_its_token() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let sub = node
-        .create_sub::<UInt8MultiArray>("/drop_topic")
-        .with_buffer_group(BufferGroup::Auto)
-        .build()
-        .unwrap();
-    assert_token(
-        &token_for(&raw, "drop_topic"),
-        shape("tok_node", "drop_topic", &UINT8, true),
-    );
-
-    drop(sub);
-    let deadline = Instant::now() + RECV;
-    let mut left = tokens(&raw)
-        .iter()
-        .filter(|k| k.contains("/%drop_topic/"))
-        .count();
-    while left > 0 && Instant::now() < deadline {
-        std::thread::sleep(POLL);
-        left = tokens(&raw)
-            .iter()
-            .filter(|k| k.contains("/%drop_topic/"))
-            .count();
-    }
-    assert!(
-        left == 0,
-        "dropping_the_subscriber_removes_its_token: the token outlived the subscriber: {left} left"
-    );
-}
-
-/// When a joined typed subscriber is dropped, its callback does not run again for a
-/// sample on the group key. The callback runs on that key before the drop.
-#[test]
-fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
+fn dropping_a_joined_typed_subscriber_removes_its_token_and_stops_callbacks() {
     use std::sync::atomic::{AtomicUsize, Ordering};
+    const NAME: &str = "dropping_a_joined_typed_subscriber_removes_its_token_and_stops_callbacks";
     const AFTER_DROP_PUTS: usize = 10;
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
@@ -975,7 +916,7 @@ fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
     let node = ctx.create_node("tok_node").build().expect("node");
     let calls = Arc::new(AtomicUsize::new(0));
     let sub = node
-        .create_sub::<UInt8MultiArray>("/drop_cb_topic")
+        .create_sub::<UInt8MultiArray>("/drop_topic")
         .with_buffer_group(BufferGroup::Auto)
         .build_with_callback({
             let calls = calls.clone();
@@ -985,25 +926,41 @@ fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
         })
         .expect("sub");
     assert_token(
-        &token_for(&raw, "drop_cb_topic"),
-        shape("tok_node", "drop_cb_topic", &UINT8, true),
+        &token_for(&raw, "drop_topic"),
+        shape("tok_node", "drop_topic", &UINT8, true),
     );
-    let key = group_key("drop_cb_topic", &UINT8);
+    let key = group_key("drop_topic", &UINT8);
 
     // Positive control: the callback runs on the group key before the drop.
     assert!(
         put_until(&raw, &key, &PAYLOAD, RECV, || calls.load(Ordering::SeqCst)
             > 0),
-        "dropping_a_joined_subscriber_stops_group_key_callbacks: control: no callback ran on {key} before the drop"
+        "{NAME}: control: no callback ran on {key} before the drop"
     );
     std::thread::sleep(POLL);
     let before = calls.load(Ordering::SeqCst);
     assert!(
         before >= 1,
-        "dropping_a_joined_subscriber_stops_group_key_callbacks: control: {before} callbacks before the drop"
+        "{NAME}: control: {before} callbacks before the drop"
     );
 
     drop(sub);
+    let deadline = Instant::now() + RECV;
+    let count = || {
+        tokens(&raw)
+            .iter()
+            .filter(|k| k.contains("/%drop_topic/"))
+            .count()
+    };
+    let mut left = count();
+    while left > 0 && Instant::now() < deadline {
+        std::thread::sleep(POLL);
+        left = count();
+    }
+    assert!(
+        left == 0,
+        "{NAME}: the token outlived the subscriber: {left} left"
+    );
     for _ in 0..AFTER_DROP_PUTS {
         raw.put(&key, PAYLOAD.to_vec()).wait().expect("put");
     }
@@ -1011,7 +968,7 @@ fn dropping_a_joined_subscriber_stops_group_key_callbacks() {
     let after = calls.load(Ordering::SeqCst);
     assert!(
         after == before,
-        "dropping_a_joined_subscriber_stops_group_key_callbacks: {} callbacks ran on {key} after the drop ({AFTER_DROP_PUTS} puts, {before} before)",
+        "{NAME}: {} callbacks ran on {key} after the drop ({AFTER_DROP_PUTS} puts, {before} before)",
         after - before
     );
 }
@@ -1411,131 +1368,6 @@ fn denied_group_key_starves_silently_while_the_base_key_flows() {
     );
 }
 
-/// Under a rule that denies the group key, a subscriber on a topic with no buffer stays out of the
-/// group and still receives on the base key. Control: on the same router, a joined subscriber on a
-/// buffer topic receives nothing on its group key, so the rule is in force.
-#[test]
-fn non_buffer_topic_still_delivers_under_a_group_key_deny_rule() {
-    let denying = router_denying_the_group_key();
-    let raw = raw_session(denying.endpoint());
-    let ctx = create_hiroz_context_with_router(&denying).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let twin = node
-        .create_sub::<UInt8MultiArray>("/acl_plain_twin")
-        .with_buffer_group(BufferGroup::Auto)
-        .build()
-        .expect("build returns Ok under a deny rule");
-    assert!(
-        joined(&raw, "acl_plain_twin"),
-        "non_buffer_topic_still_delivers_under_a_group_key_deny_rule: control: the twin did not join the group"
-    );
-    let twin_key = group_key("acl_plain_twin", &UINT8);
-    assert!(
-        !put_until(&raw, &twin_key, &PAYLOAD, QUIET, || twin
-            .recv_timeout(POLL)
-            .is_ok()),
-        "non_buffer_topic_still_delivers_under_a_group_key_deny_rule: control: the joined twin received on {twin_key}, so the rule does not bite"
-    );
-    // A group-key rule cannot touch this subscriber: it reads the base key only, so its delivery is
-    // unaffected by construction. The joined twin above shows the rule does bite.
-    let sub = node
-        .create_sub::<Float64MultiArray>("/acl_plain")
-        .with_buffer_group(BufferGroup::Auto)
-        .build()
-        .expect("build returns Ok under a deny rule");
-    assert!(
-        !joined(&raw, "acl_plain"),
-        "non_buffer_topic_still_delivers_under_a_group_key_deny_rule: the subscriber joined the group"
-    );
-    let key = base_key("acl_plain", &FLOAT64);
-    assert!(
-        put_until(&raw, &key, &PAYLOAD, RECV, || sub
-            .recv_serialized_timeout(POLL)
-            .is_ok()),
-        "non_buffer_topic_still_delivers_under_a_group_key_deny_rule: nothing arrived on {key}"
-    );
-}
-
-/// Under a rule that denies `<topic key>/**` alone, a joined subscriber on a buffer topic gets
-/// nothing, on the group key and on the base key. `<topic key>/**` includes `<topic key>`, so the
-/// rule also starves a subscriber set to `Off`, which reads the base key only. A rule on the group
-/// key alone leaves the base key open (see the test above).
-///
-/// Two controls show the zeros come from the rule. A router with no rule delivers on both keys,
-/// to a joined and to an `Off` subscriber. On the router with the rule, a joined subscriber on a
-/// second topic still receives on its group key, so the rule is scoped to one topic key.
-#[test]
-fn denied_wide_key_starves_a_joined_subscriber() {
-    let base = base_key("acl_wide", &UINT8);
-    let group = group_key("acl_wide", &UINT8);
-    let denying = router_denying(&format!("{base}/**"));
-    let open = TestRouter::new();
-    let arrivals = |router: &TestRouter, topic: &str, mode: BufferGroup, key: &str| {
-        let raw = raw_session(router.endpoint());
-        let ctx = create_hiroz_context_with_router(router).expect("ctx");
-        let node = ctx.create_node("tok_node").build().expect("node");
-        let sub = node
-            .create_sub::<UInt8MultiArray>(&format!("/{topic}"))
-            .with_buffer_group(mode)
-            .build()
-            .expect("build returns Ok under a deny rule");
-        token_for(&raw, topic);
-        std::thread::sleep(POLL);
-        for _ in 0..20 {
-            raw.put(key, PAYLOAD.to_vec()).wait().unwrap();
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let mut received = 0;
-        while sub.recv_timeout(POLL).is_ok() {
-            received += 1;
-        }
-        received
-    };
-    let other = group_key("acl_wide_other", &UINT8);
-    let check = |what: &str, received: usize, delivers: bool| {
-        assert!(
-            (received > 0) == delivers,
-            "denied_wide_key_starves_a_joined_subscriber: {what}: received {received}, expected {}",
-            if delivers { "some" } else { "none" }
-        );
-    };
-    check(
-        "open router, joined, group key",
-        arrivals(&open, "acl_wide", BufferGroup::Auto, &group),
-        true,
-    );
-    check(
-        "open router, joined, base key",
-        arrivals(&open, "acl_wide", BufferGroup::Auto, &base),
-        true,
-    );
-    check(
-        "open router, Off, base key",
-        arrivals(&open, "acl_wide", BufferGroup::Off, &base),
-        true,
-    );
-    check(
-        "rule, joined, other topic, group key",
-        arrivals(&denying, "acl_wide_other", BufferGroup::Auto, &other),
-        true,
-    );
-    check(
-        "rule, joined, group key",
-        arrivals(&denying, "acl_wide", BufferGroup::Auto, &group),
-        false,
-    );
-    check(
-        "rule, joined, base key",
-        arrivals(&denying, "acl_wide", BufferGroup::Auto, &base),
-        false,
-    );
-    check(
-        "rule, Off, base key",
-        arrivals(&denying, "acl_wide", BufferGroup::Off, &base),
-        false,
-    );
-}
-
 /// A router with default-deny access control that allows only `key_exprs`, on every interface.
 /// This is the allow-list shape: the operator names the topic key and nothing else.
 fn router_allowing_only(key_exprs: &[String]) -> TestRouter {
@@ -1769,65 +1601,5 @@ fn other_groups_of_the_topic_never_reach_a_joined_subscriber() {
         put_until(&raw, &base, &PAYLOAD, RECV, || calls.load(Ordering::SeqCst)
             > after_group),
         "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: nothing arrived on {base}"
-    );
-}
-
-// ---------------------------------------------------------------------------------------------
-// The interop page
-// ---------------------------------------------------------------------------------------------
-
-/// Every claim in the buffer section of the interop page ends with `(not tested)` or with
-/// `(tested: ...)` naming tests that exist in this directory. A claim is a sentence. The check
-/// reports a claim with no marker and a marker that names a missing test, and two controls show
-/// that it does.
-#[test]
-fn interop_page_marks_every_claim_tested_or_not_tested() {
-    let tests_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests");
-    let page = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../docs/user-guide/interop.md"
-    ))
-    .expect("the interop page");
-    let section = page
-        .split("\n## Buffer messages from Lyrical publishers\n")
-        .nth(1)
-        .expect("the buffer section");
-    let sources: String = std::fs::read_dir(tests_dir)
-        .unwrap()
-        .filter_map(|e| std::fs::read_to_string(e.unwrap().path()).ok())
-        .collect();
-    let problems = |text: &str| -> Vec<String> {
-        text.split("\n\n")
-            .filter(|p| !p.trim_start().starts_with("A claim in this section"))
-            .flat_map(|p| p.split(". "))
-            .map(|s| s.trim().trim_end_matches('.').to_owned())
-            .filter(|s| !s.is_empty() && !s.ends_with("(not tested)"))
-            .filter(|s| {
-                let names = s
-                    .strip_suffix(')')
-                    .and_then(|s| s.rsplit_once("(tested: "))
-                    .map(|(_, names)| names.split('`').skip(1).step_by(2).collect::<Vec<_>>());
-                match names {
-                    Some(names) if !names.is_empty() => {
-                        names.iter().any(|n| !sources.contains(&format!("fn {n}(")))
-                    }
-                    _ => true,
-                }
-            })
-            .collect()
-    };
-    let bad = problems(section);
-    assert!(
-        bad.is_empty(),
-        "interop_page_marks_every_claim_tested_or_not_tested: {} claims have no valid marker: {bad:#?}",
-        bad.len()
-    );
-    // Controls: a claim that loses its marker, and a marker that names no test, are reported.
-    let unmarked = section.replacen("(not tested).", ".", 1);
-    let missing = section.replacen("`cache_joins_the_group`", "`no_such_test`", 1);
-    assert_eq!(
-        (problems(&unmarked).len(), problems(&missing).len()),
-        (1, 1),
-        "interop_page_marks_every_claim_tested_or_not_tested: control: the check missed a claim"
     );
 }

@@ -120,7 +120,9 @@ impl<T> CacheInner<T> {
 /// Dropping `ZCache` automatically deregisters the underlying Zenoh subscriber.
 pub struct ZCache<T: ZMessage> {
     inner: Arc<RwLock<CacheInner<T>>>,
-    _group: crate::buffer_group::Membership,
+    /// Declared before the subscription, so it drops first: the token goes before the subscription
+    /// that serves it.
+    _token: zenoh::liveliness::LivelinessToken,
     _sub: zenoh::pubsub::Subscriber<()>,
 }
 
@@ -304,13 +306,6 @@ impl<T: ZMessage, S> ZCacheBuilder<T, S, ZenohStamp> {
         self.sub_builder = self.sub_builder.with_qos(qos);
         self
     }
-
-    /// Choose whether the cache joins rmw_zenoh's CPU buffer group. See
-    /// [`ZSubBuilder::with_buffer_group`].
-    pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
-        self.sub_builder = self.sub_builder.with_buffer_group(group);
-        self
-    }
 }
 
 impl<T: ZMessage, S, F> ZCacheBuilder<T, S, ExtractorStamp<T, F>>
@@ -328,9 +323,14 @@ where
         self.sub_builder = self.sub_builder.with_qos(qos);
         self
     }
+}
 
-    /// Choose whether the cache joins rmw_zenoh's CPU buffer group. See
-    /// [`ZSubBuilder::with_buffer_group`].
+impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
+    /// Choose whether the cache joins rmw_zenoh's CPU buffer group. The setting holds before or
+    /// after [`with_stamp`](ZCacheBuilder::with_stamp). A joined cache subscribes on
+    /// `<topic key>/**`, which a router access-control rule must allow. See
+    /// [`BufferGroup`](crate::BufferGroup) for the routing effects and the cases that never join,
+    /// and [`ZSubBuilder::with_buffer_group`] for the default.
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
         self.sub_builder = self.sub_builder.with_buffer_group(group);
         self
@@ -357,7 +357,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, group) =
+        let (sub, token) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -387,7 +387,7 @@ where
         debug!("[CACHE] ZenohStamp cache ready");
         Ok(ZCache {
             inner,
-            _group: group,
+            _token: token,
             _sub: sub,
         })
     }
@@ -414,7 +414,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, group) =
+        let (sub, token) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -429,7 +429,7 @@ where
         debug!("[CACHE] ExtractorStamp cache ready");
         Ok(ZCache {
             inner,
-            _group: group,
+            _token: token,
             _sub: sub,
         })
     }

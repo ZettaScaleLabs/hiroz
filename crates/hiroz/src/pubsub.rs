@@ -676,7 +676,10 @@ where
     /// Choose whether this subscriber joins rmw_zenoh's CPU buffer group.
     ///
     /// The default, [`BufferGroup::Auto`](crate::BufferGroup::Auto), joins when the message has
-    /// an unbounded `uint8[]` or hiroz has no message definition to ask.
+    /// an unbounded `uint8[]` or hiroz has no message definition to ask. A joined subscriber
+    /// subscribes on `<topic key>/**`, which a router access-control rule must allow. A
+    /// transient-local subscriber and a key format other than `rmw_zenoh`'s never join. See
+    /// [`BufferGroup`](crate::BufferGroup) for the routing and access-control effects.
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
         self.buffer_group = group;
         self
@@ -755,7 +758,7 @@ where
     }
 
     /// Build a raw Zenoh subscriber with a sample-level callback, returning
-    /// the subscriber and its CPU buffer group membership (the liveliness token). A joined
+    /// the subscriber and its liveliness token. A joined
     /// subscriber subscribes on `<base>/**`, which serves the group key.
     ///
     /// This is the canonical subscriber setup path used by [`ZCache`] so that
@@ -768,7 +771,7 @@ where
         callback: F,
     ) -> Result<(
         zenoh::pubsub::Subscriber<()>,
-        crate::buffer_group::Membership,
+        zenoh::liveliness::LivelinessToken,
     )>
     where
         F: Fn(Sample) + Send + Sync + 'static,
@@ -808,9 +811,9 @@ where
                 .wait()?,
         };
 
-        let membership = plan.declare(&self.session)?;
+        let token = plan.declare(&self.session)?;
 
-        Ok((sub, membership))
+        Ok((sub, token))
     }
 
     /// What the subscriber declares for the group: its token, and the group key when it joins.
@@ -866,7 +869,7 @@ where
 
         // Wrap handler with encoding validation if expected encoding is set
         let expected_encoding = self.expected_encoding.clone();
-        let validated_handler = Arc::new(move |sample: Sample| {
+        let validated_handler = move |sample: Sample| {
             observe_loss(&loss, &sample);
             // Validate encoding if expected encoding is set
             if let Some(ref expected) = expected_encoding {
@@ -886,7 +889,7 @@ where
                 }
             }
             handler.handle(sample)
-        });
+        };
 
         // Build an AdvancedSubscriber and configure based on durability
         let plan = self.group_plan()?;
@@ -896,10 +899,7 @@ where
                 let handler = crate::buffer_group::only_base_and_group(
                     base.clone(),
                     group_key.to_owned(),
-                    {
-                        let handler = validated_handler.clone();
-                        move |sample| handler(sample)
-                    },
+                    validated_handler,
                 );
                 self.session
                     .declare_subscriber(crate::buffer_group::union_key(&base)?)
@@ -909,10 +909,7 @@ where
             None => self
                 .session
                 .declare_subscriber(key_expr)
-                .callback({
-                    let handler = validated_handler.clone();
-                    move |sample| handler(sample)
-                })
+                .callback(validated_handler)
                 .advanced(),
         };
 
@@ -925,13 +922,13 @@ where
         let sub_builder = apply_transient_local_sub(sub_builder, &self.entity.qos);
         let inner = sub_builder.wait()?;
 
-        let group = plan.declare(&self.session)?;
+        let token = plan.declare(&self.session)?;
 
         debug!("[SUB] Subscriber ready: topic={}", self.entity.topic);
 
         Ok(ZSub {
             entity: self.entity,
-            _group: group,
+            _token: token,
             _inner: inner,
             queue,
             events_mgr,
@@ -1045,8 +1042,11 @@ where
 pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     pub entity: EndpointEntity,
     pub queue: Option<Arc<BoundedQueue<Q>>>,
-    /// Declared first, so it drops first: the token goes before the subscriptions it announces.
-    _group: crate::buffer_group::Membership,
+    /// Declared before the subscription, so it drops first: the token goes before the subscription
+    /// that serves it.
+    /// This shortens the time the group is advertised and not served. It does not stop a remote
+    /// publisher, and a sample already in flight can still arrive after the subscription is gone.
+    _token: zenoh::liveliness::LivelinessToken,
     _inner: AdvancedSubscriber<()>,
     events_mgr: Arc<Mutex<EventsManager>>,
     graph: Arc<Graph>,
