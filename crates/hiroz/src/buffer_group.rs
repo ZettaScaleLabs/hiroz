@@ -139,8 +139,9 @@ pub(crate) struct Membership {
 }
 
 impl Drop for Membership {
-    /// Undeclare the token first, so publishers stop sending to the group key before the
-    /// subscription that serves it goes away.
+    /// Undeclare the token locally before the subscription that serves it goes away. This shortens
+    /// the time the group is advertised and not served. It does not make a remote publisher stop
+    /// sending, and a sample already in flight can still arrive after the subscription is gone.
     fn drop(&mut self) {
         drop(self.token.take());
     }
