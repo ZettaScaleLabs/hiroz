@@ -754,10 +754,10 @@ impl ZNode {
                 .advanced(),
         };
         let subscriber = apply_transient_local_sub(builder, &entity.qos).wait()?;
-        let membership = plan.map(|p| p.declare(&self.session)).transpose()?;
+        let token = plan.map(|p| p.declare(&self.session)).transpose()?;
 
         Ok(crate::ffi::subscriber::RawSubscriber {
-            _group: membership,
+            _token: token,
             inner: subscriber,
         })
     }
