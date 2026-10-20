@@ -486,10 +486,9 @@ use hiroz_msgs::example_interfaces::{FibonacciGoal, action::Fibonacci};
 /// The hiroz action client receives each feedback message of the released Fibonacci server once.
 /// The server of `action_tutorials_cpp` publishes the whole sequence after each step, so
 /// feedback number `i` holds `i + 3` numbers: the received lengths must be exactly
-/// `3, 4, ..., order + 1`. The action client has no `BufferGroup` switch, so it stays out of the
-/// group. The group key carries no sample, as feedback is not a buffer topic.
+/// `3, 4, ..., order + 1`. The group key carries no sample, as feedback is not a buffer topic.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn action_feedback_arrives_once_each() {
+async fn action_feedback_arrives_once_each_with_the_group_joined() {
     use std::{
         os::unix::process::CommandExt,
         sync::atomic::{AtomicUsize, Ordering},
@@ -497,7 +496,7 @@ async fn action_feedback_arrives_once_each() {
 
     use zenoh::Wait;
 
-    const NAME: &str = "action_feedback_arrives_once_each";
+    const NAME: &str = "action_feedback_arrives_once_each_with_the_group_joined";
     const ORDER: i32 = 6;
     assert!(
         check_ros2_available() && check_action_tutorials_cpp_available(),
