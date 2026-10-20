@@ -182,6 +182,121 @@ fn operator_threshold_variable_fails_the_probe() {
     }
 }
 
+/// Exit status of a receiver whose message ids are not consecutive.
+const EXIT_ID_GATE: i32 = 5;
+/// Messages per helper pair of the id checks. Small, so the check runs in seconds.
+const ID_SIZE: usize = 64 << 10;
+const ID_HZ: u32 = 50;
+const ID_COUNT: usize = 20;
+/// Index of the message at which the publisher skips or repeats an id. It is inside the first
+/// `WARM + ID_COUNT` messages, so the receiver sees it.
+const ID_FAULT_AT: usize = 15;
+
+/// Run one publisher and one unpinned receiver of the id checks. `fault` is the optional publisher
+/// modifier (`skip15`, `dup15`). Returns the output of the receiver.
+fn run_id_pair(fault: Option<&str>) -> std::process::Output {
+    let endpoint = free_endpoint();
+    let mut args = vec![
+        "pub".to_string(),
+        ID_SIZE.to_string(),
+        ID_HZ.to_string(),
+        ID_COUNT.to_string(),
+    ];
+    args.extend(fault.map(str::to_string));
+    let _publisher = Guard(
+        Command::new(PROBE)
+            .args(&args)
+            .env("MALLOC_PROBE_ENDPOINT", &endpoint)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn publisher"),
+    );
+    Command::new(PROBE)
+        .args(["recv", "none", &ID_COUNT.to_string()])
+        .env("MALLOC_PROBE_ENDPOINT", &endpoint)
+        .output()
+        .expect("run receiver")
+}
+
+/// Positive control of the two id checks below: a publisher that numbers its messages in order
+/// gives a receiver that finishes with every sample.
+#[test]
+#[serial]
+fn receiver_accepts_consecutive_ids() {
+    let out = run_id_pair(None);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success() && stdout.contains(&format!("n={ID_COUNT}/{ID_COUNT}")),
+        "status {}, stdout: {stdout}, stderr: {stderr}",
+        out.status
+    );
+}
+
+/// A receiver must stop with the id marker when an id never arrives, whatever the arrival count.
+#[test]
+#[serial]
+fn receiver_fails_when_the_publisher_skips_an_id() {
+    let out = run_id_pair(Some(&format!("skip{ID_FAULT_AT}")));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(EXIT_ID_GATE),
+        "stdout: {}, stderr: {stderr}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(stderr.contains("IDGATE"), "stderr: {stderr}");
+}
+
+/// A receiver must stop with the id marker when one id arrives twice.
+#[test]
+#[serial]
+fn receiver_fails_when_the_publisher_repeats_an_id() {
+    let out = run_id_pair(Some(&format!("dup{ID_FAULT_AT}")));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(EXIT_ID_GATE),
+        "stdout: {}, stderr: {stderr}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(stderr.contains("IDGATE"), "stderr: {stderr}");
+}
+
+/// The production function, called alone, must leave the allocator unchanged when the operator
+/// set a threshold variable, and must pin without one.
+#[test]
+#[serial]
+fn production_pin_reports_operator_set_under_each_variable() {
+    for var in ["MALLOC_TRIM_THRESHOLD_", "MALLOC_MMAP_THRESHOLD_"] {
+        let out = Command::new(PROBE)
+            .arg("pin")
+            .env(var, "1048576")
+            .output()
+            .expect("run pin");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            out.status.success() && stdout.contains("PIN outcome=OperatorSet"),
+            "{var}: status {}, stdout: {stdout}",
+            out.status
+        );
+    }
+    // Control: without a variable the same call pins, so the check above can tell the two apart.
+    let out = Command::new(PROBE)
+        .arg("pin")
+        .env_remove("MALLOC_TRIM_THRESHOLD_")
+        .env_remove("MALLOC_MMAP_THRESHOLD_")
+        .output()
+        .expect("run pin");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.contains("PIN outcome=Pinned"),
+        "status {}, stdout: {stdout}",
+        out.status
+    );
+}
+
 fn median(v: &[f64]) -> f64 {
     let mut s = v.to_vec();
     s.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
