@@ -402,9 +402,9 @@ func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
 	custom := func(name string) FieldType {
 		return FieldType{Kind: "Custom", Package: str("test_msgs"), Name: str(name)}
 	}
-	// Time and Duration arrays have no runtime probe: the generated code for such
-	// a field does not compile (the slice element type falls back to interface{}).
-	// Their bound is checked as text in TestGenerateUnpackBoundsArrayLength.
+	// The runtime probe of Time and Duration sequences is in
+	// TestTimeDurationArraysCompileAndRoundtrip; their bound is also checked as
+	// text in TestGenerateUnpackBoundsArrayLength.
 	bigN := uint(65536)
 	bigFixed := []FieldDefinition{{Name: "b", FieldType: u8, IsArray: true, ArrayKind: "fixed", ArraySize: &bigN}}
 	msgs := []MessageDefinition{

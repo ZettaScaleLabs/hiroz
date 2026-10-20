@@ -121,7 +121,8 @@ func primitiveSize(kind string) int64 {
 //   - a primitive takes its size; a fixed array takes the element size n times;
 //   - a string takes 4 bytes: the decoder accepts a length of zero, so it does
 //     not count the terminating byte;
-//   - a time or duration takes 8 bytes;
+//   - a time or duration takes 8 bytes, and a fixed array of them takes 8 bytes
+//     n times;
 //   - a dynamic sequence takes 4 bytes, the length prefix, whatever its element;
 //   - a nested message takes the minimum of its own fields. A type that is not
 //     in knownMessages, or that contains itself, counts as 0.
@@ -163,8 +164,8 @@ func minCDRSizeVisiting(fields []FieldDefinition, visiting map[string]bool) int6
 		default:
 			one = primitiveSize(f.FieldType.Kind)
 		}
-		if f.IsArray && (f.FieldType.Kind == "String" || f.FieldType.Kind == "Time" || f.FieldType.Kind == "Duration") {
-			// These arrays are written with a length prefix as well.
+		if f.IsArray && f.FieldType.Kind == "String" {
+			// A string array is written with a length prefix as well.
 			total += 4
 			continue
 		}
@@ -325,7 +326,6 @@ func GenerateGoMessage(msg MessageDefinition, prefix string) ([]byte, error) {
 		if field.FieldType.Kind == "Time" || field.FieldType.Kind == "Duration" {
 			if currentPkg != "builtin_interfaces" {
 				crossPkgImports["builtin_interfaces"] = true
-				needsBinary = true
 			}
 		}
 	}
@@ -440,7 +440,10 @@ func fieldNeedsBinary(field FieldDefinition) bool {
 		return true // string length uses binary
 	case "Int16", "UInt16", "Int32", "UInt32", "Int64", "UInt64", "Float32", "Float64":
 		return true // multi-byte numeric types
-	case "Custom", "Time", "Duration":
+	case "Time", "Duration":
+		// A sequence has a length prefix that uses binary. A fixed array has none.
+		return field.IsArray && field.ArrayKind != "fixed"
+	case "Custom":
 		if field.IsArray {
 			return true // array length prefix uses binary
 		}
@@ -546,6 +549,18 @@ func generatePackField(g *CodeBuilder, field FieldDefinition) {
 	case "Time", "Duration":
 		g.P("// Pack %s: %s", field.FieldType.Kind, field.Name)
 		g.P("{")
+		if field.IsArray && field.ArrayKind == "fixed" {
+			// A fixed array has no length prefix.
+			g.In()
+			g.P("for i := range %s {", fieldAccess)
+			g.In()
+			g.P("buf, offset = %s[i].PackToRawAt(buf, offset)", fieldAccess)
+			g.Out()
+			g.P("}")
+			g.Out()
+			g.P("}")
+			return
+		}
 		g.In()
 		if field.IsArray {
 			emitPackAlign(g, 4)
@@ -721,7 +736,16 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 		g.P("// Unpack %s: %s", field.FieldType.Kind, field.Name)
 		g.P("{")
 		g.In()
-		if field.IsArray {
+		if field.IsArray && field.ArrayKind == "fixed" {
+			// A fixed array has no length prefix and no length to bound: the
+			// element count is the array size, and each element checks its own bytes.
+			g.P("for i := range %s {", fieldAccess)
+			g.In()
+			g.P("offset, err = %s[i].UnpackFromRawAt(data, offset)", fieldAccess)
+			g.P("if err != nil { return offset, err }")
+			g.Out()
+			g.P("}")
+		} else if field.IsArray {
 			emitUnpackAlign(g, 4)
 			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
 			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
@@ -857,6 +881,11 @@ func fieldToGoBaseTypeInPkg(field FieldDefinition, currentPkg string) string {
 		return "float64"
 	case "String":
 		return "string"
+	case "Time", "Duration":
+		if currentPkg == "builtin_interfaces" {
+			return field.FieldType.Kind
+		}
+		return "builtin_interfaces." + field.FieldType.Kind
 	case "Custom":
 		pkg := sanitizePackageName(*field.FieldType.Package)
 		if pkg == currentPkg {
@@ -895,7 +924,6 @@ func GenerateGoService(srv ServiceDefinition, prefix string) ([]byte, error) {
 		if field.FieldType.Kind == "Time" || field.FieldType.Kind == "Duration" {
 			if pkgName != "builtin_interfaces" {
 				crossPkgImports["builtin_interfaces"] = true
-				needsBinary = true
 			}
 		}
 	}
@@ -1091,7 +1119,6 @@ func GenerateGoAction(action ActionDefinition, prefix string) ([]byte, error) {
 		if field.FieldType.Kind == "Time" || field.FieldType.Kind == "Duration" {
 			if pkgName != "builtin_interfaces" {
 				crossPkgImports["builtin_interfaces"] = true
-				needsBinary = true
 			}
 		}
 	}

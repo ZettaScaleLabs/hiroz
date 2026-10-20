@@ -136,6 +136,9 @@ func TestTimeDurationArraysCompileAndRoundtrip(t *testing.T) {
 		{Package: "test_msgs", Name: "TimeSeq", FullName: "test_msgs/TimeSeq", Fields: []FieldDefinition{
 			field("v", "Time", "unbounded", 0),
 		}},
+		{Package: "test_msgs", Name: "FixedOnly", FullName: "test_msgs/FixedOnly", Fields: []FieldDefinition{
+			field("tf", "Time", "fixed", 2),
+		}},
 		{Package: "test_msgs", Name: "DurationSeq", FullName: "test_msgs/DurationSeq", Fields: []FieldDefinition{
 			field("v", "Duration", "unbounded", 0),
 		}},
