@@ -706,13 +706,13 @@ fn mixed_run(topic: &str) -> MixRun {
     }
 }
 
-/// A buffer-aware publisher writes each sample once, on one key, with a joined hiroz subscriber, an
-/// `Off` hiroz subscriber and a released buffer-aware subscriber all matched, and the joined
+/// A buffer-aware publisher has a joined hiroz subscriber, an `Off` hiroz subscriber and a released
+/// buffer-aware subscriber all matched. The group key carries each sample once, and the joined
 /// subscriber delivers each sample once. A plain Zenoh subscriber on `<topic key>/**` counts the
 /// samples per key. The group key carries all samples and the base key none. The test prints every
-/// key that carried samples and asserts only on those two counts. The `Off` subscriber reads the
-/// base key only, so it receives nothing. The test does not run a set without the `Off` subscriber
-/// or without the released one.
+/// key that carried samples and asserts only on those two counts, so it does not rule out samples on
+/// other keys. The `Off` subscriber reads the base key only, so it receives nothing. The test does
+/// not run a set without the `Off` subscriber or without the released one.
 #[test]
 fn mixed_matched_set_delivers_each_sample_once() {
     const NAME: &str = "mixed_matched_set_delivers_each_sample_once";
