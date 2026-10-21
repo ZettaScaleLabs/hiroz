@@ -36,8 +36,8 @@ use crate::entity::EndpointEntity;
 /// `<topic key>`, or choose [`BufferGroup::Off`].
 ///
 /// A subscriber on a key format other than `rmw_zenoh`'s never joins, whatever the setting. A
-/// transient-local subscriber never joins either, because nothing shows that its history reaches it
-/// on the group key. The interoperability chapter of the user guide gives the details.
+/// transient-local subscriber never joins either, because the released `rmw_zenoh_cpp` serves its
+/// history on the base key only. The interoperability chapter of the user guide gives the details.
 ///
 /// New values may be added in a minor release, so match it with a wildcard arm.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -59,8 +59,16 @@ pub enum BufferGroup {
 
 /// Whether a subscriber joins. `has_buffer_fields` is `None` when hiroz has no message definition.
 ///
-/// Only the `rmw_zenoh` key format has the group, so no other format joins. A transient-local
-/// subscriber does not join, because nothing shows that its history reaches it on the group key.
+/// Only the `rmw_zenoh` key format has the group, so no other format joins.
+///
+/// A transient-local subscriber does not join. The released `rmw_zenoh_cpp` 0.10.6 package keeps a
+/// transient-local subscriber off the buffer endpoints and serves its history on the base key only.
+/// This was measured with five runs per cell, for late joiners of three kinds on Image topics: the
+/// history arrived on the base key in every cell and never on the group key. A newer source
+/// revision that is not released serves history on the group key. A transient-local subscriber
+/// therefore stays out of the group and reads its history from the base key. Delivery of history
+/// after the open fix for legacy subscribers is released is not tested.
+///
 /// The function logs the decision at debug level, for a join and for a subscriber that stays out.
 pub(crate) fn joins(
     group: BufferGroup,
