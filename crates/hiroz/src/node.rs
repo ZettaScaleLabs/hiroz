@@ -651,7 +651,8 @@ impl ZNode {
     /// Create a raw subscriber for FFI with optional QoS
     ///
     /// The subscriber joins rmw_zenoh's CPU buffer group, as `BufferGroup::Auto` does: it declares
-    /// a token ending `backends:cpu:`, and one callback serves the base key and `<key>/_buf_cpu`.
+    /// two exact subscriptions, one on the base key and one on `<key>/_buf_cpu`, and then a token
+    /// ending `backends:cpu:`. One callback serves both keys.
     /// A transient-local QoS or a custom key expression format stays out. Use
     /// [`ZNode::create_raw_subscriber_with_group`] with `Off` to stay out.
     #[cfg(feature = "ffi")]
@@ -765,9 +766,10 @@ impl ZNode {
     /// asks for it.
     ///
     /// A raw subscriber has no message definition, so `Auto` and `Cpu` both join: the subscriber
-    /// declares a token ending `backends:cpu:`, and one callback serves the base key and
-    /// `<key>/_buf_cpu`. `Off` stays out and declares no token. A transient-local QoS or a custom
-    /// key expression format stays out whatever `group` says.
+    /// declares two exact subscriptions, one on the base key and one on `<key>/_buf_cpu`, and then a
+    /// token ending `backends:cpu:`. One callback serves both keys. `Off` stays out: it declares the
+    /// base key only and no token. A transient-local QoS or a custom key expression format stays
+    /// out whatever `group` says.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_group<F>(
         &self,
