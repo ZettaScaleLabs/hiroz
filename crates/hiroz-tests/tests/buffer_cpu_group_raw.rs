@@ -24,8 +24,10 @@ use std::{
 
 use common::*;
 use hiroz::{
-    Builder,
-    context::ZContextBuilder,
+    BufferGroup, Builder,
+    context::{ZContext, ZContextBuilder},
+    ffi::subscriber::RawSubscriber,
+    node::ZNode,
     qos::{QosDurability, QosProfile},
 };
 use hiroz_msgs::std_msgs::UInt8MultiArray;
@@ -155,105 +157,208 @@ fn counter() -> (Arc<AtomicUsize>, impl Fn(&[u8]) + Send + Sync + 'static) {
     })
 }
 
+/// A router, a plain Zenoh session on it and a hiroz node on it. The plain session plays the
+/// publisher and reads the tokens.
+struct Fixture {
+    node: ZNode,
+    _ctx: ZContext,
+    raw: zenoh::Session,
+    router: TestRouter,
+}
+
+impl Fixture {
+    fn new(node_name: &str) -> Self {
+        Self::on(TestRouter::new(), node_name)
+    }
+
+    fn on(router: TestRouter, node_name: &str) -> Self {
+        let raw = raw_session(router.endpoint());
+        let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+        let node = ctx.create_node(node_name).build().expect("node");
+        Self {
+            node,
+            _ctx: ctx,
+            raw,
+            router,
+        }
+    }
+
+    /// A node on the same router whose context uses a custom key expression format.
+    fn custom_format_node(&self, node_name: &str) -> (ZContext, ZNode) {
+        let ctx = ZContextBuilder::default()
+            .keyexpr_format(KeyExprFormat::Custom(Arc::new(KeyExprFormatterAdapter::<
+                RmwZenohFormatter,
+            >::new())))
+            .disable_multicast_scouting()
+            .with_connect_endpoints([self.router.endpoint()])
+            .with_mode("client")
+            .build()
+            .expect("custom ctx");
+        let node = ctx.create_node(node_name).build().expect("node");
+        (ctx, node)
+    }
+}
+
+/// A raw subscriber on `topic` (no leading slash) built the default way, and its call count.
+fn subscribe_default(node: &ZNode, topic: &str) -> (Arc<AtomicUsize>, RawSubscriber) {
+    let (count, callback) = counter();
+    let sub = node
+        .create_raw_subscriber(&format!("/{topic}"), TYPE_NAME, TYPE_HASH, callback)
+        .expect("default raw subscriber");
+    (count, sub)
+}
+
+/// A raw subscriber on `topic` (no leading slash) with an explicit group setting, and its call
+/// count.
+fn subscribe(
+    node: &ZNode,
+    topic: &str,
+    group: BufferGroup,
+    qos: Option<QosProfile>,
+) -> (Arc<AtomicUsize>, RawSubscriber) {
+    let (count, callback) = counter();
+    let sub = node
+        .create_raw_subscriber_with_group(
+            &format!("/{topic}"),
+            TYPE_NAME,
+            TYPE_HASH,
+            callback,
+            qos,
+            group,
+        )
+        .expect("raw subscriber");
+    (count, sub)
+}
+
+fn transient_local() -> Option<QosProfile> {
+    Some(QosProfile {
+        durability: QosDurability::TransientLocal,
+        ..Default::default()
+    })
+}
+
+/// `topic` has one token and it ends `backends:cpu:`.
+fn assert_joins(name: &str, raw: &zenoh::Session, topic: &str, who: &str) {
+    let tokens = wait_tokens(raw, topic);
+    assert!(
+        tokens.len() == 1 && tokens[0].ends_with("/backends:cpu:"),
+        "{name}: {who} did not announce backends:cpu: {tokens:?}"
+    );
+}
+
+/// A put on the group key and a put on the base key each reach `count`.
+fn assert_delivers_on_both_keys(
+    name: &str,
+    raw: &zenoh::Session,
+    topic: &str,
+    count: &AtomicUsize,
+    who: &str,
+) {
+    for key in [group_key(topic), base_key(topic)] {
+        let before = count.load(Ordering::Relaxed);
+        assert!(
+            put_until(raw, &key, &PAYLOAD, RECV, || count.load(Ordering::Relaxed)
+                > before),
+            "{name}: nothing reached {who} from {key}"
+        );
+    }
+}
+
+/// After a teardown, the token of `topic` is gone and puts on both keys no longer reach `count`.
+/// The caller proves before the teardown that the token is visible and that the callback fires.
+fn assert_torn_down(name: &str, raw: &zenoh::Session, topic: &str, count: &AtomicUsize) {
+    // The token undeclaration takes a moment to reach the router query.
+    let deadline = Instant::now() + RECV;
+    while !tokens_of(raw, topic).is_empty() && Instant::now() < deadline {
+        std::thread::sleep(POLL);
+    }
+    let left = tokens_of(raw, topic);
+    assert!(
+        left.is_empty(),
+        "{name}: the token is still declared after {RECV:?}: {left:?}"
+    );
+    std::thread::sleep(POLL);
+    let before = count.load(Ordering::Relaxed);
+    for key in [group_key(topic), base_key(topic)] {
+        for _ in 0..3 {
+            raw_put(raw, &key);
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    std::thread::sleep(QUIET);
+    let after = count.load(Ordering::Relaxed);
+    assert!(
+        after == before,
+        "{name}: the callback ran {} more time(s) after the teardown",
+        after - before
+    );
+}
+
 /// A raw subscriber built the default way joins: it announces `backends:cpu:`, one callback
 /// serves the base key and the group key, and it is alive. The typed twin shows the token query
 /// works.
 #[test]
 fn raw_subscriber_default_joins_and_announces_backends() {
     const NAME: &str = "raw_subscriber_default_joins_and_announces_backends";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_default").build().expect("node");
-
-    let _twin = node
+    let f = Fixture::new("raw_default");
+    let _twin = f
+        .node
         .create_sub::<UInt8MultiArray>("/raw_default_twin")
-        .with_buffer_group(hiroz::BufferGroup::Auto)
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .expect("typed twin");
-    let (count, callback) = counter();
-    let _sub = node
-        .create_raw_subscriber("/raw_default_topic", TYPE_NAME, TYPE_HASH, callback)
-        .expect("raw subscriber");
+    let (count, _sub) = subscribe_default(&f.node, "raw_default_topic");
 
     // Control: the typed twin yields exactly one token, and it joins.
-    let twin = token_for(&raw, "raw_default_twin");
+    let twin = token_for(&f.raw, "raw_default_twin");
     assert!(
         twin.ends_with("/backends:cpu:"),
         "{NAME}: the typed twin did not join, so the token query proves nothing: {twin}"
     );
-    let tokens = wait_tokens(&raw, "raw_default_topic");
-    assert!(
-        tokens.len() == 1 && tokens[0].ends_with("/backends:cpu:"),
-        "{NAME}: the default raw subscriber did not announce backends:cpu: {tokens:?}"
+    assert_joins(
+        NAME,
+        &f.raw,
+        "raw_default_topic",
+        "the default raw subscriber",
     );
-    // The one callback serves the group key and the base key.
-    for key in [
-        group_key("raw_default_topic"),
-        base_key("raw_default_topic"),
-    ] {
-        let before = count.load(Ordering::Relaxed);
-        assert!(
-            put_until(&raw, &key, &PAYLOAD, RECV, || count.load(Ordering::Relaxed)
-                > before),
-            "{NAME}: nothing reached the default raw callback from {key}"
-        );
-    }
+    assert_delivers_on_both_keys(
+        NAME,
+        &f.raw,
+        "raw_default_topic",
+        &count,
+        "the default raw callback",
+    );
 }
 
-/// A raw subscriber built with the opt-in joins, and one callback serves the base key
-/// and the group key, once per sample.
+/// A raw subscriber with an explicit `Cpu` setting joins, and one callback serves the base key and
+/// the group key, once per sample.
 #[test]
-fn raw_subscriber_with_the_opt_in_joins_and_one_callback_serves_both_keys() {
-    const NAME: &str = "raw_subscriber_with_the_opt_in_joins_and_one_callback_serves_both_keys";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_optin").build().expect("node");
-
-    let _twin = node
-        .create_sub::<UInt8MultiArray>("/raw_optin_twin")
-        .with_buffer_group(hiroz::BufferGroup::Auto)
+fn raw_subscriber_with_explicit_cpu_joins_and_one_callback_serves_both_keys() {
+    const NAME: &str = "raw_subscriber_with_explicit_cpu_joins_and_one_callback_serves_both_keys";
+    const TOPIC: &str = "raw_cpu_topic";
+    let f = Fixture::new("raw_cpu");
+    let _twin = f
+        .node
+        .create_sub::<UInt8MultiArray>("/raw_cpu_twin")
+        .with_buffer_group(BufferGroup::Auto)
         .build()
         .expect("typed twin");
-    let (count, callback) = counter();
-    let _sub = node
-        .create_raw_subscriber_with_group(
-            "/raw_optin_topic",
-            TYPE_NAME,
-            TYPE_HASH,
-            callback,
-            None,
-            hiroz::BufferGroup::Cpu,
-        )
-        .expect("raw subscriber");
+    let (count, _sub) = subscribe(&f.node, TOPIC, BufferGroup::Cpu, None);
 
     // Control: the typed twin joins in the same test.
-    let twin = token_for(&raw, "raw_optin_twin");
+    let twin = token_for(&f.raw, "raw_cpu_twin");
     assert!(
         twin.ends_with("/backends:cpu:"),
         "{NAME}: the typed twin did not join: {twin}"
     );
-    let tokens = wait_tokens(&raw, "raw_optin_topic");
-    assert!(
-        tokens.len() == 1 && tokens[0].ends_with("/backends:cpu:"),
-        "{NAME}: the opted-in raw subscriber did not announce backends:cpu: {tokens:?}"
-    );
+    assert_joins(NAME, &f.raw, TOPIC, "the Cpu raw subscriber");
+    assert_delivers_on_both_keys(NAME, &f.raw, TOPIC, &count, "the callback");
 
-    // One sample on each key reaches the one callback, once.
-    for key in [group_key("raw_optin_topic"), base_key("raw_optin_topic")] {
-        let before = count.load(Ordering::Relaxed);
-        assert!(
-            put_until(&raw, &key, &PAYLOAD, RECV, || count.load(Ordering::Relaxed)
-                > before),
-            "{NAME}: nothing reached the callback from {key}"
-        );
-    }
     // No duplicate delivery: a single put on each key adds exactly one call.
     std::thread::sleep(QUIET);
-    for key in [group_key("raw_optin_topic"), base_key("raw_optin_topic")] {
+    for key in [group_key(TOPIC), base_key(TOPIC)] {
         let before = count.load(Ordering::Relaxed);
-        raw_put(&raw, &key);
+        raw_put(&f.raw, &key);
         std::thread::sleep(QUIET);
         let got = count.load(Ordering::Relaxed) - before;
         assert!(
@@ -268,33 +373,17 @@ fn raw_subscriber_with_the_opt_in_joins_and_one_callback_serves_both_keys() {
 #[test]
 fn only_the_default_raw_subscriber_announces_backends() {
     const NAME: &str = "only_the_default_raw_subscriber_announces_backends";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_side").build().expect("node");
+    let f = Fixture::new("raw_side");
+    let (_c1, _default) = subscribe_default(&f.node, "raw_side_default");
+    let (_c2, _off) = subscribe(&f.node, "raw_side_off", BufferGroup::Off, None);
 
-    let (_c1, default_cb) = counter();
-    let (_c2, off_cb) = counter();
-    let _default = node
-        .create_raw_subscriber("/raw_side_default", TYPE_NAME, TYPE_HASH, default_cb)
-        .expect("default raw");
-    let _off = node
-        .create_raw_subscriber_with_group(
-            "/raw_side_off",
-            TYPE_NAME,
-            TYPE_HASH,
-            off_cb,
-            None,
-            hiroz::BufferGroup::Off,
-        )
-        .expect("Off raw");
-
-    let default_tokens = wait_tokens(&raw, "raw_side_default");
-    assert!(
-        default_tokens.len() == 1 && default_tokens[0].ends_with("/backends:cpu:"),
-        "{NAME}: the default raw subscriber did not announce backends:cpu: {default_tokens:?}"
+    assert_joins(
+        NAME,
+        &f.raw,
+        "raw_side_default",
+        "the default raw subscriber",
     );
-    let off_tokens = tokens_of(&raw, "raw_side_off");
+    let off_tokens = tokens_of(&f.raw, "raw_side_off");
     let announcing: Vec<&String> = off_tokens
         .iter()
         .filter(|t| t.contains("backends:"))
@@ -305,16 +394,14 @@ fn only_the_default_raw_subscriber_announces_backends() {
     );
 }
 
-/// The feedback subscriber of a raw action client stays out of the group. An
-/// opted-in raw subscriber on the same node is the control.
+/// The feedback subscriber of a raw action client stays out of the group. A `Cpu` raw subscriber
+/// on the same node is the control.
 #[test]
 fn raw_action_client_feedback_subscriber_stays_out() {
     const NAME: &str = "raw_action_client_feedback_subscriber_stays_out";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_action").build().expect("node");
-    let _client = node
+    let f = Fixture::new("raw_action");
+    let _client = f
+        .node
         .create_raw_action_client(
             "/raw_fib",
             "example_interfaces/action/Fibonacci",
@@ -326,24 +413,15 @@ fn raw_action_client_feedback_subscriber_stays_out() {
             "",
         )
         .expect("raw action client");
-    let (_c, callback) = counter();
-    let _control = node
-        .create_raw_subscriber_with_group(
-            "/raw_action_control",
-            TYPE_NAME,
-            TYPE_HASH,
-            callback,
-            None,
-            hiroz::BufferGroup::Cpu,
-        )
-        .expect("opted-in raw subscriber");
+    let (_c, _control) = subscribe(&f.node, "raw_action_control", BufferGroup::Cpu, None);
 
-    let control = wait_tokens(&raw, "raw_action_control");
-    assert!(
-        control.len() == 1 && control[0].ends_with("/backends:cpu:"),
-        "{NAME}: the opted-in control did not join, so the filter below counts for nothing: {control:?}"
+    assert_joins(
+        NAME,
+        &f.raw,
+        "raw_action_control",
+        "the Cpu control (the filter below counts for nothing without it)",
     );
-    let feedback: Vec<String> = tokens(&raw)
+    let feedback: Vec<String> = tokens(&f.raw)
         .into_iter()
         .filter(|t| t.contains("feedback") && t.contains("backends:"))
         .collect();
@@ -353,59 +431,20 @@ fn raw_action_client_feedback_subscriber_stays_out() {
     );
 }
 
-/// Dropping an opted-in raw subscriber stops its callback on the group key. The
+/// Dropping a `Cpu` raw subscriber removes its token and stops its callbacks on both keys. The
 /// callback fires before the drop.
 #[test]
-fn dropping_an_opted_in_raw_subscriber_stops_group_key_callbacks() {
-    const NAME: &str = "dropping_an_opted_in_raw_subscriber_stops_group_key_callbacks";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_drop").build().expect("node");
-    let (count, callback) = counter();
-    let sub = node
-        .create_raw_subscriber_with_group(
-            "/raw_drop_topic",
-            TYPE_NAME,
-            TYPE_HASH,
-            callback,
-            None,
-            hiroz::BufferGroup::Cpu,
-        )
-        .expect("opted-in raw subscriber");
+fn dropping_a_cpu_raw_subscriber_stops_group_key_callbacks() {
+    const NAME: &str = "dropping_a_cpu_raw_subscriber_stops_group_key_callbacks";
+    const TOPIC: &str = "raw_drop_topic";
+    let f = Fixture::new("raw_drop");
+    let (count, sub) = subscribe(&f.node, TOPIC, BufferGroup::Cpu, None);
 
-    // Positive control: the callback fires on the group key before the drop.
-    assert!(
-        put_until(&raw, &group_key("raw_drop_topic"), &PAYLOAD, RECV, || {
-            count.load(Ordering::Relaxed) > 0
-        }),
-        "{NAME}: the opted-in callback did not fire on the group key before the drop"
-    );
+    // Positive control: the callback fires on each key before the drop.
+    assert_delivers_on_both_keys(NAME, &f.raw, TOPIC, &count, "the callback before the drop");
 
     drop(sub);
-    // Wait for the token undeclaration to become visible to the router query.
-    let deadline = Instant::now() + RECV;
-    while !tokens_of(&raw, "raw_drop_topic").is_empty() && Instant::now() < deadline {
-        std::thread::sleep(POLL);
-    }
-    let left = tokens_of(&raw, "raw_drop_topic");
-    assert!(
-        left.is_empty(),
-        "{NAME}: the token of the dropped raw subscriber is still declared after {RECV:?}: {left:?}"
-    );
-    std::thread::sleep(POLL);
-    let before = count.load(Ordering::Relaxed);
-    for _ in 0..5 {
-        raw_put(&raw, &group_key("raw_drop_topic"));
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    std::thread::sleep(QUIET);
-    let after = count.load(Ordering::Relaxed);
-    assert!(
-        after == before,
-        "{NAME}: the callback ran {} more time(s) on the group key after the drop",
-        after - before
-    );
+    assert_torn_down(NAME, &f.raw, TOPIC, &count);
 }
 
 /// Tearing down a joined raw subscriber by hand removes the whole subscription. The token is gone
@@ -417,69 +456,28 @@ fn dropping_an_opted_in_raw_subscriber_stops_group_key_callbacks() {
 fn explicit_teardown_removes_the_token_and_both_subscriptions() {
     const NAME: &str = "explicit_teardown_removes_the_token_and_both_subscriptions";
     const TOPIC: &str = "raw_undeclare_topic";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_undeclare").build().expect("node");
-    let (count, callback) = counter();
-    let sub = node
-        .create_raw_subscriber_with_group(
-            "/raw_undeclare_topic",
-            TYPE_NAME,
-            TYPE_HASH,
-            callback,
-            None,
-            hiroz::BufferGroup::Cpu,
-        )
-        .expect("raw subscriber");
+    let f = Fixture::new("raw_undeclare");
+    let (count, sub) = subscribe(&f.node, TOPIC, BufferGroup::Cpu, None);
 
-    // Controls: the token is visible, and each key reaches the callback.
-    let tokens = wait_tokens(&raw, TOPIC);
-    assert!(
-        tokens.len() == 1 && tokens[0].ends_with("/backends:cpu:"),
-        "{NAME}: the subscriber did not announce backends:cpu: before the teardown: {tokens:?}"
+    assert_joins(NAME, &f.raw, TOPIC, "the subscriber before the teardown");
+    assert_delivers_on_both_keys(
+        NAME,
+        &f.raw,
+        TOPIC,
+        &count,
+        "the callback before the teardown",
     );
-    for key in [group_key(TOPIC), base_key(TOPIC)] {
-        let before = count.load(Ordering::Relaxed);
-        assert!(
-            put_until(&raw, &key, &PAYLOAD, RECV, || count.load(Ordering::Relaxed)
-                > before),
-            "{NAME}: nothing reached the callback from {key} before the teardown"
-        );
-    }
 
     sub.undeclare().expect("teardown");
 
-    // `sub` is still in scope here: only the teardown can have removed anything.
-    let deadline = Instant::now() + RECV;
-    while !tokens_of(&raw, TOPIC).is_empty() && Instant::now() < deadline {
-        std::thread::sleep(POLL);
-    }
-    let left = tokens_of(&raw, TOPIC);
-    assert!(
-        left.is_empty(),
-        "{NAME}: the token is still declared after the teardown: {left:?}"
-    );
-    std::thread::sleep(POLL);
-    let before = count.load(Ordering::Relaxed);
-    for key in [group_key(TOPIC), base_key(TOPIC)] {
-        for _ in 0..3 {
-            raw_put(&raw, &key);
-            std::thread::sleep(Duration::from_millis(100));
-        }
-    }
-    std::thread::sleep(QUIET);
-    let after = count.load(Ordering::Relaxed);
-    assert!(
-        after == before,
-        "{NAME}: the callback ran {} more time(s) after the teardown",
-        after - before
-    );
+    // `sub` moved into the teardown, and nothing else owns a handle: only the teardown can have
+    // removed anything.
+    assert_torn_down(NAME, &f.raw, TOPIC, &count);
 }
 
-/// What a raw subscriber that stays out must show, next to an opted-in `Cpu` raw subscriber that
-/// joins. The control is the positive: it proves the token query and the group key work in this
-/// test, so an empty answer for the subject is not a dead setup.
+/// What a raw subscriber that stays out must show, next to a `Cpu` raw subscriber that joins. The
+/// control is the positive: it proves the token query and the group key work in this test, so an
+/// empty answer for the subject is not a dead setup.
 ///
 /// - the control announces `backends:cpu:`;
 /// - the subject is alive: a put on its base key reaches its callback;
@@ -492,10 +490,11 @@ fn assert_stays_out(
     subject_topic: &str,
     subject_count: &AtomicUsize,
 ) {
-    let control = wait_tokens(raw, control_topic);
-    assert!(
-        control.len() == 1 && control[0].ends_with("/backends:cpu:"),
-        "{name}: the opted-in control did not join, so the checks below count for nothing: {control:?}"
+    assert_joins(
+        name,
+        raw,
+        control_topic,
+        "the Cpu control (the checks below count for nothing without it)",
     );
     assert!(
         put_until(raw, &base_key(subject_topic), &PAYLOAD, RECV, || {
@@ -533,223 +532,86 @@ fn assert_stays_out(
 #[test]
 fn raw_subscriber_with_group_auto_joins() {
     const NAME: &str = "raw_subscriber_with_group_auto_joins";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_auto").build().expect("node");
-    let (_c, control_cb) = counter();
-    let _control = node
-        .create_raw_subscriber_with_group(
-            "/raw_auto_control",
-            TYPE_NAME,
-            TYPE_HASH,
-            control_cb,
-            None,
-            hiroz::BufferGroup::Cpu,
-        )
-        .expect("Cpu control");
-    let (count, callback) = counter();
-    let _subject = node
-        .create_raw_subscriber_with_group(
-            "/raw_auto_subject",
-            TYPE_NAME,
-            TYPE_HASH,
-            callback,
-            None,
-            hiroz::BufferGroup::Auto,
-        )
-        .expect("raw subscriber with Auto");
-    let control = wait_tokens(&raw, "raw_auto_control");
-    assert!(
-        control.len() == 1 && control[0].ends_with("/backends:cpu:"),
-        "{NAME}: the Cpu control did not join, so the checks below count for nothing: {control:?}"
+    let f = Fixture::new("raw_auto");
+    let (_c, _control) = subscribe(&f.node, "raw_auto_control", BufferGroup::Cpu, None);
+    let (count, _subject) = subscribe(&f.node, "raw_auto_subject", BufferGroup::Auto, None);
+
+    assert_joins(
+        NAME,
+        &f.raw,
+        "raw_auto_control",
+        "the Cpu control (the checks below count for nothing without it)",
     );
-    let subject = wait_tokens(&raw, "raw_auto_subject");
-    assert!(
-        subject.len() == 1 && subject[0].ends_with("/backends:cpu:"),
-        "{NAME}: the Auto raw subscriber did not announce backends:cpu: {subject:?}"
+    assert_joins(NAME, &f.raw, "raw_auto_subject", "the Auto raw subscriber");
+    assert_delivers_on_both_keys(
+        NAME,
+        &f.raw,
+        "raw_auto_subject",
+        &count,
+        "the Auto raw callback",
     );
-    for key in [group_key("raw_auto_subject"), base_key("raw_auto_subject")] {
-        let before = count.load(Ordering::Relaxed);
-        assert!(
-            put_until(&raw, &key, &PAYLOAD, RECV, || count.load(Ordering::Relaxed)
-                > before),
-            "{NAME}: nothing reached the Auto raw callback from {key}"
-        );
-    }
 }
 
 /// `Off` stays out: it declares no group key and no `backends:` field.
 #[test]
 fn raw_subscriber_with_group_off_stays_out() {
     const NAME: &str = "raw_subscriber_with_group_off_stays_out";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_off").build().expect("node");
-    let (_c, control_cb) = counter();
-    let _control = node
-        .create_raw_subscriber_with_group(
-            "/raw_off_control",
-            TYPE_NAME,
-            TYPE_HASH,
-            control_cb,
-            None,
-            hiroz::BufferGroup::Cpu,
-        )
-        .expect("opted-in control");
-    let (count, callback) = counter();
-    let _subject = node
-        .create_raw_subscriber_with_group(
-            "/raw_off_subject",
-            TYPE_NAME,
-            TYPE_HASH,
-            callback,
-            None,
-            hiroz::BufferGroup::Off,
-        )
-        .expect("raw subscriber with Off");
-    assert_stays_out(NAME, &raw, "raw_off_control", "raw_off_subject", &count);
+    let f = Fixture::new("raw_off");
+    let (_c, _control) = subscribe(&f.node, "raw_off_control", BufferGroup::Cpu, None);
+    let (count, _subject) = subscribe(&f.node, "raw_off_subject", BufferGroup::Off, None);
+    assert_stays_out(NAME, &f.raw, "raw_off_control", "raw_off_subject", &count);
 }
 
-/// A transient-local raw subscriber never joins, with `Cpu` or with `Auto`.
+/// A transient-local raw subscriber never joins, with `Cpu` or with `Auto`. The control is a
+/// default raw subscriber on a volatile QoS, which joins.
+fn assert_transient_local_stays_out(name: &str, group: BufferGroup) {
+    let f = Fixture::new("raw_tl");
+    let (_c, _control) = subscribe_default(&f.node, "raw_tl_control");
+    let (count, _subject) = subscribe(&f.node, "raw_tl_subject", group, transient_local());
+    assert_stays_out(name, &f.raw, "raw_tl_control", "raw_tl_subject", &count);
+}
+
 #[test]
 fn raw_transient_local_subscriber_stays_out_with_cpu() {
-    const NAME: &str = "raw_transient_local_subscriber_stays_out_with_cpu";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_tl").build().expect("node");
-    let (_c, control_cb) = counter();
-    let _control = node
-        .create_raw_subscriber_with_group(
-            "/raw_tl_control",
-            TYPE_NAME,
-            TYPE_HASH,
-            control_cb,
-            None,
-            hiroz::BufferGroup::Cpu,
-        )
-        .expect("opted-in control");
-    let (count, callback) = counter();
-    let _subject = node
-        .create_raw_subscriber_with_group(
-            "/raw_tl_subject",
-            TYPE_NAME,
-            TYPE_HASH,
-            callback,
-            Some(QosProfile {
-                durability: QosDurability::TransientLocal,
-                ..Default::default()
-            }),
-            hiroz::BufferGroup::Cpu,
-        )
-        .expect("transient-local raw subscriber");
-    assert_stays_out(NAME, &raw, "raw_tl_control", "raw_tl_subject", &count);
+    assert_transient_local_stays_out(
+        "raw_transient_local_subscriber_stays_out_with_cpu",
+        BufferGroup::Cpu,
+    );
+}
+
+#[test]
+fn raw_transient_local_subscriber_stays_out_with_auto() {
+    assert_transient_local_stays_out(
+        "raw_transient_local_subscriber_stays_out_with_auto",
+        BufferGroup::Auto,
+    );
 }
 
 /// Only the `rmw_zenoh` key format has the group, so a raw subscriber on a custom format stays
-/// out even with `Cpu`. The control is on the `rmw_zenoh` format.
+/// out with `Cpu` and with `Auto`. The control is a default raw subscriber on the `rmw_zenoh`
+/// format, which joins.
+fn assert_custom_format_stays_out(name: &str, group: BufferGroup) {
+    let f = Fixture::new("raw_fmt");
+    let (_c, _control) = subscribe_default(&f.node, "raw_fmt_control");
+    let (_custom_ctx, custom_node) = f.custom_format_node("raw_fmt2");
+    let (count, _subject) = subscribe(&custom_node, "raw_fmt_subject", group, None);
+    assert_stays_out(name, &f.raw, "raw_fmt_control", "raw_fmt_subject", &count);
+}
+
 #[test]
 fn raw_custom_key_format_subscriber_stays_out_with_cpu() {
-    const NAME: &str = "raw_custom_key_format_subscriber_stays_out_with_cpu";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_fmt").build().expect("node");
-    let (_c, control_cb) = counter();
-    let _control = node
-        .create_raw_subscriber_with_group(
-            "/raw_fmt_control",
-            TYPE_NAME,
-            TYPE_HASH,
-            control_cb,
-            None,
-            hiroz::BufferGroup::Cpu,
-        )
-        .expect("opted-in control");
-    let custom_ctx = ZContextBuilder::default()
-        .keyexpr_format(KeyExprFormat::Custom(Arc::new(KeyExprFormatterAdapter::<
-            RmwZenohFormatter,
-        >::new())))
-        .disable_multicast_scouting()
-        .with_connect_endpoints([router.endpoint()])
-        .with_mode("client")
-        .build()
-        .expect("custom ctx");
-    let custom_node = custom_ctx.create_node("raw_fmt2").build().expect("node");
-    let (count, callback) = counter();
-    let _subject = custom_node
-        .create_raw_subscriber_with_group(
-            "/raw_fmt_subject",
-            TYPE_NAME,
-            TYPE_HASH,
-            callback,
-            None,
-            hiroz::BufferGroup::Cpu,
-        )
-        .expect("raw subscriber on a custom format");
-    assert_stays_out(NAME, &raw, "raw_fmt_control", "raw_fmt_subject", &count);
+    assert_custom_format_stays_out(
+        "raw_custom_key_format_subscriber_stays_out_with_cpu",
+        BufferGroup::Cpu,
+    );
 }
 
-/// A raw subscriber on a transient-local QoS stays out under `Auto` too. The control is a default
-/// raw subscriber on a volatile QoS, which joins.
-#[test]
-fn raw_transient_local_subscriber_stays_out_with_auto() {
-    const NAME: &str = "raw_transient_local_subscriber_stays_out_with_auto";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_tla").build().expect("node");
-    let (_c, control_cb) = counter();
-    let _control = node
-        .create_raw_subscriber("/raw_tla_control", TYPE_NAME, TYPE_HASH, control_cb)
-        .expect("default control");
-    let (count, callback) = counter();
-    let _subject = node
-        .create_raw_subscriber_with_group(
-            "/raw_tla_subject",
-            TYPE_NAME,
-            TYPE_HASH,
-            callback,
-            Some(QosProfile {
-                durability: QosDurability::TransientLocal,
-                ..Default::default()
-            }),
-            hiroz::BufferGroup::Auto,
-        )
-        .expect("transient-local raw subscriber");
-    assert_stays_out(NAME, &raw, "raw_tla_control", "raw_tla_subject", &count);
-}
-
-/// A raw subscriber on a custom key expression format stays out under `Auto` too. The control is a
-/// default raw subscriber on the `rmw_zenoh` format, which joins.
 #[test]
 fn raw_custom_key_format_subscriber_stays_out_with_auto() {
-    const NAME: &str = "raw_custom_key_format_subscriber_stays_out_with_auto";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_fma").build().expect("node");
-    let (_c, control_cb) = counter();
-    let _control = node
-        .create_raw_subscriber("/raw_fma_control", TYPE_NAME, TYPE_HASH, control_cb)
-        .expect("default control");
-    let custom_ctx = ZContextBuilder::default()
-        .keyexpr_format(KeyExprFormat::Custom(Arc::new(KeyExprFormatterAdapter::<
-            RmwZenohFormatter,
-        >::new())))
-        .disable_multicast_scouting()
-        .with_connect_endpoints([router.endpoint()])
-        .with_mode("client")
-        .build()
-        .expect("custom ctx");
-    let custom_node = custom_ctx.create_node("raw_fma2").build().expect("node");
-    let (count, callback) = counter();
-    let _subject = custom_node
-        .create_raw_subscriber("/raw_fma_subject", TYPE_NAME, TYPE_HASH, callback)
-        .expect("raw subscriber on a custom format");
-    assert_stays_out(NAME, &raw, "raw_fma_control", "raw_fma_subject", &count);
+    assert_custom_format_stays_out(
+        "raw_custom_key_format_subscriber_stays_out_with_auto",
+        BufferGroup::Auto,
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -824,40 +686,26 @@ fn router_allowing_only(key_exprs: &[String]) -> TestRouter {
 /// puts on, and whether the callback must see the samples.
 struct AclCase {
     topic: &'static str,
-    group: hiroz::BufferGroup,
+    group: BufferGroup,
     put_group_key: bool,
     delivers: bool,
 }
 
 /// Build one raw subscriber per case, put on each case's key, and check what reached it. `build`
 /// returns `Ok` under every rule: the starvation is silent.
-fn run_acl_cases(name: &str, router: &TestRouter, cases: &[AclCase]) {
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(router).expect("ctx");
-    let node = ctx.create_node("raw_acl_node").build().expect("node");
+fn run_acl_cases(name: &str, router: TestRouter, cases: &[AclCase]) {
+    let f = Fixture::on(router, "raw_acl_node");
+    let raw = &f.raw;
     let (counts, _subs): (Vec<_>, Vec<_>) = cases
         .iter()
-        .map(|c| {
-            let (count, callback) = counter();
-            let sub = node
-                .create_raw_subscriber_with_group(
-                    &format!("/{}", c.topic),
-                    TYPE_NAME,
-                    TYPE_HASH,
-                    callback,
-                    None,
-                    c.group,
-                )
-                .expect("build returns Ok under a deny rule");
-            (count, sub)
-        })
+        .map(|c| subscribe(&f.node, c.topic, c.group, None))
         .unzip();
     // The token is declared after the subscription, so a visible token ends the wait for it.
     for c in cases {
-        let tokens = wait_tokens(&raw, c.topic);
+        let tokens = wait_tokens(raw, c.topic);
         assert_eq!(
             tokens.len() == 1 && tokens[0].ends_with("/backends:cpu:"),
-            c.group != hiroz::BufferGroup::Off,
+            c.group != BufferGroup::Off,
             "{name}: token for {} ({:?}): {tokens:?}",
             c.topic,
             c.group
@@ -870,7 +718,7 @@ fn run_acl_cases(name: &str, router: &TestRouter, cases: &[AclCase]) {
             } else {
                 base_key(c.topic)
             };
-            raw_put(&raw, &key);
+            raw_put(raw, &key);
         }
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -901,7 +749,7 @@ fn run_acl_cases(name: &str, router: &TestRouter, cases: &[AclCase]) {
 #[test]
 fn raw_access_control_starves_the_group_key_silently() {
     const NAME: &str = "raw_access_control_starves_the_group_key_silently";
-    use hiroz::BufferGroup::{Auto, Off};
+    use BufferGroup::{Auto, Off};
     let case = |topic, group, put_group_key, delivers| AclCase {
         topic,
         group,
@@ -917,7 +765,7 @@ fn raw_access_control_starves_the_group_key_silently() {
         case("raw_acl_auto_group", Auto, true, false),
     ];
     let keys: Vec<String> = narrow.iter().map(|c| base_key(c.topic)).collect();
-    run_acl_cases(NAME, &router_allowing_only(&keys), &narrow);
+    run_acl_cases(NAME, router_allowing_only(&keys), &narrow);
 
     // Allow the topic key and the group key. Nothing wider is needed.
     let both = [
@@ -928,7 +776,7 @@ fn raw_access_control_starves_the_group_key_silently() {
         .iter()
         .flat_map(|c| [base_key(c.topic), group_key(c.topic)])
         .collect();
-    run_acl_cases(NAME, &router_allowing_only(&keys), &both);
+    run_acl_cases(NAME, router_allowing_only(&keys), &both);
 }
 
 /// A rule that denies only the group key starves the group key of a joined raw subscriber and
@@ -936,7 +784,7 @@ fn raw_access_control_starves_the_group_key_silently() {
 #[test]
 fn raw_denied_group_key_leaves_the_base_key_flowing() {
     const NAME: &str = "raw_denied_group_key_leaves_the_base_key_flowing";
-    use hiroz::BufferGroup::Auto;
+    use BufferGroup::Auto;
     let case = |topic, put_group_key, delivers| AclCase {
         topic,
         group: Auto,
@@ -946,13 +794,13 @@ fn raw_denied_group_key_leaves_the_base_key_flowing() {
 
     // Control: an open router delivers on the group key.
     let open = [case("raw_ad_open", true, true)];
-    run_acl_cases(NAME, &TestRouter::new(), &open);
+    run_acl_cases(NAME, TestRouter::new(), &open);
 
     let denied = [
         case("raw_ad_group", true, false),
         case("raw_ad_base", false, true),
     ];
-    run_acl_cases(NAME, &router_denying("0/*/*/*/_buf_cpu"), &denied);
+    run_acl_cases(NAME, router_denying("0/*/*/*/_buf_cpu"), &denied);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -996,40 +844,24 @@ fn settle(session: &zenoh::Session, key: &str, want: bool) -> bool {
 #[test]
 fn raw_subscriber_declares_two_exact_subscriptions_and_off_declares_one() {
     const NAME: &str = "raw_subscriber_declares_two_exact_subscriptions_and_off_declares_one";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_exact").build().expect("node");
-
-    let (_c1, cb1) = counter();
-    let _default = node
-        .create_raw_subscriber("/raw_exact_default", TYPE_NAME, TYPE_HASH, cb1)
-        .expect("default raw subscriber");
-    let (_c2, cb2) = counter();
-    let _off = node
-        .create_raw_subscriber_with_group(
-            "/raw_exact_off",
-            TYPE_NAME,
-            TYPE_HASH,
-            cb2,
-            None,
-            hiroz::BufferGroup::Off,
-        )
-        .expect("off raw subscriber");
+    let f = Fixture::new("raw_exact");
+    let raw = &f.raw;
+    let (_c1, _default) = subscribe_default(&f.node, "raw_exact_default");
+    let (_c2, _off) = subscribe(&f.node, "raw_exact_off", BufferGroup::Off, None);
 
     let sibling = |topic: &str| format!("{}/_buf/0123456789abcdef", base_key(topic));
 
     // Controls: both subscribers match their base key, and the default one matches its group key.
     assert!(
-        settle(&raw, &base_key("raw_exact_default"), true),
+        settle(raw, &base_key("raw_exact_default"), true),
         "{NAME}: the default subscriber does not match its base key"
     );
     assert!(
-        settle(&raw, &group_key("raw_exact_default"), true),
+        settle(raw, &group_key("raw_exact_default"), true),
         "{NAME}: the default subscriber does not match its group key"
     );
     assert!(
-        settle(&raw, &base_key("raw_exact_off"), true),
+        settle(raw, &base_key("raw_exact_off"), true),
         "{NAME}: the Off subscriber does not match its base key"
     );
 
@@ -1037,15 +869,15 @@ fn raw_subscriber_declares_two_exact_subscriptions_and_off_declares_one() {
     // no sibling key. The group key control above was read after the same settle time.
     std::thread::sleep(QUIET);
     assert!(
-        !matches(&raw, &sibling("raw_exact_default")),
+        !matches(raw, &sibling("raw_exact_default")),
         "{NAME}: the default subscriber matches a sibling key, so it is not exact"
     );
     assert!(
-        !matches(&raw, &group_key("raw_exact_off")),
+        !matches(raw, &group_key("raw_exact_off")),
         "{NAME}: the Off subscriber matches the group key"
     );
     assert!(
-        !matches(&raw, &sibling("raw_exact_off")),
+        !matches(raw, &sibling("raw_exact_off")),
         "{NAME}: the Off subscriber matches a sibling key"
     );
 }
@@ -1061,53 +893,17 @@ fn raw_subscriber_declares_two_exact_subscriptions_and_off_declares_one() {
 fn raw_create_and_drop_cycles_leave_no_token_and_no_callback() {
     const NAME: &str = "raw_create_and_drop_cycles_leave_no_token_and_no_callback";
     const CYCLES: usize = 5;
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("raw_cycle").build().expect("node");
+    const TOPIC: &str = "raw_cycle_topic";
+    let f = Fixture::new("raw_cycle");
 
     for cycle in 0..CYCLES {
-        let (count, callback) = counter();
-        let sub = node
-            .create_raw_subscriber("/raw_cycle_topic", TYPE_NAME, TYPE_HASH, callback)
-            .expect("raw subscriber");
-        let tokens = wait_tokens(&raw, "raw_cycle_topic");
-        assert!(
-            tokens.len() == 1 && tokens[0].ends_with("/backends:cpu:"),
-            "{NAME}: cycle {cycle}: expected one token ending backends:cpu:, got {tokens:?}"
-        );
-        // Positive control: the callback fires before the drop.
-        assert!(
-            put_until(&raw, &group_key("raw_cycle_topic"), &PAYLOAD, RECV, || {
-                count.load(Ordering::Relaxed) > 0
-            }),
-            "{NAME}: cycle {cycle}: the callback did not fire on the group key"
-        );
+        let name = format!("{NAME}: cycle {cycle}");
+        let (count, sub) = subscribe_default(&f.node, TOPIC);
+        // Positive controls: the token is visible and the callback fires before the drop.
+        assert_joins(&name, &f.raw, TOPIC, "the raw subscriber");
+        assert_delivers_on_both_keys(&name, &f.raw, TOPIC, &count, "the callback");
 
         drop(sub);
-        let deadline = Instant::now() + RECV;
-        while !tokens_of(&raw, "raw_cycle_topic").is_empty() && Instant::now() < deadline {
-            std::thread::sleep(POLL);
-        }
-        let left = tokens_of(&raw, "raw_cycle_topic");
-        assert!(
-            left.is_empty(),
-            "{NAME}: cycle {cycle}: the token is still declared after the drop: {left:?}"
-        );
-        std::thread::sleep(POLL);
-        let before = count.load(Ordering::Relaxed);
-        for key in [group_key("raw_cycle_topic"), base_key("raw_cycle_topic")] {
-            for _ in 0..3 {
-                raw_put(&raw, &key);
-                std::thread::sleep(Duration::from_millis(50));
-            }
-        }
-        std::thread::sleep(POLL);
-        let after = count.load(Ordering::Relaxed);
-        assert!(
-            after == before,
-            "{NAME}: cycle {cycle}: the callback ran {} more time(s) after the drop",
-            after - before
-        );
+        assert_torn_down(&name, &f.raw, TOPIC, &count);
     }
 }
