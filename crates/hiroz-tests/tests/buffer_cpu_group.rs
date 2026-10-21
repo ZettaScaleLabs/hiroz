@@ -316,13 +316,37 @@ fn tag(row: usize, phase: u32) -> u32 {
     (row as u32 + 1) * 10 + phase
 }
 
-/// A `UInt8MultiArray`, `Float64MultiArray` or `Blob` that carries `tag` in `layout.data_offset`:
-/// header, no dimensions, the tag and no data. It decodes as each of the three.
+/// The data every `tagged` payload carries.
+const DATA: [u8; 3] = [1, 2, 3];
+
+/// A `UInt8MultiArray` or `Blob` that carries `tag` in `layout.data_offset` and the data `DATA`:
+/// header, no dimensions, the tag and three bytes. A receiver that decodes it must read the data
+/// too, so a decoding fault shows as a failed assertion in `Tagged::tag`.
 fn tagged(tag: u32) -> Vec<u8> {
+    let mut bytes = tagged_empty(tag);
+    let end = bytes.len() - 4;
+    bytes.truncate(end);
+    bytes.extend_from_slice(&(DATA.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&DATA);
+    bytes
+}
+
+/// A message that carries `tag` in `layout.data_offset` and no data. It decodes as a
+/// `Float64MultiArray` as well as a `UInt8MultiArray` or a `Blob`.
+fn tagged_empty(tag: u32) -> Vec<u8> {
     let mut bytes = vec![0, 1, 0, 0, 0, 0, 0, 0];
     bytes.extend_from_slice(&tag.to_le_bytes());
     bytes.extend_from_slice(&[0, 0, 0, 0]);
     bytes
+}
+
+/// The payload that a table row of `wire` receives: `Float64MultiArray` rows get no data.
+fn row_payload(wire: &Wire, tag: u32) -> Vec<u8> {
+    if wire.name == FLOAT64.name {
+        tagged_empty(tag)
+    } else {
+        tagged(tag)
+    }
 }
 
 /// A message that carries a sample identity in `layout.data_offset`.
@@ -331,6 +355,7 @@ trait Tagged {
 }
 impl Tagged for UInt8MultiArray {
     fn tag(&self) -> u32 {
+        assert_eq!(self.data, hiroz::ZBuf::from(DATA.to_vec()), "decoded data");
         self.layout.data_offset
     }
 }
@@ -341,11 +366,18 @@ impl Tagged for Float64MultiArray {
 }
 impl Tagged for Blob {
     fn tag(&self) -> u32 {
+        assert_eq!(self.data, DATA.to_vec(), "decoded data");
         self.layout.data_offset
     }
 }
 impl Tagged for DynamicMessage {
     fn tag(&self) -> u32 {
+        let data = self.get_dynamic("data").expect("data field");
+        assert_eq!(
+            data.as_bytes().expect("data bytes"),
+            &DATA[..],
+            "decoded data"
+        );
         self.get::<u32>("layout.data_offset")
             .expect("layout.data_offset")
     }
@@ -438,11 +470,11 @@ impl Row {
 /// token of its shape, with the group field if and only if the row joined.
 ///
 /// Each delivery phase puts a payload of its own, so a late sample of one phase cannot pass for
-/// another. A row that joined must receive the sample of the group phase. A row that stays out must
-/// receive the sample of the base phase: that is its live positive control, and it is separate from
-/// the check that no sample of the group phase arrived. That check runs last, after the base sample
-/// arrived, so a delayed group sample has had time to show. A joined row proves its group key only.
-/// Other tests check the base key of a joined subscriber and of a joined cache.
+/// another. A row that joined must receive the sample of the group phase and the sample of the base
+/// phase, because a publisher that is not buffer-aware writes the base key only. A row that stays
+/// out must receive the sample of the base phase: that is its live positive control, and it is
+/// separate from the check that no sample of the group phase arrived. That check runs last, after
+/// the base sample arrived, so a delayed group sample has had time to show.
 fn check_rows(raw: &zenoh::Session, table: &str, rows: &[Row]) {
     for row in rows {
         let shape = Shape {
@@ -467,29 +499,37 @@ fn check_rows(raw: &zenoh::Session, table: &str, rows: &[Row]) {
         seen[i].borrow().contains(&want)
     };
     for &(i, row) in delivered.iter().filter(|(_, r)| r.joined) {
-        let key = group_key(row.topic, row.delivery.unwrap());
+        let wire = row.delivery.unwrap();
+        let key = group_key(row.topic, wire);
         let want = tag(i, GROUP_IN);
         assert!(
-            put_until(raw, &key, &tagged(want), RECV, || observe(i, row, want)),
+            put_until(raw, &key, &row_payload(wire, want), RECV, || observe(
+                i, row, want
+            )),
             "{table}: the joined row {} did not receive its group sample {want} on {key}: saw {:?}",
             row.topic,
             seen[i].borrow()
         );
     }
     for &(i, row) in delivered.iter().filter(|(_, r)| !r.joined) {
-        let key = group_key(row.topic, row.delivery.unwrap());
+        let wire = row.delivery.unwrap();
+        let key = group_key(row.topic, wire);
         for _ in 0..5 {
-            raw.put(&key, tagged(tag(i, GROUP_OUT)))
+            raw.put(&key, row_payload(wire, tag(i, GROUP_OUT)))
                 .wait()
                 .expect("put");
         }
     }
-    for &(i, row) in delivered.iter().filter(|(_, r)| !r.joined) {
-        let key = base_key(row.topic, row.delivery.unwrap());
+    for &(i, row) in &delivered {
+        let wire = row.delivery.unwrap();
+        let key = base_key(row.topic, wire);
         let want = tag(i, BASE);
         assert!(
-            put_until(raw, &key, &tagged(want), RECV, || observe(i, row, want)),
-            "{table}: control: the row {} did not receive its base sample {want} on {key}: saw {:?}",
+            put_until(raw, &key, &row_payload(wire, want), RECV, || observe(
+                i, row, want
+            )),
+            "{table}: the {} row {} did not receive its base sample {want} on {key}: saw {:?}",
+            if row.joined { "joined" } else { "control" },
             row.topic,
             seen[i].borrow()
         );
@@ -656,8 +696,8 @@ macro_rules! cache_row {
 }
 
 /// The join policy of a cache. The cache holds 1000 messages, so no sample of a phase can push out
-/// another. A cache of a buffer type joins and fills from the group key. A cache of a type with no
-/// byte field stays out. `Off` keeps a cache out of the group and it fills from the base key,
+/// another. A cache of a buffer type joins and fills from the group key and from the base key. A
+/// cache of a type with no byte field stays out. `Off` keeps a cache out of the group and it fills from the base key,
 /// whether `with_buffer_group` comes before or after `with_stamp`. A cache that never sets the
 /// group joins with a stamp too, so a missing token is the setting and not a dead setup.
 #[test]
@@ -731,59 +771,6 @@ fn action_client_join_policy() {
 // ---------------------------------------------------------------------------------------------
 // Group keys and teardown
 // ---------------------------------------------------------------------------------------------
-
-/// A joined subscriber receives on the key a real publisher writes, and a subscriber
-/// with no schema receives on it too. The key is a literal, not derived from the token.
-#[test]
-fn joined_subscriber_receives_on_the_key_a_real_publisher_writes() {
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let typed = node
-        .create_sub::<UInt8MultiArray>("/recv_typed")
-        .with_buffer_group(BufferGroup::Auto)
-        .build()
-        .unwrap();
-    let blob = node
-        .create_sub::<Blob>("/recv_blob")
-        .with_buffer_group(BufferGroup::Auto)
-        .build()
-        .unwrap();
-    token_for(&raw, "recv_typed");
-    token_for(&raw, "recv_blob");
-
-    let mut got = None;
-    assert!(
-        put_until(
-            &raw,
-            &group_key("recv_typed", &UINT8),
-            &PAYLOAD,
-            RECV,
-            || {
-                got = typed.recv_timeout(POLL).ok();
-                got.is_some()
-            }
-        ),
-        "typed subscriber received nothing on the group key"
-    );
-    assert_eq!(got.unwrap().data, hiroz::ZBuf::from(vec![1u8, 2, 3]));
-    let mut got = None;
-    assert!(
-        put_until(
-            &raw,
-            &group_key("recv_blob", &UINT8),
-            &PAYLOAD,
-            RECV,
-            || {
-                got = blob.recv_timeout(POLL).ok();
-                got.is_some()
-            }
-        ),
-        "no-schema subscriber received nothing on the group key"
-    );
-    assert_eq!(got.unwrap().data, vec![1, 2, 3]);
-}
 
 /// Dropping a joined typed subscriber removes its token and stops its callback on the group key.
 /// The token is present and the callback runs on that key before the drop.
@@ -912,41 +899,6 @@ fn dropping_a_joined_cache_stops_group_key_updates() {
         "dropping_a_joined_cache_stops_group_key_updates: {} samples reached the dropped cache on {key} ({AFTER_DROP_PUTS} puts, {before} before)",
         after - before
     );
-}
-
-/// A joined cache fills from the base key and from the group key. A publisher that is not buffer
-/// aware writes the base key, and a buffer-aware publisher writes the group key, so the cache needs
-/// both. Each key puts a valid sample of its own, and the test reads the identity of the message the
-/// cache holds. A cache that read the group key alone would never hold the base sample.
-#[test]
-fn joined_cache_receives_from_the_base_key_and_the_group_key() {
-    const NAME: &str = "joined_cache_receives_from_the_base_key_and_the_group_key";
-    const GROUP: u32 = 7;
-    const BASE_KEY: u32 = 8;
-    const TOPIC: &str = "jc_auto";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let cache = node
-        .create_cache::<UInt8MultiArray>(&format!("/{TOPIC}"), 1000)
-        .build()
-        .expect("cache");
-    assert_token(
-        &token_for(&raw, TOPIC),
-        shape("tok_node", TOPIC, &UINT8, true),
-    );
-    for (key, want) in [
-        (group_key(TOPIC, &UINT8), GROUP),
-        (base_key(TOPIC, &UINT8), BASE_KEY),
-    ] {
-        assert!(
-            put_until(&raw, &key, &tagged(want), RECV, || cached(&cache)
-                .contains(&want)),
-            "{NAME}: the cache never held sample {want} from {key}: holds {:?}",
-            cached(&cache)
-        );
-    }
 }
 
 /// A joined subscriber reads the group key, and `Locality::Remote` holds on that key.
@@ -1842,75 +1794,6 @@ fn n_joined_subscribers_announce_one_group_token_each_and_receive_on_both_keys()
         *off_log.lock().unwrap(),
         vec![OFF_BASE_TAG],
         "{NAME}: control: the Off subscriber saw the wrong deliveries"
-    );
-}
-
-/// Whether the one token for `topic` announces the group, and whether a subscription matches the
-/// base key and the group key of `wire` on `topic`.
-fn keys_of(raw: &zenoh::Session, topic: &str, wire: &Wire) -> (bool, bool, bool) {
-    let token = joined(raw, topic);
-    let base = key_is_subscribed(raw, &base_key(topic, wire));
-    let group = if token {
-        key_is_subscribed(raw, &group_key(topic, wire))
-    } else {
-        !key_stays_unsubscribed(raw, &group_key(topic, wire))
-    };
-    (token, base, group)
-}
-
-/// A typed subscriber with no message schema joins on a topic that carries no buffer, as the
-/// feedback subscriber of an action client and the Python bindings do. It declares two
-/// subscriptions and a group token, and receives on both keys. Controls in the same test: with
-/// `Off` the same message declares the base key only, and a typed message with a schema and no byte
-/// field stays out.
-#[test]
-fn typed_subscriber_with_no_schema_joins_on_a_topic_without_a_buffer() {
-    const NAME: &str = "typed_subscriber_with_no_schema_joins_on_a_topic_without_a_buffer";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let num = node.create_sub::<Num>("/e6_num").build().unwrap();
-    let _off = node
-        .create_sub::<Num>("/e6_num_off")
-        .with_buffer_group(BufferGroup::Off)
-        .build()
-        .unwrap();
-    let _f64 = node
-        .create_sub::<Float64MultiArray>("/e6_f64")
-        .build()
-        .unwrap();
-    assert_eq!(
-        keys_of(&raw, "e6_num", &NUM),
-        (true, true, true),
-        "{NAME}: (token, base key, group key) of the schemaless topic"
-    );
-    assert_eq!(
-        keys_of(&raw, "e6_num_off", &NUM),
-        (false, true, false),
-        "{NAME}: control: (token, base key, group key) with Off"
-    );
-    assert_eq!(
-        keys_of(&raw, "e6_f64", &FLOAT64),
-        (false, true, false),
-        "{NAME}: control: (token, base key, group key) of a schema with no byte field"
-    );
-    raw.put(base_key("e6_num", &NUM), NUM_PAYLOAD.to_vec())
-        .wait()
-        .unwrap();
-    raw.put(group_key("e6_num", &NUM), NUM_PAYLOAD.to_vec())
-        .wait()
-        .unwrap();
-    let mut received = 0;
-    while num.recv_timeout(RECV).is_ok() {
-        received += 1;
-        if received == 2 {
-            break;
-        }
-    }
-    assert_eq!(
-        received, 2,
-        "{NAME}: samples that reached the subscriber from its base key and its group key"
     );
 }
 
