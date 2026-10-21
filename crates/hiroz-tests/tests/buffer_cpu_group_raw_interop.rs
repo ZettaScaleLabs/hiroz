@@ -3,12 +3,17 @@
 //!
 //! A buffer-aware `rmw_zenoh_cpp` writes a message with an unbounded `uint8[]` field only on
 //! `<topic key>/_buf_cpu`, and only when a matched subscriber announces buffer support. A plain
-//! Zenoh session counts the samples per key, so the cell checks that the publisher really is in
+//! Zenoh session counts the samples per key, so each cell checks that the publisher really is in
 //! buffer mode: the group key carries the samples and the base key none. A raw subscriber built
 //! with `BufferGroup::Off` stays out of the group, so it receives nothing from that publisher: it
 //! is the negative control.
 //!
-//! The cell calls `buffer_rmw::buffer_aware_rmw_or_skip`. Without a buffer-aware rmw it prints
+//! One cell mixes a released subscriber with three raw subscribers. The other cell has the default
+//! raw subscriber as the only subscriber, so a match of the publisher can only come from the token
+//! of the raw subscriber. The publisher reports how many subscribers it matched, and the cell
+//! requires one.
+//!
+//! The cells call `buffer_rmw::buffer_aware_rmw_or_skip`. Without a buffer-aware rmw a cell prints
 //! `Skipping <cell>: ...` and returns. Setting `HIROZ_REQUIRE_BUFFER_RMW` turns that skip into a
 //! failure.
 
@@ -25,7 +30,10 @@ use std::{
 
 use buffer_rmw::{KeyCounts, SeqSet};
 use common::{buffer_rmw, *};
-use hiroz::{Builder, MessageTypeInfo};
+use hiroz::{
+    BufferGroup, Builder, MessageTypeInfo, context::ZContext, ffi::subscriber::RawSubscriber,
+    node::ZNode,
+};
 use hiroz_msgs::std_msgs::UInt8MultiArray;
 
 /// The messages the cell publishes.
@@ -88,8 +96,14 @@ fn spawn_released_subscriber(router: &TestRouter, topic: &str) -> ProcessGuard {
     ProcessGuard::new(child, "released subscriber")
 }
 
-fn spawn_seq_publisher(router: &TestRouter, topic: &str, subs: usize) -> ProcessGuard {
-    let child = Command::new("python3")
+/// The `rclpy` publisher, with its output drained so a test can read it.
+struct SeqPublisher {
+    guard: ProcessGuard,
+    output: OutputCapture,
+}
+
+fn spawn_seq_publisher(router: &TestRouter, topic: &str, subs: usize) -> SeqPublisher {
+    let mut child = Command::new("python3")
         .args([
             "-c",
             SEQ_PUBLISHER,
@@ -100,11 +114,46 @@ fn spawn_seq_publisher(router: &TestRouter, topic: &str, subs: usize) -> Process
         ])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("spawn the rclpy publisher");
-    ProcessGuard::new(child, "rclpy publisher")
+    let output = OutputCapture::start(&mut child);
+    SeqPublisher {
+        guard: ProcessGuard::new(child, "rclpy publisher"),
+        output,
+    }
+}
+
+impl SeqPublisher {
+    /// Wait for the publisher to exit, then give its last samples two seconds to arrive. It
+    /// returns what the publisher printed.
+    fn finish(mut self) -> String {
+        let end = Instant::now() + Duration::from_secs(SAMPLES as u64 / 5 + 40);
+        let mut finished_at: Option<Instant> = None;
+        while Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(50));
+            let done = self
+                .guard
+                .child
+                .as_mut()
+                .is_some_and(|c| c.try_wait().ok().flatten().is_some());
+            if done && finished_at.is_none() {
+                finished_at = Some(Instant::now());
+            }
+            if finished_at.is_some_and(|t| t.elapsed() > Duration::from_secs(2)) {
+                break;
+            }
+        }
+        self.output.snapshot()
+    }
+}
+
+/// The number of subscribers the publisher reported it matched, from its `PUB matched=N` line.
+fn matched_subscribers(output: &str) -> Option<usize> {
+    output
+        .lines()
+        .find_map(|l| l.strip_prefix("PUB matched=")?.trim().parse().ok())
 }
 
 /// Records the sequence number of one raw sample. A sample of another length counts for nothing.
@@ -114,115 +163,179 @@ fn record(set: &Mutex<SeqSet>, sample: &[u8]) {
     }
 }
 
+/// What one cell shares: a router, a node and the keys of one topic.
+struct Cell {
+    router: TestRouter,
+    _ctx: ZContext,
+    node: ZNode,
+    topic: String,
+    base_key: String,
+}
+
+impl Cell {
+    /// The cell, or `None` when this host has no buffer-aware rmw and the test may skip.
+    fn start(name: &str, topic: &str) -> Option<Self> {
+        assert!(
+            check_ros2_available(),
+            "{name}: ros2 is required: run this test where a released ROS 2 is installed"
+        );
+        if !buffer_rmw::buffer_aware_rmw_or_skip(name) {
+            return None;
+        }
+        let hash = UInt8MultiArray::type_hash().to_rihs_string();
+        let base_key = format!("0/{topic}/{}/{hash}", UInt8MultiArray::type_name());
+        let router = TestRouter::new();
+        let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+        let node = ctx
+            .create_node(&format!("{topic}_node"))
+            .build()
+            .expect("node");
+        Some(Self {
+            router,
+            _ctx: ctx,
+            node,
+            topic: format!("/{topic}"),
+            base_key,
+        })
+    }
+
+    /// A raw subscriber that records into `set`. `None` builds it the default way.
+    fn subscribe(&self, group: Option<BufferGroup>, set: &Arc<Mutex<SeqSet>>) -> RawSubscriber {
+        let (type_name, hash) = (
+            UInt8MultiArray::type_name(),
+            UInt8MultiArray::type_hash().to_rihs_string(),
+        );
+        let sink = set.clone();
+        let callback = move |bytes: &[u8]| record(&sink, bytes);
+        match group {
+            None => self
+                .node
+                .create_raw_subscriber(&self.topic, type_name, &hash, callback),
+            Some(group) => self.node.create_raw_subscriber_with_group(
+                &self.topic,
+                type_name,
+                &hash,
+                callback,
+                None,
+                group,
+            ),
+        }
+        .expect("raw subscriber")
+    }
+
+    /// A plain session that counts the samples per key of this topic.
+    fn key_counts(&self) -> KeyCounts {
+        KeyCounts::new(self.router.endpoint(), &self.base_key)
+    }
+}
+
+fn new_set() -> Arc<Mutex<SeqSet>> {
+    Arc::new(Mutex::new(SeqSet::new(SIZE)))
+}
+
+/// Print the result of one arm.
+fn report(name: &str, arm: &str, set: &Mutex<SeqSet>, keys: &KeyCounts) {
+    let set = set.lock().unwrap();
+    println!(
+        "RESULT {name}/{arm}: received={} of {SAMPLES} duplicates={} group={} base={}",
+        set.received_of(SAMPLES),
+        set.duplicates,
+        keys.group(),
+        keys.base()
+    );
+}
+
+/// The publisher wrote every sample on the group key and none on the base key, so it was in
+/// buffer mode. This is the positive control for every "received nothing on the base key" claim.
+fn assert_buffer_mode(name: &str, keys: &KeyCounts) {
+    let (group, base) = (keys.group(), keys.base());
+    assert!(
+        group == SAMPLES as usize && base == 0,
+        "{name}: the plain session read group {group} and base {base} of {SAMPLES}, so the \
+         publisher is not in buffer mode"
+    );
+}
+
+/// The subscriber received every sample once.
+fn assert_complete(name: &str, arm: &str, set: &Mutex<SeqSet>) {
+    let set = set.lock().unwrap();
+    assert_eq!(
+        set.received_of(SAMPLES),
+        SAMPLES as usize,
+        "{name}: {arm} received"
+    );
+    assert_eq!(set.duplicates, 0, "{name}: {arm} repeats");
+}
+
 /// A default raw subscriber and a `Cpu` raw subscriber each receive every sample a publisher in
 /// buffer mode writes. An `Off` raw subscriber on the same topic receives none, which shows the
 /// publisher writes the group key only. The payload carries a sequence number, so a repeat and a
 /// gap show.
+///
+/// A released subscriber also matches the publisher here, and it can make the publisher write the
+/// group key by itself. This cell therefore does not show that the publisher matched a raw
+/// subscriber. `raw_default_subscriber_alone_matches_a_released_publisher` shows that.
 #[test]
 fn raw_default_subscriber_receives_from_a_released_publisher() {
     const NAME: &str = "raw_default_subscriber_receives_from_a_released_publisher";
-    assert!(
-        check_ros2_available(),
-        "{NAME}: ros2 is required: run this test where a released ROS 2 is installed"
-    );
-    if !buffer_rmw::buffer_aware_rmw_or_skip(NAME) {
+    let Some(cell) = Cell::start(NAME, "rawcell") else {
         return;
-    }
-    let topic = "/rawcell";
-    let hash = UInt8MultiArray::type_hash().to_rihs_string();
-    let type_name = UInt8MultiArray::type_name();
-    let base_key = format!("0/rawcell/{type_name}/{hash}");
+    };
+    let (cpu, default, off) = (new_set(), new_set(), new_set());
+    let _cpu_sub = cell.subscribe(Some(BufferGroup::Cpu), &cpu);
+    let _default_sub = cell.subscribe(None, &default);
+    let _off_sub = cell.subscribe(Some(BufferGroup::Off), &off);
 
-    let router = TestRouter::new();
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("rawcell_node").build().expect("node");
-
-    let cpu = Arc::new(Mutex::new(SeqSet::new(SIZE)));
-    let default = Arc::new(Mutex::new(SeqSet::new(SIZE)));
-    let off = Arc::new(Mutex::new(SeqSet::new(SIZE)));
-    let sink = cpu.clone();
-    let _cpu_sub = node
-        .create_raw_subscriber_with_group(
-            topic,
-            type_name,
-            &hash,
-            move |bytes: &[u8]| record(&sink, bytes),
-            None,
-            hiroz::BufferGroup::Cpu,
-        )
-        .expect("Cpu raw subscriber");
-    let sink = default.clone();
-    let _default_sub = node
-        .create_raw_subscriber(topic, type_name, &hash, move |bytes: &[u8]| {
-            record(&sink, bytes)
-        })
-        .expect("default raw subscriber");
-    let sink = off.clone();
-    let _off_sub = node
-        .create_raw_subscriber_with_group(
-            topic,
-            type_name,
-            &hash,
-            move |bytes: &[u8]| record(&sink, bytes),
-            None,
-            hiroz::BufferGroup::Off,
-        )
-        .expect("Off raw subscriber");
-
-    let keys = KeyCounts::new(router.endpoint(), &base_key);
+    let keys = cell.key_counts();
     wait_for_ready(Duration::from_secs(2));
-    let _released = spawn_released_subscriber(&router, topic);
+    let _released = spawn_released_subscriber(&cell.router, &cell.topic);
     wait_for_ready(Duration::from_secs(2));
     // Three matched subscribers: the released one, the default raw one and the `Cpu` raw one. The
     // `Off` raw subscriber declares no token, so it does not match.
-    let mut publisher = spawn_seq_publisher(&router, topic, 3);
+    let output = spawn_seq_publisher(&cell.router, &cell.topic, 3).finish();
+    println!("{output}");
 
-    // Wait for the publisher to exit, then give its last samples two seconds to arrive.
-    let end = Instant::now() + Duration::from_secs(SAMPLES as u64 / 5 + 40);
-    let mut finished_at: Option<Instant> = None;
-    while Instant::now() < end {
-        std::thread::sleep(Duration::from_millis(50));
-        let done = publisher
-            .child
-            .as_mut()
-            .is_some_and(|c| c.try_wait().ok().flatten().is_some());
-        if done && finished_at.is_none() {
-            finished_at = Some(Instant::now());
-        }
-        if finished_at.is_some_and(|t| t.elapsed() > Duration::from_secs(2)) {
-            break;
-        }
-    }
-
-    let (group, base) = (keys.group(), keys.base());
     for (arm, set) in [("cpu", &cpu), ("default", &default), ("off", &off)] {
-        let set = set.lock().unwrap();
-        println!(
-            "RESULT {NAME}/{arm}: received={} of {SAMPLES} duplicates={} group={group} base={base}",
-            set.received_of(SAMPLES),
-            set.duplicates
-        );
+        report(NAME, arm, set, &keys);
     }
-
-    assert!(
-        group == SAMPLES as usize && base == 0,
-        "{NAME}: the plain session read group {group} and base {base} of {SAMPLES}, so the \
-         publisher is not in buffer mode"
-    );
-    let off = off.lock().unwrap();
+    assert_buffer_mode(NAME, &keys);
     assert_eq!(
-        off.received_of(SAMPLES),
+        off.lock().unwrap().received_of(SAMPLES),
         0,
         "{NAME}: the Off raw subscriber received from a publisher in buffer mode, so the \
          negative control is not valid"
     );
-    for (arm, set) in [("cpu", &cpu), ("default", &default)] {
-        let set = set.lock().unwrap();
-        assert_eq!(
-            set.received_of(SAMPLES),
-            SAMPLES as usize,
-            "{NAME}: {arm} received"
-        );
-        assert_eq!(set.duplicates, 0, "{NAME}: {arm} repeats");
-    }
+    assert_complete(NAME, "cpu", &cpu);
+    assert_complete(NAME, "default", &default);
+}
+
+/// A default raw subscriber that is the only subscriber of the topic matches a publisher in
+/// buffer mode and receives every sample once.
+///
+/// No released subscriber is present, so only the token of the raw subscriber can make the
+/// publisher match and write the group key. The cell requires three things. The publisher reports
+/// one matched subscriber. The plain session reads every sample on the group key and none on the
+/// base key. The raw subscriber receives every sample, with no repeat.
+#[test]
+fn raw_default_subscriber_alone_matches_a_released_publisher() {
+    const NAME: &str = "raw_default_subscriber_alone_matches_a_released_publisher";
+    let Some(cell) = Cell::start(NAME, "rawsole") else {
+        return;
+    };
+    let default = new_set();
+    let _default_sub = cell.subscribe(None, &default);
+
+    let keys = cell.key_counts();
+    wait_for_ready(Duration::from_secs(2));
+    let output = spawn_seq_publisher(&cell.router, &cell.topic, 1).finish();
+    println!("{output}");
+
+    report(NAME, "default", &default, &keys);
+    assert_eq!(
+        matched_subscribers(&output),
+        Some(1),
+        "{NAME}: the publisher did not report one matched subscriber: {output}"
+    );
+    assert_buffer_mode(NAME, &keys);
+    assert_complete(NAME, "default", &default);
 }
