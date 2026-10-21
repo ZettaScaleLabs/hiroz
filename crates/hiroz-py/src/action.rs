@@ -139,20 +139,29 @@ pub struct PyZActionClient {
     goal_type: Py<PyAny>,
     result_type: Py<PyAny>,
     feedback_type: Py<PyAny>,
+    /// Shared graph + the qualified action name, used by `wait_for_server` to
+    /// poll the core's full five-endpoint action-server predicate.
+    graph: Arc<hiroz::graph::Graph>,
+    action_name: String,
 }
 
 impl PyZActionClient {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         inner: RawActionClient,
         goal_type: Py<PyAny>,
         result_type: Py<PyAny>,
         feedback_type: Py<PyAny>,
+        graph: Arc<hiroz::graph::Graph>,
+        action_name: String,
     ) -> Self {
         Self {
             inner: Arc::new(inner),
             goal_type,
             result_type,
             feedback_type,
+            graph,
+            action_name,
         }
     }
 }
@@ -172,7 +181,7 @@ impl PyZActionClient {
 
         // send_goal is async — release GIL while blocking.
         // Apply a timeout slightly above the Zenoh querier timeout (10 s) so that
-        // callers get a clear RuntimeError when no server is present instead of
+        // callers get a clear TimeoutError when no server is present instead of
         // blocking forever (the shared flume channel keeps the receiver alive even
         // after the Zenoh query expires and its error is discarded).
         let mut handle: RawClientGoalHandle = py.allow_threads(move || {
@@ -180,11 +189,11 @@ impl PyZActionClient {
                 tokio::time::timeout(Duration::from_secs(11), client.send_goal(goal_msg))
                     .await
                     .map_err(|_| {
-                        pyo3::exceptions::PyRuntimeError::new_err(
-                            "send_goal timed out: no action server responded",
+                        crate::error::timeout_err(
+                            "send_goal timed out: no action server responded".to_string(),
                         )
                     })?
-                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+                    .map_err(crate::error::map_zenoh_error)
             })
         })?;
 
@@ -243,6 +252,22 @@ impl PyZActionClient {
         })
     }
 
+    /// Wait until an action server for this action is available.
+    ///
+    /// Mirrors rclpy's `ActionClient.wait_for_server(timeout_sec)`. Polls the
+    /// discovery graph for the action's `send_goal` service. Returns True if a
+    /// server was found before `timeout`, False otherwise.
+    ///
+    /// Args:
+    ///     timeout: Maximum seconds to wait. None waits forever.
+    #[pyo3(signature = (timeout=None))]
+    fn wait_for_server(&self, py: Python, timeout: Option<f64>) -> PyResult<bool> {
+        let timeout = crate::graph::checked_timeout(timeout)?;
+        Ok(py.allow_threads(|| {
+            crate::graph::wait_for_action_server(&self.graph, &self.action_name, timeout)
+        }))
+    }
+
     /// Get the goal type class (for debugging).
     #[getter]
     fn goal_type(&self, py: Python) -> PyObject {
@@ -291,8 +316,11 @@ impl PyZClientGoalHandle {
     #[pyo3(signature = (timeout=None))]
     fn recv_feedback(&self, py: Python, timeout: Option<f64>) -> PyResult<Option<PyObject>> {
         let rx = self.flume_feedback_rx.clone();
+        // Validate before entering the closure: it returns Option, so `?` on a
+        // PyResult is not available inside it.
+        let timeout = crate::graph::checked_timeout(timeout)?;
         let bytes_opt = py.allow_threads(move || {
-            if let Some(t) = timeout.map(Duration::from_secs_f64) {
+            if let Some(t) = timeout {
                 rx.recv_timeout(t).ok().map(|m| m.0)
             } else {
                 rx.recv().ok().map(|m| m.0)
@@ -314,40 +342,41 @@ impl PyZClientGoalHandle {
 
     /// Wait for and return the final result, optionally with a timeout (seconds).
     ///
-    /// Consumes the goal handle internally. Returns None on timeout.
+    /// Consumes the goal handle internally. Raises `hiroz_py.TimeoutError` on
+    /// timeout (mirrors `ZClient.call`'s timeout semantics — see P5).
     /// Raises RuntimeError if called more than once.
     #[pyo3(signature = (timeout=None))]
-    fn get_result(&self, py: Python, timeout: Option<f64>) -> PyResult<Option<PyObject>> {
+    fn get_result(&self, py: Python, timeout: Option<f64>) -> PyResult<PyObject> {
         let handle =
             self.handle.lock().unwrap().take().ok_or_else(|| {
                 pyo3::exceptions::PyRuntimeError::new_err("Result already retrieved")
             })?;
 
         let rt = get_tokio_rt();
-        let result = py.allow_threads(move || {
+        let timeout = crate::graph::checked_timeout(timeout)?;
+        let bytes = py.allow_threads(move || {
             rt.block_on(async move {
-                if let Some(t) = timeout.map(Duration::from_secs_f64) {
+                if let Some(t) = timeout {
                     // Use the core `result_with_timeout` primitive rather than
                     // reinventing the timeout wrapper in the binding.
                     match handle.result_with_timeout(t).await {
-                        Ok(msg) => Ok(Some(msg.0)),
-                        Err(e) if hiroz::error::is_timeout(&*e) => Ok(None), // timeout
-                        Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string())),
+                        Ok(msg) => Ok(msg.0),
+                        Err(e) if hiroz::error::is_timeout(&*e) => Err(crate::error::timeout_err(
+                            format!("Action result not received within {t:?}"),
+                        )),
+                        Err(e) => Err(crate::error::map_zenoh_error(e)),
                     }
                 } else {
                     handle
                         .result()
                         .await
-                        .map(|msg| Some(msg.0))
-                        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+                        .map(|msg| msg.0)
+                        .map_err(crate::error::map_zenoh_error)
                 }
             })
         })?;
 
-        match result {
-            Some(bytes) => Ok(Some(msgspec_decode(py, &bytes, &self.result_type)?)),
-            None => Ok(None),
-        }
+        msgspec_decode(py, &bytes, &self.result_type)
     }
 
     /// Request cancellation of this goal.
@@ -416,10 +445,11 @@ impl PyZActionServer {
     ) -> PyResult<Option<PyZServerGoalRequest>> {
         let inner = Arc::clone(&self.inner);
         let rt = get_tokio_rt();
+        let timeout = crate::graph::checked_timeout(timeout)?;
 
         let handle_opt = py.allow_threads(move || {
             rt.block_on(async move {
-                if let Some(t) = timeout.map(Duration::from_secs_f64) {
+                if let Some(t) = timeout {
                     match tokio::time::timeout(t, inner.recv_goal()).await {
                         Ok(Ok(h)) => Ok(Some(h)),
                         Ok(Err(e)) => Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string())),
