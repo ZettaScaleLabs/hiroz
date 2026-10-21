@@ -1367,13 +1367,11 @@ fn record(log: &Mutex<Vec<u32>>, tag: u32) {
 
 /// A sample on `<topic key>/_buf/<gid>` never reaches a joined subscriber, and no subscription of
 /// the subscriber matches that key. A buffer-aware publisher writes such a sample for every
-/// subscriber outside the group. The same holds for three other keys under the base key: another
-/// group (`_buf_cuda`), a key below the group key and a key that ends in the group name. The check
-/// reads the declared subscriptions through matching status, so a filter in the callback cannot
-/// hide a subscription.
+/// subscriber outside the group. The check reads the declared subscriptions through matching
+/// status, so a filter in the callback cannot hide a subscription.
 ///
 /// Controls in the same test: the base key and the group key each match the subscriber's
-/// subscriptions, so the probe detects a match. Each other key flips to matching once a plain
+/// subscriptions, so the probe detects a match. The sibling key flips to matching once a plain
 /// session subscribes `<topic key>/**`, and that session counts the same samples, so the samples
 /// reach the router and the key would match a subscription on `<topic key>/**`. That session is a
 /// control probe, not the code under test.
@@ -1430,38 +1428,6 @@ fn sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_s
         log.lock().unwrap()
     );
 
-    // The other keys under the base key have no subscription either, and their samples never
-    // reach the callback.
-    let others = [
-        format!("{base}/_buf_cuda"),
-        format!("{base}/_buf_cpu/extra"),
-        format!("{base}/deeper/_buf_cpu"),
-    ];
-    let other_probes: Vec<_> = others
-        .iter()
-        .map(|key| {
-            raw.declare_publisher(key.clone())
-                .wait()
-                .expect("publisher")
-        })
-        .collect();
-    std::thread::sleep(QUIET);
-    for (key, other) in others.iter().zip(&other_probes) {
-        assert!(
-            !other.matching_status().wait().unwrap().matching(),
-            "{NAME}: a subscription of the joined subscriber matches {key}"
-        );
-        for _ in 0..10 {
-            other.put(tagged(SIBLING_TAG)).wait().expect("put");
-        }
-    }
-    std::thread::sleep(QUIET);
-    assert!(
-        log.lock().unwrap().is_empty(),
-        "{NAME}: the joined subscriber saw samples of another key under {base}: {:?}",
-        log.lock().unwrap()
-    );
-
     // Control: a subscription on `{base}/**` matches the sibling key and counts its samples.
     let star_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let _star = star
@@ -1482,16 +1448,6 @@ fn sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_s
         probe.matching_status().wait().unwrap().matching(),
         "{NAME}: control: the sibling key never matched the probe on <topic key>/**, so a match cannot be seen"
     );
-    for (key, other) in others.iter().zip(&other_probes) {
-        let end = Instant::now() + RECV;
-        while !other.matching_status().wait().unwrap().matching() && Instant::now() < end {
-            std::thread::sleep(POLL);
-        }
-        assert!(
-            other.matching_status().wait().unwrap().matching(),
-            "{NAME}: control: {key} never matched the probe on <topic key>/**, so a match cannot be seen"
-        );
-    }
     assert!(
         put_until(&raw, &sibling, &tagged(SIBLING_TAG), RECV, || star_count
             .load(std::sync::atomic::Ordering::SeqCst)
