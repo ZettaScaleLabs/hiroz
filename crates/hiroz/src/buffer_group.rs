@@ -1,19 +1,11 @@
 //! Subscriber side of rmw_zenoh's CPU buffer group.
 //!
 //! A buffer-aware `rmw_zenoh_cpp` publisher writes a message with a buffer field on
-//! `<base>/_buf_cpu`. The payload is plain CDR. The publisher does this for each subscriber whose
-//! liveliness token ends in `backends:cpu:`. The released publisher writes nothing on `<base>` for
-//! a subscriber whose token has no `backends:` field. A publisher that is not buffer-aware writes
-//! `<base>` only.
-//!
-//! A subscriber joins the group when its token ends in `backends:cpu:`. It then has two exact
-//! subscriptions, on `<base>` and on `<base>/_buf_cpu`, as `rmw_zenoh_cpp` has. It needs `<base>`
-//! for publishers that are not buffer-aware. It reads no other key under `<base>`, so it never
-//! receives the samples that a publisher writes for other subscribers.
-//!
-//! The build declares both subscriptions first and the token last, as `rmw_zenoh_cpp` does in
-//! `SubscriptionData::init`. A publisher that reads the token then finds a subscription for the
-//! group key.
+//! `<base>/_buf_cpu`, for each subscriber whose liveliness token ends in `backends:cpu:`. A
+//! publisher that is not buffer-aware writes `<base>` only. A joined subscriber therefore has two
+//! exact subscriptions, on `<base>` and on `<base>/_buf_cpu`, as `rmw_zenoh_cpp` has. It has no
+//! other subscription under `<base>`, so the samples that a publisher writes for other subscribers
+//! never arrive. It declares both subscriptions before the token.
 
 use hiroz_protocol::{KeyExprFormat, qos::QosDurability};
 use tracing::debug;
@@ -26,32 +18,26 @@ use crate::entity::EndpointEntity;
 /// Set it with `with_buffer_group` on the subscriber or cache builder. The default is
 /// [`BufferGroup::Auto`].
 ///
-/// A joined subscriber declares two exact subscriptions, one on `<topic key>` and one on the group
-/// key `<topic key>/_buf_cpu`, and its liveliness token announces the group. It receives no other
-/// key under the topic key.
+/// A joined subscriber subscribes to `<topic key>` and `<topic key>/_buf_cpu`, and its liveliness
+/// token announces the group. A router rule that allows `<topic key>` and not
+/// `<topic key>/_buf_cpu` starves the second key without an error. Allow both keys, or choose
+/// [`BufferGroup::Off`].
 ///
-/// Router access control matters for the second key. A rule that allows `<topic key>` and not
-/// `<topic key>/_buf_cpu` starves the group key and raises no error. A buffer-aware publisher
-/// writes a buffer message on the group key only. Allow `<topic key>/_buf_cpu` wherever you allow
-/// `<topic key>`, or choose [`BufferGroup::Off`].
+/// A subscriber on a key format other than `rmw_zenoh`'s never joins. A transient-local subscriber
+/// never joins: the released `rmw_zenoh_cpp` serves its history on the base key only. The
+/// interoperability chapter of the user guide gives the details.
 ///
-/// A subscriber on a key format other than `rmw_zenoh`'s never joins, whatever the setting. A
-/// transient-local subscriber never joins either, because the released `rmw_zenoh_cpp` serves its
-/// history on the base key only. The interoperability chapter of the user guide gives the details.
-///
-/// New values may be added in a minor release, so match it with a wildcard arm.
+/// Match this enum with a wildcard arm: a later release can add values.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum BufferGroup {
-    /// Join when the message may carry a buffer: the message definition has an unbounded
-    /// `uint8[]` or `char[]`, directly or nested, or hiroz has no definition to ask. The typed
-    /// join also counts an unbounded `byte[]`, which `rmw_zenoh_cpp` does not: one extra join, no
-    /// data lost. This is the default.
+    /// Join when the message can carry a buffer: an unbounded `uint8[]` or `char[]`, directly or
+    /// nested, or hiroz has no message definition. A typed message also counts an unbounded
+    /// `byte[]`, which `rmw_zenoh_cpp` does not: one extra join, no data lost. This is the default.
     #[default]
     Auto,
-    /// Join, whatever the message is, except for a transient-local subscriber or a key format other
-    /// than `rmw_zenoh`'s. Use it when the publisher counts a field that the rule for `Auto` does
-    /// not count.
+    /// Join whatever the message is, except for a transient-local subscriber or a key format other
+    /// than `rmw_zenoh`'s. Use it when the publisher counts a field that `Auto` does not.
     Cpu,
     /// Do not join.
     Off,

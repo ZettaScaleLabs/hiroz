@@ -633,10 +633,7 @@ impl ZPub<crate::dynamic::DynamicMessage, crate::dynamic::DynamicSerdeCdrSerdes>
 }
 
 /// The subscriptions of a raw-callback subscriber: one on the topic key, and one on the group key
-/// when the subscriber joins the group. `_group` is `None` when the subscriber stays out.
-///
-/// The value owns both subscriptions, and dropping it undeclares both. Nothing reads the fields.
-/// Field order is drop order: the topic-key subscription drops first, then the group one.
+/// when the subscriber joins the group. Dropping the value undeclares both.
 pub(crate) struct RawSubscriptions {
     _base: zenoh::pubsub::Subscriber<()>,
     _group: Option<zenoh::pubsub::Subscriber<()>>,
@@ -652,7 +649,6 @@ pub struct ZSubBuilder<T, S = SerdeCdrSerdes<T>> {
     /// Expected encoding for received messages.
     /// If set, the subscriber will validate that received samples match this encoding.
     pub(crate) expected_encoding: Option<crate::encoding::Encoding>,
-    /// The caller's choice about rmw_zenoh's CPU buffer group.
     pub(crate) buffer_group: crate::BufferGroup,
     /// Whether the message definition has a field that makes a subscriber join the buffer group,
     /// `None` without a definition. See [`BufferGroup::Auto`](crate::BufferGroup::Auto) for the
@@ -911,8 +907,7 @@ where
 
         // Build an AdvancedSubscriber and configure based on durability
         let group_key = self.joined_group_key(key_expr.as_str());
-        // A joined subscriber declares a second exact subscription on the group key. Both
-        // subscriptions come before the token and share one `Arc` of the callback.
+        // Both subscriptions come before the token and share one `Arc` of the handler.
         let shared = Arc::new(validated_handler);
         let mut group_sub = None;
         if let Some(group_key) = &group_key {
