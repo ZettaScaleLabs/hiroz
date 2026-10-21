@@ -819,39 +819,47 @@ fn run_acl_cases(name: &str, router: &TestRouter, cases: &[AclCase]) {
     }
 }
 
-/// Router access control starves a joined raw subscriber silently. A default raw subscriber
-/// declares `<topic key>/**`, so a default-deny router that allows `<topic key>` and not
-/// `<topic key>/**` starves it, and `build` still returns `Ok`.
+/// Router access control starves the group key of a joined raw subscriber silently. A default
+/// raw subscriber declares the base key and `<topic key>/_buf_cpu`, so a default-deny router that
+/// allows `<topic key>` and not the group key starves the group key only, and `build` still
+/// returns `Ok`. The base key keeps delivering.
 ///
-/// Controls in the same test: an `Off` raw subscriber receives under the allow-only rule, so the
-/// puts reach the router and the rule lets the base key through. The same default raw subscriber
-/// receives once the rule also allows `<topic key>/**`, which is the remedy the docs give.
+/// Controls in the same test: on the narrow rule, an `Off` subscriber and a default subscriber
+/// both receive on the base key, so the puts reach the router and the rule lets the base key
+/// through. On the rule that also allows the group key, the default subscriber receives on the
+/// group key, which is the remedy the docs give. A wide subscription on `<topic key>/**` fails
+/// the narrow rule on the base key too, so the base-key control fails for that shape.
 #[test]
-fn raw_access_control_starves_a_default_subscriber_silently() {
-    const NAME: &str = "raw_access_control_starves_a_default_subscriber_silently";
+fn raw_access_control_starves_the_group_key_silently() {
+    const NAME: &str = "raw_access_control_starves_the_group_key_silently";
     use hiroz::BufferGroup::{Auto, Off};
-    let case = |topic, group, delivers| AclCase {
+    let case = |topic, group, put_group_key, delivers| AclCase {
         topic,
         group,
-        put_group_key: false,
+        put_group_key,
         delivers,
     };
 
-    // Allow the topic key only. The joined subscriber is starved, the Off subscriber is not.
+    // Allow the topic key only. The group key of a joined subscriber is starved. Its base key and
+    // the base key of an Off subscriber still deliver.
     let narrow = [
-        case("raw_acl_off", Off, true),
-        case("raw_acl_auto", Auto, false),
+        case("raw_acl_off", Off, false, true),
+        case("raw_acl_auto_base", Auto, false, true),
+        case("raw_acl_auto_group", Auto, true, false),
     ];
     let keys: Vec<String> = narrow.iter().map(|c| base_key(c.topic)).collect();
     run_acl_cases(NAME, &router_allowing_only(&keys), &narrow);
 
-    // Allow the topic key and everything under it.
-    let wide = [case("raw_aclw_auto", Auto, true)];
-    let keys: Vec<String> = wide
+    // Allow the topic key and the group key. Nothing wider is needed.
+    let both = [
+        case("raw_aclb_auto_base", Auto, false, true),
+        case("raw_aclb_auto_group", Auto, true, true),
+    ];
+    let keys: Vec<String> = both
         .iter()
-        .flat_map(|c| [base_key(c.topic), format!("{}/**", base_key(c.topic))])
+        .flat_map(|c| [base_key(c.topic), group_key(c.topic)])
         .collect();
-    run_acl_cases(NAME, &router_allowing_only(&keys), &wide);
+    run_acl_cases(NAME, &router_allowing_only(&keys), &both);
 }
 
 /// A rule that denies only the group key starves the group key of a joined raw subscriber and
@@ -876,6 +884,101 @@ fn raw_denied_group_key_leaves_the_base_key_flowing() {
         case("raw_ad_base", false, true),
     ];
     run_acl_cases(NAME, &router_denying("0/*/*/*/_buf_cpu"), &denied);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Exact subscriptions
+// ---------------------------------------------------------------------------------------------
+
+/// Whether a plain publisher on `key` has a matching subscriber now.
+fn matches(session: &zenoh::Session, key: &str) -> bool {
+    use zenoh::Wait;
+    let publisher = session
+        .declare_publisher(key.to_owned())
+        .wait()
+        .expect("publisher");
+    publisher
+        .matching_status()
+        .wait()
+        .expect("status")
+        .matching()
+}
+
+/// Poll until `matches(key)` equals `want` or `RECV` passes. It returns the last reading.
+fn settle(session: &zenoh::Session, key: &str, want: bool) -> bool {
+    let end = Instant::now() + RECV;
+    loop {
+        let now = matches(session, key);
+        if now == want || Instant::now() >= end {
+            return now;
+        }
+        std::thread::sleep(POLL);
+    }
+}
+
+/// A default raw subscriber declares two exact subscriptions: the base key and the group key. It
+/// declares nothing that matches `<base>/_buf/<gid>`, the key a publisher writes for a subscriber
+/// outside the group. An `Off` raw subscriber declares the base key only.
+///
+/// The reading comes from the subscriptions a publisher matches, not from a callback, so a filter
+/// in process cannot hide a wide subscription. Controls in the same test: the default subscriber
+/// matches its group key, which shows the probe reports a declared subscription, and the `Off`
+/// subscriber matches its base key.
+#[test]
+fn raw_subscriber_declares_two_exact_subscriptions_and_off_declares_one() {
+    const NAME: &str = "raw_subscriber_declares_two_exact_subscriptions_and_off_declares_one";
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("raw_exact").build().expect("node");
+
+    let (_c1, cb1) = counter();
+    let _default = node
+        .create_raw_subscriber("/raw_exact_default", TYPE_NAME, TYPE_HASH, cb1)
+        .expect("default raw subscriber");
+    let (_c2, cb2) = counter();
+    let _off = node
+        .create_raw_subscriber_with_group(
+            "/raw_exact_off",
+            TYPE_NAME,
+            TYPE_HASH,
+            cb2,
+            None,
+            hiroz::BufferGroup::Off,
+        )
+        .expect("off raw subscriber");
+
+    let sibling = |topic: &str| format!("{}/_buf/0123456789abcdef", base_key(topic));
+
+    // Controls: both subscribers match their base key, and the default one matches its group key.
+    assert!(
+        settle(&raw, &base_key("raw_exact_default"), true),
+        "{NAME}: the default subscriber does not match its base key"
+    );
+    assert!(
+        settle(&raw, &group_key("raw_exact_default"), true),
+        "{NAME}: the default subscriber does not match its group key"
+    );
+    assert!(
+        settle(&raw, &base_key("raw_exact_off"), true),
+        "{NAME}: the Off subscriber does not match its base key"
+    );
+
+    // The default subscriber matches no sibling key. The Off subscriber matches no group key and
+    // no sibling key. The group key control above was read after the same settle time.
+    std::thread::sleep(QUIET);
+    assert!(
+        !matches(&raw, &sibling("raw_exact_default")),
+        "{NAME}: the default subscriber matches a sibling key, so it is not exact"
+    );
+    assert!(
+        !matches(&raw, &group_key("raw_exact_off")),
+        "{NAME}: the Off subscriber matches the group key"
+    );
+    assert!(
+        !matches(&raw, &sibling("raw_exact_off")),
+        "{NAME}: the Off subscriber matches a sibling key"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
