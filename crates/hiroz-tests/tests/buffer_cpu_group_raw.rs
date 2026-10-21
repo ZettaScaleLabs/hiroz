@@ -408,6 +408,76 @@ fn dropping_an_opted_in_raw_subscriber_stops_group_key_callbacks() {
     );
 }
 
+/// Tearing down a joined raw subscriber by hand removes the whole subscription. The token is gone
+/// and neither key reaches the callback, while the original binding is still in scope.
+///
+/// Controls in the same test: before the teardown the token is visible and a put on each key
+/// reaches the callback, so a silent result afterwards is not a dead setup.
+#[test]
+fn explicit_teardown_removes_the_token_and_both_subscriptions() {
+    use zenoh::Wait;
+    const NAME: &str = "explicit_teardown_removes_the_token_and_both_subscriptions";
+    const TOPIC: &str = "raw_undeclare_topic";
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("raw_undeclare").build().expect("node");
+    let (count, callback) = counter();
+    let sub = node
+        .create_raw_subscriber_with_group(
+            "/raw_undeclare_topic",
+            TYPE_NAME,
+            TYPE_HASH,
+            callback,
+            None,
+            hiroz::BufferGroup::Cpu,
+        )
+        .expect("raw subscriber");
+
+    // Controls: the token is visible, and each key reaches the callback.
+    let tokens = wait_tokens(&raw, TOPIC);
+    assert!(
+        tokens.len() == 1 && tokens[0].ends_with("/backends:cpu:"),
+        "{NAME}: the subscriber did not announce backends:cpu: before the teardown: {tokens:?}"
+    );
+    for key in [group_key(TOPIC), base_key(TOPIC)] {
+        let before = count.load(Ordering::Relaxed);
+        assert!(
+            put_until(&raw, &key, &PAYLOAD, RECV, || count.load(Ordering::Relaxed)
+                > before),
+            "{NAME}: nothing reached the callback from {key} before the teardown"
+        );
+    }
+
+    sub.inner.undeclare().wait().expect("teardown");
+
+    // `sub` is still in scope here: only the teardown can have removed anything.
+    let deadline = Instant::now() + RECV;
+    while !tokens_of(&raw, TOPIC).is_empty() && Instant::now() < deadline {
+        std::thread::sleep(POLL);
+    }
+    let left = tokens_of(&raw, TOPIC);
+    assert!(
+        left.is_empty(),
+        "{NAME}: the token is still declared after the teardown: {left:?}"
+    );
+    std::thread::sleep(POLL);
+    let before = count.load(Ordering::Relaxed);
+    for key in [group_key(TOPIC), base_key(TOPIC)] {
+        for _ in 0..3 {
+            raw_put(&raw, &key);
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    std::thread::sleep(QUIET);
+    let after = count.load(Ordering::Relaxed);
+    assert!(
+        after == before,
+        "{NAME}: the callback ran {} more time(s) after the teardown",
+        after - before
+    );
+}
+
 /// What a raw subscriber that stays out must show, next to an opted-in `Cpu` raw subscriber that
 /// joins. The control is the positive: it proves the token query and the group key work in this
 /// test, so an empty answer for the subject is not a dead setup.
