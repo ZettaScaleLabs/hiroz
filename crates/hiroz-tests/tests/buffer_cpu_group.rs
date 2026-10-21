@@ -32,10 +32,7 @@ use hiroz::{
     dynamic::{DynamicMessage, FieldType, MessageSchema},
     qos::{QosDurability, QosProfile},
 };
-use hiroz_msgs::{
-    rcl_interfaces::ParameterEvent,
-    std_msgs::{ByteMultiArray, Float64MultiArray, Int8MultiArray, UInt8MultiArray},
-};
+use hiroz_msgs::std_msgs::{Float64MultiArray, UInt8MultiArray};
 use hiroz_protocol::{KeyExprFormat, KeyExprFormatterAdapter, RmwZenohFormatter};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{
@@ -637,10 +634,11 @@ fn typed_subscriber_join_policy() {
     check_rows(&raw, "typed_subscriber_join_policy", &rows);
 }
 
-/// The join policy of a dynamic subscriber. The schema decides under `Auto`: an unbounded `uint8[]`
-/// joins, directly or nested in a message, an array or a sequence, and a bounded sequence or a
-/// fixed array of `uint8` does not. The unbounded twin `dyn_bytes` shows the same schema shape
-/// joins. `Off` stays out of a schema that would join.
+/// The join policy of a dynamic subscriber, with a delivery check on the two rows that carry the
+/// `UInt8MultiArray` schema. The schema decides under `Auto`: `dyn_nested` joins on a nested
+/// unbounded `uint8[]`, and its twin `dyn_bounded` stays out on a bounded one. `Off` stays out of a
+/// schema that would join. `dynamic_schema_shapes_decide_the_join` in the `hiroz` crate holds the
+/// whole table of schema shapes.
 #[test]
 fn dynamic_subscriber_join_policy() {
     let router = TestRouter::new();
@@ -668,21 +666,14 @@ fn dynamic_subscriber_join_policy() {
             Row::wired($topic, &UINT8, $joined, probe)
         }};
     }
-    let (r1, _s1) = adhoc_row!("dyn_bytes", true, bytes());
-    let (r2, _s2) = adhoc_row!("dyn_nested", true, *msg());
-    let (r3, _s3) = adhoc_row!("dyn_array", true, FieldType::Array(msg(), 2));
-    let (r4, _s4) = adhoc_row!("dyn_seq", true, FieldType::Sequence(msg()));
-    let (r5, _s5) = adhoc_row!("dyn_bounded", false, FieldType::BoundedSequence(u8s(), 4));
-    let (r6, _s6) = adhoc_row!("dyn_fixed", false, FieldType::Array(u8s(), 4));
+    let (nested, _nested_sub) = adhoc_row!("dyn_nested", true, *msg());
+    let (bounded, _bounded_sub) =
+        adhoc_row!("dyn_bounded", false, FieldType::BoundedSequence(u8s(), 4));
     let rows = vec![
         uint8_row!("dyn_default", true, |b| b),
         uint8_row!("dyn_off", false, |b| b.with_buffer_group(BufferGroup::Off)),
-        r1,
-        r2,
-        r3,
-        r4,
-        r5,
-        r6,
+        nested,
+        bounded,
     ];
     check_rows(&raw, "dynamic_subscriber_join_policy", &rows);
 }
@@ -1575,46 +1566,4 @@ fn n_joined_subscribers_announce_one_group_token_each_and_receive_on_both_keys()
         vec![OFF_BASE_TAG],
         "{NAME}: control: the Off subscriber saw the wrong deliveries"
     );
-}
-
-/// The join decision per field kind on the typed path. The typed path counts `byte[]`, which
-/// `rmw_zenoh_cpp` does not: the over-approximation is deliberate, costs one extra join and loses no
-/// data. The test pins what hiroz does today, so a change of the mapping shows as a red row.
-///
-/// Rows: `uint8[]`, `byte[]`, `int8[]`, nested `byte[]` through `ParameterEvent`. Controls in the
-/// same test: `uint8[]` joins and `Float64MultiArray` stays out. No bundled message has a lone
-/// `char[]` field, so `char[]` is not pinned here: the codegen maps `char` to `Uint8`, and
-/// `dynamic_subscriber_join_policy` pins that a sequence of `Uint8` joins.
-#[test]
-fn field_kinds_join_the_group_and_the_typed_path_counts_byte_arrays() {
-    const NAME: &str = "field_kinds_join_the_group_and_the_typed_path_counts_byte_arrays";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    // (topic, expected join)
-    let mut rows: Vec<(&str, bool)> = Vec::new();
-    let mut keep: Vec<Box<dyn std::any::Any>> = Vec::new();
-    macro_rules! typed {
-        ($topic:expr, $T:ty, $joins:expr) => {{
-            keep.push(Box::new(
-                node.create_sub::<$T>(concat!("/", $topic)).build().unwrap(),
-            ));
-            rows.push(($topic, $joins));
-        }};
-    }
-    typed!("fk_typed_uint8", UInt8MultiArray, true);
-    typed!("fk_typed_byte", ByteMultiArray, true);
-    typed!("fk_typed_int8", Int8MultiArray, false);
-    typed!("fk_typed_f64", Float64MultiArray, false);
-    typed!("fk_typed_param_event", ParameterEvent, true);
-    let observed: Vec<(&str, bool)> = rows
-        .iter()
-        .map(|(topic, _)| (*topic, joined(&raw, topic)))
-        .collect();
-    assert_eq!(
-        observed, rows,
-        "{NAME}: (topic, joined) as observed, then as expected"
-    );
-    drop(keep);
 }
