@@ -1,12 +1,12 @@
-//! An opted-in raw subscriber must receive from a released `rmw_zenoh_cpp` publisher in buffer
+//! A default raw subscriber must receive from a released `rmw_zenoh_cpp` publisher in buffer
 //! mode.
 //!
 //! A buffer-aware `rmw_zenoh_cpp` writes a message with an unbounded `uint8[]` field only on
 //! `<topic key>/_buf_cpu`, and only when a matched subscriber announces buffer support. A plain
 //! Zenoh session counts the samples per key, so the cell checks that the publisher really is in
 //! buffer mode: the group key carries the samples and the base key none. A raw subscriber built
-//! the default way stays out of the group, so it receives nothing from that publisher: it is the
-//! negative control.
+//! with `BufferGroup::Off` stays out of the group, so it receives nothing from that publisher: it
+//! is the negative control.
 //!
 //! The cell calls `buffer_rmw::buffer_aware_rmw_or_skip`. Without a buffer-aware rmw it prints
 //! `Skipping <cell>: ...` and returns. Setting `HIROZ_REQUIRE_BUFFER_RMW` turns that skip into a
@@ -114,12 +114,13 @@ fn record(set: &Mutex<SeqSet>, sample: &[u8]) {
     }
 }
 
-/// An opted-in raw subscriber receives every sample a publisher in buffer mode writes. A default
-/// raw subscriber on the same topic receives none, which shows the publisher writes the group key
-/// only. The payload carries a sequence number, so a repeat and a gap show.
+/// A default raw subscriber and a `Cpu` raw subscriber each receive every sample a publisher in
+/// buffer mode writes. An `Off` raw subscriber on the same topic receives none, which shows the
+/// publisher writes the group key only. The payload carries a sequence number, so a repeat and a
+/// gap show.
 #[test]
-fn raw_opt_in_subscriber_receives_from_a_released_publisher() {
-    const NAME: &str = "raw_opt_in_subscriber_receives_from_a_released_publisher";
+fn raw_default_subscriber_receives_from_a_released_publisher() {
+    const NAME: &str = "raw_default_subscriber_receives_from_a_released_publisher";
     assert!(
         check_ros2_available(),
         "{NAME}: ros2 is required: run this test where a released ROS 2 is installed"
@@ -136,10 +137,11 @@ fn raw_opt_in_subscriber_receives_from_a_released_publisher() {
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("rawcell_node").build().expect("node");
 
-    let opt_in = Arc::new(Mutex::new(SeqSet::new(SIZE)));
+    let cpu = Arc::new(Mutex::new(SeqSet::new(SIZE)));
     let default = Arc::new(Mutex::new(SeqSet::new(SIZE)));
-    let sink = opt_in.clone();
-    let _opt_in_sub = node
+    let off = Arc::new(Mutex::new(SeqSet::new(SIZE)));
+    let sink = cpu.clone();
+    let _cpu_sub = node
         .create_raw_subscriber_with_group(
             topic,
             type_name,
@@ -148,21 +150,32 @@ fn raw_opt_in_subscriber_receives_from_a_released_publisher() {
             None,
             hiroz::BufferGroup::Cpu,
         )
-        .expect("opted-in raw subscriber");
+        .expect("Cpu raw subscriber");
     let sink = default.clone();
     let _default_sub = node
         .create_raw_subscriber(topic, type_name, &hash, move |bytes: &[u8]| {
             record(&sink, bytes)
         })
         .expect("default raw subscriber");
+    let sink = off.clone();
+    let _off_sub = node
+        .create_raw_subscriber_with_group(
+            topic,
+            type_name,
+            &hash,
+            move |bytes: &[u8]| record(&sink, bytes),
+            None,
+            hiroz::BufferGroup::Off,
+        )
+        .expect("Off raw subscriber");
 
     let keys = KeyCounts::new(router.endpoint(), &base_key);
     wait_for_ready(Duration::from_secs(2));
     let _released = spawn_released_subscriber(&router, topic);
     wait_for_ready(Duration::from_secs(2));
-    // Two matched subscribers: the released one and the opted-in raw one. The default raw
-    // subscriber declares no token, so it does not match.
-    let mut publisher = spawn_seq_publisher(&router, topic, 2);
+    // Three matched subscribers: the released one, the default raw one and the `Cpu` raw one. The
+    // `Off` raw subscriber declares no token, so it does not match.
+    let mut publisher = spawn_seq_publisher(&router, topic, 3);
 
     // Wait for the publisher to exit, then give its last samples two seconds to arrive.
     let end = Instant::now() + Duration::from_secs(SAMPLES as u64 / 5 + 40);
@@ -182,7 +195,7 @@ fn raw_opt_in_subscriber_receives_from_a_released_publisher() {
     }
 
     let (group, base) = (keys.group(), keys.base());
-    for (arm, set) in [("opt_in", &opt_in), ("default", &default)] {
+    for (arm, set) in [("cpu", &cpu), ("default", &default), ("off", &off)] {
         let set = set.lock().unwrap();
         println!(
             "RESULT {NAME}/{arm}: received={} of {SAMPLES} duplicates={} group={group} base={base}",
@@ -196,18 +209,20 @@ fn raw_opt_in_subscriber_receives_from_a_released_publisher() {
         "{NAME}: the plain session read group {group} and base {base} of {SAMPLES}, so the \
          publisher is not in buffer mode"
     );
-    let default = default.lock().unwrap();
+    let off = off.lock().unwrap();
     assert_eq!(
-        default.received_of(SAMPLES),
+        off.received_of(SAMPLES),
         0,
-        "{NAME}: the default raw subscriber received from a publisher in buffer mode, so the \
+        "{NAME}: the Off raw subscriber received from a publisher in buffer mode, so the \
          negative control is not valid"
     );
-    let opt_in = opt_in.lock().unwrap();
-    assert_eq!(
-        opt_in.received_of(SAMPLES),
-        SAMPLES as usize,
-        "{NAME}: opt_in received"
-    );
-    assert_eq!(opt_in.duplicates, 0, "{NAME}: opt_in repeats");
+    for (arm, set) in [("cpu", &cpu), ("default", &default)] {
+        let set = set.lock().unwrap();
+        assert_eq!(
+            set.received_of(SAMPLES),
+            SAMPLES as usize,
+            "{NAME}: {arm} received"
+        );
+        assert_eq!(set.duplicates, 0, "{NAME}: {arm} repeats");
+    }
 }
