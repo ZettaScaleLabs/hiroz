@@ -117,12 +117,14 @@ impl<T> CacheInner<T> {
 /// Messages are stored as [`Arc<T>`] so query methods return shared references
 /// without deep-copying the message payload.
 ///
-/// Dropping `ZCache` automatically deregisters the underlying Zenoh subscriber.
+/// Dropping `ZCache` automatically deregisters the underlying Zenoh subscriptions and its
+/// liveliness token.
 pub struct ZCache<T: ZMessage> {
     inner: Arc<RwLock<CacheInner<T>>>,
-    /// Declared before the subscription, so it drops first: the token goes before the subscription
-    /// that serves it.
+    /// Field order is drop order. The token drops first, so the subscriptions outlive it and the
+    /// group is never advertised without a subscription.
     _token: zenoh::liveliness::LivelinessToken,
+    /// The base subscription and, when the cache joined the group, the group subscription.
     _sub: crate::pubsub::RawSubscriptions,
 }
 
@@ -327,10 +329,9 @@ where
 
 impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
     /// Choose whether the cache joins rmw_zenoh's CPU buffer group. The setting holds before or
-    /// after [`with_stamp`](ZCacheBuilder::with_stamp). A joined cache subscribes on
-    /// `<topic key>` and on `<topic key>/_buf_cpu`, which a router access-control rule must allow. See
-    /// [`BufferGroup`](crate::BufferGroup) for the routing effects and the cases that never join,
-    /// and [`ZSubBuilder::with_buffer_group`] for the default.
+    /// after [`with_stamp`](ZCacheBuilder::with_stamp). The default is
+    /// [`BufferGroup::Auto`](crate::BufferGroup::Auto). See [`BufferGroup`](crate::BufferGroup) for
+    /// the join rule, the cases that never join, and the router access-control rule.
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
         self.sub_builder = self.sub_builder.with_buffer_group(group);
         self

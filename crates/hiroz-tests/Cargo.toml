@@ -12,7 +12,7 @@ publish = false
 hiroz = { path = "../hiroz", default-features = false, features = ["protobuf"] }
 hiroz-msgs = { path = "../hiroz-msgs", default-features = false, optional = true }
 hiroz-cdr = { path = "../hiroz-cdr" }
-hiroz-protocol = { path = "../hiroz-protocol" }
+hiroz-protocol = { path = "../hiroz-protocol" }                                    # key format types in buffer_cpu_group tests
 hiroz-schema = { path = "../hiroz-schema" }
 protobuf_demo = { path = "../hiroz/examples/protobuf_demo" }
 
@@ -36,7 +36,7 @@ serde_json = "1.0" # For parsing --json output in the hu plugin tests
 default = []
 ros-msgs = [
   "dep:hiroz-msgs",
-  "hiroz/dynamic-schema-loader",
+  "hiroz/dynamic-schema-loader", # load_schema in the buffer_cpu_group field-kind test
   "hiroz-msgs/std_msgs",
   "hiroz-msgs/geometry_msgs",
   "hiroz-msgs/sensor_msgs",

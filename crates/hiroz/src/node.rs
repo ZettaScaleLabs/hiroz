@@ -389,6 +389,7 @@ impl ZNode {
             self.register_schema_with_type_description_service(schema);
         }
         let mut builder = self.create_sub_impl(topic, Some(T::type_info()));
+        // `None` without a schema: such a subscriber cannot tell, so `Auto` joins it.
         builder.has_buffer_fields = schema.map(|schema| schema.has_buffer_fields());
         builder
     }
@@ -461,6 +462,8 @@ impl ZNode {
             topic, capacity
         );
         let mut sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
+        // The rule of `create_sub`. A cache does not call `create_sub`, because that also registers
+        // the type-description service.
         sub_builder.has_buffer_fields = T::message_schema().map(|schema| schema.has_buffer_fields());
         ZCacheBuilder::new(sub_builder, capacity)
     }

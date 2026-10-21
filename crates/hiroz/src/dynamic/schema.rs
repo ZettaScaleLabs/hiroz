@@ -166,11 +166,13 @@ impl MessageSchema {
     /// Whether the message has an unbounded `uint8[]` or `char[]` field, directly or in a nested
     /// message.
     ///
-    /// In Lyrical such a field is a `rosidl::Buffer`. The typed code generator maps ROS `byte`,
-    /// `uint8` and `char` to `FieldType::Uint8`, so for a typed message an unbounded `byte[]` also
-    /// counts. This is a deliberate over-approximation: `rmw_zenoh_cpp` does not count `byte[]`,
-    /// and the extra join costs one subscription and loses no data. A schema that `load_schema`
-    /// reads from a `.msg` file maps `byte` to `FieldType::Int8`, so it does not count `byte[]`.
+    /// Measured on the released `rmw_zenoh_cpp` 0.10.6: an unbounded `uint8[]` and an unbounded
+    /// `char[]` are buffers. An unbounded `byte[]`, an unbounded `int8[]`, and a bounded or fixed
+    /// `uint8` are not. The typed code generator maps ROS `byte`, `uint8` and `char`
+    /// to `FieldType::Uint8`, so for a typed message an unbounded `byte[]` also counts. This is a
+    /// deliberate over-approximation: the extra join costs one subscription and loses no data. A
+    /// schema that `load_schema` reads from a `.msg` file maps `byte` to `FieldType::Int8`, so it
+    /// does not count `byte[]`.
     pub(crate) fn has_buffer_fields(&self) -> bool {
         fn is_buffer_sequence(field_type: &FieldType) -> bool {
             matches!(field_type, FieldType::Sequence(inner) if matches!(**inner, FieldType::Uint8))

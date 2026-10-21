@@ -767,10 +767,9 @@ where
         self
     }
 
-    /// Build a raw Zenoh subscriber with a sample-level callback, returning
-    /// the subscriber and its liveliness token. A joined
-    /// subscriber also subscribes on the group key; the first element of the pair is the base
-    /// subscription and the second is the group subscription.
+    /// Build a raw Zenoh subscriber with a sample-level callback. It returns the base
+    /// subscription together with the group subscription, which is `None` when the subscriber
+    /// does not join, and then the liveliness token.
     ///
     /// This is the canonical subscriber setup path used by [`ZCache`] so that
     /// topic qualification, key-expression construction, and liveliness-token
@@ -801,7 +800,8 @@ where
         debug!("[CACHE] Key expression: {}", key_expr);
 
         let plan = self.group_plan()?;
-        // A joined subscriber declares the exact group subscription before the token.
+        // Both subscriptions come before the token, so a publisher that reads the token finds a
+        // subscription. The callback is `Fn`, so the two subscriptions share one `Arc` of it.
         let shared = Arc::new(callback);
         let mut group_sub = None;
         if let Some(group_key) = plan.group_key() {
@@ -826,6 +826,7 @@ where
     }
 
     /// What the subscriber declares for the group: its token, and the group key when it joins.
+    /// Call it after the topic is qualified, because the plan reads the topic key from `entity`.
     fn group_plan(&self) -> Result<crate::buffer_group::Plan> {
         let join = crate::buffer_group::joins(
             self.buffer_group,
@@ -902,8 +903,8 @@ where
 
         // Build an AdvancedSubscriber and configure based on durability
         let plan = self.group_plan()?;
-        // A joined subscriber declares the exact base subscription and a second exact
-        // subscription on the group key, both before the token, one shared callback.
+        // A joined subscriber declares a second exact subscription on the group key. Both
+        // subscriptions come before the token and share one `Arc` of the callback.
         let shared = Arc::new(validated_handler);
         let mut group_sub = None;
         if let Some(group_key) = plan.group_key() {
@@ -1054,12 +1055,13 @@ where
 pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     pub entity: EndpointEntity,
     pub queue: Option<Arc<BoundedQueue<Q>>>,
-    /// Declared before the subscription, so it drops first: the token goes before the subscription
-    /// that serves it.
-    /// This shortens the time the group is advertised and not served. It does not stop a remote
-    /// publisher, and a sample already in flight can still arrive after the subscription is gone.
+    /// Field order is drop order. The token drops first, so the subscriptions outlive it and the
+    /// group is never advertised without a subscription. `rmw_zenoh_cpp` also undeclares its token
+    /// first. A sample that a remote publisher already wrote can still arrive after the
+    /// subscriptions go.
     _token: zenoh::liveliness::LivelinessToken,
     _inner: AdvancedSubscriber<()>,
+    /// The group subscription of a joined subscriber, `None` otherwise. It stays alive with `self`.
     _group_sub: Option<zenoh::pubsub::Subscriber<()>>,
     events_mgr: Arc<Mutex<EventsManager>>,
     graph: Arc<Graph>,

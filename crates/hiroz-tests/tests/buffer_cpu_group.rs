@@ -1,9 +1,10 @@
 //! A hiroz subscriber to a buffer message must join rmw_zenoh's CPU buffer group.
 //!
-//! A buffer-aware `rmw_zenoh` publisher sends nothing on the base key to a subscriber whose
-//! liveliness token has no `backends:` field. These tests play the publisher with a raw Zenoh
-//! session, so they need no ROS installation. They check the two things the publisher reads:
-//! the token, and the subscription.
+//! A buffer-aware `rmw_zenoh_cpp` publisher writes a message with a buffer field on the group key
+//! for a subscriber whose token ends in `backends:cpu:`. The released publisher writes nothing on
+//! the base key for a subscriber whose token has no `backends:` field. These tests play the
+//! publisher with a raw Zenoh session, so they need no ROS installation. They check the two things
+//! the publisher reads: the token, and the subscription.
 //!
 //! Expected values are literals from real `rmw_zenoh` output: the token layout and the message
 //! hashes come from tokens a Lyrical publisher and subscriber wrote, the QoS chunks from the
@@ -76,7 +77,6 @@ const FLOAT64: Wire = Wire {
     hash: "RIHS01_1025ddc6b9552d191f89ef1a8d2f60f3d373e28b283d8891ddcc974e8c55397f",
 };
 
-/// `std_msgs/UInt8MultiArray` on the wire, without a message schema: the no-schema case.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Dim {
     label: String,
@@ -88,6 +88,7 @@ struct Layout {
     dim: Vec<Dim>,
     data_offset: u32,
 }
+/// `std_msgs/UInt8MultiArray` on the wire, without a message schema: the no-schema case.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Blob {
     layout: Layout,
@@ -664,9 +665,10 @@ macro_rules! cache_row {
 }
 
 /// The join policy of a cache. The cache holds 1000 messages, so no sample of a phase can push out
-/// another. A cache of a buffer type joins and fills from the group key. A cache of a type with no byte field stays out. `Off` keeps a cache out of the group and it fills from
-/// the base key, whether `with_buffer_group` comes before or after `with_stamp`. A cache that never
-/// sets the group joins with a stamp too, so a missing token is the setting and not a dead setup.
+/// another. A cache of a buffer type joins and fills from the group key. A cache of a type with no
+/// byte field stays out. `Off` keeps a cache out of the group and it fills from the base key,
+/// whether `with_buffer_group` comes before or after `with_stamp`. A cache that never sets the
+/// group joins with a stamp too, so a missing token is the setting and not a dead setup.
 #[test]
 fn cache_join_policy() {
     let stamp = |_: &UInt8MultiArray| std::time::SystemTime::now();
@@ -1105,7 +1107,8 @@ impl Write for Captured {
 
 /// Each join logs one `debug` line that names the subscribed key and the group key. Three
 /// subscribers on one key log three lines; a second key logs one; a subscriber that stays out logs
-/// nothing.
+/// no join line. The test counts the lines that contain `CPU buffer group`. The separate decision
+/// line of `joins` does not contain that text.
 #[test]
 fn joining_logs_the_group_key_at_debug_level() {
     let out = Captured::default();
@@ -1565,8 +1568,9 @@ fn record(log: &Mutex<Vec<u32>>, tag: u32) {
 ///
 /// Controls in the same test: an `Off` subscriber receives its base sample under the same rule, so
 /// the rule lets a base key through and the puts reach the router. A plain session that subscribes
-/// `<topic key>/**` is the old wide shape. The rule starves it, and the control `wide_allowed`
-/// shows the same subscription form delivers when the rule allows it.
+/// `<topic key>/**` is a subscription on the base key and everything under it. The rule starves
+/// it, and the control `wide_allowed` shows the same subscription form delivers when the rule
+/// allows it.
 #[test]
 fn exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys() {
     const NAME: &str = "exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys";
@@ -1955,8 +1959,8 @@ fn typed_topic_without_a_buffer_field_declares_one_subscription_and_no_group_tok
 }
 
 /// A transient-local subscriber of a buffer message declares the base key only and no group token.
-/// `rmw_zenoh_cpp` 0.10.6 serves transient-local history on the base key only. The control is the
-/// same topic type with volatile durability, which joins.
+/// The test pins what hiroz declares. It does not show where `rmw_zenoh_cpp` serves transient-local
+/// history. The control is the same topic type with volatile durability, which joins.
 #[test]
 fn transient_local_subscriber_declares_one_subscription_and_no_group_token() {
     const NAME: &str = "transient_local_subscriber_declares_one_subscription_and_no_group_token";

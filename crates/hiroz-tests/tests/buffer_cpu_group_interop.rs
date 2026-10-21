@@ -28,7 +28,6 @@ use hiroz_msgs::{sensor_msgs::PointCloud2, std_msgs::UInt8MultiArray};
 use serde::{Deserialize, Serialize};
 use zenoh_buffers::buffer::SplitBuffer;
 
-/// `std_msgs/UInt8MultiArray` on the wire, without a message schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Dim {
     label: String,
@@ -40,6 +39,7 @@ struct Layout {
     dim: Vec<Dim>,
     data_offset: u32,
 }
+/// `std_msgs/UInt8MultiArray` on the wire, without a message schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Blob {
     layout: Layout,
@@ -58,7 +58,6 @@ impl hiroz::msg::ZMessage for Blob {
     type Serdes = hiroz::msg::SerdeCdrSerdes<Blob>;
 }
 
-/// `sensor_msgs/PointCloud2` on the wire, without a message schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Stamp {
     sec: i32,
@@ -76,6 +75,7 @@ struct Field {
     datatype: u8,
     count: u32,
 }
+/// `sensor_msgs/PointCloud2` on the wire, without a message schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CloudBlob {
     header: Header,
@@ -425,7 +425,7 @@ fn token_for(name: &str, session: &zenoh::Session, topic: &str) -> String {
 }
 
 /// A released `ros2` CLI lists a joined subscriber. The token ends in `backends:cpu:`, the field
-/// an older parser must tolerate, and a subscriber that never joined has none.
+/// an older parser must tolerate. The test has no subscriber that stays out of the group.
 #[test]
 fn old_parsers_list_a_joined_subscriber() {
     const NAME: &str = "old_parsers_list_a_joined_subscriber";
