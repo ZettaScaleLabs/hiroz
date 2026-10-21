@@ -636,7 +636,8 @@ impl ZNode {
     }
 
     /// Create a raw subscriber for FFI (no type safety)
-    /// Returns a RawSubscriber that must be kept alive as long as the subscription is active
+    /// Returns a RawSubscriber that must be kept alive as long as the subscription is active.
+    /// It joins the CPU buffer group, as [`ZNode::create_raw_subscriber_with_qos`] does.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber<F>(
         &self,
@@ -648,7 +649,14 @@ impl ZNode {
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
     {
-        self.create_raw_subscriber_with_qos(topic, type_name, type_hash, callback, None)
+        self.create_raw_subscriber_with_group(
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            None,
+            crate::BufferGroup::Auto,
+        )
     }
 
     /// Create a raw subscriber for FFI with optional QoS
@@ -670,7 +678,7 @@ impl ZNode {
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
     {
-        self.create_raw_subscriber_inner(
+        self.create_raw_subscriber_with_group(
             topic,
             type_name,
             type_hash,
@@ -680,8 +688,16 @@ impl ZNode {
         )
     }
 
+    /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group`
+    /// asks for it.
+    ///
+    /// A raw subscriber has no message definition, so `Auto` and `Cpu` both join: the subscriber
+    /// declares two exact subscriptions, one on the base key and one on `<key>/_buf_cpu`, and then a
+    /// token ending `backends:cpu:`. One callback serves both keys. `Off` stays out: it declares the
+    /// base key only and no token. A transient-local QoS or a custom key expression format stays
+    /// out whatever `group` says.
     #[cfg(feature = "ffi")]
-    fn create_raw_subscriber_inner<F>(
+    pub fn create_raw_subscriber_with_group<F>(
         &self,
         topic: &str,
         type_name: &str,
@@ -763,30 +779,6 @@ impl ZNode {
             subscriber,
             group_sub,
         ))
-    }
-
-    /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group`
-    /// asks for it.
-    ///
-    /// A raw subscriber has no message definition, so `Auto` and `Cpu` both join: the subscriber
-    /// declares two exact subscriptions, one on the base key and one on `<key>/_buf_cpu`, and then a
-    /// token ending `backends:cpu:`. One callback serves both keys. `Off` stays out: it declares the
-    /// base key only and no token. A transient-local QoS or a custom key expression format stays
-    /// out whatever `group` says.
-    #[cfg(feature = "ffi")]
-    pub fn create_raw_subscriber_with_group<F>(
-        &self,
-        topic: &str,
-        type_name: &str,
-        type_hash: &str,
-        callback: F,
-        qos: Option<crate::qos::QosProfile>,
-        group: crate::BufferGroup,
-    ) -> Result<crate::ffi::subscriber::RawSubscriber>
-    where
-        F: Fn(&[u8]) + Send + Sync + 'static,
-    {
-        self.create_raw_subscriber_inner(topic, type_name, type_hash, callback, qos, group)
     }
 
     /// Create a raw service client for FFI (no type safety)
