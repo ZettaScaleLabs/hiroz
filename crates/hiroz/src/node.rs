@@ -752,7 +752,6 @@ impl ZNode {
                 &self.session,
                 &self.keyexpr_format,
                 &entity,
-                key_expr.as_str(),
                 true,
             )?)
         } else {

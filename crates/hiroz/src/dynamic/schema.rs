@@ -164,15 +164,11 @@ pub struct MessageSchema {
 
 impl MessageSchema {
     /// Whether the message has an unbounded `uint8[]` or `char[]` field, directly or in a nested
-    /// message.
+    /// message. These are the fields that `rmw_zenoh_cpp` treats as buffers.
     ///
-    /// Measured on the released `rmw_zenoh_cpp` 0.10.6: an unbounded `uint8[]` and an unbounded
-    /// `char[]` are buffers. An unbounded `byte[]`, an unbounded `int8[]`, and a bounded or fixed
-    /// `uint8` are not. The typed code generator maps ROS `byte`, `uint8` and `char`
-    /// to `FieldType::Uint8`, so for a typed message an unbounded `byte[]` also counts. This is a
-    /// deliberate over-approximation: the extra join costs one subscription and loses no data. A
-    /// schema that `load_schema` reads from a `.msg` file maps `byte` to `FieldType::Int8`, so it
-    /// does not count `byte[]`.
+    /// The typed code generator maps ROS `byte`, `uint8` and `char` to `FieldType::Uint8`, so a
+    /// typed unbounded `byte[]` also counts. This over-approximation costs one extra join and loses
+    /// no data.
     pub(crate) fn has_buffer_fields(&self) -> bool {
         fn is_buffer_sequence(field_type: &FieldType) -> bool {
             matches!(field_type, FieldType::Sequence(inner) if matches!(**inner, FieldType::Uint8))

@@ -522,8 +522,7 @@ pub extern "C" fn rmw_create_subscription(
     let zsub_builder = node_impl
         .inner
         .create_sub::<crate::msg::RosMessage>(topic_str)
-        // rmw-zenoh-rs does not join the buffer group. `RosMessage` has no message definition, so
-        // `Auto` would join every subscription.
+        // `RosMessage` has no message definition, so `Auto` would join every subscription.
         .with_buffer_group(hiroz::BufferGroup::Off)
         .with_serdes::<crate::msg::RosSerdes>();
     let qos = crate::qos::rmw_qos_to_hiroz_qos(unsafe { &*qos_policies });
