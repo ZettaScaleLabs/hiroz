@@ -93,7 +93,7 @@ pub(crate) fn declare_token(
 /// Log one join, so an operator can find the two keys that a router rule must allow.
 pub(crate) fn log_join(base: &str, group: &str) {
     debug!(
-        "joins the rmw_zenoh CPU buffer group: subscribes to keys {base} and {group}. A router \
-         rule must allow both keys."
+        base,
+        group, "joins the rmw_zenoh CPU buffer group; a router rule must allow both keys"
     );
 }

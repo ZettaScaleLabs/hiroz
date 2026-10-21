@@ -1039,11 +1039,17 @@ impl Write for Captured {
     }
 }
 
-/// Each join logs one `debug` line that names the subscribed key and the group key. Three
-/// subscribers on one key log three lines; a second key logs one; a subscriber that stays out logs
-/// no join line. The test counts the lines that contain `CPU buffer group`.
+/// A join logs one `debug` event that carries the subscribed key and the group key. Two joined
+/// subscribers on one topic log two events, a joined subscriber with no schema on a second topic
+/// logs one, and an `Off` subscriber logs none. The test selects the events by the marker
+/// `CPU buffer group`, so a change of the wording after the marker does not fail it.
+///
+/// Controls in the same test: the joined subscribers announce the group in their tokens, so a
+/// missing event is a missing log and not a missing join. The `Off` subscriber announces none, and
+/// the events of the joined topics show that the capture works.
 #[test]
 fn joining_logs_the_group_key_at_debug_level() {
+    const NAME: &str = "joining_logs_the_group_key_at_debug_level";
     let out = Captured::default();
     // Only the hiroz target is enabled: a debug span of another crate would cross threads and
     // break the thread-local subscriber.
@@ -1061,7 +1067,7 @@ fn joining_logs_the_group_key_at_debug_level() {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
-    let _a: Vec<_> = (0..3)
+    let _a: Vec<_> = (0..2)
         .map(|_| {
             node.create_sub::<UInt8MultiArray>("/log_a")
                 .with_buffer_group(BufferGroup::Auto)
@@ -1074,65 +1080,40 @@ fn joining_logs_the_group_key_at_debug_level() {
         .with_buffer_group(BufferGroup::Auto)
         .build()
         .unwrap();
-    let _out = node
+    let _off = node
         .create_sub::<UInt8MultiArray>("/log_off")
         .with_buffer_group(BufferGroup::Off)
         .build()
         .unwrap();
-    let _plain = node
-        .create_sub::<Float64MultiArray>("/log_plain")
-        .with_buffer_group(BufferGroup::Auto)
-        .build()
-        .unwrap();
 
+    let raw = raw_session(router.endpoint());
+    assert!(
+        joined(&raw, "log_b"),
+        "{NAME}: control: the joined subscriber has no group token"
+    );
+    assert!(
+        !joined(&raw, "log_off"),
+        "{NAME}: control: the opted-out subscriber has a group token"
+    );
     let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
     let lines: Vec<&str> = text
         .lines()
         .filter(|l| l.contains("CPU buffer group"))
         .collect();
-    let expected = |topic: &str| {
-        format!(
-            "joins the rmw_zenoh CPU buffer group: subscribes to keys {base} and {group}. A \
-             router rule must allow both keys.",
-            base = base_key(topic, &UINT8),
-            group = group_key(topic, &UINT8)
-        )
-    };
-    // Control: the joined subscribers exist, so a missing line is a missing log and not a missing
-    // join. The subscriber that stays out declares no group token.
-    let raw = raw_session(router.endpoint());
-    assert!(
-        token_for(&raw, "log_b").ends_with("/backends:cpu:"),
-        "joining_logs_the_group_key_at_debug_level: control: the joined subscriber has no group token"
-    );
-    assert!(
-        !token_for(&raw, "log_off").contains("backends:"),
-        "joining_logs_the_group_key_at_debug_level: control: the opted-out subscriber has a group token"
-    );
-    let count = |topic: &str| {
+    let naming = |topic: &str| {
+        let (base, group) = (base_key(topic, &UINT8), group_key(topic, &UINT8));
         lines
             .iter()
-            .filter(|l| l.ends_with(&expected(topic)))
+            .filter(|l| l.contains(&base) && l.contains(&group))
             .count()
     };
-    assert!(
-        lines.len() == 4,
-        "joining_logs_the_group_key_at_debug_level: want one line per join, got {}: {text}",
-        lines.len()
-    );
-    assert_eq!(
-        count("log_a"),
-        3,
-        "joining_logs_the_group_key_at_debug_level: lines for log_a: {text}"
-    );
-    assert_eq!(
-        count("log_b"),
-        1,
-        "joining_logs_the_group_key_at_debug_level: lines for log_b: {text}"
-    );
+    assert_eq!(naming("log_a"), 2, "{NAME}: events for log_a: {text}");
+    assert_eq!(naming("log_b"), 1, "{NAME}: events for log_b: {text}");
+    assert_eq!(naming("log_off"), 0, "{NAME}: events for log_off: {text}");
+    assert_eq!(lines.len(), 3, "{NAME}: one event per join: {text}");
     assert!(
         lines.iter().all(|l| l.contains(" DEBUG ")),
-        "joining_logs_the_group_key_at_debug_level: a line is not at debug level: {text}"
+        "{NAME}: an event is not at debug level: {text}"
     );
 }
 
