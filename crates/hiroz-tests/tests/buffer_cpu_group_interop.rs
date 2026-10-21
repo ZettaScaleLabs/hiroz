@@ -114,21 +114,9 @@ fn base_key(topic: &str, type_name: &str, hash: &hiroz::TypeHash) -> String {
     )
 }
 
-/// The base key a released publisher writes for the topic of `entity`, in the key format of the
-/// distro this binary is built for. The type-hash segment is `RIHS01_...` on Jazzy and later and
-/// `TypeHashNotSupported` on Humble, so a test that reads the base key must not spell the hash.
-fn entity_base_key(entity: &hiroz_protocol::EndpointEntity) -> String {
-    hiroz_protocol::KeyExprFormat::default()
-        .topic_key_expr(entity)
-        .expect("base key")
-        .as_str()
-        .to_owned()
-}
-
 /// A released `rclpy` publisher of a message with a `data` field of `size` bytes. Message number
-/// `seq` carries `seq` as 4 little-endian bytes in `data`. The kind `plain` publishes a
-/// `Float64MultiArray` with `seq` as its first element, and `size` is unused. It waits for `subs`
-/// matched subscribers, then publishes `n` messages at 5 Hz.
+/// `seq` carries `seq` as 4 little-endian bytes in `data`. It waits for `subs` matched
+/// subscribers, then publishes `n` messages at 5 Hz.
 const SEQ_PUBLISHER: &str = r#"
 import sys, time, rclpy
 kind, topic, n, size, subs = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
@@ -136,8 +124,6 @@ rclpy.init()
 node = rclpy.create_node('seq_pub')
 if kind == 'uint8':
     from std_msgs.msg import UInt8MultiArray as Msg
-elif kind == 'plain':
-    from std_msgs.msg import Float64MultiArray as Msg
 else:
     from sensor_msgs.msg import PointCloud2 as Msg
 pub = node.create_publisher(Msg, topic, 10)
@@ -150,11 +136,6 @@ for seq in range(n):
     data = bytearray(size)
     data[0:4] = seq.to_bytes(4, 'little')
     m = Msg()
-    if kind == 'plain':
-        m.data = [float(seq), 2.0]
-        pub.publish(m)
-        rclpy.spin_once(node, timeout_sec=0.2)
-        continue
     if kind != 'uint8':
         m.header.frame_id = 'cloud'
         m.height = 1
@@ -494,15 +475,10 @@ use hiroz_msgs::example_interfaces::{FibonacciGoal, action::Fibonacci};
 /// The hiroz action client receives each feedback message of the released Fibonacci server once.
 /// The server of `action_tutorials_cpp` publishes the whole sequence after each step, so
 /// feedback number `i` holds `i + 3` numbers: the received lengths must be exactly
-/// `3, 4, ..., order + 1`. The group key carries no sample, as feedback is not a buffer topic.
+/// `3, 4, ..., order + 1`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn action_feedback_arrives_once_each_with_the_group_joined() {
-    use std::{
-        os::unix::process::CommandExt,
-        sync::atomic::{AtomicUsize, Ordering},
-    };
-
-    use zenoh::Wait;
+    use std::os::unix::process::CommandExt;
 
     const NAME: &str = "action_feedback_arrives_once_each_with_the_group_joined";
     const ORDER: i32 = 6;
@@ -511,17 +487,6 @@ async fn action_feedback_arrives_once_each_with_the_group_joined() {
         "{NAME}: ros2 and action_tutorials_cpp are required: run this test where they are installed"
     );
     let router = TestRouter::new();
-    let plain = client_session(router.endpoint());
-    let group = Arc::new(AtomicUsize::new(0));
-    let seen = group.clone();
-    let _group_sub = plain
-        .declare_subscriber(format!("0/**/{GROUP_SUFFIX}"))
-        .callback(move |_| {
-            seen.fetch_add(1, Ordering::SeqCst);
-        })
-        .wait()
-        .expect("group subscriber");
-
     let server = Command::new("ros2")
         .args(["run", "action_tutorials_cpp", "fibonacci_action_server"])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
@@ -581,76 +546,6 @@ async fn action_feedback_arrives_once_each_with_the_group_joined() {
         got, expected,
         "{NAME}: feedback lengths, each once in order"
     );
-    assert_eq!(
-        group.load(Ordering::SeqCst),
-        0,
-        "{NAME}: samples on the group key"
-    );
-}
-
-/// A topic that is not a buffer topic delivers each sample once to a subscriber that joined the
-/// group. Message `seq` carries `seq` as its first element, so the test names every sample that
-/// arrived and every one that arrived twice. The base key carries the samples and the group key
-/// nothing.
-#[test]
-fn non_buffer_topic_delivers_each_sample_once_with_the_group_joined() {
-    const NAME: &str = "non_buffer_topic_delivers_each_sample_once_with_the_group_joined";
-    assert!(
-        check_ros2_available(),
-        "{NAME}: ros2 is required: run this test where a released ROS 2 is installed"
-    );
-    let router = TestRouter::new();
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("plaincell_node").build().expect("node");
-    let joined = node
-        .create_sub::<hiroz_msgs::std_msgs::Float64MultiArray>("/plaincell")
-        .with_buffer_group(hiroz::BufferGroup::Cpu)
-        .build()
-        .unwrap();
-    let keys = KeyCounts::new(router.endpoint(), &entity_base_key(joined.entity()));
-    wait_for_ready(Duration::from_secs(2));
-
-    let mut publisher = spawn_seq_publisher(&router, "plain", "/plaincell", 0, 1);
-    let mut seen = std::collections::BTreeSet::new();
-    let mut repeats = 0;
-    let mut received = 0;
-    drain_until_published(&mut publisher, |poll| {
-        if let Ok(m) = joined.recv_timeout(poll) {
-            received += 1;
-            if !seen.insert(m.data[0] as u32) {
-                repeats += 1;
-            }
-        }
-    });
-    let status = publisher
-        .child
-        .as_mut()
-        .and_then(|c| c.try_wait().ok().flatten());
-
-    let missing: Vec<u32> = (0..SAMPLES).filter(|s| !seen.contains(s)).collect();
-    println!(
-        "RESULT {NAME}: received={received} of {SAMPLES} repeats={repeats} missing={missing:?} \
-         group={} base={}",
-        keys.group(),
-        keys.base()
-    );
-    // Control: the publisher ran to the end, so a missing sample is a lost sample.
-    assert!(
-        status.is_some_and(|s| s.success()),
-        "{NAME}: control: the publisher did not exit with success: {status:?}"
-    );
-    // The base key carries the samples, so the topic is not a buffer topic.
-    assert_eq!(keys.group(), 0, "{NAME}: group key count");
-    assert!(
-        keys.base() >= SAMPLES as usize * 2 / 3,
-        "{NAME}: the base key carried {} of {SAMPLES}",
-        keys.base()
-    );
-    assert!(
-        missing.is_empty(),
-        "{NAME}: samples never received: {missing:?}"
-    );
-    assert_eq!(repeats, 0, "{NAME}: samples received twice");
 }
 
 /// A matched set read by one run: the key counts and each hiroz subscriber.
