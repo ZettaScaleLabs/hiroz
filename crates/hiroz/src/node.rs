@@ -732,30 +732,31 @@ impl ZNode {
             None
         };
 
-        let handler = move |sample: zenoh::sample::Sample| callback(&sample.payload().to_bytes());
-        let builder = match plan.as_ref().and_then(|p| p.group_key()) {
-            Some(group_key) => {
-                let base = key_expr.as_str().to_owned();
+        // A joined subscriber declares two exact subscriptions, the base key and the group key,
+        // both before the token. One callback serves both.
+        let shared = std::sync::Arc::new(callback);
+        let mut group_sub = None;
+        if let Some(group_key) = plan.as_ref().and_then(|p| p.group_key()) {
+            let h = shared.clone();
+            group_sub = Some(
                 self.session
-                    .declare_subscriber(crate::buffer_group::union_key(&base)?)
-                    .callback(crate::buffer_group::only_base_and_group(
-                        base,
-                        group_key.to_owned(),
-                        handler,
-                    ))
-                    .advanced()
-            }
-            None => self
-                .session
-                .declare_subscriber(key_expr)
-                .callback(handler)
-                .advanced(),
-        };
+                    .declare_subscriber(zenoh::key_expr::KeyExpr::try_from(group_key.to_owned())?)
+                    .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()))
+                    .wait()?,
+            );
+        }
+        let h = shared.clone();
+        let builder = self
+            .session
+            .declare_subscriber(key_expr)
+            .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()))
+            .advanced();
         let subscriber = apply_transient_local_sub(builder, &entity.qos).wait()?;
         let token = plan.map(|p| p.declare(&self.session)).transpose()?;
 
         Ok(crate::ffi::subscriber::RawSubscriber {
             _token: token,
+            _group_sub: group_sub,
             inner: subscriber,
         })
     }

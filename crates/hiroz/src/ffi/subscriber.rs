@@ -12,6 +12,8 @@ pub struct RawSubscriber {
     /// Declared first, so it drops first: the token goes before the subscription it announces.
     pub(crate) _token: Option<zenoh::liveliness::LivelinessToken>,
     pub inner: AdvancedSubscriber<()>,
+    /// The exact subscription on the group key, when the subscriber joins.
+    pub(crate) _group_sub: Option<zenoh::pubsub::Subscriber<()>>,
 }
 
 /// Opaque subscriber handle for FFI
