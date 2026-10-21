@@ -187,7 +187,7 @@ impl Cell {
         let router = TestRouter::new();
         let ctx = create_hiroz_context_with_router(&router).expect("ctx");
         let node = ctx
-            .create_node(&format!("{topic}_node"))
+            .create_node(format!("{topic}_node"))
             .build()
             .expect("node");
         Some(Self {
