@@ -1152,9 +1152,9 @@ fn joining_logs_the_group_key_at_debug_level() {
         .collect();
     let expected = |topic: &str| {
         format!(
-            "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes \
-             key {group}. A router access-control rule that denies {base}/** or {group} drops \
-             buffer messages and reports no error. Allow {base}/** wherever you allow {base}.",
+            "joined the rmw_zenoh CPU buffer group: subscribed to keys {base} and {group}. A \
+             router access-control rule that denies {group} drops buffer messages and reports no \
+             error. Allow {group} wherever you allow {base}.",
             base = base_key(topic, &UINT8),
             group = group_key(topic, &UINT8)
         )
@@ -1358,30 +1358,30 @@ fn run_acl_cases(name: &str, router: &TestRouter, cases: &[AclCase]) {
     }
 }
 
-/// A router that denies by default and allows the base key of every case, and the keys under each
-/// base key when `wide` is set.
-fn router_allowing_cases(cases: &[AclCase], wide: bool) -> TestRouter {
+/// A router that denies by default and allows the base key of every case, and the group key of
+/// each case when `group` is set.
+fn router_allowing_cases(cases: &[AclCase], group: bool) -> TestRouter {
     let mut keys = Vec::new();
     for c in cases {
-        let base = base_key(c.topic, c.wire());
-        if wide {
-            keys.push(format!("{base}/**"));
+        if group {
+            keys.push(group_key(c.topic, c.wire()));
         }
-        keys.push(base);
+        keys.push(base_key(c.topic, c.wire()));
     }
     router_allowing_only(&keys)
 }
 
-/// Router access control starves a joined subscriber silently. A joined subscriber declares
-/// `<topic key>/**`, so a default-deny router that allows `<topic key>` and not `<topic key>/**`
-/// starves it, and `build` still returns `Ok`. This holds for a buffer type and for a subscriber
-/// with no message definition, which joins on a topic that carries no buffer too. A rule that
-/// denies the group key starves the group key and leaves the base key flowing.
+/// Router access control starves the group key of a joined subscriber silently. A joined
+/// subscriber declares `<topic key>` and `<topic key>/_buf_cpu`, so a default-deny router that
+/// allows `<topic key>` and not the group key starves the group key, and `build` still returns
+/// `Ok`. The base key still flows. This holds for a buffer type and for a subscriber with no
+/// message definition, which joins on a topic that carries no buffer too. A rule that denies the
+/// group key starves the group key and leaves the base key flowing.
 ///
 /// Controls in the same test: an `Off` subscriber receives under the allow-only rule, so the puts
-/// reach the router and the rule lets the base key through. A joined subscriber receives once the
-/// rule also allows `<topic key>/**`, which is the remedy the docs give. Without the deny rule the
-/// same joined subscriber receives on the group key.
+/// reach the router and the rule lets the base key through. A joined subscriber receives on the
+/// group key once the rule also allows it, which is the remedy the docs give. Without the deny
+/// rule the same joined subscriber receives on the group key.
 #[test]
 fn router_access_control_starves_a_joined_subscriber_silently() {
     const NAME: &str = "router_access_control_starves_a_joined_subscriber_silently";
@@ -1394,12 +1394,14 @@ fn router_access_control_starves_a_joined_subscriber_silently() {
         delivers,
     };
 
-    // Allow the topic key only. Each joined subscriber is starved, each Off subscriber is not.
+    // Allow the topic key only. The group key of each joined subscriber is starved, its base key
+    // and each Off subscriber are not.
     let allow_base = [
         case("al_buf_off", false, Off, false, true),
         case("al_num_off", true, Off, false, true),
-        case("al_buf", false, Auto, false, false),
-        case("al_num", true, Auto, false, false),
+        case("al_buf", false, Auto, true, false),
+        case("al_num", true, Auto, true, false),
+        case("al_buf_base", false, Auto, false, true),
     ];
     run_acl_cases(
         NAME,
@@ -1407,12 +1409,12 @@ fn router_access_control_starves_a_joined_subscriber_silently() {
         &allow_base,
     );
 
-    // Allow the topic key and everything under it, the remedy the docs give.
-    let allow_wide = [
-        case("aw_buf", false, Auto, false, true),
-        case("aw_num", true, Auto, false, true),
+    // Allow the topic key and the group key, the remedy the docs give.
+    let allow_pair = [
+        case("aw_buf", false, Auto, true, true),
+        case("aw_num", true, Auto, true, true),
     ];
-    run_acl_cases(NAME, &router_allowing_cases(&allow_wide, true), &allow_wide);
+    run_acl_cases(NAME, &router_allowing_cases(&allow_pair, true), &allow_pair);
 
     // Deny the group key. The same joined subscriber receives on the group key of an open router.
     let open = [case("ad_buf", false, Auto, true, true)];
@@ -1425,17 +1427,17 @@ fn router_access_control_starves_a_joined_subscriber_silently() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The base subscription serves the group key
+// A joined subscriber has no subscription on other keys
 // ---------------------------------------------------------------------------------------------
 
-/// The joined subscriber has one subscription, on `<base>/**`. It serves the base key and the
-/// group key. Every other key under the base reaches that subscription, and the subscriber drops
-/// it in process: another group of the same topic (`_buf_cuda`, say) never reaches the callback.
+/// The joined subscriber has two exact subscriptions, on the base key and the group key. Another
+/// group of the same topic (`_buf_cuda`, say) does not reach the process, and no subscription of
+/// the subscriber matches it.
 ///
-/// Control 1 shows the subscription is wide: a raw publisher on each other key sees a matching
-/// subscriber. Without it, "nothing arrived" cannot tell a filter from a subscription that is too
-/// narrow. Control 2 shows the group key and the base key still deliver. Each key puts a payload of
-/// its own and the callback records it, so the base check cannot pass on a late group sample.
+/// Control 1 shows the detector detects: a raw publisher on the group key sees a matching
+/// subscriber, and a raw publisher on each other key sees none. Control 2 shows the group key and
+/// the base key deliver. Each key puts a payload of its own and the callback records it, so the
+/// base check cannot pass on a late group sample.
 #[test]
 fn other_groups_of_the_topic_never_reach_a_joined_subscriber() {
     const PUTS: usize = 10;
@@ -1466,19 +1468,30 @@ fn other_groups_of_the_topic_never_reach_a_joined_subscriber() {
         format!("{base}/deeper/_buf_cpu"),
     ];
 
-    // Control 1: each other key reaches a subscription of the subscriber's session.
+    // Control 1: the group key reaches a subscription of the subscriber's session, so a raw
+    // publisher can see a match.
+    let group = group_key("iso_groups", &UINT8);
+    let group_publisher = raw
+        .declare_publisher(group.clone())
+        .wait()
+        .expect("publisher");
+    let end = Instant::now() + RECV;
+    while !group_publisher.matching_status().wait().unwrap().matching() && Instant::now() < end {
+        std::thread::sleep(POLL);
+    }
+    assert!(
+        group_publisher.matching_status().wait().unwrap().matching(),
+        "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: no subscription matches {group}, so the detector cannot see a match"
+    );
     for key in &others {
         let publisher = raw
             .declare_publisher(key.clone())
             .wait()
             .expect("publisher");
-        let end = Instant::now() + RECV;
-        while !publisher.matching_status().wait().unwrap().matching() && Instant::now() < end {
-            std::thread::sleep(POLL);
-        }
+        std::thread::sleep(QUIET);
         assert!(
-            publisher.matching_status().wait().unwrap().matching(),
-            "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: no subscription matches {key}, so the subscriber's key is not wide"
+            !publisher.matching_status().wait().unwrap().matching(),
+            "other_groups_of_the_topic_never_reach_a_joined_subscriber: a subscription matches {key}"
         );
         for _ in 0..PUTS {
             publisher.put(tagged(OTHER)).wait().expect("put");
@@ -1493,7 +1506,6 @@ fn other_groups_of_the_topic_never_reach_a_joined_subscriber() {
     );
 
     // Control 2: the group key and the base key deliver, each its own sample.
-    let group = group_key("iso_groups", &UINT8);
     assert!(
         put_until(&raw, &group, &tagged(GROUP), RECV, || has(GROUP)),
         "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: sample {GROUP} never arrived on {group}: saw {:?}",
