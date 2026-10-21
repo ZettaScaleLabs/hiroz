@@ -12,6 +12,7 @@ publish = false
 hiroz = { path = "../hiroz", default-features = false, features = ["protobuf"] }
 hiroz-msgs = { path = "../hiroz-msgs", default-features = false, optional = true }
 hiroz-cdr = { path = "../hiroz-cdr" }
+hiroz-protocol = { path = "../hiroz-protocol" }                                    # key format types in buffer_cpu_group tests
 hiroz-schema = { path = "../hiroz-schema" }
 protobuf_demo = { path = "../hiroz/examples/protobuf_demo" }
 

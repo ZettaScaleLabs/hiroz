@@ -384,10 +384,14 @@ impl ZNode {
         // consumer that answers GetTypeDescription for its subscribed type, as
         // ROS 2 nodes do. This is what lets `hu meter pub` resolve the schema
         // from a topic that only has a subscriber.
-        if let Some(schema) = T::message_schema() {
-            self.register_schema_with_type_description_service(&schema);
+        let schema = T::message_schema();
+        if let Some(schema) = &schema {
+            self.register_schema_with_type_description_service(schema);
         }
-        self.create_sub_impl(topic, Some(T::type_info()))
+        let mut builder = self.create_sub_impl(topic, Some(T::type_info()));
+        // `None` without a schema: such a subscriber cannot tell, so `Auto` joins it.
+        builder.has_buffer_fields = schema.map(|schema| schema.has_buffer_fields());
+        builder
     }
 
     #[doc(hidden)]
@@ -417,6 +421,8 @@ impl ZNode {
             dyn_schema: None,
             locality: None,
             expected_encoding: None,
+            buffer_group: Default::default(),
+            has_buffer_fields: None,
             _phantom_data: Default::default(),
         }
     }
@@ -455,7 +461,10 @@ impl ZNode {
             "[NOD] Creating cache: topic={}, capacity={}",
             topic, capacity
         );
-        let sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
+        let mut sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
+        // The rule of `create_sub`. A cache does not call `create_sub`, because that also registers
+        // the type-description service.
+        sub_builder.has_buffer_fields = T::message_schema().map(|schema| schema.has_buffer_fields());
         ZCacheBuilder::new(sub_builder, capacity)
     }
 
