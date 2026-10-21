@@ -1,10 +1,9 @@
 //! A hiroz subscriber to a buffer message must join rmw_zenoh's CPU buffer group.
 //!
 //! A buffer-aware `rmw_zenoh_cpp` publisher writes a message with a buffer field on the group key
-//! for a subscriber whose token ends in `backends:cpu:`. The released publisher writes nothing on
-//! the base key for a subscriber whose token has no `backends:` field. These tests play the
-//! publisher with a raw Zenoh session, so they need no ROS installation. They check the two things
-//! the publisher reads: the token, and the subscription.
+//! for a subscriber whose token ends in `backends:cpu:`. These tests play the publisher with a raw
+//! Zenoh session, so they need no ROS installation. They check the two things the publisher reads:
+//! the token, and the subscription.
 //!
 //! Expected values are literals from real `rmw_zenoh` output: the token layout and the message
 //! hashes come from tokens a Lyrical publisher and subscriber wrote, the QoS chunks from the
@@ -1445,7 +1444,7 @@ fn sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_s
 /// delivers each sample once. Two tests pin the subscriptions through matching status and router
 /// access control:
 /// `sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_subscriber` and
-/// `exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys`.
+/// `router_access_control_starves_a_joined_subscriber_silently`.
 ///
 /// Controls in the same test: the `Off` subscriber receives its base sample, and no subscription
 /// matches its group key, while a subscription matches the group key of the joined topic.
