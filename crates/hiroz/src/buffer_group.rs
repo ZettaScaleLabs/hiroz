@@ -83,57 +83,39 @@ pub(crate) fn joins(
     join
 }
 
-/// The join decision of one subscriber build, kept for the two steps that need it. The build
-/// declares the subscriptions first, and they need the group key. It declares the token last, and
-/// the token needs the same answer. `declare` also holds the token code that the two build paths,
-/// `build_internal` and `build_raw_subscriber`, share. Computing a plan declares nothing.
-pub(crate) struct Plan {
-    token_key: String,
-    /// The topic key and the group key, when joining.
-    keys: Option<(String, String)>,
+/// The group key of a topic key. `rmw_zenoh_cpp` builds it in `make_cpu_group_key`.
+pub(crate) fn group_key(base: &str) -> String {
+    format!("{base}/_buf_cpu")
 }
 
-impl Plan {
-    /// Read the topic key from `entity`, so the caller must have qualified the topic first.
-    pub(crate) fn new(
-        format: &KeyExprFormat,
-        entity: &EndpointEntity,
-        zid: &zenoh::session::ZenohId,
-        join: bool,
-    ) -> Result<Self> {
-        let mut token_key = format.liveliness_key_expr(entity, zid)?.as_str().to_owned();
-        let keys = if join {
-            // The token of a CPU-only subscriber ends in `backends:cpu:`.
-            token_key.push_str("/backends:cpu:");
-            let base = format.topic_key_expr(entity)?.as_str().to_owned();
-            // The group key is the base key and `_buf_cpu`, the key `rmw_zenoh_cpp` builds in
-            // `make_cpu_group_key`.
-            let group = format!("{base}/_buf_cpu");
-            Some((base, group))
-        } else {
-            None
-        };
-        Ok(Self { token_key, keys })
+/// Declare the liveliness token of a subscriber, then log a join. `base` is the topic key.
+///
+/// The token of a joined subscriber ends in `backends:cpu:`, as the token of a CPU-only
+/// `rmw_zenoh_cpp` subscriber does. Call this after the subscriptions are declared, so that a
+/// publisher that reads the token finds a subscription for the group key. A declaration that fails
+/// logs nothing.
+pub(crate) fn declare_token(
+    session: &zenoh::Session,
+    format: &KeyExprFormat,
+    entity: &EndpointEntity,
+    base: &str,
+    join: bool,
+) -> Result<LivelinessToken> {
+    let mut token_key = format
+        .liveliness_key_expr(entity, &session.zid())?
+        .as_str()
+        .to_owned();
+    if join {
+        token_key.push_str("/backends:cpu:");
     }
-
-    /// The group key, when the subscriber joins.
-    pub(crate) fn group_key(&self) -> Option<&str> {
-        self.keys.as_ref().map(|(_, group)| group.as_str())
+    let token = session
+        .liveliness()
+        .declare_token(KeyExpr::try_from(token_key)?)
+        .wait()?;
+    if join {
+        log_join(base, &group_key(base));
     }
-
-    /// Declare the token, then log the join. A declaration that fails logs nothing. The caller has
-    /// already declared both subscriptions, so a publisher that reads the token finds a
-    /// subscription for the group key.
-    pub(crate) fn declare(self, session: &zenoh::Session) -> Result<LivelinessToken> {
-        let token = session
-            .liveliness()
-            .declare_token(KeyExpr::try_from(self.token_key)?)
-            .wait()?;
-        if let Some((base, group)) = &self.keys {
-            log_join(base, group);
-        }
-        Ok(token)
-    }
+    Ok(token)
 }
 
 /// Log one join. An operator learns here that the subscription needs an access-control rule: a

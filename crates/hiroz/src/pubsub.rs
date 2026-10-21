@@ -799,16 +799,17 @@ where
         let key_expr = (*topic_ke).clone();
         debug!("[CACHE] Key expression: {}", key_expr);
 
-        let plan = self.group_plan()?;
+        let join = self.joins_group();
         // Both subscriptions come before the token, so a publisher that reads the token finds a
         // subscription. The callback is `Fn`, so the two subscriptions share one `Arc` of it.
         let shared = Arc::new(callback);
         let mut group_sub = None;
-        if let Some(group_key) = plan.group_key() {
+        if join {
             let h = shared.clone();
+            let group_key = crate::buffer_group::group_key(key_expr.as_str());
             group_sub = Some(
                 self.session
-                    .declare_subscriber(KeyExpr::try_from(group_key.to_owned())?)
+                    .declare_subscriber(KeyExpr::try_from(group_key)?)
                     .callback(move |s: Sample| h(s))
                     .wait()?,
             );
@@ -816,29 +817,28 @@ where
         let h = shared.clone();
         let sub = self
             .session
-            .declare_subscriber(key_expr)
+            .declare_subscriber(key_expr.clone())
             .callback(move |s: Sample| h(s))
             .wait()?;
 
-        let token = plan.declare(&self.session)?;
+        let token = crate::buffer_group::declare_token(
+            &self.session,
+            &self.keyexpr_format,
+            &self.entity,
+            key_expr.as_str(),
+            join,
+        )?;
 
         Ok(((sub, group_sub), token))
     }
 
-    /// What the subscriber declares for the group: its token, and the group key when it joins.
-    /// Call it after the topic is qualified, because the plan reads the topic key from `entity`.
-    fn group_plan(&self) -> Result<crate::buffer_group::Plan> {
-        let join = crate::buffer_group::joins(
+    /// Whether the subscriber joins the group. The decision is logged at debug level.
+    fn joins_group(&self) -> bool {
+        crate::buffer_group::joins(
             self.buffer_group,
             self.has_buffer_fields,
             &self.keyexpr_format,
             &self.entity,
-        );
-        crate::buffer_group::Plan::new(
-            &self.keyexpr_format,
-            &self.entity,
-            &self.session.zid(),
-            join,
         )
     }
 
@@ -902,16 +902,17 @@ where
         };
 
         // Build an AdvancedSubscriber and configure based on durability
-        let plan = self.group_plan()?;
+        let join = self.joins_group();
         // A joined subscriber declares a second exact subscription on the group key. Both
         // subscriptions come before the token and share one `Arc` of the callback.
         let shared = Arc::new(validated_handler);
         let mut group_sub = None;
-        if let Some(group_key) = plan.group_key() {
+        if join {
             let h = shared.clone();
+            let group_key = crate::buffer_group::group_key(key_expr.as_str());
             let mut gb = self
                 .session
-                .declare_subscriber(KeyExpr::try_from(group_key.to_owned())?)
+                .declare_subscriber(KeyExpr::try_from(group_key)?)
                 .callback(move |s: Sample| h(s));
             if let Some(locality) = self.locality {
                 gb = gb.allowed_origin(locality);
@@ -921,7 +922,7 @@ where
         let h = shared.clone();
         let mut sub_builder = self
             .session
-            .declare_subscriber(key_expr)
+            .declare_subscriber(key_expr.clone())
             .callback(move |s: Sample| h(s))
             .advanced();
 
@@ -934,7 +935,13 @@ where
         let sub_builder = apply_transient_local_sub(sub_builder, &self.entity.qos);
         let inner = sub_builder.wait()?;
 
-        let token = plan.declare(&self.session)?;
+        let token = crate::buffer_group::declare_token(
+            &self.session,
+            &self.keyexpr_format,
+            &self.entity,
+            key_expr.as_str(),
+            join,
+        )?;
 
         debug!("[SUB] Subscriber ready: topic={}", self.entity.topic);
 
