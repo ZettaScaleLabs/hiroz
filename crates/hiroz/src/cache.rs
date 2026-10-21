@@ -123,11 +123,8 @@ impl<T> CacheInner<T> {
 /// liveliness token.
 pub struct ZCache<T: ZMessage> {
     inner: Arc<RwLock<CacheInner<T>>>,
-    /// Field order is drop order. The token drops first, so the subscriptions outlive it and the
-    /// group is never advertised without a subscription.
-    _token: LivelinessToken,
-    /// The topic-key subscription and, when the cache joined the group, the group subscription.
     _sub: crate::pubsub::RawSubscriptions,
+    _lv_token: LivelinessToken,
 }
 
 impl<T: ZMessage> ZCache<T> {
@@ -360,7 +357,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, token) =
+        let (sub, lv_token) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -390,8 +387,8 @@ where
         debug!("[CACHE] ZenohStamp cache ready");
         Ok(ZCache {
             inner,
-            _token: token,
             _sub: sub,
+            _lv_token: lv_token,
         })
     }
 }
@@ -417,7 +414,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, token) =
+        let (sub, lv_token) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -432,8 +429,8 @@ where
         debug!("[CACHE] ExtractorStamp cache ready");
         Ok(ZCache {
             inner,
-            _token: token,
             _sub: sub,
+            _lv_token: lv_token,
         })
     }
 }

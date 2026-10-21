@@ -1107,8 +1107,7 @@ impl Write for Captured {
 
 /// Each join logs one `debug` line that names the subscribed key and the group key. Three
 /// subscribers on one key log three lines; a second key logs one; a subscriber that stays out logs
-/// no join line. The test counts the lines that contain `CPU buffer group`. The separate decision
-/// line of `joins` does not contain that text.
+/// no join line. The test counts the lines that contain `CPU buffer group`.
 #[test]
 fn joining_logs_the_group_key_at_debug_level() {
     let out = Captured::default();
@@ -1159,9 +1158,8 @@ fn joining_logs_the_group_key_at_debug_level() {
         .collect();
     let expected = |topic: &str| {
         format!(
-            "joined the rmw_zenoh CPU buffer group: subscribed to keys {base} and {group}. A \
-             router access-control rule that denies {group} drops buffer messages and reports no \
-             error. Allow {group} wherever you allow {base}.",
+            "joins the rmw_zenoh CPU buffer group: subscribes to keys {base} and {group}. A \
+             router rule must allow both keys.",
             base = base_key(topic, &UINT8),
             group = group_key(topic, &UINT8)
         )

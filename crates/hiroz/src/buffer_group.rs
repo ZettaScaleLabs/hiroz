@@ -59,17 +59,8 @@ pub enum BufferGroup {
 
 /// Whether a subscriber joins. `has_buffer_fields` is `None` when hiroz has no message definition.
 ///
-/// Only the `rmw_zenoh` key format has the group, so no other format joins.
-///
-/// A transient-local subscriber does not join. The released `rmw_zenoh_cpp` 0.10.6 package keeps a
-/// transient-local subscriber off the buffer endpoints and serves its history on the base key only.
-/// This was measured with five runs per cell, for late joiners of three kinds on Image topics: the
-/// history arrived on the base key in every cell and never on the group key. A newer source
-/// revision that is not released serves history on the group key. A transient-local subscriber
-/// therefore stays out of the group and reads its history from the base key. Delivery of history
-/// after the open fix for legacy subscribers is released is not tested.
-///
-/// The function logs the decision at debug level, for a join and for a subscriber that stays out.
+/// Only the `rmw_zenoh` key format has the group. A transient-local subscriber stays out: the
+/// released `rmw_zenoh_cpp` serves its history on the base key only.
 pub(crate) fn joins(
     group: BufferGroup,
     has_buffer_fields: Option<bool>,
@@ -81,14 +72,9 @@ pub(crate) fn joins(
         BufferGroup::Off => false,
         BufferGroup::Auto => has_buffer_fields != Some(false),
     };
-    let join = wanted
+    wanted
         && matches!(format, KeyExprFormat::RmwZenoh)
-        && entity.qos.durability != QosDurability::TransientLocal;
-    debug!(
-        "[BUF] cpu group: topic={} join={join} (group={group:?}, buffers={has_buffer_fields:?})",
-        entity.topic
-    );
-    join
+        && entity.qos.durability != QosDurability::TransientLocal
 }
 
 /// The group key of a topic key. `rmw_zenoh_cpp` builds it in `make_cpu_group_key`.
@@ -96,17 +82,13 @@ pub(crate) fn group_key(base: &str) -> String {
     format!("{base}/_buf_cpu")
 }
 
-/// Declare the liveliness token of a subscriber, then log a join. `base` is the topic key.
-///
-/// The token of a joined subscriber ends in `backends:cpu:`, as the token of a CPU-only
-/// `rmw_zenoh_cpp` subscriber does. Call this after the subscriptions are declared, so that a
-/// publisher that reads the token finds a subscription for the group key. A declaration that fails
-/// logs nothing.
+/// Declare the liveliness token of a subscriber. The token of a joined subscriber ends in
+/// `backends:cpu:`. Call this after the subscriptions are declared: a publisher that reads the
+/// token must find a subscription for the group key.
 pub(crate) fn declare_token(
     session: &zenoh::Session,
     format: &KeyExprFormat,
     entity: &EndpointEntity,
-    base: &str,
     join: bool,
 ) -> Result<LivelinessToken> {
     let mut token_key = format
@@ -116,22 +98,16 @@ pub(crate) fn declare_token(
     if join {
         token_key.push_str("/backends:cpu:");
     }
-    let token = session
+    session
         .liveliness()
         .declare_token(KeyExpr::try_from(token_key)?)
-        .wait()?;
-    if join {
-        log_join(base, &group_key(base));
-    }
-    Ok(token)
+        .wait()
 }
 
-/// Log one join. An operator learns here that the subscription needs an access-control rule: a
-/// router that denies the group key drops buffer messages and reports no error.
-fn log_join(base: &str, group: &str) {
+/// Log one join, so an operator can find the two keys that a router rule must allow.
+pub(crate) fn log_join(base: &str, group: &str) {
     debug!(
-        "joined the rmw_zenoh CPU buffer group: subscribed to keys {base} and {group}. A router \
-         access-control rule that denies {group} drops buffer messages and reports no error. Allow \
-         {group} wherever you allow {base}."
+        "joins the rmw_zenoh CPU buffer group: subscribes to keys {base} and {group}. A router \
+         rule must allow both keys."
     );
 }
