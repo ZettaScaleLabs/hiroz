@@ -882,6 +882,28 @@ fn raw_subscriber_declares_two_exact_subscriptions_and_off_declares_one() {
     );
 }
 
+/// When the token of a default raw subscriber becomes visible, its group subscription is already
+/// declared. A publisher that reads the token then finds a subscription on the group key. The
+/// shared check runs inside the callback that reports the token, in 30 trials.
+#[test]
+fn raw_group_subscription_is_declared_before_the_token_is_visible() {
+    common::buffer_rmw::assert_group_declared_before_token(
+        "raw_group_subscription_is_declared_before_the_token_is_visible",
+        group_key,
+        |node, topic| {
+            Box::new(
+                node.create_raw_subscriber(
+                    &format!("/{topic}"),
+                    TYPE_NAME,
+                    TYPE_HASH,
+                    |_: &[u8]| {},
+                )
+                .expect("raw subscriber"),
+            )
+        },
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Repeated create and destroy
 // ---------------------------------------------------------------------------------------------
