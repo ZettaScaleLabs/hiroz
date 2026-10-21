@@ -5,10 +5,15 @@
 use std::{
     collections::BTreeMap,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
 };
 
-use zenoh::Wait;
+use hiroz::{Builder, context::ZContextBuilder, node::ZNode};
+use zenoh::{Wait, sample::SampleKind};
 
 /// The suffix of the key a buffer-aware publisher writes buffer messages to.
 pub const GROUP_SUFFIX: &str = "_buf_cpu";
@@ -163,4 +168,99 @@ impl SeqSet {
     pub fn received_of(&self, sent: u32) -> usize {
         self.seen.range(0..sent).count()
     }
+}
+
+/// When the token of a subscriber becomes visible, its group subscription is already declared.
+///
+/// A raw peer session, linked straight to a node, declares a publisher on the group key of each
+/// trial. The node declares the subscriptions and then the token on one link, so when the raw
+/// session sees the token, its publisher must already match the group subscription. The check runs
+/// inside the callback that reports the token. A subscriber that declares the token first fails.
+///
+/// `group_key_of` maps a topic name without a leading slash to its group key. `build` declares one
+/// joined subscriber on that topic and returns it. The topic of trial `i` is `order_<i>`.
+pub fn assert_group_declared_before_token(
+    name: &str,
+    group_key_of: impl Fn(&str) -> String,
+    build: impl Fn(&ZNode, &str) -> Box<dyn std::any::Any>,
+) {
+    const TRIALS: usize = 30;
+    const WAIT: Duration = Duration::from_secs(3);
+    let endpoint = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("free port");
+        format!("tcp/127.0.0.1:{}", listener.local_addr().unwrap().port())
+    };
+    let mut config = zenoh::Config::default();
+    config.insert_json5("mode", "\"peer\"").unwrap();
+    config
+        .insert_json5("listen/endpoints", &format!("[\"{endpoint}\"]"))
+        .unwrap();
+    config
+        .insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    let raw = zenoh::open(config).wait().expect("raw peer session");
+    let ctx = ZContextBuilder::default()
+        .disable_multicast_scouting()
+        .with_connect_endpoints([endpoint])
+        .with_mode("peer")
+        .build()
+        .expect("ctx");
+    let node = ctx.create_node("tok_node").build().expect("node");
+
+    // The raw session declares a matching listener on each key before the node declares anything.
+    // The check below reads the matching state when the token callback runs.
+    let publishers: Arc<Vec<_>> = Arc::new(
+        (0..TRIALS)
+            .map(|i| {
+                let key = group_key_of(&format!("order_{i}"));
+                raw.declare_publisher(key).wait().unwrap()
+            })
+            .collect(),
+    );
+    let _listeners: Vec<_> = publishers
+        .iter()
+        .map(|p| p.matching_listener().callback(|_| {}).wait().unwrap())
+        .collect();
+    std::thread::sleep(Duration::from_secs(1));
+
+    // Per trial: 0 token not seen, 1 matched when the token was seen, 2 not matched.
+    let seen: Arc<Vec<AtomicUsize>> = Arc::new((0..TRIALS).map(|_| AtomicUsize::new(0)).collect());
+    let _watch = raw
+        .liveliness()
+        .declare_subscriber("@ros2_lv/**")
+        .callback({
+            let (publishers, seen) = (publishers.clone(), seen.clone());
+            move |sample| {
+                let trial = sample
+                    .key_expr()
+                    .as_str()
+                    .split('/')
+                    .find_map(|c| c.strip_prefix("%order_")?.parse::<usize>().ok());
+                if let (SampleKind::Put, Some(i)) = (sample.kind(), trial) {
+                    let matching = publishers[i].matching_status().wait().unwrap().matching();
+                    seen[i].store(if matching { 1 } else { 2 }, Ordering::SeqCst);
+                }
+            }
+        })
+        .wait()
+        .unwrap();
+
+    let mut wrong = Vec::new();
+    for i in 0..TRIALS {
+        let _sub = build(&node, &format!("order_{i}"));
+        let end = Instant::now() + WAIT;
+        while seen[i].load(Ordering::SeqCst) == 0 && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        if seen[i].load(Ordering::SeqCst) != 1 {
+            wrong.push((i, seen[i].load(Ordering::SeqCst)));
+        }
+        if !wrong.is_empty() {
+            break;
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{name}: no match at the token, or no token (trial, state: 0 no token, 2 no match): {wrong:?}"
+    );
 }
