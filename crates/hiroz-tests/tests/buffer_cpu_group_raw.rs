@@ -877,3 +877,65 @@ fn raw_denied_group_key_leaves_the_base_key_flowing() {
     ];
     run_acl_cases(NAME, &router_denying("0/*/*/*/_buf_cpu"), &denied);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Repeated create and destroy
+// ---------------------------------------------------------------------------------------------
+
+/// Every cycle of create and drop on one topic declares one token, removes it, and leaves no
+/// callback on the group key or the base key. A token that accumulates, or a callback that
+/// outlives its subscriber, shows after a few cycles.
+#[test]
+fn raw_create_and_drop_cycles_leave_no_token_and_no_callback() {
+    const NAME: &str = "raw_create_and_drop_cycles_leave_no_token_and_no_callback";
+    const CYCLES: usize = 5;
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("raw_cycle").build().expect("node");
+
+    for cycle in 0..CYCLES {
+        let (count, callback) = counter();
+        let sub = node
+            .create_raw_subscriber("/raw_cycle_topic", TYPE_NAME, TYPE_HASH, callback)
+            .expect("raw subscriber");
+        let tokens = wait_tokens(&raw, "raw_cycle_topic");
+        assert!(
+            tokens.len() == 1 && tokens[0].ends_with("/backends:cpu:"),
+            "{NAME}: cycle {cycle}: expected one token ending backends:cpu:, got {tokens:?}"
+        );
+        // Positive control: the callback fires before the drop.
+        assert!(
+            put_until(&raw, &group_key("raw_cycle_topic"), &PAYLOAD, RECV, || {
+                count.load(Ordering::Relaxed) > 0
+            }),
+            "{NAME}: cycle {cycle}: the callback did not fire on the group key"
+        );
+
+        drop(sub);
+        let deadline = Instant::now() + RECV;
+        while !tokens_of(&raw, "raw_cycle_topic").is_empty() && Instant::now() < deadline {
+            std::thread::sleep(POLL);
+        }
+        let left = tokens_of(&raw, "raw_cycle_topic");
+        assert!(
+            left.is_empty(),
+            "{NAME}: cycle {cycle}: the token is still declared after the drop: {left:?}"
+        );
+        std::thread::sleep(POLL);
+        let before = count.load(Ordering::Relaxed);
+        for key in [group_key("raw_cycle_topic"), base_key("raw_cycle_topic")] {
+            for _ in 0..3 {
+                raw_put(&raw, &key);
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+        std::thread::sleep(POLL);
+        let after = count.load(Ordering::Relaxed);
+        assert!(
+            after == before,
+            "{NAME}: cycle {cycle}: the callback ran {} more time(s) after the drop",
+            after - before
+        );
+    }
+}
