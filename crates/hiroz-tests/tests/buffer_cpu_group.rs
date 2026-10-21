@@ -24,7 +24,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use common::*;
+use common::{buffer_rmw::client_session as raw_session, *};
 use hiroz::{
     BufferGroup, Builder, MessageTypeInfo,
     cache::ZCache,
@@ -111,18 +111,6 @@ const PAYLOAD: [u8; 19] = [
     3, 0, 0, 0, // data length
     1, 2, 3,
 ];
-
-fn raw_session(endpoint: &str) -> zenoh::Session {
-    let mut config = zenoh::Config::default();
-    config.insert_json5("mode", "\"client\"").unwrap();
-    config
-        .insert_json5("connect/endpoints", &format!("[\"{endpoint}\"]"))
-        .unwrap();
-    config
-        .insert_json5("scouting/multicast/enabled", "false")
-        .unwrap();
-    zenoh::open(config).wait().expect("raw session")
-}
 
 /// Every liveliness token currently declared. An error reply fails the test.
 fn tokens(session: &zenoh::Session) -> Vec<String> {
