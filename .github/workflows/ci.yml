@@ -31,6 +31,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Rust toolchain of the macOS jobs. The rust-cache key includes the Rust
+  # version, so a moving `stable` changes the key whenever the runner image
+  # changes it. Keep this equal to the Rust pin in flake.nix.
+  MACOS_RUST_TOOLCHAIN: 1.91.0
+
 jobs:
   release-notes:
     name: Release-note breaking markers
@@ -168,7 +174,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
           cache: false
-          toolchain: stable
+          toolchain: ${{ env.MACOS_RUST_TOOLCHAIN }}
           components: clippy, rustfmt
 
       - name: Install dependencies (macOS)
@@ -188,6 +194,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ${{ runner.os }}-pureRust-test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set environment variables (macOS)
         if: runner.os == 'macOS'
@@ -275,6 +282,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ${{ runner.os }}-pureRust-shm
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: SHM tests
         run: |
@@ -338,6 +346,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ubuntu-latest-coverage
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff  # v2
@@ -436,7 +445,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
           cache: false
-          toolchain: stable
+          toolchain: ${{ env.MACOS_RUST_TOOLCHAIN }}
           target: wasm32-wasip2
           components: clippy, rustfmt
 
@@ -451,6 +460,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ${{ runner.os }}-pureRust-checks-v2
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set environment variables (macOS)
         if: runner.os == 'macOS'
@@ -578,6 +588,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ubuntu-latest-hu-aarch64-cross
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cross-build and package
         shell: bash
@@ -630,6 +641,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ubuntu-latest-hu-docs-repro
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # release.yml only ever runs on a `v*` tag, so no pull request exercises
       # it. This is the one check those steps get before a tag is pushed, and
@@ -744,6 +756,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ubuntu-latest-wasm-plugin-tests
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run WASM plugin tests
         run: |
@@ -799,6 +812,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ubuntu-latest-python-stubs
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Deliberately does NOT restore the `python-tests` job's generated-types
       # cache: a restored copy would be compared against the tree instead of a
@@ -857,6 +871,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ubuntu-latest-ffi-header
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Its own job rather than a step in `go-tests`: that job has no Nix
       # environment, and cbindgen has to come from the same dev shell the check
@@ -887,12 +902,13 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
           cache: false
-          toolchain: stable
+          toolchain: ${{ runner.os == 'macOS' && env.MACOS_RUST_TOOLCHAIN || 'stable' }}
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ${{ runner.os }}-go-ffi
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Nushell
         uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
@@ -977,6 +993,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ${{ matrix.distro }}-python
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Clean pyo3 build artifacts
         run: find target -name 'build-script-build' -path '*pyo3-build-config*' -delete 2>/dev/null || true
@@ -1098,6 +1115,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           shared-key: ${{ matrix.distro }}-ros-v2
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run ROS tests
         run: |
