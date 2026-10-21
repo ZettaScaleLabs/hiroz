@@ -1941,9 +1941,11 @@ fn typed_subscriber_with_no_schema_joins_on_a_topic_without_a_buffer() {
 ///
 /// Rows, by builder: the typed path (`uint8[]`, `byte[]`, `int8[]`, nested `byte[]` through
 /// `ParameterEvent`, a message with `int8[]` and other fields) and a schema that `load_schema` reads
-/// from the bundled `.msg` text (where `byte` is kept apart from `uint8`). A bounded or fixed
-/// `uint8` and an unbounded `int8` never join, and a nested buffer joins.
-/// Controls in the same test: `uint8[]` joins on every builder and `Float64MultiArray` stays out.
+/// from the bundled `.msg` text (where `byte` is kept apart from `uint8`). The `load_schema` rows
+/// run on every distro feature except `humble`, because the humble build embeds no `std_msgs` text.
+/// A bounded or fixed `uint8` and an unbounded `int8` never join, and a nested buffer joins.
+/// Controls in the same test: `uint8[]` joins on every builder that runs and `Float64MultiArray`
+/// stays out.
 /// No bundled message has a lone `char[]` field, so `char[]` is not pinned here: the codegen and
 /// `load_schema` both map `char` to `Uint8`, and `dynamic_subscriber_join_policy` pins that a
 /// sequence of `Uint8` joins.
@@ -1965,28 +1967,34 @@ fn field_kinds_join_the_group_and_the_typed_path_counts_byte_arrays() {
             rows.push(($topic, $joins));
         }};
     }
-    macro_rules! loaded {
-        ($topic:expr, $msg:expr, $joins:expr) => {{
-            let schema = hiroz::dynamic::load_schema($msg)
-                .unwrap_or_else(|| panic!("{NAME}: no schema for {}", $msg));
-            keep.push(Box::new(
-                node.create_dyn_sub(concat!("/", $topic), schema)
-                    .build()
-                    .unwrap(),
-            ));
-            rows.push(($topic, $joins));
-        }};
-    }
     typed!("fk_typed_uint8", UInt8MultiArray, true);
     typed!("fk_typed_byte", ByteMultiArray, true);
     typed!("fk_typed_int8", Int8MultiArray, false);
     typed!("fk_typed_f64", Float64MultiArray, false);
     typed!("fk_typed_grid", OccupancyGrid, false);
     typed!("fk_typed_param_event", ParameterEvent, true);
-    loaded!("fk_loaded_uint8", "std_msgs/msg/UInt8MultiArray", true);
-    loaded!("fk_loaded_byte", "std_msgs/msg/ByteMultiArray", false);
-    loaded!("fk_loaded_int8", "std_msgs/msg/Int8MultiArray", false);
-    loaded!("fk_loaded_f64", "std_msgs/msg/Float64MultiArray", false);
+    // `load_schema` reads `HIROZ_MSG_PATH`, then the table that `hiroz/build.rs` embeds. The build
+    // embeds the bundled `std_msgs` text for every distro feature except `humble`, whose bundled
+    // directory has no `std_msgs`. The `loaded!` rows therefore exist only without `humble`.
+    #[cfg(not(feature = "humble"))]
+    {
+        macro_rules! loaded {
+            ($topic:expr, $msg:expr, $joins:expr) => {{
+                let schema = hiroz::dynamic::load_schema($msg)
+                    .unwrap_or_else(|| panic!("{NAME}: no schema for {}", $msg));
+                keep.push(Box::new(
+                    node.create_dyn_sub(concat!("/", $topic), schema)
+                        .build()
+                        .unwrap(),
+                ));
+                rows.push(($topic, $joins));
+            }};
+        }
+        loaded!("fk_loaded_uint8", "std_msgs/msg/UInt8MultiArray", true);
+        loaded!("fk_loaded_byte", "std_msgs/msg/ByteMultiArray", false);
+        loaded!("fk_loaded_int8", "std_msgs/msg/Int8MultiArray", false);
+        loaded!("fk_loaded_f64", "std_msgs/msg/Float64MultiArray", false);
+    }
     let observed: Vec<(&str, bool)> = rows
         .iter()
         .map(|(topic, _)| (*topic, joined(&raw, topic)))
