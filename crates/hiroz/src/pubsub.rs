@@ -4,7 +4,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 use tracing::{debug, trace, warn};
 use zenoh::liveliness::LivelinessToken;
-use zenoh::{Result, Session, Wait, sample::Sample};
+use zenoh::{Result, Session, Wait, key_expr::KeyExpr, sample::Sample};
 
 use crate::Builder;
 use crate::attachment::{Attachment, GidArray};
@@ -632,6 +632,12 @@ impl ZPub<crate::dynamic::DynamicMessage, crate::dynamic::DynamicSerdeCdrSerdes>
     }
 }
 
+/// The subscriptions of a raw-callback subscriber: the base key, and the group key when it joins.
+pub(crate) type RawSubscriptions = (
+    zenoh::pubsub::Subscriber<()>,
+    Option<zenoh::pubsub::Subscriber<()>>,
+);
+
 pub struct ZSubBuilder<T, S = SerdeCdrSerdes<T>> {
     pub(crate) entity: EndpointEntity,
     pub(crate) session: Arc<Session>,
@@ -644,7 +650,9 @@ pub struct ZSubBuilder<T, S = SerdeCdrSerdes<T>> {
     pub(crate) expected_encoding: Option<crate::encoding::Encoding>,
     /// The caller's choice about rmw_zenoh's CPU buffer group.
     pub(crate) buffer_group: crate::BufferGroup,
-    /// Whether the message definition has an unbounded `uint8[]`; `None` without a definition.
+    /// Whether the message definition has a field that makes a subscriber join the buffer group,
+    /// `None` without a definition. See [`BufferGroup::Auto`](crate::BufferGroup::Auto) for the
+    /// fields.
     pub(crate) has_buffer_fields: Option<bool>,
     pub(crate) _phantom_data: PhantomData<(T, S)>,
 }
@@ -676,9 +684,11 @@ where
     /// Choose whether this subscriber joins rmw_zenoh's CPU buffer group.
     ///
     /// The default, [`BufferGroup::Auto`](crate::BufferGroup::Auto), joins when the message has
-    /// an unbounded `uint8[]` or hiroz has no message definition to ask. A joined subscriber
-    /// subscribes on `<topic key>/**`, which a router access-control rule must allow. A
-    /// transient-local subscriber and a key format other than `rmw_zenoh`'s never join. See
+    /// an unbounded `uint8[]` or `char[]` or hiroz has no message definition to ask. A typed
+    /// subscriber also joins for an unbounded `byte[]`, which `rmw_zenoh_cpp` does not count: one
+    /// extra join, no data lost. A joined subscriber subscribes on `<topic key>` and on
+    /// `<topic key>/_buf_cpu`, and a router access-control rule must allow both. A transient-local
+    /// subscriber and a key format other than `rmw_zenoh`'s never join. See
     /// [`BufferGroup`](crate::BufferGroup) for the routing and access-control effects.
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
         self.buffer_group = group;
@@ -759,7 +769,8 @@ where
 
     /// Build a raw Zenoh subscriber with a sample-level callback, returning
     /// the subscriber and its liveliness token. A joined
-    /// subscriber subscribes on `<base>/**`, which serves the group key.
+    /// subscriber also subscribes on the group key; the first element of the pair is the base
+    /// subscription and the second is the group subscription.
     ///
     /// This is the canonical subscriber setup path used by [`ZCache`] so that
     /// topic qualification, key-expression construction, and liveliness-token
@@ -769,10 +780,7 @@ where
     pub(crate) fn build_raw_subscriber<F>(
         mut self,
         callback: F,
-    ) -> Result<(
-        zenoh::pubsub::Subscriber<()>,
-        zenoh::liveliness::LivelinessToken,
-    )>
+    ) -> Result<(RawSubscriptions, zenoh::liveliness::LivelinessToken)>
     where
         F: Fn(Sample) + Send + Sync + 'static,
     {
@@ -793,27 +801,28 @@ where
         debug!("[CACHE] Key expression: {}", key_expr);
 
         let plan = self.group_plan()?;
-        let base = key_expr.as_str().to_owned();
-        let sub = match plan.group_key() {
-            Some(group_key) => self
-                .session
-                .declare_subscriber(crate::buffer_group::union_key(&base)?)
-                .callback(crate::buffer_group::only_base_and_group(
-                    base,
-                    group_key.to_owned(),
-                    callback,
-                ))
-                .wait()?,
-            None => self
-                .session
-                .declare_subscriber(key_expr)
-                .callback(callback)
-                .wait()?,
-        };
+        // A joined subscriber declares the exact group subscription before the token.
+        let shared = Arc::new(callback);
+        let mut group_sub = None;
+        if let Some(group_key) = plan.group_key() {
+            let h = shared.clone();
+            group_sub = Some(
+                self.session
+                    .declare_subscriber(KeyExpr::try_from(group_key.to_owned())?)
+                    .callback(move |s: Sample| h(s))
+                    .wait()?,
+            );
+        }
+        let h = shared.clone();
+        let sub = self
+            .session
+            .declare_subscriber(key_expr)
+            .callback(move |s: Sample| h(s))
+            .wait()?;
 
         let token = plan.declare(&self.session)?;
 
-        Ok((sub, token))
+        Ok(((sub, group_sub), token))
     }
 
     /// What the subscriber declares for the group: its token, and the group key when it joins.
@@ -893,25 +902,27 @@ where
 
         // Build an AdvancedSubscriber and configure based on durability
         let plan = self.group_plan()?;
-        let mut sub_builder = match plan.group_key() {
-            Some(group_key) => {
-                let base = key_expr.as_str().to_owned();
-                let handler = crate::buffer_group::only_base_and_group(
-                    base.clone(),
-                    group_key.to_owned(),
-                    validated_handler,
-                );
-                self.session
-                    .declare_subscriber(crate::buffer_group::union_key(&base)?)
-                    .callback(handler)
-                    .advanced()
-            }
-            None => self
+        // A joined subscriber declares the exact base subscription and a second exact
+        // subscription on the group key, both before the token, one shared callback.
+        let shared = Arc::new(validated_handler);
+        let mut group_sub = None;
+        if let Some(group_key) = plan.group_key() {
+            let h = shared.clone();
+            let mut gb = self
                 .session
-                .declare_subscriber(key_expr)
-                .callback(validated_handler)
-                .advanced(),
-        };
+                .declare_subscriber(KeyExpr::try_from(group_key.to_owned())?)
+                .callback(move |s: Sample| h(s));
+            if let Some(locality) = self.locality {
+                gb = gb.allowed_origin(locality);
+            }
+            group_sub = Some(gb.wait()?);
+        }
+        let h = shared.clone();
+        let mut sub_builder = self
+            .session
+            .declare_subscriber(key_expr)
+            .callback(move |s: Sample| h(s))
+            .advanced();
 
         // Apply locality restriction if specified
         if let Some(locality) = self.locality {
@@ -930,6 +941,7 @@ where
             entity: self.entity,
             _token: token,
             _inner: inner,
+            _group_sub: group_sub,
             queue,
             events_mgr,
             graph: self.graph,
@@ -1048,6 +1060,7 @@ pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     /// publisher, and a sample already in flight can still arrive after the subscription is gone.
     _token: zenoh::liveliness::LivelinessToken,
     _inner: AdvancedSubscriber<()>,
+    _group_sub: Option<zenoh::pubsub::Subscriber<()>>,
     events_mgr: Arc<Mutex<EventsManager>>,
     graph: Arc<Graph>,
     /// Schema for dynamic message deserialization.

@@ -5,12 +5,13 @@
 //! `<base>/_buf_cpu` to a subscriber whose token ends in `backends:cpu:`. A subscriber that joins
 //! the group does both.
 //!
-//! A joined subscriber has one subscription, on `<base>/**`. It reads the base key and the group
-//! key, and drops every other key under the base in process. It declares no second subscription.
+//! A joined subscriber has two exact subscriptions, on the base key and on the group key, both
+//! declared before the token. It reads no other key under the base, so it never receives the
+//! samples that a publisher writes for other subscribers.
 
 use hiroz_protocol::{KeyExprFormat, qos::QosDurability};
 use tracing::debug;
-use zenoh::{Result, Wait, key_expr::KeyExpr, liveliness::LivelinessToken, sample::Sample};
+use zenoh::{Result, Wait, key_expr::KeyExpr, liveliness::LivelinessToken};
 
 use crate::entity::EndpointEntity;
 
@@ -19,13 +20,14 @@ use crate::entity::EndpointEntity;
 /// Set it with `with_buffer_group` on the subscriber or cache builder. The default is
 /// [`BufferGroup::Auto`].
 ///
-/// A joined subscriber declares one subscription on `<topic key>/**` in place of `<topic key>`. It
-/// reads the topic key and the group key `<topic key>/_buf_cpu`, and its liveliness token announces
-/// the group. Other keys under the topic key still reach the process and are discarded there.
+/// A joined subscriber declares two exact subscriptions, one on `<topic key>` and one on the group
+/// key `<topic key>/_buf_cpu`, and its liveliness token announces the group. It receives no other
+/// key under the topic key.
 ///
-/// The wider key matters to router access control. A rule that allows `<topic key>` and not
-/// `<topic key>/**` starves a joined subscriber and raises no error. Allow `<topic key>/**` wherever
-/// you allow `<topic key>`, or choose [`BufferGroup::Off`].
+/// Router access control matters for the second key. A rule that allows `<topic key>` and not
+/// `<topic key>/_buf_cpu` starves the group key and raises no error. A buffer-aware publisher
+/// writes a buffer message on the group key only. Allow `<topic key>/_buf_cpu` wherever you allow
+/// `<topic key>`, or choose [`BufferGroup::Off`].
 ///
 /// A transient-local subscriber never joins, and neither does a subscriber on a key format other
 /// than `rmw_zenoh`'s, whatever the setting. The interoperability chapter of the user guide gives
@@ -36,8 +38,9 @@ use crate::entity::EndpointEntity;
 #[non_exhaustive]
 pub enum BufferGroup {
     /// Join when the message may carry a buffer: the message definition has an unbounded
-    /// `uint8[]`, directly or nested, or hiroz has no definition to ask. This is the default. A raw
-    /// subscriber has no definition, so it joins.
+    /// `uint8[]` or `char[]`, directly or nested, or hiroz has no definition to ask. The typed
+    /// join also counts an unbounded `byte[]`, which `rmw_zenoh_cpp` does not: one extra join, no
+    /// data lost. This is the default. A raw subscriber has no definition, so it joins.
     #[default]
     Auto,
     /// Join, whatever the message is, except for a transient-local subscriber or a key format other
@@ -104,9 +107,8 @@ impl Plan {
         self.keys.as_ref().map(|(_, group)| group.as_str())
     }
 
-    /// Declare the token, then log the join. A declaration that fails logs nothing. The subscriber's
-    /// own subscription, on `<base>/**`, already serves the group key, so a publisher that reads the
-    /// token finds a subscription.
+    /// Declare the token, then log the join. A declaration that fails logs nothing. The caller has
+    /// already declared the group subscription, so a publisher that reads the token finds it.
     pub(crate) fn declare(self, session: &zenoh::Session) -> Result<LivelinessToken> {
         let token = session
             .liveliness()
@@ -119,35 +121,12 @@ impl Plan {
     }
 }
 
-/// The key a joined subscriber subscribes on: its base key and everything under it. It reads the
-/// base key and the group key, and drops the rest in process.
-pub(crate) fn union_key(base: &str) -> Result<KeyExpr<'static>> {
-    KeyExpr::try_from(format!("{base}/**"))
-}
-
-/// Wrap `handler` so that it sees the base key and the group key only.
-pub(crate) fn only_base_and_group<F>(
-    base: String,
-    group_key: String,
-    handler: F,
-) -> impl Fn(Sample) + Send + Sync + 'static
-where
-    F: Fn(Sample) + Send + Sync + 'static,
-{
-    move |sample: Sample| {
-        let key = sample.key_expr().as_str();
-        if key == base || key == group_key {
-            handler(sample);
-        }
-    }
-}
-
 /// Log one join. An operator learns here that the subscription needs an access-control rule: a
-/// router that denies `<base>/**` or the group key drops buffer messages and reports no error.
+/// router that denies the group key drops buffer messages and reports no error.
 fn log_join(base: &str, group: &str) {
     debug!(
-        "joined the rmw_zenoh CPU buffer group: subscribed to key {base}/**, which includes key \
-         {group}. A router access-control rule that denies {base}/** or {group} drops buffer \
-         messages and reports no error. Allow {base}/** wherever you allow {base}."
+        "joined the rmw_zenoh CPU buffer group: subscribed to keys {base} and {group}. A router \
+         access-control rule that denies {group} drops buffer messages and reports no error. Allow \
+         {group} wherever you allow {base}."
     );
 }
