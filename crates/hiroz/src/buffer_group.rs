@@ -37,8 +37,7 @@ use crate::entity::EndpointEntity;
 pub enum BufferGroup {
     /// Join when the message may carry a buffer: the message definition has an unbounded
     /// `uint8[]`, directly or nested, or hiroz has no definition to ask. This is the default. A raw
-    /// subscriber is the exception: `Auto` behaves as [`BufferGroup::Off`] for it, so only
-    /// [`BufferGroup::Cpu`] joins.
+    /// subscriber has no definition, so it joins.
     #[default]
     Auto,
     /// Join, whatever the message is, except for a transient-local subscriber or a key format other

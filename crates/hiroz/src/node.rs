@@ -650,8 +650,10 @@ impl ZNode {
 
     /// Create a raw subscriber for FFI with optional QoS
     ///
-    /// The subscriber stays out of rmw_zenoh's CPU buffer group and declares no liveliness token.
-    /// Use [`ZNode::create_raw_subscriber_with_group`] to join.
+    /// The subscriber joins rmw_zenoh's CPU buffer group, as `BufferGroup::Auto` does: it declares
+    /// a token ending `backends:cpu:`, and one callback serves the base key and `<key>/_buf_cpu`.
+    /// A transient-local QoS or a custom key expression format stays out. Use
+    /// [`ZNode::create_raw_subscriber_with_group`] with `Off` to stay out.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_qos<F>(
         &self,
@@ -670,7 +672,7 @@ impl ZNode {
             type_hash,
             callback,
             qos,
-            crate::BufferGroup::Off,
+            crate::BufferGroup::Auto,
         )
     }
 
@@ -715,12 +717,8 @@ impl ZNode {
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
         let key_expr = (*topic_ke).clone();
 
-        // A raw subscriber has no message definition, and `Auto` deliberately behaves as `Off` for
-        // it: only `Cpu` joins. A typed subscriber without a definition does join under `Auto`.
-        let group = match group {
-            crate::BufferGroup::Cpu => crate::BufferGroup::Cpu,
-            crate::BufferGroup::Auto | crate::BufferGroup::Off => crate::BufferGroup::Off,
-        };
+        // A raw subscriber has no message definition, so `Auto` joins as it does for a typed
+        // subscriber without one.
         let join = crate::buffer_group::joins(group, None, &self.keyexpr_format, &entity);
         // A raw subscriber that stays out declares nothing for the group, not even a token.
         let plan = if join {
@@ -765,12 +763,10 @@ impl ZNode {
     /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group`
     /// asks for it.
     ///
-    /// A raw subscriber has no message definition, so `create_raw_subscriber_with_qos` stays out
-    /// of the group. Pass [`BufferGroup::Cpu`](crate::BufferGroup::Cpu) to join: the subscriber
-    /// then declares a token ending `backends:cpu:`, and one callback serves the base key and
-    /// `<key>/_buf_cpu`. `Auto` deliberately behaves as `Off` here, unlike a typed subscriber
-    /// without a definition, so `Auto` and `Off` both stay out. A QoS or key expression format that
-    /// `rmw_zenoh` does not serve on the group key (transient-local, a custom format) stays out whatever `group` says.
+    /// A raw subscriber has no message definition, so `Auto` and `Cpu` both join: the subscriber
+    /// declares a token ending `backends:cpu:`, and one callback serves the base key and
+    /// `<key>/_buf_cpu`. `Off` stays out and declares no token. A transient-local QoS or a custom
+    /// key expression format stays out whatever `group` says.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_group<F>(
         &self,
@@ -948,9 +944,16 @@ impl ZNode {
         let cancel_goal_client =
             self.create_raw_service_client(&cancel_goal_service, &cancel_goal_type, "")?;
 
-        // Feedback subscriber (no-op callback for now; Go handles via polling or separate mechanism)
-        let feedback_sub =
-            self.create_raw_subscriber(&feedback_topic, &feedback_type_dds, feedback_hash, |_| {})?;
+        // Feedback subscriber (no-op callback for now; Go handles via polling or separate mechanism).
+        // Its callback reads nothing, so it stays out of the buffer group.
+        let feedback_sub = self.create_raw_subscriber_with_group(
+            &feedback_topic,
+            &feedback_type_dds,
+            feedback_hash,
+            |_| {},
+            None,
+            crate::BufferGroup::Off,
+        )?;
 
         Ok(crate::ffi::action::RawActionClient {
             send_goal_client,
