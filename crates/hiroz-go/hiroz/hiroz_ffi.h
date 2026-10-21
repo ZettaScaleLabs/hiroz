@@ -112,7 +112,12 @@ typedef struct hiroz_RawPublisher hiroz_RawPublisher;
 typedef struct hiroz_RawServiceClient hiroz_RawServiceClient;
 
 /**
- * Raw subscriber wrapper that keeps the zenoh subscriber alive
+ * Raw subscriber wrapper that keeps the zenoh subscriptions and the liveliness token alive.
+ *
+ * A subscriber that joins the buffer group owns three handles: the token, the subscription on
+ * the base key and the subscription on the group key. The wrapper exposes none of them, because a
+ * caller that undeclares one handle leaves the others active. Use [`RawSubscriber::undeclare`] to
+ * stop by hand. Dropping the wrapper stops all three in the same order.
  */
 typedef struct hiroz_RawSubscriber hiroz_RawSubscriber;
 
