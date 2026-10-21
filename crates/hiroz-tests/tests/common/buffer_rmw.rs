@@ -68,7 +68,9 @@ pub fn client_session(endpoint: &str) -> zenoh::Session {
 }
 
 /// Counts the samples on every key under one topic key, read by a plain session on `<base>/**`.
-/// A key is stored relative to the base key: `""` is the base key and `"_buf_cpu"` the group key.
+/// This is an observer and a control probe, not the code under test: a joined hiroz subscriber never
+/// subscribes to `<base>/**`. A key is stored relative to the base key: `""` is the base key and
+/// `"_buf_cpu"` the group key.
 pub struct KeyCounts {
     counts: Arc<Mutex<BTreeMap<String, usize>>>,
     _sub: zenoh::pubsub::Subscriber<()>,

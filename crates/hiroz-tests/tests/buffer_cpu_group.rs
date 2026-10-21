@@ -1471,14 +1471,13 @@ fn record(log: &Mutex<Vec<u32>>, tag: u32) {
 }
 
 /// A joined subscriber receives on both of its keys under a router rule that allows the base key
-/// and the group key and nothing else. The rule has no `<topic key>/**`, so a wide subscription
-/// would be starved.
+/// and the group key and nothing else. The rule has no `<topic key>/**`, so a subscription on
+/// that key would be starved. A subscriber that declares exactly its two keys is not.
 ///
 /// Controls in the same test: an `Off` subscriber receives its base sample under the same rule, so
 /// the rule lets a base key through and the puts reach the router. A plain session that subscribes
-/// `<topic key>/**` is a subscription on the base key and everything under it. The rule starves
-/// it, and the control `wide_allowed` shows the same subscription form delivers when the rule
-/// allows it.
+/// `<topic key>/**` is a control probe, not the code under test: the rule starves it, and the
+/// control `star_allowed` shows the same subscription form delivers when the rule allows it.
 #[test]
 fn exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys() {
     const NAME: &str = "exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys";
@@ -1489,16 +1488,16 @@ fn exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys() {
     let join_base = base_key("e1_join", &UINT8);
     let join_group = group_key("e1_join", &UINT8);
     let off_base = base_key("e1_off", &UINT8);
-    let wide_allowed = "0/e1_wide_allowed/**";
+    let star_allowed = "0/e1_star_allowed/**";
     let router = router_allowing_only(&[
         join_base.clone(),
         join_group.clone(),
         off_base.clone(),
-        wide_allowed.to_owned(),
+        star_allowed.to_owned(),
     ]);
     let raw = raw_session(router.endpoint());
-    // A second session for the wide probes: a put from the first would reach a probe on the same
-    // session locally, and local delivery never meets the router rule.
+    // A second session for the control probes: a put from the first would reach a probe on the
+    // same session locally, and local delivery never meets the router rule.
     let probes = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
@@ -1527,20 +1526,20 @@ fn exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys() {
     );
     assert!(!joined(&raw, "e1_off"), "{NAME}: the Off subscriber joined");
 
-    let wide_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let star_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let allowed_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let _wide = probes
+    let _star = probes
         .declare_subscriber(format!("{join_base}/**"))
         .callback({
-            let c = wide_count.clone();
+            let c = star_count.clone();
             move |_| {
                 c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
         })
         .wait()
-        .expect("wide probe");
+        .expect("control probe");
     let _allowed = probes
-        .declare_subscriber(wide_allowed)
+        .declare_subscriber(star_allowed)
         .callback({
             let c = allowed_count.clone();
             move |_| {
@@ -1577,17 +1576,17 @@ fn exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys() {
     assert!(
         put_until(
             &raw,
-            "0/e1_wide_allowed/x",
+            "0/e1_star_allowed/x",
             &tagged(ALLOWED_TAG),
             RECV,
             || allowed_count.load(std::sync::atomic::Ordering::SeqCst) > 0
         ),
-        "{NAME}: control: a wide subscription that the rule allows received nothing"
+        "{NAME}: control: a subscription that the rule allows received nothing"
     );
     assert_eq!(
-        settled(&wide_count),
+        settled(&star_count),
         0,
-        "{NAME}: the wide probe on {join_base}/** received a sample the rule should starve"
+        "{NAME}: the control probe on {join_base}/** received a sample the rule should starve"
     );
 }
 
@@ -1601,7 +1600,8 @@ fn exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys() {
 /// Controls in the same test: the base key and the group key each match the subscriber's
 /// subscriptions, so the probe detects a match. Each other key flips to matching once a plain
 /// session subscribes `<topic key>/**`, and that session counts the same samples, so the samples
-/// reach the router and the key would match a wide subscription.
+/// reach the router and the key would match a subscription on `<topic key>/**`. That session is a
+/// control probe, not the code under test.
 #[test]
 fn sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_subscriber() {
     const NAME: &str =
@@ -1611,7 +1611,7 @@ fn sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_s
     const BASE_TAG: u32 = 3;
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
-    let wide = raw_session(router.endpoint());
+    let star = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
     let log: Arc<Mutex<Vec<u32>>> = Arc::default();
@@ -1687,25 +1687,25 @@ fn sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_s
         log.lock().unwrap()
     );
 
-    // Control: a wide subscription matches the sibling key and counts its samples.
-    let wide_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let _wide = wide
+    // Control: a subscription on `{base}/**` matches the sibling key and counts its samples.
+    let star_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let _star = star
         .declare_subscriber(format!("{base}/**"))
         .callback({
-            let c = wide_count.clone();
+            let c = star_count.clone();
             move |_| {
                 c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
         })
         .wait()
-        .expect("wide probe");
+        .expect("control probe");
     let end = Instant::now() + RECV;
     while !probe.matching_status().wait().unwrap().matching() && Instant::now() < end {
         std::thread::sleep(POLL);
     }
     assert!(
         probe.matching_status().wait().unwrap().matching(),
-        "{NAME}: control: the sibling key never matched the wide probe, so a match cannot be seen"
+        "{NAME}: control: the sibling key never matched the probe on <topic key>/**, so a match cannot be seen"
     );
     for (key, other) in others.iter().zip(&other_probes) {
         let end = Instant::now() + RECV;
@@ -1714,19 +1714,19 @@ fn sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_s
         }
         assert!(
             other.matching_status().wait().unwrap().matching(),
-            "{NAME}: control: {key} never matched the wide probe, so a match cannot be seen"
+            "{NAME}: control: {key} never matched the probe on <topic key>/**, so a match cannot be seen"
         );
     }
     assert!(
-        put_until(&raw, &sibling, &tagged(SIBLING_TAG), RECV, || wide_count
+        put_until(&raw, &sibling, &tagged(SIBLING_TAG), RECV, || star_count
             .load(std::sync::atomic::Ordering::SeqCst)
             > 0),
-        "{NAME}: control: the wide probe counted no sibling sample"
+        "{NAME}: control: the probe on <topic key>/** counted no sibling sample"
     );
     std::thread::sleep(QUIET);
     assert!(
         log.lock().unwrap().is_empty(),
-        "{NAME}: the joined subscriber saw samples of the sibling key once a wide probe existed: {:?}",
+        "{NAME}: the joined subscriber saw samples of the sibling key once the probe on <topic key>/** existed: {:?}",
         log.lock().unwrap()
     );
 
@@ -1750,11 +1750,11 @@ fn sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_s
 /// base key only.
 ///
 /// This test pins the token count and the deliveries per key. It does not pin the number of
-/// subscriptions: Zenoh does not list them, and a single wide subscription also delivers both keys
-/// once each, so this test passes on the wide shape too (read on the pushed wide head). The
-/// subscription shape is pinned by the two tests that read matching status and router access
-/// control: `sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_subscriber`
-/// and `exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys`.
+/// subscriptions: Zenoh does not list them, and any set of subscriptions that covers both keys
+/// delivers each sample once. Two tests pin the subscriptions through matching status and router
+/// access control:
+/// `sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_subscriber` and
+/// `exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys`.
 ///
 /// Controls in the same test: the `Off` subscriber receives its base sample, and no subscription
 /// matches its group key, while a subscription matches the group key of the joined topic.
