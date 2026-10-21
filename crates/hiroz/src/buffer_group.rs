@@ -1,13 +1,19 @@
 //! Subscriber side of rmw_zenoh's CPU buffer group.
 //!
-//! A buffer-aware `rmw_zenoh` publisher sends nothing on the base topic key to a subscriber whose
-//! liveliness token has no `backends:` field. It sends the sample, as plain CDR, on
-//! `<base>/_buf_cpu` to a subscriber whose token ends in `backends:cpu:`. A subscriber that joins
-//! the group does both.
+//! A buffer-aware `rmw_zenoh_cpp` publisher writes a message with a buffer field on
+//! `<base>/_buf_cpu`. The payload is plain CDR. The publisher does this for each subscriber whose
+//! liveliness token ends in `backends:cpu:`. The released publisher writes nothing on `<base>` for
+//! a subscriber whose token has no `backends:` field. A publisher that is not buffer-aware writes
+//! `<base>` only.
 //!
-//! A joined subscriber has two exact subscriptions, on the base key and on the group key, both
-//! declared before the token. It reads no other key under the base, so it never receives the
-//! samples that a publisher writes for other subscribers.
+//! A subscriber joins the group when its token ends in `backends:cpu:`. It then has two exact
+//! subscriptions, on `<base>` and on `<base>/_buf_cpu`, as `rmw_zenoh_cpp` has. It needs `<base>`
+//! for publishers that are not buffer-aware. It reads no other key under `<base>`, so it never
+//! receives the samples that a publisher writes for other subscribers.
+//!
+//! The build declares both subscriptions first and the token last, as `rmw_zenoh_cpp` does in
+//! `SubscriptionData::init`. A publisher that reads the token then finds a subscription for the
+//! group key.
 
 use hiroz_protocol::{KeyExprFormat, qos::QosDurability};
 use tracing::debug;
@@ -29,9 +35,9 @@ use crate::entity::EndpointEntity;
 /// writes a buffer message on the group key only. Allow `<topic key>/_buf_cpu` wherever you allow
 /// `<topic key>`, or choose [`BufferGroup::Off`].
 ///
-/// A transient-local subscriber never joins, and neither does a subscriber on a key format other
-/// than `rmw_zenoh`'s, whatever the setting. The interoperability chapter of the user guide gives
-/// the details.
+/// A subscriber on a key format other than `rmw_zenoh`'s never joins, whatever the setting. A
+/// transient-local subscriber never joins either, because nothing shows that its history reaches it
+/// on the group key. The interoperability chapter of the user guide gives the details.
 ///
 /// New values may be added in a minor release, so match it with a wildcard arm.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -44,7 +50,8 @@ pub enum BufferGroup {
     #[default]
     Auto,
     /// Join, whatever the message is, except for a transient-local subscriber or a key format other
-    /// than `rmw_zenoh`'s.
+    /// than `rmw_zenoh`'s. Use it when the publisher counts a field that the rule for `Auto` does
+    /// not count.
     Cpu,
     /// Do not join.
     Off,
@@ -52,8 +59,9 @@ pub enum BufferGroup {
 
 /// Whether a subscriber joins. `has_buffer_fields` is `None` when hiroz has no message definition.
 ///
-/// Only the `rmw_zenoh` key format has the group, so a subscriber on another format never joins.
-/// A transient-local subscriber never joins either. A history query on the wide key is untested.
+/// Only the `rmw_zenoh` key format has the group, so no other format joins. A transient-local
+/// subscriber does not join, because nothing shows that its history reaches it on the group key.
+/// The function logs the decision at debug level, for a join and for a subscriber that stays out.
 pub(crate) fn joins(
     group: BufferGroup,
     has_buffer_fields: Option<bool>,
@@ -75,50 +83,39 @@ pub(crate) fn joins(
     join
 }
 
-/// What a subscriber will declare: the token string and, when joining, the group key. Computing
-/// it declares nothing.
-pub(crate) struct Plan {
-    token_key: String,
-    /// The topic key and the group key, when joining.
-    keys: Option<(String, String)>,
+/// The group key of a topic key. `rmw_zenoh_cpp` builds it in `make_cpu_group_key`.
+pub(crate) fn group_key(base: &str) -> String {
+    format!("{base}/_buf_cpu")
 }
 
-impl Plan {
-    pub(crate) fn new(
-        format: &KeyExprFormat,
-        entity: &EndpointEntity,
-        zid: &zenoh::session::ZenohId,
-        join: bool,
-    ) -> Result<Self> {
-        let mut token_key = format.liveliness_key_expr(entity, zid)?.as_str().to_owned();
-        let keys = if join {
-            token_key.push_str("/backends:cpu:");
-            let base = format.topic_key_expr(entity)?.as_str().to_owned();
-            let group = format!("{base}/_buf_cpu");
-            Some((base, group))
-        } else {
-            None
-        };
-        Ok(Self { token_key, keys })
+/// Declare the liveliness token of a subscriber, then log a join. `base` is the topic key.
+///
+/// The token of a joined subscriber ends in `backends:cpu:`, as the token of a CPU-only
+/// `rmw_zenoh_cpp` subscriber does. Call this after the subscriptions are declared, so that a
+/// publisher that reads the token finds a subscription for the group key. A declaration that fails
+/// logs nothing.
+pub(crate) fn declare_token(
+    session: &zenoh::Session,
+    format: &KeyExprFormat,
+    entity: &EndpointEntity,
+    base: &str,
+    join: bool,
+) -> Result<LivelinessToken> {
+    let mut token_key = format
+        .liveliness_key_expr(entity, &session.zid())?
+        .as_str()
+        .to_owned();
+    if join {
+        token_key.push_str("/backends:cpu:");
     }
-
-    /// The group key, when the subscriber joins.
-    pub(crate) fn group_key(&self) -> Option<&str> {
-        self.keys.as_ref().map(|(_, group)| group.as_str())
+    let token = session
+        .liveliness()
+        .declare_token(KeyExpr::try_from(token_key)?)
+        .wait()?;
+    if join {
+        log_join(base, &group_key(base));
     }
-
-    /// Declare the token, then log the join. A declaration that fails logs nothing. The caller has
-    /// already declared the group subscription, so a publisher that reads the token finds it.
-    pub(crate) fn declare(self, session: &zenoh::Session) -> Result<LivelinessToken> {
-        let token = session
-            .liveliness()
-            .declare_token(KeyExpr::try_from(self.token_key)?)
-            .wait()?;
-        if let Some((base, group)) = &self.keys {
-            log_join(base, group);
-        }
-        Ok(token)
-    }
+    Ok(token)
 }
 
 /// Log one join. An operator learns here that the subscription needs an access-control rule: a

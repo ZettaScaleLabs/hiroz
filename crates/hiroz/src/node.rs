@@ -389,6 +389,7 @@ impl ZNode {
             self.register_schema_with_type_description_service(schema);
         }
         let mut builder = self.create_sub_impl(topic, Some(T::type_info()));
+        // `None` without a schema: such a subscriber cannot tell, so `Auto` joins it.
         builder.has_buffer_fields = schema.map(|schema| schema.has_buffer_fields());
         builder
     }
@@ -461,6 +462,8 @@ impl ZNode {
             topic, capacity
         );
         let mut sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
+        // The rule of `create_sub`. A cache does not call `create_sub`, because that also registers
+        // the type-description service.
         sub_builder.has_buffer_fields = T::message_schema().map(|schema| schema.has_buffer_fields());
         ZCacheBuilder::new(sub_builder, capacity)
     }
@@ -721,27 +724,17 @@ impl ZNode {
         // A raw subscriber has no message definition, so `Auto` joins as it does for a typed
         // subscriber without one.
         let join = crate::buffer_group::joins(group, None, &self.keyexpr_format, &entity);
-        // A raw subscriber that stays out declares nothing for the group, not even a token.
-        let plan = if join {
-            Some(crate::buffer_group::Plan::new(
-                &self.keyexpr_format,
-                &entity,
-                &self.session.zid(),
-                true,
-            )?)
-        } else {
-            None
-        };
 
         // A joined subscriber declares two exact subscriptions, the base key and the group key,
         // both before the token. One callback serves both.
         let shared = std::sync::Arc::new(callback);
         let mut group_sub = None;
-        if let Some(group_key) = plan.as_ref().and_then(|p| p.group_key()) {
+        if join {
             let h = shared.clone();
+            let group_key = crate::buffer_group::group_key(key_expr.as_str());
             group_sub = Some(
                 self.session
-                    .declare_subscriber(zenoh::key_expr::KeyExpr::try_from(group_key.to_owned())?)
+                    .declare_subscriber(zenoh::key_expr::KeyExpr::try_from(group_key)?)
                     .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()))
                     .wait()?,
             );
@@ -749,11 +742,22 @@ impl ZNode {
         let h = shared.clone();
         let builder = self
             .session
-            .declare_subscriber(key_expr)
+            .declare_subscriber(key_expr.clone())
             .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()))
             .advanced();
         let subscriber = apply_transient_local_sub(builder, &entity.qos).wait()?;
-        let token = plan.map(|p| p.declare(&self.session)).transpose()?;
+        // A raw subscriber that stays out declares no token.
+        let token = if join {
+            Some(crate::buffer_group::declare_token(
+                &self.session,
+                &self.keyexpr_format,
+                &entity,
+                key_expr.as_str(),
+                true,
+            )?)
+        } else {
+            None
+        };
 
         Ok(crate::ffi::subscriber::RawSubscriber {
             _token: token,
