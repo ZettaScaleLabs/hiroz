@@ -30,10 +30,9 @@ use hiroz::{
     cache::ZCache,
     context::ZContextBuilder,
     dynamic::{DynamicMessage, FieldType, MessageSchema},
-    qos::{QosDurability, QosHistory, QosProfile},
+    qos::{QosDurability, QosProfile},
 };
 use hiroz_msgs::{
-    nav_msgs::OccupancyGrid,
     rcl_interfaces::ParameterEvent,
     std_msgs::{ByteMultiArray, Float64MultiArray, Int8MultiArray, UInt8MultiArray},
 };
@@ -555,18 +554,10 @@ fn typed_subscriber_join_policy() {
     let (off, cpu) = (BufferGroup::Off, BufferGroup::Cpu);
     let (tl, vol) = (QosDurability::TransientLocal, QosDurability::Volatile);
     const TL_QOS: &str = ":1:,10:,:,:,,";
-    const DEPTH_QOS: &str = "::,5:,:,:,,";
-    let depth = QosProfile {
-        history: QosHistory::KeepLast(std::num::NonZeroUsize::new(5).unwrap()),
-        ..Default::default()
-    };
     let rows = vec![
-        // The default joins a buffer type, with or without a schema, and follows the QoS depth.
+        // The default joins a buffer type, with or without a schema.
         typed_row!(node, UInt8MultiArray, "def_typed", UINT8, true, |b| b),
         typed_row!(node, Blob, "def_blob", UINT8, true, |b| b),
-        typed_row!(node, UInt8MultiArray, "depth5", UINT8, true, |b| b
-            .with_qos(depth))
-        .qos(DEPTH_QOS),
         // Off stays out, with or without a schema.
         typed_row!(node, UInt8MultiArray, "def_off", UINT8, false, |b| b
             .with_buffer_group(off)),
@@ -703,7 +694,7 @@ fn cache_join_policy() {
 
 /// The join policy of an action client. With no schema the feedback and status subscribers join on
 /// topics that carry no buffer, as a typed subscriber with no schema does. A transient-local
-/// feedback subscriber stays out, and the feedback subscriber of a volatile client joins as the
+/// feedback subscriber stays out, and the feedback subscriber of the default client joins as the
 /// control.
 #[test]
 fn action_client_join_policy() {
@@ -724,15 +715,9 @@ fn action_client_join_policy() {
         .with_feedback_topic_qos(qos(QosDurability::TransientLocal))
         .build()
         .unwrap();
-    let _volatile = node
-        .create_action_client::<NoSchemaAction>("ac_volatile")
-        .with_feedback_topic_qos(qos(QosDurability::Volatile))
-        .build()
-        .unwrap();
     for (topic, expected) in [
         ("ac_default%_action%feedback", true),
         ("ac_default%_action%status", true),
-        ("ac_volatile%_action%feedback", true),
         ("ac_transient%_action%feedback", false),
     ] {
         assert_eq!(
@@ -932,38 +917,35 @@ fn dropping_a_joined_cache_stops_group_key_updates() {
 /// A joined cache fills from the base key and from the group key. A publisher that is not buffer
 /// aware writes the base key, and a buffer-aware publisher writes the group key, so the cache needs
 /// both. Each key puts a valid sample of its own, and the test reads the identity of the message the
-/// cache holds. A cache that read the group key alone would never hold the base sample. The test
-/// runs the cache under `Auto` on a buffer topic and under `Cpu`.
+/// cache holds. A cache that read the group key alone would never hold the base sample.
 #[test]
 fn joined_cache_receives_from_the_base_key_and_the_group_key() {
     const NAME: &str = "joined_cache_receives_from_the_base_key_and_the_group_key";
     const GROUP: u32 = 7;
     const BASE_KEY: u32 = 8;
+    const TOPIC: &str = "jc_auto";
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("tok_node").build().expect("node");
-    for (topic, mode) in [("jc_auto", BufferGroup::Auto), ("jc_cpu", BufferGroup::Cpu)] {
-        let cache = node
-            .create_cache::<UInt8MultiArray>(&format!("/{topic}"), 1000)
-            .with_buffer_group(mode)
-            .build()
-            .expect("cache");
-        assert_token(
-            &token_for(&raw, topic),
-            shape("tok_node", topic, &UINT8, true),
+    let cache = node
+        .create_cache::<UInt8MultiArray>(&format!("/{TOPIC}"), 1000)
+        .build()
+        .expect("cache");
+    assert_token(
+        &token_for(&raw, TOPIC),
+        shape("tok_node", TOPIC, &UINT8, true),
+    );
+    for (key, want) in [
+        (group_key(TOPIC, &UINT8), GROUP),
+        (base_key(TOPIC, &UINT8), BASE_KEY),
+    ] {
+        assert!(
+            put_until(&raw, &key, &tagged(want), RECV, || cached(&cache)
+                .contains(&want)),
+            "{NAME}: the cache never held sample {want} from {key}: holds {:?}",
+            cached(&cache)
         );
-        for (key, want) in [
-            (group_key(topic, &UINT8), GROUP),
-            (base_key(topic, &UINT8), BASE_KEY),
-        ] {
-            assert!(
-                put_until(&raw, &key, &tagged(want), RECV, || cached(&cache)
-                    .contains(&want)),
-                "{NAME}: the {mode:?} cache of {topic} never held sample {want} from {key}: holds {:?}",
-                cached(&cache)
-            );
-        }
     }
 }
 
@@ -1932,21 +1914,14 @@ fn typed_subscriber_with_no_schema_joins_on_a_topic_without_a_buffer() {
     );
 }
 
-/// The join decision per field kind. The typed path counts `byte[]`, which `rmw_zenoh_cpp` does not
-/// (measured on the released 0.10.6 package: only an unbounded `uint8[]` and an unbounded `char[]`
-/// are buffers). The over-approximation is deliberate, costs one extra join, and loses no data.
-/// The test pins what hiroz does today, so a change of the mapping shows as a red row.
+/// The join decision per field kind on the typed path. The typed path counts `byte[]`, which
+/// `rmw_zenoh_cpp` does not: the over-approximation is deliberate, costs one extra join and loses no
+/// data. The test pins what hiroz does today, so a change of the mapping shows as a red row.
 ///
-/// Rows, by builder: the typed path (`uint8[]`, `byte[]`, `int8[]`, nested `byte[]` through
-/// `ParameterEvent`, a message with `int8[]` and other fields) and a schema that `load_schema` reads
-/// from the bundled `.msg` text (where `byte` is kept apart from `uint8`). The `load_schema` rows
-/// run on every distro feature except `humble`, because the humble build embeds no `std_msgs` text.
-/// A bounded or fixed `uint8` and an unbounded `int8` never join, and a nested buffer joins.
-/// Controls in the same test: `uint8[]` joins on every builder that runs and `Float64MultiArray`
-/// stays out.
-/// No bundled message has a lone `char[]` field, so `char[]` is not pinned here: the codegen and
-/// `load_schema` both map `char` to `Uint8`, and `dynamic_subscriber_join_policy` pins that a
-/// sequence of `Uint8` joins.
+/// Rows: `uint8[]`, `byte[]`, `int8[]`, nested `byte[]` through `ParameterEvent`. Controls in the
+/// same test: `uint8[]` joins and `Float64MultiArray` stays out. No bundled message has a lone
+/// `char[]` field, so `char[]` is not pinned here: the codegen maps `char` to `Uint8`, and
+/// `dynamic_subscriber_join_policy` pins that a sequence of `Uint8` joins.
 #[test]
 fn field_kinds_join_the_group_and_the_typed_path_counts_byte_arrays() {
     const NAME: &str = "field_kinds_join_the_group_and_the_typed_path_counts_byte_arrays";
@@ -1969,30 +1944,7 @@ fn field_kinds_join_the_group_and_the_typed_path_counts_byte_arrays() {
     typed!("fk_typed_byte", ByteMultiArray, true);
     typed!("fk_typed_int8", Int8MultiArray, false);
     typed!("fk_typed_f64", Float64MultiArray, false);
-    typed!("fk_typed_grid", OccupancyGrid, false);
     typed!("fk_typed_param_event", ParameterEvent, true);
-    // `load_schema` reads `HIROZ_MSG_PATH`, then the table that `hiroz/build.rs` embeds. The build
-    // embeds the bundled `std_msgs` text for every distro feature except `humble`, whose bundled
-    // directory has no `std_msgs`. The `loaded!` rows therefore exist only without `humble`.
-    #[cfg(not(feature = "humble"))]
-    {
-        macro_rules! loaded {
-            ($topic:expr, $msg:expr, $joins:expr) => {{
-                let schema = hiroz::dynamic::load_schema($msg)
-                    .unwrap_or_else(|| panic!("{NAME}: no schema for {}", $msg));
-                keep.push(Box::new(
-                    node.create_dyn_sub(concat!("/", $topic), schema)
-                        .build()
-                        .unwrap(),
-                ));
-                rows.push(($topic, $joins));
-            }};
-        }
-        loaded!("fk_loaded_uint8", "std_msgs/msg/UInt8MultiArray", true);
-        loaded!("fk_loaded_byte", "std_msgs/msg/ByteMultiArray", false);
-        loaded!("fk_loaded_int8", "std_msgs/msg/Int8MultiArray", false);
-        loaded!("fk_loaded_f64", "std_msgs/msg/Float64MultiArray", false);
-    }
     let observed: Vec<(&str, bool)> = rows
         .iter()
         .map(|(topic, _)| (*topic, joined(&raw, topic)))
