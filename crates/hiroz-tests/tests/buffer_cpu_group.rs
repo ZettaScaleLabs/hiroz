@@ -1240,8 +1240,9 @@ fn router_allowing_cases(cases: &[AclCase], group: bool) -> TestRouter {
 /// Router access control starves the group key of a joined subscriber silently. A joined
 /// subscriber declares `<topic key>` and `<topic key>/_buf_cpu`, so a default-deny router that
 /// allows `<topic key>` and not the group key starves the group key, and `build` still returns
-/// `Ok`. The base key still flows. This holds for a buffer type and for a subscriber with no
-/// message definition, which joins on a topic that carries no buffer too.
+/// `Ok`. The base key still flows. This holds for a buffer type and for a message with no
+/// definition. A real publisher writes nothing on the group key of a topic that carries no buffer,
+/// so the cases for that message put on the group key only to show that the rule denies it.
 ///
 /// Controls in the same test: an `Off` subscriber receives under the allow-only rule, so the puts
 /// reach the router and the rule lets the base key through. A joined subscriber receives on the

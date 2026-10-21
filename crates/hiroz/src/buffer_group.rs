@@ -20,8 +20,13 @@ use crate::entity::EndpointEntity;
 ///
 /// A joined subscriber subscribes to `<topic key>` and `<topic key>/_buf_cpu`, and its liveliness
 /// token announces the group. A router rule that allows `<topic key>` and not
-/// `<topic key>/_buf_cpu` starves the second key without an error. Allow both keys, or choose
-/// [`BufferGroup::Off`].
+/// `<topic key>/_buf_cpu` stops a joined subscriber from receiving buffer messages, without an
+/// error. Allow both keys.
+///
+/// [`BufferGroup::Off`] stops a subscriber from joining, so it needs no rule for the group key. A
+/// subscriber with no `backends:` field receives no buffer message from a buffer-aware publisher
+/// until a release of `rmw_zenoh_cpp` carries the fix that the user guide names. `Off` therefore
+/// does not bring those messages back.
 ///
 /// A subscriber on a key format other than `rmw_zenoh`'s never joins. A transient-local subscriber
 /// never joins: the released `rmw_zenoh_cpp` serves its history on the base key only. The
