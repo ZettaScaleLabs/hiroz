@@ -123,7 +123,10 @@ pub struct ZCache<T: ZMessage> {
     /// Declared before the subscription, so it drops first: the token goes before the subscription
     /// that serves it.
     _token: zenoh::liveliness::LivelinessToken,
-    _sub: zenoh::pubsub::Subscriber<()>,
+    _sub: (
+        zenoh::pubsub::Subscriber<()>,
+        Option<zenoh::pubsub::Subscriber<()>>,
+    ),
 }
 
 impl<T: ZMessage> ZCache<T> {
@@ -328,7 +331,7 @@ where
 impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
     /// Choose whether the cache joins rmw_zenoh's CPU buffer group. The setting holds before or
     /// after [`with_stamp`](ZCacheBuilder::with_stamp). A joined cache subscribes on
-    /// `<topic key>/**`, which a router access-control rule must allow. See
+    /// `<topic key>` and on `<topic key>/_buf_cpu`, which a router access-control rule must allow. See
     /// [`BufferGroup`](crate::BufferGroup) for the routing effects and the cases that never join,
     /// and [`ZSubBuilder::with_buffer_group`] for the default.
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
