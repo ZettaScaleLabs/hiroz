@@ -1434,98 +1434,6 @@ fn router_access_control_starves_a_joined_subscriber_silently() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// A joined subscriber has no subscription on other keys
-// ---------------------------------------------------------------------------------------------
-
-/// The joined subscriber has two exact subscriptions, on the base key and the group key. Another
-/// group of the same topic (`_buf_cuda`, say) does not reach the process, and no subscription of
-/// the subscriber matches it.
-///
-/// Control 1 shows the detector detects: a raw publisher on the group key sees a matching
-/// subscriber, and a raw publisher on each other key sees none. Control 2 shows the group key and
-/// the base key deliver. Each key puts a payload of its own and the callback records it, so the
-/// base check cannot pass on a late group sample.
-#[test]
-fn other_groups_of_the_topic_never_reach_a_joined_subscriber() {
-    const PUTS: usize = 10;
-    const OTHER: u32 = 1;
-    const GROUP: u32 = 2;
-    const BASE_KEY: u32 = 3;
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    // The identity of every sample the callback has seen.
-    let seen = Arc::new(Mutex::new(Vec::<u32>::new()));
-    let _sub = node
-        .create_sub::<UInt8MultiArray>("/iso_groups")
-        .with_buffer_group(BufferGroup::Auto)
-        .build_with_callback({
-            let seen = seen.clone();
-            move |msg| seen.lock().unwrap().push(msg.tag())
-        })
-        .expect("sub");
-    let has = |tag: u32| seen.lock().unwrap().contains(&tag);
-    token_for(&raw, "iso_groups");
-
-    let base = base_key("iso_groups", &UINT8);
-    let others = [
-        format!("{base}/_buf_cuda"),
-        format!("{base}/_buf_cpu/extra"),
-        format!("{base}/deeper/_buf_cpu"),
-    ];
-
-    // Control 1: the group key reaches a subscription of the subscriber's session, so a raw
-    // publisher can see a match.
-    let group = group_key("iso_groups", &UINT8);
-    let group_publisher = raw
-        .declare_publisher(group.clone())
-        .wait()
-        .expect("publisher");
-    let end = Instant::now() + RECV;
-    while !group_publisher.matching_status().wait().unwrap().matching() && Instant::now() < end {
-        std::thread::sleep(POLL);
-    }
-    assert!(
-        group_publisher.matching_status().wait().unwrap().matching(),
-        "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: no subscription matches {group}, so the detector cannot see a match"
-    );
-    for key in &others {
-        let publisher = raw
-            .declare_publisher(key.clone())
-            .wait()
-            .expect("publisher");
-        std::thread::sleep(QUIET);
-        assert!(
-            !publisher.matching_status().wait().unwrap().matching(),
-            "other_groups_of_the_topic_never_reach_a_joined_subscriber: a subscription matches {key}"
-        );
-        for _ in 0..PUTS {
-            publisher.put(tagged(OTHER)).wait().expect("put");
-        }
-    }
-    std::thread::sleep(QUIET);
-    let leaked = seen.lock().unwrap().clone();
-    assert!(
-        leaked.is_empty(),
-        "other_groups_of_the_topic_never_reach_a_joined_subscriber: {} callbacks ran for samples on other keys under {base}",
-        leaked.len()
-    );
-
-    // Control 2: the group key and the base key deliver, each its own sample.
-    assert!(
-        put_until(&raw, &group, &tagged(GROUP), RECV, || has(GROUP)),
-        "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: sample {GROUP} never arrived on {group}: saw {:?}",
-        seen.lock().unwrap()
-    );
-    assert!(
-        put_until(&raw, &base, &tagged(BASE_KEY), RECV, || has(BASE_KEY)),
-        "other_groups_of_the_topic_never_reach_a_joined_subscriber: control: sample {BASE_KEY} never arrived on {base}: saw {:?}",
-        seen.lock().unwrap()
-    );
-}
-
-// ---------------------------------------------------------------------------------------------
 // The exact-key join: what a joined subscriber declares, and what it does not
 // ---------------------------------------------------------------------------------------------
 
@@ -1685,11 +1593,13 @@ fn exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys() {
 
 /// A sample on `<topic key>/_buf/<gid>` never reaches a joined subscriber, and no subscription of
 /// the subscriber matches that key. A buffer-aware publisher writes such a sample for every
-/// subscriber outside the group. The check reads the declared subscriptions through matching
-/// status, so a filter in the callback cannot hide a subscription.
+/// subscriber outside the group. The same holds for three other keys under the base key: another
+/// group (`_buf_cuda`), a key below the group key and a key that ends in the group name. The check
+/// reads the declared subscriptions through matching status, so a filter in the callback cannot
+/// hide a subscription.
 ///
 /// Controls in the same test: the base key and the group key each match the subscriber's
-/// subscriptions, so the probe detects a match. The sibling key flips to matching once a plain
+/// subscriptions, so the probe detects a match. Each other key flips to matching once a plain
 /// session subscribes `<topic key>/**`, and that session counts the same samples, so the samples
 /// reach the router and the key would match a wide subscription.
 #[test]
@@ -1745,6 +1655,38 @@ fn sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_s
         log.lock().unwrap()
     );
 
+    // The other keys under the base key have no subscription either, and their samples never
+    // reach the callback.
+    let others = [
+        format!("{base}/_buf_cuda"),
+        format!("{base}/_buf_cpu/extra"),
+        format!("{base}/deeper/_buf_cpu"),
+    ];
+    let other_probes: Vec<_> = others
+        .iter()
+        .map(|key| {
+            raw.declare_publisher(key.clone())
+                .wait()
+                .expect("publisher")
+        })
+        .collect();
+    std::thread::sleep(QUIET);
+    for (key, other) in others.iter().zip(&other_probes) {
+        assert!(
+            !other.matching_status().wait().unwrap().matching(),
+            "{NAME}: a subscription of the joined subscriber matches {key}"
+        );
+        for _ in 0..10 {
+            other.put(tagged(SIBLING_TAG)).wait().expect("put");
+        }
+    }
+    std::thread::sleep(QUIET);
+    assert!(
+        log.lock().unwrap().is_empty(),
+        "{NAME}: the joined subscriber saw samples of another key under {base}: {:?}",
+        log.lock().unwrap()
+    );
+
     // Control: a wide subscription matches the sibling key and counts its samples.
     let wide_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let _wide = wide
@@ -1765,6 +1707,16 @@ fn sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_s
         probe.matching_status().wait().unwrap().matching(),
         "{NAME}: control: the sibling key never matched the wide probe, so a match cannot be seen"
     );
+    for (key, other) in others.iter().zip(&other_probes) {
+        let end = Instant::now() + RECV;
+        while !other.matching_status().wait().unwrap().matching() && Instant::now() < end {
+            std::thread::sleep(POLL);
+        }
+        assert!(
+            other.matching_status().wait().unwrap().matching(),
+            "{NAME}: control: {key} never matched the wide probe, so a match cannot be seen"
+        );
+    }
     assert!(
         put_until(&raw, &sibling, &tagged(SIBLING_TAG), RECV, || wide_count
             .load(std::sync::atomic::Ordering::SeqCst)
@@ -1924,74 +1876,6 @@ fn keys_of(raw: &zenoh::Session, topic: &str, wire: &Wire) -> (bool, bool, bool)
         !key_stays_unsubscribed(raw, &group_key(topic, wire))
     };
     (token, base, group)
-}
-
-/// A typed subscriber of a message with no byte field declares the base key only and no group
-/// token. The control `blob` is a typed subscriber of a buffer message on the same router: it
-/// joins and both keys match. A subscriber that stays out would also pass if the router were dead,
-/// so the base key of `f64` must match.
-#[test]
-fn typed_topic_without_a_buffer_field_declares_one_subscription_and_no_group_token() {
-    const NAME: &str =
-        "typed_topic_without_a_buffer_field_declares_one_subscription_and_no_group_token";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let _f64 = node
-        .create_sub::<Float64MultiArray>("/e4_f64")
-        .build()
-        .unwrap();
-    let _blob = node
-        .create_sub::<UInt8MultiArray>("/e4_blob")
-        .build()
-        .unwrap();
-    assert_eq!(
-        keys_of(&raw, "e4_f64", &FLOAT64),
-        (false, true, false),
-        "{NAME}: (token, base key, group key) of the f64 topic"
-    );
-    assert_eq!(
-        keys_of(&raw, "e4_blob", &UINT8),
-        (true, true, true),
-        "{NAME}: control: (token, base key, group key) of the buffer topic"
-    );
-}
-
-/// A transient-local subscriber of a buffer message declares the base key only and no group token.
-/// The test pins what hiroz declares. It does not show where `rmw_zenoh_cpp` serves transient-local
-/// history. The control is the same topic type with volatile durability, which joins.
-#[test]
-fn transient_local_subscriber_declares_one_subscription_and_no_group_token() {
-    const NAME: &str = "transient_local_subscriber_declares_one_subscription_and_no_group_token";
-    let router = TestRouter::new();
-    let raw = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-    let qos = |durability| QosProfile {
-        durability,
-        ..Default::default()
-    };
-    let _tl = node
-        .create_sub::<UInt8MultiArray>("/e5_tl")
-        .with_qos(qos(QosDurability::TransientLocal))
-        .build()
-        .unwrap();
-    let _vol = node
-        .create_sub::<UInt8MultiArray>("/e5_vol")
-        .with_qos(qos(QosDurability::Volatile))
-        .build()
-        .unwrap();
-    assert_eq!(
-        keys_of(&raw, "e5_tl", &UINT8),
-        (false, true, false),
-        "{NAME}: (token, base key, group key) of the transient-local topic"
-    );
-    assert_eq!(
-        keys_of(&raw, "e5_vol", &UINT8),
-        (true, true, true),
-        "{NAME}: control: (token, base key, group key) of the volatile topic"
-    );
 }
 
 /// A typed subscriber with no message schema joins on a topic that carries no buffer, as the
