@@ -1,11 +1,10 @@
-//! A raw subscriber stays out of rmw_zenoh's CPU buffer group unless the caller opts in.
+//! A raw subscriber joins rmw_zenoh's CPU buffer group by default, and `BufferGroup::Off` keeps it out.
 //!
-//! `BufferGroup::Auto` deliberately behaves as `Off` for a raw subscriber, so only
-//! `create_raw_subscriber_with_group(.., BufferGroup::Cpu)` joins. These tests play the publisher
-//! with a plain Zenoh session, so they need no ROS installation. They check what a publisher
-//! reads: the liveliness token, and which keys reach the callback. Every assertion that filters
-//! tokens filters on the text `backends:`, so it holds whether a default raw subscriber declares
-//! no token or one plain token.
+//! A raw subscriber has no message definition, so `BufferGroup::Auto` joins it as it joins a typed
+//! subscriber without one. A transient-local subscriber and a custom key expression format never
+//! join. These tests play the publisher with a plain Zenoh session, so they need no ROS
+//! installation. They check what a publisher reads: the liveliness token, and which keys reach the
+//! callback. Every assertion that filters tokens filters on the text `backends:`.
 //!
 //! Raw subscribers need hiroz's `ffi` feature, which the other suites do not, so the file has
 //! its own feature, `raw-sub-tests`.
@@ -156,11 +155,12 @@ fn counter() -> (Arc<AtomicUsize>, impl Fn(&[u8]) + Send + Sync + 'static) {
     })
 }
 
-/// A raw subscriber built without the opt-in announces no `backends:` field, and it
-/// is alive. The typed twin shows the token query works.
+/// A raw subscriber built the default way joins: it announces `backends:cpu:`, one callback
+/// serves the base key and the group key, and it is alive. The typed twin shows the token query
+/// works.
 #[test]
-fn raw_subscriber_without_opt_in_announces_no_backends() {
-    const NAME: &str = "raw_subscriber_without_opt_in_announces_no_backends";
+fn raw_subscriber_default_joins_and_announces_backends() {
+    const NAME: &str = "raw_subscriber_default_joins_and_announces_backends";
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
@@ -176,33 +176,29 @@ fn raw_subscriber_without_opt_in_announces_no_backends() {
         .create_raw_subscriber("/raw_default_topic", TYPE_NAME, TYPE_HASH, callback)
         .expect("raw subscriber");
 
-    // Control 1: the typed twin yields exactly one token, and it joins.
+    // Control: the typed twin yields exactly one token, and it joins.
     let twin = token_for(&raw, "raw_default_twin");
     assert!(
         twin.ends_with("/backends:cpu:"),
         "{NAME}: the typed twin did not join, so the token query proves nothing: {twin}"
     );
-    // Control 2: the raw subscriber is alive.
+    let tokens = wait_tokens(&raw, "raw_default_topic");
     assert!(
-        put_until(&raw, &base_key("raw_default_topic"), &PAYLOAD, RECV, || {
-            count.load(Ordering::Relaxed) > 0
-        }),
-        "{NAME}: a put on the base key did not reach the raw callback"
+        tokens.len() == 1 && tokens[0].ends_with("/backends:cpu:"),
+        "{NAME}: the default raw subscriber did not announce backends:cpu: {tokens:?}"
     );
-
-    let raw_tokens = tokens_of(&raw, "raw_default_topic");
-    let backends: Vec<&String> = raw_tokens
-        .iter()
-        .filter(|t| t.contains("backends:"))
-        .collect();
-    assert!(
-        backends.is_empty(),
-        "{NAME}: a default raw subscriber announced backends: {backends:?}"
-    );
-    assert!(
-        raw_tokens.len() <= 1,
-        "{NAME}: a default raw subscriber declared more than one token: {raw_tokens:?}"
-    );
+    // The one callback serves the group key and the base key.
+    for key in [
+        group_key("raw_default_topic"),
+        base_key("raw_default_topic"),
+    ] {
+        let before = count.load(Ordering::Relaxed);
+        assert!(
+            put_until(&raw, &key, &PAYLOAD, RECV, || count.load(Ordering::Relaxed)
+                > before),
+            "{NAME}: nothing reached the default raw callback from {key}"
+        );
+    }
 }
 
 /// A raw subscriber built with the opt-in joins, and one callback serves the base key
@@ -267,45 +263,45 @@ fn raw_subscriber_with_the_opt_in_joins_and_one_callback_serves_both_keys() {
     }
 }
 
-/// With a default and an opted-in raw subscriber side by side, only the opted-in one
-/// announces `backends:cpu:`.
+/// With a default and an `Off` raw subscriber side by side, only the default one announces
+/// `backends:cpu:`.
 #[test]
-fn only_the_opted_in_raw_subscriber_announces_backends() {
-    const NAME: &str = "only_the_opted_in_raw_subscriber_announces_backends";
+fn only_the_default_raw_subscriber_announces_backends() {
+    const NAME: &str = "only_the_default_raw_subscriber_announces_backends";
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
     let node = ctx.create_node("raw_side").build().expect("node");
 
     let (_c1, default_cb) = counter();
-    let (_c2, optin_cb) = counter();
+    let (_c2, off_cb) = counter();
     let _default = node
         .create_raw_subscriber("/raw_side_default", TYPE_NAME, TYPE_HASH, default_cb)
         .expect("default raw");
-    let _optin = node
+    let _off = node
         .create_raw_subscriber_with_group(
-            "/raw_side_optin",
+            "/raw_side_off",
             TYPE_NAME,
             TYPE_HASH,
-            optin_cb,
+            off_cb,
             None,
-            hiroz::BufferGroup::Cpu,
+            hiroz::BufferGroup::Off,
         )
-        .expect("opted-in raw");
+        .expect("Off raw");
 
-    let optin_tokens = wait_tokens(&raw, "raw_side_optin");
+    let default_tokens = wait_tokens(&raw, "raw_side_default");
     assert!(
-        optin_tokens.len() == 1 && optin_tokens[0].ends_with("/backends:cpu:"),
-        "{NAME}: the opted-in raw subscriber did not announce backends:cpu: {optin_tokens:?}"
+        default_tokens.len() == 1 && default_tokens[0].ends_with("/backends:cpu:"),
+        "{NAME}: the default raw subscriber did not announce backends:cpu: {default_tokens:?}"
     );
-    let default_tokens = tokens_of(&raw, "raw_side_default");
-    let announcing: Vec<&String> = default_tokens
+    let off_tokens = tokens_of(&raw, "raw_side_off");
+    let announcing: Vec<&String> = off_tokens
         .iter()
         .filter(|t| t.contains("backends:"))
         .collect();
     assert!(
         announcing.is_empty(),
-        "{NAME}: the default raw subscriber announced backends: {announcing:?}"
+        "{NAME}: the Off raw subscriber announced backends: {announcing:?}"
     );
 }
 
@@ -462,10 +458,12 @@ fn assert_stays_out(
     );
 }
 
-/// `Auto` has no message definition to inspect for a raw subscriber, so it stays out.
+/// `Auto` has no message definition to inspect for a raw subscriber, so it joins as a typed
+/// subscriber without a definition does: the token announces `backends:cpu:`, and one callback
+/// serves the base key and the group key. A `Cpu` subscriber is the control.
 #[test]
-fn raw_subscriber_with_group_auto_stays_out() {
-    const NAME: &str = "raw_subscriber_with_group_auto_stays_out";
+fn raw_subscriber_with_group_auto_joins() {
+    const NAME: &str = "raw_subscriber_with_group_auto_joins";
     let router = TestRouter::new();
     let raw = raw_session(router.endpoint());
     let ctx = create_hiroz_context_with_router(&router).expect("ctx");
@@ -480,7 +478,7 @@ fn raw_subscriber_with_group_auto_stays_out() {
             None,
             hiroz::BufferGroup::Cpu,
         )
-        .expect("opted-in control");
+        .expect("Cpu control");
     let (count, callback) = counter();
     let _subject = node
         .create_raw_subscriber_with_group(
@@ -492,10 +490,27 @@ fn raw_subscriber_with_group_auto_stays_out() {
             hiroz::BufferGroup::Auto,
         )
         .expect("raw subscriber with Auto");
-    assert_stays_out(NAME, &raw, "raw_auto_control", "raw_auto_subject", &count);
+    let control = wait_tokens(&raw, "raw_auto_control");
+    assert!(
+        control.len() == 1 && control[0].ends_with("/backends:cpu:"),
+        "{NAME}: the Cpu control did not join, so the checks below count for nothing: {control:?}"
+    );
+    let subject = wait_tokens(&raw, "raw_auto_subject");
+    assert!(
+        subject.len() == 1 && subject[0].ends_with("/backends:cpu:"),
+        "{NAME}: the Auto raw subscriber did not announce backends:cpu: {subject:?}"
+    );
+    for key in [group_key("raw_auto_subject"), base_key("raw_auto_subject")] {
+        let before = count.load(Ordering::Relaxed);
+        assert!(
+            put_until(&raw, &key, &PAYLOAD, RECV, || count.load(Ordering::Relaxed)
+                > before),
+            "{NAME}: nothing reached the Auto raw callback from {key}"
+        );
+    }
 }
 
-/// `Off` stays out, the same as the default.
+/// `Off` stays out: it declares no group key and no `backends:` field.
 #[test]
 fn raw_subscriber_with_group_off_stays_out() {
     const NAME: &str = "raw_subscriber_with_group_off_stays_out";
@@ -528,8 +543,7 @@ fn raw_subscriber_with_group_off_stays_out() {
     assert_stays_out(NAME, &raw, "raw_off_control", "raw_off_subject", &count);
 }
 
-/// `rmw_zenoh` serves transient-local history on the base key only, so a transient-local raw
-/// subscriber stays out even with `Cpu`.
+/// A transient-local raw subscriber never joins, with `Cpu` or with `Auto`.
 #[test]
 fn raw_transient_local_subscriber_stays_out_with_cpu() {
     const NAME: &str = "raw_transient_local_subscriber_stays_out_with_cpu";
@@ -607,4 +621,64 @@ fn raw_custom_key_format_subscriber_stays_out_with_cpu() {
         )
         .expect("raw subscriber on a custom format");
     assert_stays_out(NAME, &raw, "raw_fmt_control", "raw_fmt_subject", &count);
+}
+
+/// A raw subscriber on a transient-local QoS stays out under `Auto` too. The control is a default
+/// raw subscriber on a volatile QoS, which joins.
+#[test]
+fn raw_transient_local_subscriber_stays_out_with_auto() {
+    const NAME: &str = "raw_transient_local_subscriber_stays_out_with_auto";
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("raw_tla").build().expect("node");
+    let (_c, control_cb) = counter();
+    let _control = node
+        .create_raw_subscriber("/raw_tla_control", TYPE_NAME, TYPE_HASH, control_cb)
+        .expect("default control");
+    let (count, callback) = counter();
+    let _subject = node
+        .create_raw_subscriber_with_group(
+            "/raw_tla_subject",
+            TYPE_NAME,
+            TYPE_HASH,
+            callback,
+            Some(QosProfile {
+                durability: QosDurability::TransientLocal,
+                ..Default::default()
+            }),
+            hiroz::BufferGroup::Auto,
+        )
+        .expect("transient-local raw subscriber");
+    assert_stays_out(NAME, &raw, "raw_tla_control", "raw_tla_subject", &count);
+}
+
+/// A raw subscriber on a custom key expression format stays out under `Auto` too. The control is a
+/// default raw subscriber on the `rmw_zenoh` format, which joins.
+#[test]
+fn raw_custom_key_format_subscriber_stays_out_with_auto() {
+    const NAME: &str = "raw_custom_key_format_subscriber_stays_out_with_auto";
+    let router = TestRouter::new();
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
+    let node = ctx.create_node("raw_fma").build().expect("node");
+    let (_c, control_cb) = counter();
+    let _control = node
+        .create_raw_subscriber("/raw_fma_control", TYPE_NAME, TYPE_HASH, control_cb)
+        .expect("default control");
+    let custom_ctx = ZContextBuilder::default()
+        .keyexpr_format(KeyExprFormat::Custom(Arc::new(KeyExprFormatterAdapter::<
+            RmwZenohFormatter,
+        >::new())))
+        .disable_multicast_scouting()
+        .with_connect_endpoints([router.endpoint()])
+        .with_mode("client")
+        .build()
+        .expect("custom ctx");
+    let custom_node = custom_ctx.create_node("raw_fma2").build().expect("node");
+    let (count, callback) = counter();
+    let _subject = custom_node
+        .create_raw_subscriber("/raw_fma_subject", TYPE_NAME, TYPE_HASH, callback)
+        .expect("raw subscriber on a custom format");
+    assert_stays_out(NAME, &raw, "raw_fma_control", "raw_fma_subject", &count);
 }

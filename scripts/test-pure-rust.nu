@@ -49,7 +49,7 @@ def run-tests [] {
 }
 
 # The number of `#[test]` in `buffer_cpu_group_raw.rs`. Change it with the suite.
-const RAW_SUITE_TESTS = 9
+const RAW_SUITE_TESTS = 11
 
 # `--os-name` (also a flag of `main`) names the host, so the host decision can be tested; it defaults to the real host.
 def check-raw-suite-listed [--os-name: string] {
