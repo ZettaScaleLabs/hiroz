@@ -49,8 +49,8 @@ pub enum BufferGroup {
 
 /// Whether a subscriber joins. `has_buffer_fields` is `None` when hiroz has no message definition.
 ///
-/// Only the `rmw_zenoh` key format has the group, and `rmw_zenoh` serves transient-local history
-/// on the base key only, so neither joins whatever the caller asks.
+/// Only the `rmw_zenoh` key format has the group, so a subscriber on another format never joins.
+/// A transient-local subscriber never joins either. A history query on the wide key is untested.
 pub(crate) fn joins(
     group: BufferGroup,
     has_buffer_fields: Option<bool>,
