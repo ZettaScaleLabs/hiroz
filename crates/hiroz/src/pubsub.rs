@@ -632,6 +632,12 @@ impl ZPub<crate::dynamic::DynamicMessage, crate::dynamic::DynamicSerdeCdrSerdes>
     }
 }
 
+/// The subscriptions of a raw-callback subscriber: the base key, and the group key when it joins.
+pub(crate) type RawSubscriptions = (
+    zenoh::pubsub::Subscriber<()>,
+    Option<zenoh::pubsub::Subscriber<()>>,
+);
+
 pub struct ZSubBuilder<T, S = SerdeCdrSerdes<T>> {
     pub(crate) entity: EndpointEntity,
     pub(crate) session: Arc<Session>,
@@ -774,13 +780,7 @@ where
     pub(crate) fn build_raw_subscriber<F>(
         mut self,
         callback: F,
-    ) -> Result<(
-        (
-            zenoh::pubsub::Subscriber<()>,
-            Option<zenoh::pubsub::Subscriber<()>>,
-        ),
-        zenoh::liveliness::LivelinessToken,
-    )>
+    ) -> Result<(RawSubscriptions, zenoh::liveliness::LivelinessToken)>
     where
         F: Fn(Sample) + Send + Sync + 'static,
     {

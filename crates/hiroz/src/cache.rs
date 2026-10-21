@@ -123,10 +123,7 @@ pub struct ZCache<T: ZMessage> {
     /// Declared before the subscription, so it drops first: the token goes before the subscription
     /// that serves it.
     _token: zenoh::liveliness::LivelinessToken,
-    _sub: (
-        zenoh::pubsub::Subscriber<()>,
-        Option<zenoh::pubsub::Subscriber<()>>,
-    ),
+    _sub: crate::pubsub::RawSubscriptions,
 }
 
 impl<T: ZMessage> ZCache<T> {
