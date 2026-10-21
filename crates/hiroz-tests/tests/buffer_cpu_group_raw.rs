@@ -682,3 +682,198 @@ fn raw_custom_key_format_subscriber_stays_out_with_auto() {
         .expect("raw subscriber on a custom format");
     assert_stays_out(NAME, &raw, "raw_fma_control", "raw_fma_subject", &count);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Router access control
+// ---------------------------------------------------------------------------------------------
+
+/// The quoted name of every network interface. A rule whose subject names only `lo` would match
+/// nothing.
+fn interfaces() -> String {
+    std::fs::read_dir("/sys/class/net")
+        .expect("list interfaces")
+        .map(|e| format!("\"{}\"", e.unwrap().file_name().to_string_lossy()))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// A router that denies `key_expr` on every interface and allows everything else.
+fn router_denying(key_expr: &str) -> TestRouter {
+    let access_control = format!(
+        r#"{{
+            enabled: true,
+            default_permission: "allow",
+            rules: [{{
+                id: "deny_rule", permission: "deny",
+                messages: ["put", "declare_subscriber"], flows: ["egress", "ingress"],
+                key_exprs: ["{key_expr}"],
+            }}],
+            subjects: [{{ id: "all", interfaces: [{}] }}],
+            policies: [{{ rules: ["deny_rule"], subjects: ["all"] }}],
+        }}"#,
+        interfaces()
+    );
+    TestRouter::with_config(move |config| {
+        config
+            .insert_json5("access_control", &access_control)
+            .unwrap();
+    })
+}
+
+/// A router with default-deny access control that allows only `key_exprs`, on every interface.
+/// Liveliness traffic is allowed, so a token still reaches a plain session. This is the allow-list
+/// shape: the operator names the topic key and nothing else.
+fn router_allowing_only(key_exprs: &[String]) -> TestRouter {
+    let keys: Vec<String> = key_exprs.iter().map(|k| format!("\"{k}\"")).collect();
+    let access_control = format!(
+        r#"{{
+            enabled: true,
+            default_permission: "deny",
+            rules: [{{
+                id: "allow_rule", permission: "allow",
+                messages: ["put", "declare_subscriber"], flows: ["egress", "ingress"],
+                key_exprs: [{}],
+            }}, {{
+                id: "allow_tokens", permission: "allow",
+                messages: ["liveliness_token", "liveliness_query", "declare_liveliness_subscriber"],
+                flows: ["egress", "ingress"], key_exprs: ["@ros2_lv/**"],
+            }}],
+            subjects: [{{ id: "all", interfaces: [{}] }}],
+            policies: [{{ rules: ["allow_rule", "allow_tokens"], subjects: ["all"] }}],
+        }}"#,
+        keys.join(","),
+        interfaces()
+    );
+    TestRouter::with_config(move |config| {
+        config
+            .insert_json5("access_control", &access_control)
+            .unwrap();
+    })
+}
+
+/// One raw subscriber under a router rule: its topic, its group setting, the key a plain session
+/// puts on, and whether the callback must see the samples.
+struct AclCase {
+    topic: &'static str,
+    group: hiroz::BufferGroup,
+    put_group_key: bool,
+    delivers: bool,
+}
+
+/// Build one raw subscriber per case, put on each case's key, and check what reached it. `build`
+/// returns `Ok` under every rule: the starvation is silent.
+fn run_acl_cases(name: &str, router: &TestRouter, cases: &[AclCase]) {
+    let raw = raw_session(router.endpoint());
+    let ctx = create_hiroz_context_with_router(router).expect("ctx");
+    let node = ctx.create_node("raw_acl_node").build().expect("node");
+    let (counts, _subs): (Vec<_>, Vec<_>) = cases
+        .iter()
+        .map(|c| {
+            let (count, callback) = counter();
+            let sub = node
+                .create_raw_subscriber_with_group(
+                    &format!("/{}", c.topic),
+                    TYPE_NAME,
+                    TYPE_HASH,
+                    callback,
+                    None,
+                    c.group,
+                )
+                .expect("build returns Ok under a deny rule");
+            (count, sub)
+        })
+        .unzip();
+    // The token is declared after the subscription, so a visible token ends the wait for it.
+    for c in cases {
+        let tokens = wait_tokens(&raw, c.topic);
+        assert_eq!(
+            tokens.len() == 1 && tokens[0].ends_with("/backends:cpu:"),
+            c.group != hiroz::BufferGroup::Off,
+            "{name}: token for {} ({:?}): {tokens:?}",
+            c.topic,
+            c.group
+        );
+    }
+    for _ in 0..20 {
+        for c in cases {
+            let key = if c.put_group_key {
+                group_key(c.topic)
+            } else {
+                base_key(c.topic)
+            };
+            raw_put(&raw, &key);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::thread::sleep(QUIET);
+    for (c, count) in cases.iter().zip(&counts) {
+        let received = count.load(Ordering::Relaxed);
+        assert!(
+            (received > 0) == c.delivers,
+            "{name}: {} ({:?}, group key {}): received {received}, expected {}",
+            c.topic,
+            c.group,
+            c.put_group_key,
+            if c.delivers { "some" } else { "none" }
+        );
+    }
+}
+
+/// Router access control starves a joined raw subscriber silently. A default raw subscriber
+/// declares `<topic key>/**`, so a default-deny router that allows `<topic key>` and not
+/// `<topic key>/**` starves it, and `build` still returns `Ok`.
+///
+/// Controls in the same test: an `Off` raw subscriber receives under the allow-only rule, so the
+/// puts reach the router and the rule lets the base key through. The same default raw subscriber
+/// receives once the rule also allows `<topic key>/**`, which is the remedy the docs give.
+#[test]
+fn raw_access_control_starves_a_default_subscriber_silently() {
+    const NAME: &str = "raw_access_control_starves_a_default_subscriber_silently";
+    use hiroz::BufferGroup::{Auto, Off};
+    let case = |topic, group, delivers| AclCase {
+        topic,
+        group,
+        put_group_key: false,
+        delivers,
+    };
+
+    // Allow the topic key only. The joined subscriber is starved, the Off subscriber is not.
+    let narrow = [
+        case("raw_acl_off", Off, true),
+        case("raw_acl_auto", Auto, false),
+    ];
+    let keys: Vec<String> = narrow.iter().map(|c| base_key(c.topic)).collect();
+    run_acl_cases(NAME, &router_allowing_only(&keys), &narrow);
+
+    // Allow the topic key and everything under it.
+    let wide = [case("raw_aclw_auto", Auto, true)];
+    let keys: Vec<String> = wide
+        .iter()
+        .flat_map(|c| [base_key(c.topic), format!("{}/**", base_key(c.topic))])
+        .collect();
+    run_acl_cases(NAME, &router_allowing_only(&keys), &wide);
+}
+
+/// A rule that denies only the group key starves the group key of a joined raw subscriber and
+/// leaves its base key flowing. Without the rule, the same subscriber receives on the group key.
+#[test]
+fn raw_denied_group_key_leaves_the_base_key_flowing() {
+    const NAME: &str = "raw_denied_group_key_leaves_the_base_key_flowing";
+    use hiroz::BufferGroup::Auto;
+    let case = |topic, put_group_key, delivers| AclCase {
+        topic,
+        group: Auto,
+        put_group_key,
+        delivers,
+    };
+
+    // Control: an open router delivers on the group key.
+    let open = [case("raw_ad_open", true, true)];
+    run_acl_cases(NAME, &TestRouter::new(), &open);
+
+    let denied = [
+        case("raw_ad_group", true, false),
+        case("raw_ad_base", false, true),
+    ];
+    run_acl_cases(NAME, &router_denying("0/*/*/*/_buf_cpu"), &denied);
+}
