@@ -31,6 +31,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Rust toolchain of the macOS jobs. The rust-cache key includes the Rust
+  # version, so a moving `stable` changes the key whenever the runner image
+  # changes it. Keep this equal to the Rust pin in flake.nix.
+  MACOS_RUST_TOOLCHAIN: 1.91.0
+
 jobs:
   release-notes:
     name: Release-note breaking markers
@@ -165,7 +171,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
           cache: false
-          toolchain: stable
+          toolchain: ${{ env.MACOS_RUST_TOOLCHAIN }}
           components: clippy, rustfmt
 
       - name: Install dependencies (macOS)
@@ -425,7 +431,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
           cache: false
-          toolchain: stable
+          toolchain: ${{ env.MACOS_RUST_TOOLCHAIN }}
           target: wasm32-wasip2
           components: clippy, rustfmt
 
@@ -876,7 +882,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
           cache: false
-          toolchain: stable
+          toolchain: ${{ runner.os == 'macOS' && env.MACOS_RUST_TOOLCHAIN || 'stable' }}
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
