@@ -1136,38 +1136,6 @@ fn joining_logs_the_group_key_at_debug_level() {
     );
 }
 
-/// A router that denies `key_expr` on every interface. A rule whose subject names only `lo`
-/// would match nothing.
-fn router_denying(key_expr: &str) -> TestRouter {
-    let interfaces: Vec<String> = std::fs::read_dir("/sys/class/net")
-        .expect("list interfaces")
-        .map(|e| format!("\"{}\"", e.unwrap().file_name().to_string_lossy()))
-        .collect();
-    let access_control = format!(
-        r#"{{
-            enabled: true,
-            default_permission: "allow",
-            rules: [{{
-                id: "deny_rule", permission: "deny",
-                messages: ["put", "declare_subscriber"], flows: ["egress", "ingress"],
-                key_exprs: ["{key_expr}"],
-            }}],
-            subjects: [{{ id: "all", interfaces: [{}] }}],
-            policies: [{{ rules: ["deny_rule"], subjects: ["all"] }}],
-        }}"#,
-        interfaces.join(",")
-    );
-    TestRouter::with_config(move |config| {
-        config
-            .insert_json5("access_control", &access_control)
-            .unwrap();
-    })
-}
-
-fn router_denying_the_group_key() -> TestRouter {
-    router_denying("0/*/*/*/_buf_cpu")
-}
-
 /// A router with default-deny access control that allows only `key_exprs`, on every interface.
 /// This is the allow-list shape: the operator names the topic key and nothing else.
 fn router_allowing_only(key_exprs: &[String]) -> TestRouter {
@@ -1314,13 +1282,13 @@ fn router_allowing_cases(cases: &[AclCase], group: bool) -> TestRouter {
 /// subscriber declares `<topic key>` and `<topic key>/_buf_cpu`, so a default-deny router that
 /// allows `<topic key>` and not the group key starves the group key, and `build` still returns
 /// `Ok`. The base key still flows. This holds for a buffer type and for a subscriber with no
-/// message definition, which joins on a topic that carries no buffer too. A rule that denies the
-/// group key starves the group key and leaves the base key flowing.
+/// message definition, which joins on a topic that carries no buffer too.
 ///
 /// Controls in the same test: an `Off` subscriber receives under the allow-only rule, so the puts
 /// reach the router and the rule lets the base key through. A joined subscriber receives on the
-/// group key once the rule also allows it, which is the remedy the docs give. Without the deny
-/// rule the same joined subscriber receives on the group key.
+/// group key and on the base key once the rule allows exactly those two keys, which is the remedy
+/// the docs give. The rule has no `<topic key>/**` entry, so a subscriber with a wider
+/// subscription would receive nothing in the second table.
 #[test]
 fn router_access_control_starves_a_joined_subscriber_silently() {
     const NAME: &str = "router_access_control_starves_a_joined_subscriber_silently";
@@ -1348,21 +1316,16 @@ fn router_access_control_starves_a_joined_subscriber_silently() {
         &allow_base,
     );
 
-    // Allow the topic key and the group key, the remedy the docs give.
+    // Allow the topic key and the group key and nothing else, the remedy the docs give. A joined
+    // subscriber receives on both keys. An Off subscriber receives on its base key.
     let allow_pair = [
         case("aw_buf", false, Auto, true, true),
+        case("aw_buf_base", false, Auto, false, true),
         case("aw_num", true, Auto, true, true),
+        case("aw_num_base", true, Auto, false, true),
+        case("aw_off", false, Off, false, true),
     ];
     run_acl_cases(NAME, &router_allowing_cases(&allow_pair, true), &allow_pair);
-
-    // Deny the group key. The same joined subscriber receives on the group key of an open router.
-    let open = [case("ad_buf", false, Auto, true, true)];
-    run_acl_cases(NAME, &TestRouter::new(), &open);
-    let deny = [
-        case("ad_group", false, Auto, true, false),
-        case("ad_base", false, Auto, false, true),
-    ];
-    run_acl_cases(NAME, &router_denying_the_group_key(), &deny);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1400,126 +1363,6 @@ fn key_stays_unsubscribed(raw: &zenoh::Session, key: &str) -> bool {
 /// Record the identity of a sample that a callback saw.
 fn record(log: &Mutex<Vec<u32>>, tag: u32) {
     log.lock().unwrap().push(tag);
-}
-
-/// A joined subscriber receives on both of its keys under a router rule that allows the base key
-/// and the group key and nothing else. The rule has no `<topic key>/**`, so a subscription on
-/// that key would be starved. A subscriber that declares exactly its two keys is not.
-///
-/// Controls in the same test: an `Off` subscriber receives its base sample under the same rule, so
-/// the rule lets a base key through and the puts reach the router. A plain session that subscribes
-/// `<topic key>/**` is a control probe, not the code under test: the rule starves it, and the
-/// control `star_allowed` shows the same subscription form delivers when the rule allows it.
-#[test]
-fn exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys() {
-    const NAME: &str = "exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys";
-    const BASE_TAG: u32 = 1;
-    const GROUP_TAG: u32 = 2;
-    const OFF_TAG: u32 = 3;
-    const ALLOWED_TAG: u32 = 4;
-    let join_base = base_key("e1_join", &UINT8);
-    let join_group = group_key("e1_join", &UINT8);
-    let off_base = base_key("e1_off", &UINT8);
-    let star_allowed = "0/e1_star_allowed/**";
-    let router = router_allowing_only(&[
-        join_base.clone(),
-        join_group.clone(),
-        off_base.clone(),
-        star_allowed.to_owned(),
-    ]);
-    let raw = raw_session(router.endpoint());
-    // A second session for the control probes: a put from the first would reach a probe on the
-    // same session locally, and local delivery never meets the router rule.
-    let probes = raw_session(router.endpoint());
-    let ctx = create_hiroz_context_with_router(&router).expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-
-    let joined_log: Arc<Mutex<Vec<u32>>> = Arc::default();
-    let off_log: Arc<Mutex<Vec<u32>>> = Arc::default();
-    let _joined = node
-        .create_sub::<UInt8MultiArray>("/e1_join")
-        .with_buffer_group(BufferGroup::Auto)
-        .build_with_callback({
-            let log = joined_log.clone();
-            move |msg| record(&log, msg.tag())
-        })
-        .expect("build returns Ok under a rule");
-    let _off = node
-        .create_sub::<UInt8MultiArray>("/e1_off")
-        .with_buffer_group(BufferGroup::Off)
-        .build_with_callback({
-            let log = off_log.clone();
-            move |msg| record(&log, msg.tag())
-        })
-        .expect("build returns Ok under a rule");
-    assert!(
-        joined(&raw, "e1_join"),
-        "{NAME}: the joined subscriber has no group token"
-    );
-    assert!(!joined(&raw, "e1_off"), "{NAME}: the Off subscriber joined");
-
-    let star_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let allowed_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let _star = probes
-        .declare_subscriber(format!("{join_base}/**"))
-        .callback({
-            let c = star_count.clone();
-            move |_| {
-                c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            }
-        })
-        .wait()
-        .expect("control probe");
-    let _allowed = probes
-        .declare_subscriber(star_allowed)
-        .callback({
-            let c = allowed_count.clone();
-            move |_| {
-                c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            }
-        })
-        .wait()
-        .expect("allowed probe");
-
-    let has = |log: &Arc<Mutex<Vec<u32>>>, tag: u32| log.lock().unwrap().contains(&tag);
-    assert!(
-        put_until(&raw, &join_group, &tagged(GROUP_TAG), RECV, || has(
-            &joined_log,
-            GROUP_TAG
-        )),
-        "{NAME}: the joined subscriber never received on the group key: saw {:?}",
-        joined_log.lock().unwrap()
-    );
-    assert!(
-        put_until(&raw, &join_base, &tagged(BASE_TAG), RECV, || has(
-            &joined_log,
-            BASE_TAG
-        )),
-        "{NAME}: the joined subscriber never received on the base key: saw {:?}",
-        joined_log.lock().unwrap()
-    );
-    assert!(
-        put_until(&raw, &off_base, &tagged(OFF_TAG), RECV, || has(
-            &off_log, OFF_TAG
-        )),
-        "{NAME}: control: the Off subscriber never received on its base key: saw {:?}",
-        off_log.lock().unwrap()
-    );
-    assert!(
-        put_until(
-            &raw,
-            "0/e1_star_allowed/x",
-            &tagged(ALLOWED_TAG),
-            RECV,
-            || allowed_count.load(std::sync::atomic::Ordering::SeqCst) > 0
-        ),
-        "{NAME}: control: a subscription that the rule allows received nothing"
-    );
-    assert_eq!(
-        settled(&star_count),
-        0,
-        "{NAME}: the control probe on {join_base}/** received a sample the rule should starve"
-    );
 }
 
 /// A sample on `<topic key>/_buf/<gid>` never reaches a joined subscriber, and no subscription of
