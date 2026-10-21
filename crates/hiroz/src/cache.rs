@@ -43,17 +43,19 @@
 //!     .build()?;
 //! ```
 
-use std::{collections::BTreeMap, marker::PhantomData, sync::Arc, time::SystemTime};
+use std::collections::BTreeMap;
+use std::marker::PhantomData;
+use std::sync::Arc;
+use std::time::SystemTime;
 
 use parking_lot::RwLock;
 use tracing::{debug, warn};
 use zenoh::Result;
+use zenoh::liveliness::LivelinessToken;
 
-use crate::{
-    Builder,
-    msg::{SerdeCdrSerdes, ZDeserializer, ZMessage},
-    pubsub::ZSubBuilder,
-};
+use crate::Builder;
+use crate::msg::{SerdeCdrSerdes, ZDeserializer, ZMessage};
+use crate::pubsub::ZSubBuilder;
 
 // ---------------------------------------------------------------------------
 // Stamp strategy markers
@@ -123,7 +125,7 @@ pub struct ZCache<T: ZMessage> {
     inner: Arc<RwLock<CacheInner<T>>>,
     /// Field order is drop order. The token drops first, so the subscriptions outlive it and the
     /// group is never advertised without a subscription.
-    _token: zenoh::liveliness::LivelinessToken,
+    _token: LivelinessToken,
     /// The base subscription and, when the cache joined the group, the group subscription.
     _sub: crate::pubsub::RawSubscriptions,
 }
