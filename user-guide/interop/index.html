@@ -1262,6 +1262,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#buffer-messages-from-lyrical-publishers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Buffer messages from Lyrical publishers
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2461,6 +2472,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#buffer-messages-from-lyrical-publishers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Buffer messages from Lyrical publishers
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2556,6 +2578,82 @@ See <a href="../../reference/troubleshooting/">Troubleshooting</a> for diagnosis
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>just<span class="w"> </span>-f<span class="w"> </span>crates/hiroz-go/justfile<span class="w"> </span>run-example<span class="w"> </span>subscriber
 </span></code></pre></div>
 <p>For more detail see <a href="../../bindings/go-quick-start/">Go Quick Start</a>.</p>
+<hr />
+<h2 id="buffer-messages-from-lyrical-publishers">Buffer messages from Lyrical publishers<a class="headerlink" href="#buffer-messages-from-lyrical-publishers" title="Permanent link">&para;</a></h2>
+<p>A buffer-aware ROS 2 Lyrical publisher treats an unbounded <code>uint8[]</code> or <code>char[]</code> field as a buffer, directly or inside a nested message. An example is <code>sensor_msgs/PointCloud2</code>. For a matched subscriber that announces buffer support, the publisher writes the message on <code>&lt;topic key&gt;/_buf_cpu</code> and never on <code>&lt;topic key&gt;</code>. The <code>humble</code>, <code>jazzy</code> and <code>kilted</code> branches of <code>rmw_zenoh</code> have no buffer support: their liveliness key-expression code has no <code>backends</code> field.</p>
+<table>
+<thead>
+<tr>
+<th>field</th>
+<th>buffer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>unbounded <code>uint8[]</code>, unbounded <code>char[]</code></td>
+<td>yes</td>
+</tr>
+<tr>
+<td>unbounded <code>byte[]</code>, unbounded <code>int8[]</code>, bounded <code>uint8[&lt;=N]</code>, fixed <code>uint8[N]</code></td>
+<td>no</td>
+</tr>
+</tbody>
+</table>
+<p>The released <code>rmw_zenoh_cpp</code> 0.10.6 package gave this table. Each field ran alone and nested, with n=3 runs.</p>
+<p>A hiroz subscriber joins this group when its liveliness token ends in <code>backends:cpu:</code>. A joined subscriber declares two exact subscriptions, on <code>&lt;topic key&gt;</code> and on <code>&lt;topic key&gt;/_buf_cpu</code>, both before the token. The base key stays subscribed because a publisher that is not buffer-aware writes only that key. The publisher also writes keys such as <code>&lt;topic key&gt;/_buf/&lt;gid&gt;</code> for subscribers outside the group. A joined subscriber has no subscription that matches them. This is read from the source and is not measured.</p>
+<p>Set the choice with <code>with_buffer_group</code> on a subscriber builder or a cache builder:</p>
+<table>
+<thead>
+<tr>
+<th>setting</th>
+<th>the subscriber joins when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BufferGroup::Auto</code> (default)</td>
+<td>the message has an unbounded <code>uint8[]</code> or <code>char[]</code>, directly or nested, or hiroz has no message definition</td>
+</tr>
+<tr>
+<td><code>BufferGroup::Cpu</code></td>
+<td>always, except in the cases below</td>
+</tr>
+<tr>
+<td><code>BufferGroup::Off</code></td>
+<td>never</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>The typed code generator maps ROS <code>byte</code>, <code>uint8</code> and <code>char</code> to one type. A typed subscriber therefore also joins for an unbounded <code>byte[]</code>. This costs one extra join and loses no data.</li>
+<li>A subscriber with no message definition joins on every topic, not only on buffer topics. The feedback and status subscribers of an action client and the Python bindings have no message definition.</li>
+<li>The action client and the Python bindings have no <code>Off</code> switch yet.</li>
+<li>Raw subscribers never join. The Go bindings create raw subscribers.</li>
+<li>A transient-local subscriber never joins. A subscriber on a key format other than <code>rmw_zenoh</code>'s never joins. This holds under every setting.</li>
+<li><code>rmw-zenoh-rs</code> subscriptions use <code>Off</code>.</li>
+</ul>
+<p>A transient-local subscriber reads its history from <code>&lt;topic key&gt;</code>. The released 0.10.6 package gave this result in 75 cells with Image topics: five kinds of late joiner, three publish-time situations, n=5 per cell. The history arrived on <code>&lt;topic key&gt;</code> in every cell and never on <code>&lt;topic key&gt;/_buf_cpu</code>. An unreleased source revision serves it on the group key. No test covers history after <a href="https://github.com/ros2/rmw_zenoh/pull/1078">ros2/rmw_zenoh#1078</a>.</p>
+<p>If you use router access control, allow <code>&lt;topic key&gt;</code> and <code>&lt;topic key&gt;/_buf_cpu</code>. A joined subscriber declares only these two keys, so a rule on <code>&lt;topic key&gt;/**</code> is not needed. A rule that allows <code>&lt;topic key&gt;</code> and not <code>&lt;topic key&gt;/_buf_cpu</code> stops a joined subscriber from receiving buffer messages. <code>build</code> returns <code>Ok</code> and no error appears. The base key still delivers. A subscriber receives a message that carries no buffer through the base key, so a rule on the group key does not affect that message. This holds for a subscriber with no message definition and for a subscriber set to <code>Cpu</code> on a topic that carries no buffer. <code>Off</code> stops a subscriber from joining, so <code>Off</code> needs no rule for the group key. A subscriber with no <code>backends:</code> field receives no buffer message from a buffer-aware publisher until a release carries <a href="https://github.com/ros2/rmw_zenoh/pull/1078">ros2/rmw_zenoh#1078</a>. <code>Off</code> therefore does not bring those messages back. hiroz logs each join at <code>debug</code> level and names both keys.</p>
+<p>A subscriber with no <code>backends:</code> field still receives topics that carry no buffer through the base key. A buffer-aware publisher writes a message that carries a buffer on the group key only, so this subscriber receives nothing for it. The fix in <a href="https://github.com/ros2/rmw_zenoh/pull/1078">ros2/rmw_zenoh#1078</a> is not released. This limit covers <code>Off</code> subscribers, transient-local subscribers, subscribers on a key format other than <code>rmw_zenoh</code>'s and <code>rmw-zenoh-rs</code> subscriptions. Measurements cover an <code>Off</code> subscriber only. No test runs the other three.</p>
+<table>
+<thead>
+<tr>
+<th>Limit</th>
+<th>Cause</th>
+<th>Measured</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A joined subscriber reports lost-message events for messages that arrived</td>
+<td>The publisher advances one sequence number for each endpoint copy</td>
+<td>The lost count was K times the delivered messages for K other buffer-aware subscribers. K was 1 and 4, n=5 per K, one machine, 100 messages per second for 20 s, released 0.10.6 package. An unreleased revision gave the same.</td>
+<td>The open fix <a href="https://github.com/ros2/rmw_zenoh/pull/1079">ros2/rmw_zenoh#1079</a> gave a count of 0 (n=5 per K)</td>
+</tr>
+</tbody>
+</table>
+<p>No hiroz test covers this limit, and hiroz code does not change for it.</p>
 
 
 
