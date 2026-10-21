@@ -126,7 +126,7 @@ pub struct ZCache<T: ZMessage> {
     /// Field order is drop order. The token drops first, so the subscriptions outlive it and the
     /// group is never advertised without a subscription.
     _token: LivelinessToken,
-    /// The base subscription and, when the cache joined the group, the group subscription.
+    /// The topic-key subscription and, when the cache joined the group, the group subscription.
     _sub: crate::pubsub::RawSubscriptions,
 }
 
