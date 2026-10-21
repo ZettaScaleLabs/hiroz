@@ -644,7 +644,9 @@ pub struct ZSubBuilder<T, S = SerdeCdrSerdes<T>> {
     pub(crate) expected_encoding: Option<crate::encoding::Encoding>,
     /// The caller's choice about rmw_zenoh's CPU buffer group.
     pub(crate) buffer_group: crate::BufferGroup,
-    /// Whether the message definition has an unbounded `uint8[]`; `None` without a definition.
+    /// Whether the message definition has a field that makes a subscriber join the buffer group,
+    /// `None` without a definition. See [`BufferGroup::Auto`](crate::BufferGroup::Auto) for the
+    /// fields.
     pub(crate) has_buffer_fields: Option<bool>,
     pub(crate) _phantom_data: PhantomData<(T, S)>,
 }
@@ -676,10 +678,11 @@ where
     /// Choose whether this subscriber joins rmw_zenoh's CPU buffer group.
     ///
     /// The default, [`BufferGroup::Auto`](crate::BufferGroup::Auto), joins when the message has
-    /// an unbounded `uint8[]` or hiroz has no message definition to ask. A joined subscriber
-    /// subscribes on `<topic key>` and on `<topic key>/_buf_cpu`, and a router access-control rule
-    /// must allow both. A
-    /// transient-local subscriber and a key format other than `rmw_zenoh`'s never join. See
+    /// an unbounded `uint8[]` or `char[]` or hiroz has no message definition to ask. A typed
+    /// subscriber also joins for an unbounded `byte[]`, which `rmw_zenoh_cpp` does not count: one
+    /// extra join, no data lost. A joined subscriber subscribes on `<topic key>` and on
+    /// `<topic key>/_buf_cpu`, and a router access-control rule must allow both. A transient-local
+    /// subscriber and a key format other than `rmw_zenoh`'s never join. See
     /// [`BufferGroup`](crate::BufferGroup) for the routing and access-control effects.
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
         self.buffer_group = group;
