@@ -1788,18 +1788,24 @@ fn sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_s
     );
 }
 
-/// N joined subscribers on one topic declare two subscriptions each and one token each. One sample
-/// on the base key and one on the group key reach every joined subscriber once per key, so the
-/// subscribers see 2N deliveries in all. An `Off` subscriber declares the base key only and no
-/// `backends:` token field. The count is a count of deliveries, because Zenoh does not list
-/// subscriptions: the check that the joined subscriber declares no third, wider subscription is the
-/// sibling-key test above.
+/// N joined subscribers on one topic announce one group token each. One sample on the base key and
+/// one on the group key reach every joined subscriber once per key, so the subscribers see 2N
+/// deliveries in all. An `Off` subscriber announces no `backends:` token field and receives on its
+/// base key only.
+///
+/// This test pins the token count and the deliveries per key. It does not pin the number of
+/// subscriptions: Zenoh does not list them, and a single wide subscription also delivers both keys
+/// once each, so this test passes on the wide shape too (read on the pushed wide head). The
+/// subscription shape is pinned by the two tests that read matching status and router access
+/// control: `sibling_sample_key_has_no_subscription_and_its_samples_never_reach_a_joined_subscriber`
+/// and `exact_join_delivers_under_a_rule_that_allows_only_the_base_and_group_keys`.
 ///
 /// Controls in the same test: the `Off` subscriber receives its base sample, and no subscription
 /// matches its group key, while a subscription matches the group key of the joined topic.
 #[test]
-fn n_joined_subscribers_declare_two_subscriptions_and_one_token_each() {
-    const NAME: &str = "n_joined_subscribers_declare_two_subscriptions_and_one_token_each";
+fn n_joined_subscribers_announce_one_group_token_each_and_receive_on_both_keys() {
+    const NAME: &str =
+        "n_joined_subscribers_announce_one_group_token_each_and_receive_on_both_keys";
     const N: usize = 3;
     const BASE_TAG: u32 = 10;
     const GROUP_TAG: u32 = 20;
