@@ -632,11 +632,15 @@ impl ZPub<crate::dynamic::DynamicMessage, crate::dynamic::DynamicSerdeCdrSerdes>
     }
 }
 
-/// The subscriptions of a raw-callback subscriber: the base key, and the group key when it joins.
-pub(crate) type RawSubscriptions = (
-    zenoh::pubsub::Subscriber<()>,
-    Option<zenoh::pubsub::Subscriber<()>>,
-);
+/// The subscriptions of a raw-callback subscriber: one on the topic key, and one on the group key
+/// when the subscriber joins the group. `_group` is `None` when the subscriber stays out.
+///
+/// The value owns both subscriptions, and dropping it undeclares both. Nothing reads the fields.
+/// Field order is drop order: the topic-key subscription drops first, then the group one.
+pub(crate) struct RawSubscriptions {
+    _base: zenoh::pubsub::Subscriber<()>,
+    _group: Option<zenoh::pubsub::Subscriber<()>>,
+}
 
 pub struct ZSubBuilder<T, S = SerdeCdrSerdes<T>> {
     pub(crate) entity: EndpointEntity,
@@ -761,9 +765,9 @@ where
         self
     }
 
-    /// Build a raw Zenoh subscriber with a sample-level callback. It returns the base
-    /// subscription together with the group subscription, which is `None` when the subscriber
-    /// does not join, and then the liveliness token.
+    /// Build a raw Zenoh subscriber with a sample-level callback. It returns the
+    /// [`RawSubscriptions`], whose group subscription is absent when the subscriber does not join,
+    /// and the liveliness token.
     ///
     /// This is the canonical subscriber setup path used by [`ZCache`] so that
     /// topic qualification, key-expression construction, and liveliness-token
@@ -823,7 +827,13 @@ where
             join,
         )?;
 
-        Ok(((sub, group_sub), token))
+        Ok((
+            RawSubscriptions {
+                _base: sub,
+                _group: group_sub,
+            },
+            token,
+        ))
     }
 
     /// Whether the subscriber joins the group. The decision is logged at debug level.
