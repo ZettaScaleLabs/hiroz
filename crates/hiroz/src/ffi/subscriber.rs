@@ -7,13 +7,43 @@ use zenoh_ext::AdvancedSubscriber;
 /// Callback type for receiving messages
 pub type MessageCallback = extern "C" fn(user_data: usize, data: *const u8, len: usize);
 
-/// Raw subscriber wrapper that keeps the zenoh subscriber alive
+/// Raw subscriber wrapper that keeps the zenoh subscriptions and the liveliness token alive.
+///
+/// A subscriber that joins the buffer group owns three handles: the token, the subscription on
+/// the base key and the subscription on the group key. The wrapper exposes none of them, because a
+/// caller that undeclares one handle leaves the others active. Use [`RawSubscriber::undeclare`] to
+/// stop by hand. Dropping the wrapper stops all three in the same order.
 pub struct RawSubscriber {
-    /// Declared first, so it drops first: the token goes before the subscription it announces.
-    pub(crate) _token: Option<zenoh::liveliness::LivelinessToken>,
-    pub inner: AdvancedSubscriber<()>,
+    /// Declared first, so it drops first: the token goes before the subscriptions it announces.
+    token: Option<zenoh::liveliness::LivelinessToken>,
+    base: AdvancedSubscriber<()>,
     /// The exact subscription on the group key, when the subscriber joins.
-    pub(crate) _group_sub: Option<zenoh::pubsub::Subscriber<()>>,
+    group: Option<zenoh::pubsub::Subscriber<()>>,
+}
+
+impl RawSubscriber {
+    pub(crate) fn new(
+        token: Option<zenoh::liveliness::LivelinessToken>,
+        base: AdvancedSubscriber<()>,
+        group: Option<zenoh::pubsub::Subscriber<()>>,
+    ) -> Self {
+        Self { token, base, group }
+    }
+
+    /// Stop the whole subscription: the token first, then the subscription on the base key, then
+    /// the subscription on the group key. Every handle is undeclared even when an earlier one
+    /// fails. The result is the first error.
+    pub fn undeclare(self) -> zenoh::Result<()> {
+        use zenoh::Wait;
+        let Self { token, base, group } = self;
+        [
+            token.map_or(Ok(()), |t| t.undeclare().wait()),
+            base.undeclare().wait(),
+            group.map_or(Ok(()), |g| g.undeclare().wait()),
+        ]
+        .into_iter()
+        .collect()
+    }
 }
 
 /// Opaque subscriber handle for FFI

@@ -122,6 +122,7 @@ Set the choice with `with_buffer_group` on a subscriber builder or a cache build
 - A subscriber with no message definition joins on every topic, not only on buffer topics. The feedback and status subscribers of an action client and the Python bindings have no message definition.
 - The action client and the Python bindings have no `Off` switch yet.
 - A raw subscriber has no message definition, so `Auto` joins it. `create_raw_subscriber` and `create_raw_subscriber_with_qos` join, and so do the C and Go bindings that call them. `create_raw_subscriber_with_group` takes `Auto`, `Cpu` or `Off`. It exists only with the `ffi` feature, and the Go bindings have no entry point for it yet. The feedback subscriber of a raw action client reads nothing and stays out.
+- `RawSubscriber` has no public field. In release 0.2.0 the `inner` field is public, with the `ffi` feature. A caller of `raw.inner.undeclare().wait()` must call `raw.undeclare()` now. That call stops the token and both subscriptions. Dropping the wrapper stops the same handles.
 - A transient-local subscriber never joins. A subscriber on a key format other than `rmw_zenoh`'s never joins. This holds under every setting.
 - `rmw-zenoh-rs` subscriptions use `Off`.
 

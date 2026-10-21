@@ -758,11 +758,11 @@ impl ZNode {
             None
         };
 
-        Ok(crate::ffi::subscriber::RawSubscriber {
-            _token: token,
-            _group_sub: group_sub,
-            inner: subscriber,
-        })
+        Ok(crate::ffi::subscriber::RawSubscriber::new(
+            token,
+            subscriber,
+            group_sub,
+        ))
     }
 
     /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group`

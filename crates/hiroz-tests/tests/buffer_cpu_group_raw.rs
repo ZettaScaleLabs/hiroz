@@ -415,7 +415,6 @@ fn dropping_an_opted_in_raw_subscriber_stops_group_key_callbacks() {
 /// reaches the callback, so a silent result afterwards is not a dead setup.
 #[test]
 fn explicit_teardown_removes_the_token_and_both_subscriptions() {
-    use zenoh::Wait;
     const NAME: &str = "explicit_teardown_removes_the_token_and_both_subscriptions";
     const TOPIC: &str = "raw_undeclare_topic";
     let router = TestRouter::new();
@@ -449,7 +448,7 @@ fn explicit_teardown_removes_the_token_and_both_subscriptions() {
         );
     }
 
-    sub.inner.undeclare().wait().expect("teardown");
+    sub.undeclare().expect("teardown");
 
     // `sub` is still in scope here: only the teardown can have removed anything.
     let deadline = Instant::now() + RECV;
