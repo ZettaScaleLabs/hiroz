@@ -38,7 +38,7 @@ use crate::entity::EndpointEntity;
 pub enum BufferGroup {
     /// Join when the message can carry a buffer: an unbounded `uint8[]` or `char[]`, directly or
     /// nested, or hiroz has no message schema. A typed message also counts an unbounded
-    /// `byte[]`, which `rmw_zenoh_cpp` does not: one extra join, no data lost. This is the default. A raw subscriber has no definition, so it joins.
+    /// `byte[]`, which `rmw_zenoh_cpp` does not: one extra join, no data lost. This is the default.
     #[default]
     Auto,
     /// Join whatever the message is, except for a transient-local subscriber or a key format other

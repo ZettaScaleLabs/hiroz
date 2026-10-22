@@ -9,10 +9,7 @@ pub type MessageCallback = extern "C" fn(user_data: usize, data: *const u8, len:
 
 /// Raw subscriber wrapper that keeps the zenoh subscriptions and the liveliness token alive.
 ///
-/// A subscriber that joins the buffer group owns three handles: the token, the subscription on
-/// the base key and the subscription on the group key. The wrapper exposes none of them, because a
-/// caller that undeclares one handle leaves the others active. Use [`RawSubscriber::undeclare`] to
-/// stop by hand. Dropping the wrapper stops all three in the same order.
+/// Dropping it stops them all. [`RawSubscriber::undeclare`] does the same and returns the first error.
 pub struct RawSubscriber {
     /// Declared first, so it drops first: the token goes before the subscriptions it announces.
     token: Option<zenoh::liveliness::LivelinessToken>,

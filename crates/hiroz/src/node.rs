@@ -649,22 +649,12 @@ impl ZNode {
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
     {
-        self.create_raw_subscriber_with_group(
-            topic,
-            type_name,
-            type_hash,
-            callback,
-            None,
-            crate::BufferGroup::Auto,
-        )
+        self.create_raw_subscriber_with_qos(topic, type_name, type_hash, callback, None)
     }
 
     /// Create a raw subscriber for FFI with optional QoS
     ///
-    /// The subscriber joins rmw_zenoh's CPU buffer group, as `BufferGroup::Auto` does: it declares
-    /// two exact subscriptions, one on the base key and one on `<key>/_buf_cpu`, and then a token
-    /// ending `backends:cpu:`. One callback serves both keys.
-    /// A transient-local QoS or a custom key expression format stays out. Use
+    /// It joins the CPU buffer group as `BufferGroup::Auto` does. Use
     /// [`ZNode::create_raw_subscriber_with_group`] with `Off` to stay out.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_qos<F>(
@@ -737,8 +727,6 @@ impl ZNode {
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
         let key_expr = (*topic_ke).clone();
 
-        // A raw subscriber has no message schema, so `Auto` joins as it does for a typed
-        // subscriber without one.
         let join = crate::buffer_group::joins(group, None, &self.keyexpr_format, &entity);
 
         // A joined subscriber declares two exact subscriptions, the base key and the group key,
@@ -762,7 +750,6 @@ impl ZNode {
             .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()))
             .advanced();
         let subscriber = apply_transient_local_sub(builder, &entity.qos).wait()?;
-        // A raw subscriber that stays out declares no token.
         let token = if join {
             Some(crate::buffer_group::declare_token(
                 &self.session,
