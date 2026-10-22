@@ -1,6 +1,6 @@
 //! A raw subscriber joins rmw_zenoh's CPU buffer group by default, and `BufferGroup::Off` keeps it out.
 //!
-//! A raw subscriber has no message definition, so `BufferGroup::Auto` joins it as it joins a typed
+//! A raw subscriber has no message schema, so `BufferGroup::Auto` joins it as it joins a typed
 //! subscriber without one. A transient-local subscriber and a custom key expression format never
 //! join. These tests play the publisher with a plain Zenoh session, so they need no ROS
 //! installation. They check what a publisher reads: the liveliness token, and which keys reach the
@@ -573,7 +573,7 @@ fn assert_stays_out(
     );
 }
 
-/// `Auto` has no message definition to inspect for a raw subscriber, so it joins as a typed
+/// `Auto` has no message schema to inspect for a raw subscriber, so it joins as a typed
 /// subscriber without a definition does: the token announces `backends:cpu:`, and one callback
 /// serves the base key and the group key. A `Cpu` subscriber is the control.
 #[test]

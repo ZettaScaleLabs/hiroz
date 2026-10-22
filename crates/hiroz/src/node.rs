@@ -691,7 +691,7 @@ impl ZNode {
     /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group`
     /// asks for it.
     ///
-    /// A raw subscriber has no message definition, so `Auto` and `Cpu` both join: the subscriber
+    /// A raw subscriber has no message schema, so `Auto` and `Cpu` both join: the subscriber
     /// declares two exact subscriptions, one on the base key and one on `<key>/_buf_cpu`, and then a
     /// token ending `backends:cpu:`. One callback serves both keys. `Off` stays out: it declares the
     /// base key only and no token. A transient-local QoS or a custom key expression format stays
@@ -737,7 +737,7 @@ impl ZNode {
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
         let key_expr = (*topic_ke).clone();
 
-        // A raw subscriber has no message definition, so `Auto` joins as it does for a typed
+        // A raw subscriber has no message schema, so `Auto` joins as it does for a typed
         // subscriber without one.
         let join = crate::buffer_group::joins(group, None, &self.keyexpr_format, &entity);
 
