@@ -923,12 +923,10 @@ fn group_subscription_is_declared_before_the_token_is_visible() {
         "group_subscription_is_declared_before_the_token_is_visible",
         |topic| group_key(topic, &UINT8),
         |node, topic| {
-            Box::new(
-                node.create_sub::<UInt8MultiArray>(&format!("/{topic}"))
-                    .with_buffer_group(BufferGroup::Auto)
-                    .build()
-                    .unwrap(),
-            )
+            node.create_sub::<UInt8MultiArray>(&format!("/{topic}"))
+                .with_buffer_group(BufferGroup::Auto)
+                .build()
+                .unwrap()
         },
     );
 }

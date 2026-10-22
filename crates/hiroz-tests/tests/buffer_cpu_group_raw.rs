@@ -938,15 +938,8 @@ fn raw_group_subscription_is_declared_before_the_token_is_visible() {
         "raw_group_subscription_is_declared_before_the_token_is_visible",
         group_key,
         |node, topic| {
-            Box::new(
-                node.create_raw_subscriber(
-                    &format!("/{topic}"),
-                    TYPE_NAME,
-                    TYPE_HASH,
-                    |_: &[u8]| {},
-                )
-                .expect("raw subscriber"),
-            )
+            node.create_raw_subscriber(&format!("/{topic}"), TYPE_NAME, TYPE_HASH, |_: &[u8]| {})
+                .expect("raw subscriber")
         },
     );
 }

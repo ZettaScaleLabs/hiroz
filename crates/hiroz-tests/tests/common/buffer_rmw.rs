@@ -179,10 +179,10 @@ impl SeqSet {
 ///
 /// `group_key_of` maps a topic name without a leading slash to its group key. `build` declares one
 /// joined subscriber on that topic and returns it. The topic of trial `i` is `order_<i>`.
-pub fn assert_group_declared_before_token(
+pub fn assert_group_declared_before_token<S>(
     name: &str,
     group_key_of: impl Fn(&str) -> String,
-    build: impl Fn(&ZNode, &str) -> Box<dyn std::any::Any>,
+    build: impl Fn(&ZNode, &str) -> S,
 ) {
     const TRIALS: usize = 30;
     const WAIT: Duration = Duration::from_secs(3);
