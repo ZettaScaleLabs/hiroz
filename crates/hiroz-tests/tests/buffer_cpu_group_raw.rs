@@ -47,19 +47,6 @@ const PAYLOAD: [u8; 19] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 2,
 /// callback can tell a group-key delivery from a base-key one.
 const GROUP_PAYLOAD: [u8; 19] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 2, 9];
 
-fn raw_session(endpoint: &str) -> zenoh::Session {
-    use zenoh::Wait;
-    let mut config = zenoh::Config::default();
-    config.insert_json5("mode", "\"client\"").unwrap();
-    config
-        .insert_json5("connect/endpoints", &format!("[\"{endpoint}\"]"))
-        .unwrap();
-    config
-        .insert_json5("scouting/multicast/enabled", "false")
-        .unwrap();
-    zenoh::open(config).wait().expect("raw session")
-}
-
 /// Every liveliness token currently declared. An error reply fails the test.
 fn tokens(session: &zenoh::Session) -> Vec<String> {
     use zenoh::Wait;
@@ -88,21 +75,7 @@ fn tokens_of(session: &zenoh::Session, topic: &str) -> Vec<String> {
         .collect()
 }
 
-/// The one token for `topic`, once it is visible. A token that never appears fails the test.
-fn token_for(session: &zenoh::Session, topic: &str) -> String {
-    let deadline = Instant::now() + RECV;
-    loop {
-        let hits = tokens_of(session, topic);
-        match hits.len() {
-            1 => return hits[0].clone(),
-            0 if Instant::now() < deadline => std::thread::sleep(POLL),
-            n => panic!("{n} tokens for {topic}: {hits:?}"),
-        }
-    }
-}
-
-/// The tokens of `topic`, once at least one is visible, or none after the deadline. Unlike
-/// `token_for` it does not panic on an empty set, so a test can name the missing token itself.
+/// The tokens of `topic`, once at least one is visible, or none after the deadline.
 fn wait_tokens(session: &zenoh::Session, topic: &str) -> Vec<String> {
     let deadline = Instant::now() + RECV;
     loop {
@@ -152,20 +125,10 @@ fn raw_put(session: &zenoh::Session, key: &str) {
     session.put(key, PAYLOAD.to_vec()).wait().expect("put");
 }
 
-/// What a raw callback received: all samples, and the split by `GROUP_PAYLOAD` against any other
-/// payload. It
-/// derefs to the total, so a check that needs only the total takes `&AtomicUsize`.
+/// What a raw callback received, split by `GROUP_PAYLOAD` against any other payload.
 struct Tally {
-    total: AtomicUsize,
     group: AtomicUsize,
     base: AtomicUsize,
-}
-
-impl std::ops::Deref for Tally {
-    type Target = AtomicUsize;
-    fn deref(&self) -> &AtomicUsize {
-        &self.total
-    }
 }
 
 impl Tally {
@@ -178,12 +141,15 @@ impl Tally {
     fn base(&self) -> usize {
         self.base.load(Ordering::Relaxed)
     }
+
+    fn total(&self) -> usize {
+        self.group() + self.base()
+    }
 }
 
 /// A raw callback that counts what it receives.
 fn counter() -> (Arc<Tally>, impl Fn(&[u8]) + Send + Sync + 'static) {
     let count = Arc::new(Tally {
-        total: AtomicUsize::new(0),
         group: AtomicUsize::new(0),
         base: AtomicUsize::new(0),
     });
@@ -194,7 +160,6 @@ fn counter() -> (Arc<Tally>, impl Fn(&[u8]) + Send + Sync + 'static) {
         } else {
             c.base.fetch_add(1, Ordering::Relaxed);
         }
-        c.total.fetch_add(1, Ordering::Relaxed);
     })
 }
 
@@ -213,7 +178,7 @@ impl Fixture {
     }
 
     fn on(router: TestRouter, node_name: &str) -> Self {
-        let raw = raw_session(router.endpoint());
+        let raw = buffer_rmw::client_session(router.endpoint());
         let ctx = create_hiroz_context_with_router(&router).expect("ctx");
         let node = ctx.create_node(node_name).build().expect("node");
         Self {
@@ -313,7 +278,7 @@ fn assert_delivers_on_both_keys(
 
 /// After a teardown, the token of `topic` is gone and puts on both keys no longer reach `count`.
 /// The caller proves before the teardown that the token is visible and that the callback fires.
-fn assert_torn_down(name: &str, raw: &zenoh::Session, topic: &str, count: &AtomicUsize) {
+fn assert_torn_down(name: &str, raw: &zenoh::Session, topic: &str, count: &Tally) {
     // The token undeclaration takes a moment to reach the router query.
     let deadline = Instant::now() + RECV;
     while !tokens_of(raw, topic).is_empty() && Instant::now() < deadline {
@@ -325,7 +290,7 @@ fn assert_torn_down(name: &str, raw: &zenoh::Session, topic: &str, count: &Atomi
         "{name}: the token is still declared after {RECV:?}: {left:?}"
     );
     std::thread::sleep(POLL);
-    let before = count.load(Ordering::Relaxed);
+    let before = count.total();
     for key in [group_key(topic), base_key(topic)] {
         for _ in 0..3 {
             raw_put(raw, &key);
@@ -333,7 +298,7 @@ fn assert_torn_down(name: &str, raw: &zenoh::Session, topic: &str, count: &Atomi
         }
     }
     std::thread::sleep(QUIET);
-    let after = count.load(Ordering::Relaxed);
+    let after = count.total();
     assert!(
         after == before,
         "{name}: the callback ran {} more time(s) after the teardown",
@@ -341,104 +306,57 @@ fn assert_torn_down(name: &str, raw: &zenoh::Session, topic: &str, count: &Atomi
     );
 }
 
-/// A raw subscriber built the default way joins: it announces `backends:cpu:`, one callback
-/// serves the base key and the group key, and it is alive. The typed twin shows the token query
-/// works.
+/// A raw subscriber built by `create_raw_subscriber` or by `create_raw_subscriber_with_qos` joins:
+/// it announces `backends:cpu:`, and one callback serves the base key and the group key, once per
+/// sample.
 #[test]
 fn raw_subscriber_default_joins_and_announces_backends() {
     const NAME: &str = "raw_subscriber_default_joins_and_announces_backends";
     let f = Fixture::new("raw_default");
-    let _twin = f
-        .node
-        .create_sub::<UInt8MultiArray>("/raw_default_twin")
-        .with_buffer_group(BufferGroup::Auto)
-        .build()
-        .expect("typed twin");
     let (count, _sub) = subscribe_default(&f.node, "raw_default_topic");
+    let (qos_count, callback) = counter();
+    let _qos_sub = f
+        .node
+        .create_raw_subscriber_with_qos("/raw_qos_topic", TYPE_NAME, TYPE_HASH, callback, None)
+        .expect("raw subscriber with qos");
 
-    // Control: the typed twin yields exactly one token, and it joins.
-    let twin = token_for(&f.raw, "raw_default_twin");
-    assert!(
-        twin.ends_with("/backends:cpu:"),
-        "{NAME}: the typed twin did not join, so the token query proves nothing: {twin}"
-    );
     assert_joins(
         NAME,
         &f.raw,
         "raw_default_topic",
         "the default raw subscriber",
     );
+    assert_joins(NAME, &f.raw, "raw_qos_topic", "the raw subscriber with QoS");
     assert_delivers_on_both_keys(
         NAME,
         &f.raw,
         "raw_default_topic",
         &count,
-        "the default raw callback",
+        "the default callback",
     );
-}
-
-/// A raw subscriber with an explicit `Cpu` setting joins, and one callback serves the base key and
-/// the group key, once per sample.
-#[test]
-fn raw_subscriber_with_explicit_cpu_joins_and_one_callback_serves_both_keys() {
-    const NAME: &str = "raw_subscriber_with_explicit_cpu_joins_and_one_callback_serves_both_keys";
-    const TOPIC: &str = "raw_cpu_topic";
-    let f = Fixture::new("raw_cpu");
-    let _twin = f
-        .node
-        .create_sub::<UInt8MultiArray>("/raw_cpu_twin")
-        .with_buffer_group(BufferGroup::Auto)
-        .build()
-        .expect("typed twin");
-    let (count, _sub) = subscribe(&f.node, TOPIC, BufferGroup::Cpu, None);
-
-    // Control: the typed twin joins in the same test.
-    let twin = token_for(&f.raw, "raw_cpu_twin");
-    assert!(
-        twin.ends_with("/backends:cpu:"),
-        "{NAME}: the typed twin did not join: {twin}"
+    assert_delivers_on_both_keys(
+        NAME,
+        &f.raw,
+        "raw_qos_topic",
+        &qos_count,
+        "the QoS callback",
     );
-    assert_joins(NAME, &f.raw, TOPIC, "the Cpu raw subscriber");
-    assert_delivers_on_both_keys(NAME, &f.raw, TOPIC, &count, "the callback");
 
     // No duplicate delivery: a single put on each key adds exactly one call.
     std::thread::sleep(QUIET);
-    for key in [group_key(TOPIC), base_key(TOPIC)] {
-        let before = count.load(Ordering::Relaxed);
+    for key in [
+        group_key("raw_default_topic"),
+        base_key("raw_default_topic"),
+    ] {
+        let before = count.total();
         raw_put(&f.raw, &key);
         std::thread::sleep(QUIET);
-        let got = count.load(Ordering::Relaxed) - before;
+        let got = count.total() - before;
         assert!(
             got == 1,
             "{NAME}: one put on {key} produced {got} callback calls"
         );
     }
-}
-
-/// With a default and an `Off` raw subscriber side by side, only the default one announces
-/// `backends:cpu:`.
-#[test]
-fn only_the_default_raw_subscriber_announces_backends() {
-    const NAME: &str = "only_the_default_raw_subscriber_announces_backends";
-    let f = Fixture::new("raw_side");
-    let (_c1, _default) = subscribe_default(&f.node, "raw_side_default");
-    let (_c2, _off) = subscribe(&f.node, "raw_side_off", BufferGroup::Off, None);
-
-    assert_joins(
-        NAME,
-        &f.raw,
-        "raw_side_default",
-        "the default raw subscriber",
-    );
-    let off_tokens = tokens_of(&f.raw, "raw_side_off");
-    let announcing: Vec<&String> = off_tokens
-        .iter()
-        .filter(|t| t.contains("backends:"))
-        .collect();
-    assert!(
-        announcing.is_empty(),
-        "{NAME}: the Off raw subscriber announced backends: {announcing:?}"
-    );
 }
 
 /// The feedback subscriber of a raw action client stays out of the group. A `Cpu` raw subscriber
@@ -478,50 +396,6 @@ fn raw_action_client_feedback_subscriber_stays_out() {
     );
 }
 
-/// Dropping a `Cpu` raw subscriber removes its token and stops its callbacks on both keys. The
-/// callback fires before the drop.
-#[test]
-fn dropping_a_cpu_raw_subscriber_stops_group_key_callbacks() {
-    const NAME: &str = "dropping_a_cpu_raw_subscriber_stops_group_key_callbacks";
-    const TOPIC: &str = "raw_drop_topic";
-    let f = Fixture::new("raw_drop");
-    let (count, sub) = subscribe(&f.node, TOPIC, BufferGroup::Cpu, None);
-
-    // Positive control: the callback fires on each key before the drop.
-    assert_delivers_on_both_keys(NAME, &f.raw, TOPIC, &count, "the callback before the drop");
-
-    drop(sub);
-    assert_torn_down(NAME, &f.raw, TOPIC, &count);
-}
-
-/// Tearing down a joined raw subscriber by hand removes the whole subscription. The token is gone
-/// and neither key reaches the callback, while the original binding is still in scope.
-///
-/// Controls in the same test: before the teardown the token is visible and a put on each key
-/// reaches the callback, so a silent result afterwards is not a dead setup.
-#[test]
-fn explicit_teardown_removes_the_token_and_both_subscriptions() {
-    const NAME: &str = "explicit_teardown_removes_the_token_and_both_subscriptions";
-    const TOPIC: &str = "raw_undeclare_topic";
-    let f = Fixture::new("raw_undeclare");
-    let (count, sub) = subscribe(&f.node, TOPIC, BufferGroup::Cpu, None);
-
-    assert_joins(NAME, &f.raw, TOPIC, "the subscriber before the teardown");
-    assert_delivers_on_both_keys(
-        NAME,
-        &f.raw,
-        TOPIC,
-        &count,
-        "the callback before the teardown",
-    );
-
-    sub.undeclare().expect("teardown");
-
-    // `sub` moved into the teardown, and nothing else owns a handle: only the teardown can have
-    // removed anything.
-    assert_torn_down(NAME, &f.raw, TOPIC, &count);
-}
-
 /// What a raw subscriber that stays out must show, next to a `Cpu` raw subscriber that joins. The
 /// control is the positive: it proves the token query and the group key work in this test, so an
 /// empty answer for the subject is not a dead setup.
@@ -535,7 +409,7 @@ fn assert_stays_out(
     raw: &zenoh::Session,
     control_topic: &str,
     subject_topic: &str,
-    subject_count: &AtomicUsize,
+    subject_count: &Tally,
 ) {
     assert_joins(
         name,
@@ -545,7 +419,7 @@ fn assert_stays_out(
     );
     assert!(
         put_until(raw, &base_key(subject_topic), &PAYLOAD, RECV, || {
-            subject_count.load(Ordering::Relaxed) > 0
+            subject_count.total() > 0
         }),
         "{name}: a put on the base key did not reach the subject, so it is not alive"
     );
@@ -560,105 +434,51 @@ fn assert_stays_out(
         announcing.is_empty(),
         "{name}: the subject announced backends: {announcing:?}"
     );
-    let before = subject_count.load(Ordering::Relaxed);
+    let before = subject_count.total();
     for _ in 0..5 {
         raw_put(raw, &group_key(subject_topic));
         std::thread::sleep(Duration::from_millis(100));
     }
     std::thread::sleep(QUIET);
-    let got = subject_count.load(Ordering::Relaxed) - before;
+    let got = subject_count.total() - before;
     assert!(
         got == 0,
         "{name}: the subject received {got} sample(s) on its group key, so it joined the group"
     );
 }
 
-/// `Auto` has no message schema to inspect for a raw subscriber, so it joins as a typed
-/// subscriber without a definition does: the token announces `backends:cpu:`, and one callback
-/// serves the base key and the group key. A `Cpu` subscriber is the control.
+/// The three ways a raw subscriber stays out of the group: `Off`, a transient-local QoS and a key
+/// expression format other than `rmw_zenoh`'s. Each subject goes through `assert_stays_out`. The
+/// control is a default raw subscriber on the `rmw_zenoh` format, which joins.
 #[test]
-fn raw_subscriber_with_group_auto_joins() {
-    const NAME: &str = "raw_subscriber_with_group_auto_joins";
-    let f = Fixture::new("raw_auto");
-    let (_c, _control) = subscribe(&f.node, "raw_auto_control", BufferGroup::Cpu, None);
-    let (count, _subject) = subscribe(&f.node, "raw_auto_subject", BufferGroup::Auto, None);
-
-    assert_joins(
-        NAME,
-        &f.raw,
-        "raw_auto_control",
-        "the Cpu control (the checks below count for nothing without it)",
-    );
-    assert_joins(NAME, &f.raw, "raw_auto_subject", "the Auto raw subscriber");
-    assert_delivers_on_both_keys(
-        NAME,
-        &f.raw,
-        "raw_auto_subject",
-        &count,
-        "the Auto raw callback",
-    );
-}
-
-/// `Off` stays out: it declares no group key and no `backends:` field.
-#[test]
-fn raw_subscriber_with_group_off_stays_out() {
-    const NAME: &str = "raw_subscriber_with_group_off_stays_out";
-    let f = Fixture::new("raw_off");
-    let (_c, _control) = subscribe(&f.node, "raw_off_control", BufferGroup::Cpu, None);
-    let (count, _subject) = subscribe(&f.node, "raw_off_subject", BufferGroup::Off, None);
-    assert_stays_out(NAME, &f.raw, "raw_off_control", "raw_off_subject", &count);
-}
-
-/// A transient-local raw subscriber never joins, with `Cpu` or with `Auto`. The control is a
-/// default raw subscriber on a volatile QoS, which joins.
-fn assert_transient_local_stays_out(name: &str, group: BufferGroup) {
-    let f = Fixture::new("raw_tl");
-    let (_c, _control) = subscribe_default(&f.node, "raw_tl_control");
-    let (count, _subject) = subscribe(&f.node, "raw_tl_subject", group, transient_local());
-    assert_stays_out(name, &f.raw, "raw_tl_control", "raw_tl_subject", &count);
-}
-
-#[test]
-fn raw_transient_local_subscriber_stays_out_with_cpu() {
-    assert_transient_local_stays_out(
-        "raw_transient_local_subscriber_stays_out_with_cpu",
-        BufferGroup::Cpu,
-    );
-}
-
-#[test]
-fn raw_transient_local_subscriber_stays_out_with_auto() {
-    assert_transient_local_stays_out(
-        "raw_transient_local_subscriber_stays_out_with_auto",
-        BufferGroup::Auto,
-    );
-}
-
-/// Only the `rmw_zenoh` key format has the group, so a raw subscriber on a custom format stays
-/// out with `Cpu` and with `Auto`. The control is a default raw subscriber on the `rmw_zenoh`
-/// format, which joins.
-fn assert_custom_format_stays_out(name: &str, group: BufferGroup) {
-    let f = Fixture::new("raw_fmt");
-    let (_c, _control) = subscribe_default(&f.node, "raw_fmt_control");
-    let (_custom_ctx, custom_node) = f.custom_format_node("raw_fmt2");
-    let (count, _subject) = subscribe(&custom_node, "raw_fmt_subject", group, None);
-    assert_stays_out(name, &f.raw, "raw_fmt_control", "raw_fmt_subject", &count);
-}
-
-#[test]
-fn raw_custom_key_format_subscriber_stays_out_with_cpu() {
-    assert_custom_format_stays_out(
-        "raw_custom_key_format_subscriber_stays_out_with_cpu",
-        BufferGroup::Cpu,
-    );
-}
-
-#[test]
-fn raw_custom_key_format_subscriber_stays_out_with_auto() {
-    assert_custom_format_stays_out(
-        "raw_custom_key_format_subscriber_stays_out_with_auto",
-        BufferGroup::Auto,
-    );
+fn raw_subscribers_that_stay_out_announce_no_backends_and_skip_the_group_key() {
+    const NAME: &str = "raw_subscribers_that_stay_out_announce_no_backends_and_skip_the_group_key";
+    let f = Fixture::new("raw_out");
+    let (_c, _control) = subscribe_default(&f.node, "raw_out_control");
+    let (_custom_ctx, custom_node) = f.custom_format_node("raw_out_custom");
+    let subjects = [
+        (
+            "raw_out_off",
+            subscribe(&f.node, "raw_out_off", BufferGroup::Off, None),
+        ),
+        (
+            "raw_out_tl",
+            subscribe(&f.node, "raw_out_tl", BufferGroup::Auto, transient_local()),
+        ),
+        (
+            "raw_out_fmt",
+            subscribe(&custom_node, "raw_out_fmt", BufferGroup::Auto, None),
+        ),
+    ];
+    for (topic, (count, _sub)) in &subjects {
+        assert_stays_out(
+            &format!("{NAME}: {topic}"),
+            &f.raw,
+            "raw_out_control",
+            topic,
+            count,
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -771,7 +591,7 @@ fn run_acl_cases(name: &str, router: TestRouter, cases: &[AclCase]) {
     }
     std::thread::sleep(QUIET);
     for (c, count) in cases.iter().zip(&counts) {
-        let received = count.load(Ordering::Relaxed);
+        let received = count.total();
         assert!(
             (received > 0) == c.delivers,
             "{name}: {} ({:?}, group key {}): received {received}, expected {}",
@@ -948,12 +768,13 @@ fn raw_group_subscription_is_declared_before_the_token_is_visible() {
 // Repeated create and destroy
 // ---------------------------------------------------------------------------------------------
 
-/// Every cycle of create and drop on one topic declares one token, removes it, and leaves no
-/// callback on the group key or the base key. A token that accumulates, or a callback that
-/// outlives its subscriber, shows after a few cycles.
+/// Every cycle of create and teardown on one topic declares one token, removes it, and leaves no
+/// callback on the group key or the base key. Even cycles drop the subscriber and odd cycles call
+/// `undeclare`. A token that accumulates, or a callback that outlives its subscriber, shows after a
+/// few cycles.
 #[test]
-fn raw_create_and_drop_cycles_leave_no_token_and_no_callback() {
-    const NAME: &str = "raw_create_and_drop_cycles_leave_no_token_and_no_callback";
+fn raw_create_and_teardown_cycles_leave_no_token_and_no_callback() {
+    const NAME: &str = "raw_create_and_teardown_cycles_leave_no_token_and_no_callback";
     const CYCLES: usize = 5;
     const TOPIC: &str = "raw_cycle_topic";
     let f = Fixture::new("raw_cycle");
@@ -961,11 +782,15 @@ fn raw_create_and_drop_cycles_leave_no_token_and_no_callback() {
     for cycle in 0..CYCLES {
         let name = format!("{NAME}: cycle {cycle}");
         let (count, sub) = subscribe_default(&f.node, TOPIC);
-        // Positive controls: the token is visible and the callback fires before the drop.
+        // Positive controls: the token is visible and the callback fires before the teardown.
         assert_joins(&name, &f.raw, TOPIC, "the raw subscriber");
         assert_delivers_on_both_keys(&name, &f.raw, TOPIC, &count, "the callback");
 
-        drop(sub);
+        if cycle % 2 == 0 {
+            drop(sub);
+        } else {
+            sub.undeclare().expect("teardown");
+        }
         assert_torn_down(&name, &f.raw, TOPIC, &count);
     }
 }
