@@ -14,9 +14,7 @@
 //! matched subscribers before it publishes. A `ros2 topic info -v` call, made while the publisher
 //! runs, reads how many subscribers the graph shows, and the cell requires that number.
 //!
-//! The publisher sends the same payload every time, so the cells count totals and cannot say which
-//! message is lost. A raw subscriber must receive exactly as many samples as the publisher
-//! published. A loss and a repeat that cancel out would pass.
+//! The cells count totals, so a loss and a repeat that cancel out would pass.
 //!
 //! The cells call `buffer_rmw::buffer_aware_rmw_or_skip`. Without a buffer-aware rmw a cell prints
 //! `Skipping <cell>: ...` and returns. Setting `HIROZ_REQUIRE_BUFFER_RMW` turns that skip into a

@@ -681,11 +681,10 @@ impl ZNode {
     /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group`
     /// asks for it.
     ///
-    /// A raw subscriber has no message schema, so `Auto` and `Cpu` both join: the subscriber
-    /// declares two exact subscriptions, one on the base key and one on `<key>/_buf_cpu`, and then a
-    /// token ending `backends:cpu:`. One callback serves both keys. `Off` stays out: it declares the
-    /// base key only and no token. A transient-local QoS or a custom key expression format stays
-    /// out whatever `group` says.
+    /// A raw subscriber has no message schema, so `Auto` and `Cpu` both join: two exact
+    /// subscriptions, the base key and `<key>/_buf_cpu`, then a token ending `backends:cpu:`. One
+    /// callback serves both keys. `Off`, a transient-local QoS and a custom key expression format
+    /// stay out: the base key only, and no token.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_group<F>(
         &self,

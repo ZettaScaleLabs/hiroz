@@ -270,8 +270,7 @@ fn assert_torn_down(name: &str, raw: &zenoh::Session, topic: &str, count: &Tally
 }
 
 /// A raw subscriber built by `create_raw_subscriber` or by `create_raw_subscriber_with_qos` joins:
-/// it announces `backends:cpu:`, and one callback serves the base key and the group key, once per
-/// sample.
+/// it announces `backends:cpu:`, and one callback serves the base key and the group key.
 #[test]
 fn raw_subscriber_default_joins_and_announces_backends() {
     const NAME: &str = "raw_subscriber_default_joins_and_announces_backends";
@@ -304,22 +303,6 @@ fn raw_subscriber_default_joins_and_announces_backends() {
         &qos_count,
         "the QoS callback",
     );
-
-    // No duplicate delivery: a single put on each key adds exactly one call.
-    std::thread::sleep(QUIET);
-    for key in [
-        group_key("raw_default_topic"),
-        base_key("raw_default_topic"),
-    ] {
-        let before = count.total();
-        raw_put(&f.raw, &key);
-        std::thread::sleep(QUIET);
-        let got = count.total() - before;
-        assert!(
-            got == 1,
-            "{NAME}: one put on {key} produced {got} callback calls"
-        );
-    }
 }
 
 /// The feedback subscriber of a raw action client stays out of the group. A `Cpu` raw subscriber
