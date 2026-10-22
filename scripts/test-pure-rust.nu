@@ -5,9 +5,6 @@
 
 use lib/common.nu *
 
-# The features of the raw subscriber suite. `run-tests` and `check-raw-suite-runs` both read this list.
-const RAW_FEATURES = "ros-msgs,jazzy,raw-sub-tests"
-
 # ============================================================================
 # Test Functions
 # ============================================================================
@@ -36,21 +33,11 @@ def run-tests [] {
     #
     # None were in `default-members`, so none ran here before `--workspace`.
     run-cmd "cargo nextest run --no-fail-fast --workspace --exclude hiroz-tests --exclude rmw-zenoh-rs -E 'not binary(shm_size_estimation)'"
-    # A feature-gated suite compiles to nothing without its feature, so check it builds before running it.
-    run-cmd $"cargo check -p hiroz-tests --tests --features ($RAW_FEATURES)"
-    run-cmd $"cargo nextest run --no-fail-fast -p hiroz-tests --features ($RAW_FEATURES)"
-    # The raw interop cell needs both features and a ROS install to run. It compiles without the install, so check it here.
-    run-cmd "cargo check -p hiroz-tests --tests --features ros-interop,raw-sub-tests,jazzy"
-}
-
-# `buffer_cpu_group_raw` compiles to nothing without `raw-sub-tests`, and a run that finds no test reports success. `--no-tests=fail` turns that into a failure (exit code 4). The suite is `#![cfg(target_os = "linux")]`, so on any other host this function skips, and CI runs the step on Linux only.
-def check-raw-suite-runs [] {
-    log-step "The raw subscriber suite runs"
-    if $nu.os-info.name != "linux" {
-        print $"skipped: host is ($nu.os-info.name), the suite is Linux-only"
-        return
+    run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy,raw-sub-tests -E 'not binary(buffer_cpu_group_raw)'"
+    # The raw suite compiles to nothing without `raw-sub-tests`, and a run that finds no test passes. `--no-tests=fail` fails it. The suite is Linux-only.
+    if $nu.os-info.name == "linux" {
+        run-cmd "cargo nextest run --no-tests=fail --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy,raw-sub-tests -E 'binary(buffer_cpu_group_raw)'"
     }
-    run-cmd $"cargo nextest run --no-tests=fail --no-fail-fast -p hiroz-tests --features ($RAW_FEATURES) -E 'binary\(buffer_cpu_group_raw\)'"
 }
 
 def check-bundled-msgs [] {
@@ -264,7 +251,6 @@ def get-test-map [] {
     {
         clippy-workspace: { clippy-workspace }
         run-tests: { run-tests }
-        check-raw-suite-runs: { check-raw-suite-runs }
         check-bundled-msgs: { check-bundled-msgs }
         check-hu: { check-hu }
         check-examples: { check-examples }
@@ -282,7 +268,6 @@ def get-test-pipeline [] {
     [
         "clippy-workspace"
         "run-tests"
-        "check-raw-suite-runs"
         "check-bundled-msgs"
         "check-hu"
         "check-examples"

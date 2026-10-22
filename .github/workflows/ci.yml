@@ -215,13 +215,6 @@ jobs:
           nu scripts/test-pure-rust.nu run-tests
         shell: bash
 
-      - name: Check the raw subscriber suite runs
-        if: runner.os == 'Linux'
-        run: |
-          source /tmp/nix-dev-env.sh
-          nu scripts/test-pure-rust.nu check-raw-suite-runs
-        shell: bash
-
   no-ros-shm:
     name: SHM Tests (ubuntu-latest)
     runs-on: ubuntu-latest
