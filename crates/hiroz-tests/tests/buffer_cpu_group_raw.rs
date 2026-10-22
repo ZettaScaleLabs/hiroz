@@ -43,6 +43,10 @@ const TYPE_HASH: &str = "RIHS01_5687e861b8d307a5e48b7515467ae7a5fc2daf805bd0ce6d
 /// The CDR bytes of a `UInt8MultiArray` with the data `[1, 2, 3]`.
 const PAYLOAD: [u8; 19] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 2, 3];
 
+/// The same message with the data `[1, 2, 9]`. A put on the group key carries this payload, so a
+/// callback can tell a group-key delivery from a base-key one.
+const GROUP_PAYLOAD: [u8; 19] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 2, 9];
+
 fn raw_session(endpoint: &str) -> zenoh::Session {
     use zenoh::Wait;
     let mut config = zenoh::Config::default();
@@ -148,12 +152,49 @@ fn raw_put(session: &zenoh::Session, key: &str) {
     session.put(key, PAYLOAD.to_vec()).wait().expect("put");
 }
 
+/// What a raw callback received: all samples, and the split by `GROUP_PAYLOAD` against any other
+/// payload. It
+/// derefs to the total, so a check that needs only the total takes `&AtomicUsize`.
+struct Tally {
+    total: AtomicUsize,
+    group: AtomicUsize,
+    base: AtomicUsize,
+}
+
+impl std::ops::Deref for Tally {
+    type Target = AtomicUsize;
+    fn deref(&self) -> &AtomicUsize {
+        &self.total
+    }
+}
+
+impl Tally {
+    /// Samples that carried `GROUP_PAYLOAD`.
+    fn group(&self) -> usize {
+        self.group.load(Ordering::Relaxed)
+    }
+
+    /// Samples that carried any other payload.
+    fn base(&self) -> usize {
+        self.base.load(Ordering::Relaxed)
+    }
+}
+
 /// A raw callback that counts what it receives.
-fn counter() -> (Arc<AtomicUsize>, impl Fn(&[u8]) + Send + Sync + 'static) {
-    let count = Arc::new(AtomicUsize::new(0));
+fn counter() -> (Arc<Tally>, impl Fn(&[u8]) + Send + Sync + 'static) {
+    let count = Arc::new(Tally {
+        total: AtomicUsize::new(0),
+        group: AtomicUsize::new(0),
+        base: AtomicUsize::new(0),
+    });
     let c = count.clone();
-    (count, move |_: &[u8]| {
-        c.fetch_add(1, Ordering::Relaxed);
+    (count, move |payload: &[u8]| {
+        if payload == GROUP_PAYLOAD {
+            c.group.fetch_add(1, Ordering::Relaxed);
+        } else {
+            c.base.fetch_add(1, Ordering::Relaxed);
+        }
+        c.total.fetch_add(1, Ordering::Relaxed);
     })
 }
 
@@ -200,7 +241,7 @@ impl Fixture {
 }
 
 /// A raw subscriber on `topic` (no leading slash) built the default way, and its call count.
-fn subscribe_default(node: &ZNode, topic: &str) -> (Arc<AtomicUsize>, RawSubscriber) {
+fn subscribe_default(node: &ZNode, topic: &str) -> (Arc<Tally>, RawSubscriber) {
     let (count, callback) = counter();
     let sub = node
         .create_raw_subscriber(&format!("/{topic}"), TYPE_NAME, TYPE_HASH, callback)
@@ -215,7 +256,7 @@ fn subscribe(
     topic: &str,
     group: BufferGroup,
     qos: Option<QosProfile>,
-) -> (Arc<AtomicUsize>, RawSubscriber) {
+) -> (Arc<Tally>, RawSubscriber) {
     let (count, callback) = counter();
     let sub = node
         .create_raw_subscriber_with_group(
@@ -246,22 +287,28 @@ fn assert_joins(name: &str, raw: &zenoh::Session, topic: &str, who: &str) {
     );
 }
 
-/// A put on the group key and a put on the base key each reach `count`.
+/// A put on the group key and a put on the base key each reach `count`. The two keys carry
+/// different payloads and `count` tallies them apart, so a delayed group-key delivery cannot pass
+/// the base-key phase.
 fn assert_delivers_on_both_keys(
     name: &str,
     raw: &zenoh::Session,
     topic: &str,
-    count: &AtomicUsize,
+    count: &Tally,
     who: &str,
 ) {
-    for key in [group_key(topic), base_key(topic)] {
-        let before = count.load(Ordering::Relaxed);
-        assert!(
-            put_until(raw, &key, &PAYLOAD, RECV, || count.load(Ordering::Relaxed)
-                > before),
-            "{name}: nothing reached {who} from {key}"
-        );
-    }
+    let before = count.group();
+    let key = group_key(topic);
+    assert!(
+        put_until(raw, &key, &GROUP_PAYLOAD, RECV, || count.group() > before),
+        "{name}: nothing reached {who} from {key}"
+    );
+    let before = count.base();
+    let key = base_key(topic);
+    assert!(
+        put_until(raw, &key, &PAYLOAD, RECV, || count.base() > before),
+        "{name}: nothing reached {who} from {key}"
+    );
 }
 
 /// After a teardown, the token of `topic` is gone and puts on both keys no longer reach `count`.
