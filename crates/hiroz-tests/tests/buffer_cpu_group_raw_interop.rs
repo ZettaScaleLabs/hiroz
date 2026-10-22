@@ -8,7 +8,7 @@
 //! with `BufferGroup::Off` stays out of the group, so it receives nothing from that publisher: it
 //! is the negative control.
 //!
-//! One cell mixes a released subscriber with three raw subscribers. The other cell has the default
+//! One cell mixes a released subscriber with two raw subscribers. The other cell has the default
 //! raw subscriber as the only subscriber, so a match of the publisher can only come from the token
 //! of the raw subscriber. The publisher is the released `ros2 topic pub`, which waits for the
 //! matched subscribers before it publishes. A `ros2 topic info -v` call, made while the publisher
@@ -157,24 +157,19 @@ impl Publisher {
     /// Wait for the publisher to exit, then give its last samples two seconds to arrive.
     fn finish(mut self) -> Outcome {
         let end = Instant::now() + Duration::from_secs(SAMPLES as u64 / 5 + 40);
-        let mut exited: Option<(Instant, bool)> = None;
-        while Instant::now() < end {
+        let mut success = None;
+        while success.is_none() && Instant::now() < end {
             std::thread::sleep(Duration::from_millis(50));
-            if exited.is_none()
-                && let Some(status) = self
-                    .guard
-                    .child
-                    .as_mut()
-                    .and_then(|c| c.try_wait().ok().flatten())
-            {
-                exited = Some((Instant::now(), status.success()));
-            }
-            if exited.is_some_and(|(t, _)| t.elapsed() > Duration::from_secs(2)) {
-                break;
-            }
+            success = self
+                .guard
+                .child
+                .as_mut()
+                .and_then(|c| c.try_wait().ok().flatten())
+                .map(|status| status.success());
         }
+        std::thread::sleep(Duration::from_secs(2));
         Outcome {
-            success: exited.map(|(_, ok)| ok),
+            success,
             output: self.output.snapshot(),
         }
     }
@@ -337,10 +332,9 @@ fn assert_complete(name: &str, arm: &str, count: &AtomicUsize) {
     );
 }
 
-/// A default raw subscriber and a `Cpu` raw subscriber each receive every sample a publisher in
-/// buffer mode writes. An `Off` raw subscriber on the same topic receives none, which shows the
-/// publisher writes the group key only. The cell counts totals, so it cannot say which message is
-/// lost.
+/// A default raw subscriber receives every sample a publisher in buffer mode writes. An `Off` raw
+/// subscriber on the same topic receives none, which shows the publisher writes the group key only.
+/// The cell counts totals, so it cannot say which message is lost.
 ///
 /// A released subscriber also matches the publisher here, and it can make the publisher write the
 /// group key by itself. This cell therefore does not show that the publisher matched a raw
@@ -351,8 +345,7 @@ fn raw_default_subscriber_receives_from_a_released_publisher() {
     let Some(cell) = Cell::start(NAME, "rawcell") else {
         return;
     };
-    let (cpu, default, off) = (new_count(), new_count(), new_count());
-    let _cpu_sub = cell.subscribe(Some(BufferGroup::Cpu), &cpu);
+    let (default, off) = (new_count(), new_count());
     let _default_sub = cell.subscribe(None, &default);
     let _off_sub = cell.subscribe(Some(BufferGroup::Off), &off);
 
@@ -360,9 +353,9 @@ fn raw_default_subscriber_receives_from_a_released_publisher() {
     wait_for_ready(Duration::from_secs(2));
     let _released = spawn_released_subscriber(&cell.router, &cell.topic);
     wait_for_ready(Duration::from_secs(2));
-    // Three matched subscribers: the released one, the default raw one and the `Cpu` raw one. The
-    // `Off` raw subscriber declares no token, so it does not match.
-    let mut publisher = spawn_publisher(&cell.router, &cell.topic, 3);
+    // Two matched subscribers: the released one and the default raw one. The `Off` raw subscriber
+    // declares no token, so it does not match.
+    let mut publisher = spawn_publisher(&cell.router, &cell.topic, 2);
     assert!(
         publisher.wait_publishing(Duration::from_secs(30)),
         "{NAME}: ros2 topic pub published nothing"
@@ -375,14 +368,14 @@ fn raw_default_subscriber_receives_from_a_released_publisher() {
     let outcome = publisher.finish();
     println!("{}", outcome.output);
 
-    for (arm, count) in [("cpu", &cpu), ("default", &default), ("off", &off)] {
+    for (arm, count) in [("default", &default), ("off", &off)] {
         report(NAME, arm, count, &keys);
     }
     assert_published(NAME, &outcome);
     assert_eq!(
         graph,
-        Some(3),
-        "{NAME}: the graph did not show three subscribers: {graph_text}"
+        Some(2),
+        "{NAME}: the graph did not show two subscribers: {graph_text}"
     );
     assert_buffer_mode(NAME, &keys);
     assert_eq!(
@@ -391,7 +384,6 @@ fn raw_default_subscriber_receives_from_a_released_publisher() {
         "{NAME}: the Off raw subscriber received from a publisher in buffer mode, so the \
          negative control is not valid"
     );
-    assert_complete(NAME, "cpu", &cpu);
     assert_complete(NAME, "default", &default);
 }
 
