@@ -141,7 +141,8 @@ def clippy-tests [] {
     log-step "Clippy (hiroz-tests, interop features)"
     # Every test-gating feature must be listed or its file is never linted;
     # hu-meter-tests / hu-monitor-tests gate the plugin suites (~2.3k lines).
-    run-cmd "cargo clippy -p hiroz-tests --all-targets --features ros-interop,hu-meter-tests,hu-monitor-tests,jazzy -- -D warnings"
+    # raw-sub-tests enables the `ffi` feature of hiroz, whose unsafe functions fail `missing_safety_doc`, so lint only this crate: `--no-deps`.
+    run-cmd "cargo clippy -p hiroz-tests --no-deps --all-targets --features ros-interop,hu-meter-tests,hu-monitor-tests,raw-sub-tests,jazzy -- -D warnings"
 }
 
 def check-rustdoc-links [] {
