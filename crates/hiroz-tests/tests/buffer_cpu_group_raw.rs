@@ -22,7 +22,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use common::*;
+use common::{
+    buffer_rmw::{self, interfaces, put_until, router_allowing_only, tokens},
+    *,
+};
 use hiroz::{
     BufferGroup, Builder,
     context::{ZContext, ZContextBuilder},
@@ -30,7 +33,6 @@ use hiroz::{
     node::ZNode,
     qos::{QosDurability, QosProfile},
 };
-use hiroz_msgs::std_msgs::UInt8MultiArray;
 use hiroz_protocol::{KeyExprFormat, KeyExprFormatterAdapter, RmwZenohFormatter};
 
 const RECV: Duration = Duration::from_secs(3);
@@ -46,25 +48,6 @@ const PAYLOAD: [u8; 19] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 2,
 /// The same message with the data `[1, 2, 9]`. A put on the group key carries this payload, so a
 /// callback can tell a group-key delivery from a base-key one.
 const GROUP_PAYLOAD: [u8; 19] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 2, 9];
-
-/// Every liveliness token currently declared. An error reply fails the test.
-fn tokens(session: &zenoh::Session) -> Vec<String> {
-    use zenoh::Wait;
-    let replies = session
-        .liveliness()
-        .get("@ros2_lv/**")
-        .timeout(Duration::from_secs(2))
-        .wait()
-        .expect("liveliness get");
-    let mut keys = Vec::new();
-    while let Ok(reply) = replies.recv() {
-        match reply.result() {
-            Ok(sample) => keys.push(sample.key_expr().to_string()),
-            Err(e) => panic!("liveliness query returned an error: {e:?}"),
-        }
-    }
-    keys
-}
 
 /// The tokens of `topic` that are visible now.
 fn tokens_of(session: &zenoh::Session, topic: &str) -> Vec<String> {
@@ -98,26 +81,6 @@ fn base_key(topic: &str) -> String {
 
 fn group_key(topic: &str) -> String {
     format!("{}/_buf_cpu", base_key(topic))
-}
-
-/// Put `payload` on `key` until `done` is true or `limit` passes.
-fn put_until(
-    session: &zenoh::Session,
-    key: &str,
-    payload: &[u8],
-    limit: Duration,
-    mut done: impl FnMut() -> bool,
-) -> bool {
-    use zenoh::Wait;
-    let end = Instant::now() + limit;
-    while Instant::now() < end {
-        session.put(key, payload.to_vec()).wait().expect("put");
-        if done() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    false
 }
 
 fn raw_put(session: &zenoh::Session, key: &str) {
@@ -485,16 +448,6 @@ fn raw_subscribers_that_stay_out_announce_no_backends_and_skip_the_group_key() {
 // Router access control
 // ---------------------------------------------------------------------------------------------
 
-/// The quoted name of every network interface. A rule whose subject names only `lo` would match
-/// nothing.
-fn interfaces() -> String {
-    std::fs::read_dir("/sys/class/net")
-        .expect("list interfaces")
-        .map(|e| format!("\"{}\"", e.unwrap().file_name().to_string_lossy()))
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
 /// A router that denies `key_expr` on every interface and allows everything else.
 fn router_denying(key_expr: &str) -> TestRouter {
     let access_control = format!(
@@ -509,37 +462,6 @@ fn router_denying(key_expr: &str) -> TestRouter {
             subjects: [{{ id: "all", interfaces: [{}] }}],
             policies: [{{ rules: ["deny_rule"], subjects: ["all"] }}],
         }}"#,
-        interfaces()
-    );
-    TestRouter::with_config(move |config| {
-        config
-            .insert_json5("access_control", &access_control)
-            .unwrap();
-    })
-}
-
-/// A router with default-deny access control that allows only `key_exprs`, on every interface.
-/// Liveliness traffic is allowed, so a token still reaches a plain session. This is the allow-list
-/// shape: the operator names the topic key and nothing else.
-fn router_allowing_only(key_exprs: &[String]) -> TestRouter {
-    let keys: Vec<String> = key_exprs.iter().map(|k| format!("\"{k}\"")).collect();
-    let access_control = format!(
-        r#"{{
-            enabled: true,
-            default_permission: "deny",
-            rules: [{{
-                id: "allow_rule", permission: "allow",
-                messages: ["put", "declare_subscriber"], flows: ["egress", "ingress"],
-                key_exprs: [{}],
-            }}, {{
-                id: "allow_tokens", permission: "allow",
-                messages: ["liveliness_token", "liveliness_query", "declare_liveliness_subscriber"],
-                flows: ["egress", "ingress"], key_exprs: ["@ros2_lv/**"],
-            }}],
-            subjects: [{{ id: "all", interfaces: [{}] }}],
-            policies: [{{ rules: ["allow_rule", "allow_tokens"], subjects: ["all"] }}],
-        }}"#,
-        keys.join(","),
         interfaces()
     );
     TestRouter::with_config(move |config| {

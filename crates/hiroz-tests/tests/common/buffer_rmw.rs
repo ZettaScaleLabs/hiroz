@@ -13,6 +13,8 @@ use std::{
 };
 
 use hiroz::{Builder, context::ZContextBuilder, node::ZNode};
+
+use super::TestRouter;
 use zenoh::{Wait, sample::SampleKind};
 
 /// The suffix of the key a buffer-aware publisher writes buffer messages to.
@@ -277,4 +279,81 @@ pub fn assert_group_declared_before_token<S>(
         wrong.is_empty(),
         "{name}: no match at the token, or no token (trial, state: 0 no token, 2 no match): {wrong:?}"
     );
+}
+
+/// Every liveliness token currently declared. An error reply fails the test.
+pub fn tokens(session: &zenoh::Session) -> Vec<String> {
+    let replies = session
+        .liveliness()
+        .get("@ros2_lv/**")
+        .timeout(Duration::from_secs(2))
+        .wait()
+        .expect("liveliness get");
+    let mut keys = Vec::new();
+    while let Ok(reply) = replies.recv() {
+        match reply.result() {
+            Ok(sample) => keys.push(sample.key_expr().to_string()),
+            Err(e) => panic!("liveliness query returned an error: {e:?}"),
+        }
+    }
+    keys
+}
+
+/// Put `payload` on `key` until `done` is true or `limit` passes.
+pub fn put_until(
+    session: &zenoh::Session,
+    key: &str,
+    payload: &[u8],
+    limit: Duration,
+    mut done: impl FnMut() -> bool,
+) -> bool {
+    let end = Instant::now() + limit;
+    while Instant::now() < end {
+        session.put(key, payload.to_vec()).wait().expect("put");
+        if done() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    false
+}
+
+/// The quoted name of every network interface, joined for a router rule. A rule whose subject
+/// names only `lo` would match nothing.
+pub fn interfaces() -> String {
+    std::fs::read_dir("/sys/class/net")
+        .expect("list interfaces")
+        .map(|e| format!("\"{}\"", e.unwrap().file_name().to_string_lossy()))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// A router with default-deny access control that allows only `key_exprs`, on every interface.
+/// This is the allow-list shape: the operator names the topic key and nothing else.
+pub fn router_allowing_only(key_exprs: &[String]) -> TestRouter {
+    let keys: Vec<String> = key_exprs.iter().map(|k| format!("\"{k}\"")).collect();
+    let access_control = format!(
+        r#"{{
+            enabled: true,
+            default_permission: "deny",
+            rules: [{{
+                id: "allow_rule", permission: "allow",
+                messages: ["put", "declare_subscriber"], flows: ["egress", "ingress"],
+                key_exprs: [{}],
+            }}, {{
+                id: "allow_tokens", permission: "allow",
+                messages: ["liveliness_token", "liveliness_query", "declare_liveliness_subscriber"],
+                flows: ["egress", "ingress"], key_exprs: ["@ros2_lv/**"],
+            }}],
+            subjects: [{{ id: "all", interfaces: [{}] }}],
+            policies: [{{ rules: ["allow_rule", "allow_tokens"], subjects: ["all"] }}],
+        }}"#,
+        keys.join(","),
+        interfaces()
+    );
+    TestRouter::with_config(move |config| {
+        config
+            .insert_json5("access_control", &access_control)
+            .unwrap();
+    })
 }
