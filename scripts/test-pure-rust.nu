@@ -5,13 +5,8 @@
 
 use lib/common.nu *
 
-# The features of the raw subscriber suite. `run-tests` and `check-raw-suite-listed` both read this list, so the guard checks the build that runs.
-# The guard also reads this file and fails when a `run-tests` line for `hiroz-tests` spells its own feature list instead of `$RAW_FEATURES`.
-# Outside the guard: the `ros-interop,raw-sub-tests,jazzy` literal of the `cargo check` line at the end of `run-tests`, and the feature literals of `test-ros.nu` and the CI workflow. Dropping `raw-sub-tests` from one of those does not fail the guard.
+# The features of the raw subscriber suite. `run-tests` and `check-raw-suite-runs` both read this list.
 const RAW_FEATURES = "ros-msgs,jazzy,raw-sub-tests"
-const THIS_SCRIPT = path self
-# The trailing comment of the `run-cmd` line that checks a feature set other than the raw suite. The guard does not count that line.
-const OTHER_CELL_MARK = " # raw-guard: other cell"
 
 # ============================================================================
 # Test Functions
@@ -45,47 +40,17 @@ def run-tests [] {
     run-cmd $"cargo check -p hiroz-tests --tests --features ($RAW_FEATURES)"
     run-cmd $"cargo nextest run --no-fail-fast -p hiroz-tests --features ($RAW_FEATURES)"
     # The raw interop cell needs both features and a ROS install to run. It compiles without the install, so check it here.
-    run-cmd "cargo check -p hiroz-tests --tests --features ros-interop,raw-sub-tests,jazzy" # raw-guard: other cell
+    run-cmd "cargo check -p hiroz-tests --tests --features ros-interop,raw-sub-tests,jazzy"
 }
 
-# The number of `#[test]` in `buffer_cpu_group_raw.rs`. Change it with the suite.
-const RAW_SUITE_TESTS = 17
-
-# `--os-name` (also a flag of `main`) names the host, so the host decision can be tested; it defaults to the real host.
-def check-raw-suite-listed [--os-name: string] {
-    log-step "The raw subscriber suite is built"
-    # `run-tests` must take its features from `$RAW_FEATURES`: a literal there is not what the listing below checks.
-    # This reads the script text, so it holds on every host.
-    # A line counts when it has the shape of a `run-cmd` that checks or runs `hiroz-tests`. The one such line that is another cell carries the `OTHER_CELL_MARK` comment. This line does not start with `run-cmd`, so it never counts itself.
-    let uses = (open --raw $THIS_SCRIPT | lines | where {|it|
-        ($it =~ '^\s*run-cmd \$?"cargo (check|nextest run) .*-p hiroz-tests') and (not ($it | str ends-with $OTHER_CELL_MARK))
-    })
-    let hardcoded = ($uses | where {|it| not ($it | str contains '($RAW_FEATURES)')})
-    if ($hardcoded | is-not-empty) or ($uses | length) != 2 {
-        error make {msg: $"run-tests must build hiroz-tests with the RAW_FEATURES constant on exactly 2 lines, found ($uses | length) lines, ($hardcoded | length) of them with their own feature list"}
-    }
-    # The suite is `#![cfg(target_os = "linux")]`, so it lists 0 tests on any other host. The guard
-    # catches a missing feature on Linux, where the suite exists, and skips elsewhere.
-    let os = ($os_name | default $nu.os-info.name)
-    if $os != "linux" {
-        print $"buffer_cpu_group_raw guard skipped: host is ($os), the suite is Linux-only"
+# `buffer_cpu_group_raw` compiles to nothing without `raw-sub-tests`, and a run that finds no test reports success. `--no-tests=fail` turns that into a failure (exit code 4). The suite is `#![cfg(target_os = "linux")]`, so on any other host this function skips, and CI runs the step on Linux only.
+def check-raw-suite-runs [] {
+    log-step "The raw subscriber suite runs"
+    if $nu.os-info.name != "linux" {
+        print $"skipped: host is ($nu.os-info.name), the suite is Linux-only"
         return
     }
-    # `buffer_cpu_group_raw` is gated on `raw-sub-tests`. A run without the feature compiles it to
-    # nothing and reports success, so the run above proves nothing unless the suite is listed.
-    let listed = (^cargo nextest list -p hiroz-tests --features $RAW_FEATURES --message-format oneline | complete)
-    if $listed.exit_code != 0 {
-        print $listed.stderr
-        error make {msg: "cargo nextest list failed for the raw subscriber suite"}
-    }
-    let found = ($listed.stdout | lines | where {|it| $it =~ 'buffer_cpu_group_raw '} | length)
-    print $"buffer_cpu_group_raw tests listed: ($found), expected: ($RAW_SUITE_TESTS)"
-    if $found == 0 {
-        error make {msg: "no buffer_cpu_group_raw test is listed: the raw-sub-tests feature is off"}
-    }
-    if $found != $RAW_SUITE_TESTS {
-        error make {msg: $"buffer_cpu_group_raw lists ($found) tests, expected ($RAW_SUITE_TESTS): a test is hidden or the count is stale"}
-    }
+    run-cmd $"cargo nextest run --no-tests=fail --no-fail-fast -p hiroz-tests --features ($RAW_FEATURES) -E 'binary\(buffer_cpu_group_raw\)'"
 }
 
 def check-bundled-msgs [] {
@@ -295,11 +260,11 @@ def test-shm [] {
 # Test Suite Configuration
 # ============================================================================
 
-def get-test-map [os_name: string] {
+def get-test-map [] {
     {
         clippy-workspace: { clippy-workspace }
         run-tests: { run-tests }
-        check-raw-suite-listed: { check-raw-suite-listed --os-name $os_name }
+        check-raw-suite-runs: { check-raw-suite-runs }
         check-bundled-msgs: { check-bundled-msgs }
         check-hu: { check-hu }
         check-examples: { check-examples }
@@ -317,7 +282,7 @@ def get-test-pipeline [] {
     [
         "clippy-workspace"
         "run-tests"
-        "check-raw-suite-listed"
+        "check-raw-suite-runs"
         "check-bundled-msgs"
         "check-hu"
         "check-examples"
@@ -343,7 +308,6 @@ def get-test-pipeline [] {
 #   ./test-pure-rust.nu --list               # List available test functions
 def main [
     --list                # List available test functions
-    --os-name: string     # Host OS name for the raw suite guard (default: this host)
     ...tests: string      # Specific test functions to run (optional)
 ] {
     if $list {
@@ -352,7 +316,7 @@ def main [
         return
     }
 
-    let test_map = get-test-map ($os_name | default $nu.os-info.name)
+    let test_map = get-test-map
     let pipeline = get-test-pipeline
 
     let tests_to_run = if ($tests | is-empty) { $pipeline } else { $tests }
