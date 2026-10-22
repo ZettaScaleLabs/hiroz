@@ -10,8 +10,13 @@
 //!
 //! One cell mixes a released subscriber with three raw subscribers. The other cell has the default
 //! raw subscriber as the only subscriber, so a match of the publisher can only come from the token
-//! of the raw subscriber. The publisher reports how many subscribers it matched, and the cell
-//! requires one.
+//! of the raw subscriber. The publisher is the released `ros2 topic pub`, which waits for the
+//! matched subscribers before it publishes. A `ros2 topic info -v` call, made while the publisher
+//! runs, reads how many subscribers the graph shows, and the cell requires that number.
+//!
+//! The publisher sends the same payload every time, so the cells count totals and cannot say which
+//! message is lost. A raw subscriber must receive exactly as many samples as the publisher
+//! published. A loss and a repeat that cancel out would pass.
 //!
 //! The cells call `buffer_rmw::buffer_aware_rmw_or_skip`. Without a buffer-aware rmw a cell prints
 //! `Skipping <cell>: ...` and returns. Setting `HIROZ_REQUIRE_BUFFER_RMW` turns that skip into a
@@ -24,11 +29,14 @@ mod common;
 
 use std::{
     process::{Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
 
-use buffer_rmw::{KeyCounts, SeqSet};
+use buffer_rmw::KeyCounts;
 use common::{buffer_rmw, *};
 use hiroz::{
     BufferGroup, Builder, MessageTypeInfo, context::ZContext, ffi::subscriber::RawSubscriber,
@@ -36,8 +44,9 @@ use hiroz::{
 };
 use hiroz_msgs::std_msgs::UInt8MultiArray;
 
-/// The messages the cell publishes.
-const SAMPLES: u32 = 30;
+/// The messages the cell publishes, at 5 Hz. The `ros2 topic info -v` call runs while they are
+/// published, so the run must outlast it.
+const SAMPLES: u32 = 50;
 
 /// The `data` bytes of each message.
 const SIZE: usize = 64;
@@ -45,34 +54,6 @@ const SIZE: usize = 64;
 /// The length of one raw sample: the 4-byte CDR header, the length of the empty `layout.dim`,
 /// `layout.data_offset`, the length of `data`, then `data`. `data` starts at byte 16.
 const SAMPLE_LEN: usize = 16 + SIZE;
-
-/// A released `rclpy` publisher of `std_msgs/UInt8MultiArray`. Message number `seq` carries
-/// `seq` as 4 little-endian bytes at the start of `data`. It waits for `subs` matched
-/// subscribers, then publishes `n` messages at 5 Hz.
-const SEQ_PUBLISHER: &str = r#"
-import sys, time, rclpy
-from std_msgs.msg import UInt8MultiArray
-topic, n, size, subs = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
-rclpy.init()
-node = rclpy.create_node('seq_pub')
-pub = node.create_publisher(UInt8MultiArray, topic, 10)
-t0 = time.time()
-while pub.get_subscription_count() < subs and time.time() - t0 < 20:
-    rclpy.spin_once(node, timeout_sec=0.1)
-print('PUB matched=%d' % pub.get_subscription_count(), flush=True)
-time.sleep(1.0)
-for seq in range(n):
-    data = bytearray(size)
-    data[0:4] = seq.to_bytes(4, 'little')
-    m = UInt8MultiArray()
-    m.data = list(data)
-    pub.publish(m)
-    rclpy.spin_once(node, timeout_sec=0.2)
-print('PUB published=%d' % n, flush=True)
-time.sleep(1.0)
-node.destroy_node()
-rclpy.shutdown()
-"#;
 
 /// A released `ros2 topic echo` subscriber. It announces buffer support, and a publisher only
 /// writes the group key when at least one matched subscriber announces it.
@@ -96,70 +77,145 @@ fn spawn_released_subscriber(router: &TestRouter, topic: &str) -> ProcessGuard {
     ProcessGuard::new(child, "released subscriber")
 }
 
-/// The `rclpy` publisher, with its output drained so a test can read it.
-struct SeqPublisher {
+/// A released `ros2 topic pub`, with its output drained so a test can read it.
+struct Publisher {
     guard: ProcessGuard,
     output: OutputCapture,
 }
 
-fn spawn_seq_publisher(router: &TestRouter, topic: &str, subs: usize) -> SeqPublisher {
-    let mut child = Command::new("python3")
+/// The released publisher. It waits for `subs` matched subscribers, publishes `SAMPLES` messages
+/// of `SIZE` zero bytes at 5 Hz and exits. It gives up waiting after 20 seconds and exits with
+/// an error, so a publisher that never matches fails the cell and does not hang it.
+fn spawn_publisher(router: &TestRouter, topic: &str, subs: usize) -> Publisher {
+    let data = format!("{{data: [{}]}}", vec!["0"; SIZE].join(", "));
+    let mut child = Command::new("ros2")
         .args([
-            "-c",
-            SEQ_PUBLISHER,
-            topic,
+            "topic",
+            "pub",
+            "--times",
             &SAMPLES.to_string(),
-            &SIZE.to_string(),
+            "-r",
+            "5",
+            "-w",
             &subs.to_string(),
+            "--max-wait-time-secs",
+            "20",
+            topic,
+            "std_msgs/msg/UInt8MultiArray",
+            &data,
         ])
         .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
         .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        .env("PYTHONUNBUFFERED", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("spawn the rclpy publisher");
+        .expect("spawn ros2 topic pub");
     let output = OutputCapture::start(&mut child);
-    SeqPublisher {
-        guard: ProcessGuard::new(child, "rclpy publisher"),
+    Publisher {
+        guard: ProcessGuard::new(child, "ros2 topic pub"),
         output,
     }
 }
 
-impl SeqPublisher {
-    /// Wait for the publisher to exit, then give its last samples two seconds to arrive. It
-    /// returns what the publisher printed.
-    fn finish(mut self) -> String {
+/// The messages `ros2 topic pub` printed so far, one `publishing #<n>` line each.
+fn published(output: &str) -> usize {
+    output
+        .lines()
+        .filter(|l| l.starts_with("publishing #"))
+        .count()
+}
+
+/// What the publisher did.
+struct Outcome {
+    /// Whether it exited with status 0. `None` means it did not exit in time.
+    success: Option<bool>,
+    output: String,
+}
+
+impl Publisher {
+    /// Wait for the first published message. It returns false after `limit`.
+    fn wait_publishing(&mut self, limit: Duration) -> bool {
+        let end = Instant::now() + limit;
+        while Instant::now() < end {
+            if published(&self.output.snapshot()) > 0 {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        false
+    }
+
+    /// Whether the publisher has not exited yet.
+    fn running(&mut self) -> bool {
+        self.guard
+            .child
+            .as_mut()
+            .is_some_and(|c| c.try_wait().ok().flatten().is_none())
+    }
+
+    /// Wait for the publisher to exit, then give its last samples two seconds to arrive.
+    fn finish(mut self) -> Outcome {
         let end = Instant::now() + Duration::from_secs(SAMPLES as u64 / 5 + 40);
-        let mut finished_at: Option<Instant> = None;
+        let mut exited: Option<(Instant, bool)> = None;
         while Instant::now() < end {
             std::thread::sleep(Duration::from_millis(50));
-            let done = self
-                .guard
-                .child
-                .as_mut()
-                .is_some_and(|c| c.try_wait().ok().flatten().is_some());
-            if done && finished_at.is_none() {
-                finished_at = Some(Instant::now());
+            if exited.is_none()
+                && let Some(status) = self
+                    .guard
+                    .child
+                    .as_mut()
+                    .and_then(|c| c.try_wait().ok().flatten())
+            {
+                exited = Some((Instant::now(), status.success()));
             }
-            if finished_at.is_some_and(|t| t.elapsed() > Duration::from_secs(2)) {
+            if exited.is_some_and(|(t, _)| t.elapsed() > Duration::from_secs(2)) {
                 break;
             }
         }
-        self.output.snapshot()
+        Outcome {
+            success: exited.map(|(_, ok)| ok),
+            output: self.output.snapshot(),
+        }
     }
 }
 
-/// The number of subscribers the publisher reported it matched, from its `PUB matched=N` line.
-fn matched_subscribers(output: &str) -> Option<usize> {
-    output
+/// The number of subscribers `ros2 topic info -v` lists for `topic`, from its
+/// `Subscription count: N` line. The call asks the graph of a new node, so it needs the publisher
+/// and the subscribers to be alive. It spins for 3 seconds to discover them and uses no daemon,
+/// so no state outlives the call. It returns the number, or `None`, and the text of the call.
+fn graph_subscribers(router: &TestRouter, topic: &str) -> (Option<usize>, String) {
+    let out = Command::new("ros2")
+        .args([
+            "topic",
+            "info",
+            "-v",
+            "--no-daemon",
+            "--spin-time",
+            "3",
+            topic,
+        ])
+        .env("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")
+        .env("ZENOH_CONFIG_OVERRIDE", router.rmw_zenoh_env())
+        .stdin(Stdio::null())
+        .output()
+        .expect("run ros2 topic info");
+    let text = format!(
+        "status {}\n{}\n{}",
+        out.status,
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let count = text
         .lines()
-        .find_map(|l| l.strip_prefix("PUB matched=")?.trim().parse().ok())
+        .find_map(|l| l.strip_prefix("Subscription count:")?.trim().parse().ok());
+    (count, text)
 }
 
-/// Records the sequence number of one raw sample. A sample of another length counts for nothing.
-fn record(set: &Mutex<SeqSet>, sample: &[u8]) {
+/// Counts one raw sample. A sample of another length counts for nothing.
+fn record(count: &AtomicUsize, sample: &[u8]) {
     if sample.len() == SAMPLE_LEN {
-        set.lock().unwrap().record(&sample[16..]);
+        count.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -199,13 +255,13 @@ impl Cell {
         })
     }
 
-    /// A raw subscriber that records into `set`. `None` builds it the default way.
-    fn subscribe(&self, group: Option<BufferGroup>, set: &Arc<Mutex<SeqSet>>) -> RawSubscriber {
+    /// A raw subscriber that counts into `count`. `None` builds it the default way.
+    fn subscribe(&self, group: Option<BufferGroup>, count: &Arc<AtomicUsize>) -> RawSubscriber {
         let (type_name, hash) = (
             UInt8MultiArray::type_name(),
             UInt8MultiArray::type_hash().to_rihs_string(),
         );
-        let sink = set.clone();
+        let sink = count.clone();
         let callback = move |bytes: &[u8]| record(&sink, bytes);
         match group {
             None => self
@@ -229,17 +285,15 @@ impl Cell {
     }
 }
 
-fn new_set() -> Arc<Mutex<SeqSet>> {
-    Arc::new(Mutex::new(SeqSet::new(SIZE)))
+fn new_count() -> Arc<AtomicUsize> {
+    Arc::new(AtomicUsize::new(0))
 }
 
 /// Print the result of one arm.
-fn report(name: &str, arm: &str, set: &Mutex<SeqSet>, keys: &KeyCounts) {
-    let set = set.lock().unwrap();
+fn report(name: &str, arm: &str, count: &AtomicUsize, keys: &KeyCounts) {
     println!(
-        "RESULT {name}/{arm}: received={} of {SAMPLES} duplicates={} group={} base={}",
-        set.received_of(SAMPLES),
-        set.duplicates,
+        "RESULT {name}/{arm}: received={} of {SAMPLES} group={} base={}",
+        count.load(Ordering::Relaxed),
         keys.group(),
         keys.base()
     );
@@ -256,21 +310,37 @@ fn assert_buffer_mode(name: &str, keys: &KeyCounts) {
     );
 }
 
-/// The subscriber received every sample once.
-fn assert_complete(name: &str, arm: &str, set: &Mutex<SeqSet>) {
-    let set = set.lock().unwrap();
+/// The publisher exited with status 0 after it published every message. A `ros2` that does not
+/// start, a publisher that never matches and a publisher that publishes nothing all fail here.
+fn assert_published(name: &str, outcome: &Outcome) {
     assert_eq!(
-        set.received_of(SAMPLES),
+        outcome.success,
+        Some(true),
+        "{name}: ros2 topic pub did not exit with status 0: {}",
+        outcome.output
+    );
+    assert_eq!(
+        published(&outcome.output),
+        SAMPLES as usize,
+        "{name}: ros2 topic pub published a different number of messages: {}",
+        outcome.output
+    );
+}
+
+/// The subscriber received exactly as many samples as the publisher published. This counts
+/// totals: a loss and a repeat that cancel out would pass.
+fn assert_complete(name: &str, arm: &str, count: &AtomicUsize) {
+    assert_eq!(
+        count.load(Ordering::Relaxed),
         SAMPLES as usize,
         "{name}: {arm} received"
     );
-    assert_eq!(set.duplicates, 0, "{name}: {arm} repeats");
 }
 
 /// A default raw subscriber and a `Cpu` raw subscriber each receive every sample a publisher in
 /// buffer mode writes. An `Off` raw subscriber on the same topic receives none, which shows the
-/// publisher writes the group key only. The payload carries a sequence number, so a repeat and a
-/// gap show.
+/// publisher writes the group key only. The cell counts totals, so it cannot say which message is
+/// lost.
 ///
 /// A released subscriber also matches the publisher here, and it can make the publisher write the
 /// group key by itself. This cell therefore does not show that the publisher matched a raw
@@ -281,7 +351,7 @@ fn raw_default_subscriber_receives_from_a_released_publisher() {
     let Some(cell) = Cell::start(NAME, "rawcell") else {
         return;
     };
-    let (cpu, default, off) = (new_set(), new_set(), new_set());
+    let (cpu, default, off) = (new_count(), new_count(), new_count());
     let _cpu_sub = cell.subscribe(Some(BufferGroup::Cpu), &cpu);
     let _default_sub = cell.subscribe(None, &default);
     let _off_sub = cell.subscribe(Some(BufferGroup::Off), &off);
@@ -292,15 +362,31 @@ fn raw_default_subscriber_receives_from_a_released_publisher() {
     wait_for_ready(Duration::from_secs(2));
     // Three matched subscribers: the released one, the default raw one and the `Cpu` raw one. The
     // `Off` raw subscriber declares no token, so it does not match.
-    let output = spawn_seq_publisher(&cell.router, &cell.topic, 3).finish();
-    println!("{output}");
+    let mut publisher = spawn_publisher(&cell.router, &cell.topic, 3);
+    assert!(
+        publisher.wait_publishing(Duration::from_secs(30)),
+        "{NAME}: ros2 topic pub published nothing"
+    );
+    let (graph, graph_text) = graph_subscribers(&cell.router, &cell.topic);
+    assert!(
+        publisher.running(),
+        "{NAME}: the publisher exited before the graph call returned: raise SAMPLES"
+    );
+    let outcome = publisher.finish();
+    println!("{}", outcome.output);
 
-    for (arm, set) in [("cpu", &cpu), ("default", &default), ("off", &off)] {
-        report(NAME, arm, set, &keys);
+    for (arm, count) in [("cpu", &cpu), ("default", &default), ("off", &off)] {
+        report(NAME, arm, count, &keys);
     }
+    assert_published(NAME, &outcome);
+    assert_eq!(
+        graph,
+        Some(3),
+        "{NAME}: the graph did not show three subscribers: {graph_text}"
+    );
     assert_buffer_mode(NAME, &keys);
     assert_eq!(
-        off.lock().unwrap().received_of(SAMPLES),
+        off.load(Ordering::Relaxed),
         0,
         "{NAME}: the Off raw subscriber received from a publisher in buffer mode, so the \
          negative control is not valid"
@@ -310,31 +396,43 @@ fn raw_default_subscriber_receives_from_a_released_publisher() {
 }
 
 /// A default raw subscriber that is the only subscriber of the topic matches a publisher in
-/// buffer mode and receives every sample once.
+/// buffer mode and receives every sample.
 ///
 /// No released subscriber is present, so only the token of the raw subscriber can make the
-/// publisher match and write the group key. The cell requires three things. The publisher reports
-/// one matched subscriber. The plain session reads every sample on the group key and none on the
-/// base key. The raw subscriber receives every sample, with no repeat.
+/// publisher match and write the group key. The publisher waits for one matched subscriber before
+/// it publishes, and the graph call shows one subscriber. The plain session reads every sample on
+/// the group key and none on the base key. The raw subscriber receives as many samples as the
+/// publisher published. The cell counts totals, so it cannot say which message is lost.
 #[test]
 fn raw_default_subscriber_alone_matches_a_released_publisher() {
     const NAME: &str = "raw_default_subscriber_alone_matches_a_released_publisher";
     let Some(cell) = Cell::start(NAME, "rawsole") else {
         return;
     };
-    let default = new_set();
+    let default = new_count();
     let _default_sub = cell.subscribe(None, &default);
 
     let keys = cell.key_counts();
     wait_for_ready(Duration::from_secs(2));
-    let output = spawn_seq_publisher(&cell.router, &cell.topic, 1).finish();
-    println!("{output}");
+    let mut publisher = spawn_publisher(&cell.router, &cell.topic, 1);
+    assert!(
+        publisher.wait_publishing(Duration::from_secs(30)),
+        "{NAME}: ros2 topic pub published nothing"
+    );
+    let (graph, graph_text) = graph_subscribers(&cell.router, &cell.topic);
+    assert!(
+        publisher.running(),
+        "{NAME}: the publisher exited before the graph call returned: raise SAMPLES"
+    );
+    let outcome = publisher.finish();
+    println!("{}", outcome.output);
 
     report(NAME, "default", &default, &keys);
+    assert_published(NAME, &outcome);
     assert_eq!(
-        matched_subscribers(&output),
+        graph,
         Some(1),
-        "{NAME}: the publisher did not report one matched subscriber: {output}"
+        "{NAME}: the graph did not show one subscriber: {graph_text}"
     );
     assert_buffer_mode(NAME, &keys);
     assert_complete(NAME, "default", &default);
