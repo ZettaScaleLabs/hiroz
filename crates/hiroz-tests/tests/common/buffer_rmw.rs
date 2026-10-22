@@ -58,6 +58,20 @@ pub fn buffer_aware_rmw_or_skip(name: &str) -> bool {
     false
 }
 
+/// The path of a script of the interop tests, in `tests/scripts`. A missing script fails the test
+/// with its path, so a moved file does not read as a ROS failure.
+pub fn script_path(name: &str) -> PathBuf {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/scripts")
+        .join(name);
+    assert!(
+        path.is_file(),
+        "the interop script {} is missing: the test cannot start its publisher",
+        path.display()
+    );
+    path
+}
+
 /// A plain Zenoh client session on `endpoint`. It is no ROS entity, so no publisher matches it
 /// as a ROS subscriber.
 pub fn client_session(endpoint: &str) -> zenoh::Session {
