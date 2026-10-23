@@ -95,6 +95,22 @@ pub(crate) fn declare_token(
         .wait()
 }
 
+/// The group key when the subscriber joins the group, and `None` when it stays out. A join logs
+/// one debug line.
+pub(crate) fn joined_group_key(
+    group: BufferGroup,
+    has_buffer_fields: Option<bool>,
+    format: &KeyExprFormat,
+    entity: &EndpointEntity,
+    base: &str,
+) -> Option<String> {
+    joins(group, has_buffer_fields, format, entity).then(|| {
+        let group = group_key(base);
+        log_join(base, &group);
+        group
+    })
+}
+
 /// Log one join, so an operator can find the two keys that a router rule must allow.
 pub(crate) fn log_join(base: &str, group: &str) {
     debug!(

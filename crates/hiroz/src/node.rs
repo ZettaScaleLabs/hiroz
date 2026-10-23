@@ -726,19 +726,23 @@ impl ZNode {
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
         let key_expr = (*topic_ke).clone();
 
-        let join = crate::buffer_group::joins(group, None, &self.keyexpr_format, &entity);
+        let group_key = crate::buffer_group::joined_group_key(
+            group,
+            None,
+            &self.keyexpr_format,
+            &entity,
+            key_expr.as_str(),
+        );
 
         // A joined subscriber declares two exact subscriptions, the base key and the group key,
         // both before the token. One callback serves both.
         let shared = std::sync::Arc::new(callback);
         let mut group_sub = None;
-        if join {
+        if let Some(group_key) = &group_key {
             let h = shared.clone();
-            let group_key = crate::buffer_group::group_key(key_expr.as_str());
-            crate::buffer_group::log_join(key_expr.as_str(), &group_key);
             group_sub = Some(
                 self.session
-                    .declare_subscriber(zenoh::key_expr::KeyExpr::try_from(group_key)?)
+                    .declare_subscriber(zenoh::key_expr::KeyExpr::try_from(group_key.clone())?)
                     .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()))
                     .wait()?,
             );
@@ -750,7 +754,7 @@ impl ZNode {
             .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()))
             .advanced();
         let subscriber = apply_transient_local_sub(builder, &entity.qos).wait()?;
-        let token = if join {
+        let token = if group_key.is_some() {
             Some(crate::buffer_group::declare_token(
                 &self.session,
                 &self.keyexpr_format,
