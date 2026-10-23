@@ -131,8 +131,9 @@ func (n *Node) CreatePublisher(topic string) *PublisherBuilder {
 // CreateSubscriber creates a new subscriber builder
 func (n *Node) CreateSubscriber(topic string) *SubscriberBuilder {
 	return &SubscriberBuilder{
-		node:  n,
-		topic: topic,
+		node:        n,
+		topic:       topic,
+		bufferGroup: BufferGroupAuto,
 	}
 }
 
