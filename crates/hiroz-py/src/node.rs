@@ -17,7 +17,6 @@ use pyo3::prelude::*;
 use std::any::Any;
 use std::sync::Arc;
 
-/// The accepted strings are `"auto"`, `"cpu"` and `"off"`. Any other string is a `ValueError`.
 fn parse_buffer_group(group: &str) -> PyResult<hiroz::BufferGroup> {
     match group {
         "auto" => Ok(hiroz::BufferGroup::Auto),
