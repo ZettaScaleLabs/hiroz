@@ -15,8 +15,9 @@
 mod common;
 
 use std::{
+    io::Write,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
@@ -34,6 +35,11 @@ use hiroz::{
     qos::{QosDurability, QosProfile},
 };
 use hiroz_protocol::{KeyExprFormat, KeyExprFormatterAdapter, RmwZenohFormatter};
+use tracing_subscriber::{
+    filter::{LevelFilter, Targets},
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
+};
 
 const RECV: Duration = Duration::from_secs(3);
 const QUIET: Duration = Duration::from_millis(1500);
@@ -425,6 +431,67 @@ fn raw_subscribers_that_stay_out_announce_no_backends_and_skip_the_group_key() {
             count,
         );
     }
+}
+
+#[derive(Clone, Default)]
+struct Captured(Arc<Mutex<Vec<u8>>>);
+impl Write for Captured {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// A raw join logs one `debug` event that carries the base key and the group key, and a raw
+/// subscriber set to `Off` logs none. The test selects the events by the marker `CPU buffer group`.
+/// Controls in the same test: the joined subscriber announces the group in its token, so a missing
+/// event is a missing log and not a missing join, and the `Off` subscriber announces none.
+#[test]
+fn raw_join_logs_both_keys_at_debug_level() {
+    const NAME: &str = "raw_join_logs_both_keys_at_debug_level";
+    let out = Captured::default();
+    // Only the hiroz target is enabled: a debug span of another crate would cross threads and
+    // break the thread-local subscriber.
+    let _guard = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer({
+                    let out = out.clone();
+                    move || out.clone()
+                })
+                .with_ansi(false),
+        )
+        .with(Targets::new().with_target("hiroz", LevelFilter::DEBUG))
+        .set_default();
+    let f = Fixture::new("raw_log");
+    let (_joined_count, _joined) = subscribe_default(&f.node, "raw_log_joined");
+    let (_off_count, _off) = subscribe(&f.node, "raw_log_off", BufferGroup::Off, None);
+
+    assert_joins(NAME, &f.raw, "raw_log_joined", "the default raw subscriber");
+    assert!(
+        wait_tokens(&f.raw, "raw_log_off")
+            .iter()
+            .all(|t| !t.contains("backends:")),
+        "{NAME}: control: the Off subscriber announces a group"
+    );
+    let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("CPU buffer group"))
+        .collect();
+    let naming = |topic: &str| {
+        let (base, group) = (base_key(topic), group_key(topic));
+        lines
+            .iter()
+            .filter(|l| l.contains(&base) && l.contains(&group))
+            .count()
+    };
+    assert_eq!(naming("raw_log_joined"), 1, "{NAME}: events: {text}");
+    assert_eq!(naming("raw_log_off"), 0, "{NAME}: events: {text}");
+    assert_eq!(lines.len(), 1, "{NAME}: one event per join: {text}");
 }
 
 // ---------------------------------------------------------------------------------------------

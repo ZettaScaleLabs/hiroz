@@ -735,6 +735,7 @@ impl ZNode {
         if join {
             let h = shared.clone();
             let group_key = crate::buffer_group::group_key(key_expr.as_str());
+            crate::buffer_group::log_join(key_expr.as_str(), &group_key);
             group_sub = Some(
                 self.session
                     .declare_subscriber(zenoh::key_expr::KeyExpr::try_from(group_key)?)
