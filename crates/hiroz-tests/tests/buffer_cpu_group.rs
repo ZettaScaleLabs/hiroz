@@ -676,10 +676,10 @@ fn cache_join_policy() {
     check_rows(&raw, "cache_join_policy", &rows);
 }
 
-/// The join policy of an action client. With no schema the feedback and status subscribers join on
-/// topics that carry no buffer, as a typed subscriber with no schema does. A transient-local
-/// feedback subscriber stays out, and the feedback subscriber of the default client joins as the
-/// control.
+/// The join policy of an action client. The status subscriber stays out, because its message has
+/// no buffer field. A transient-local feedback subscriber stays out, as for every subscriber. The
+/// feedback subscriber of the default client joins, and it is the control that shows the group
+/// token is visible in this run.
 #[test]
 fn action_client_join_policy() {
     let router = TestRouter::new();
@@ -701,7 +701,7 @@ fn action_client_join_policy() {
         .unwrap();
     for (topic, expected) in [
         ("ac_default%_action%feedback", true),
-        ("ac_default%_action%status", true),
+        ("ac_default%_action%status", false),
         ("ac_transient%_action%feedback", false),
     ] {
         assert_eq!(
@@ -1100,7 +1100,7 @@ fn router_allowing_cases(cases: &[AclCase], group: bool) -> TestRouter {
 /// subscriber declares `<topic key>` and `<topic key>/_buf_cpu`, so a default-deny router that
 /// allows `<topic key>` and not the group key starves the group key, and `build` still returns
 /// `Ok`. The base key still flows. This holds for a buffer type and for a message with no
-/// definition. A real publisher writes nothing on the group key of a topic that carries no buffer,
+/// schema. A real publisher writes nothing on the group key of a topic that carries no buffer,
 /// so the cases for that message put on the group key only to show that the rule denies it.
 ///
 /// Controls in the same test: an `Off` subscriber receives under the allow-only rule, so the puts

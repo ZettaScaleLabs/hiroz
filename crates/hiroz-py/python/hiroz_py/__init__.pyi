@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 # Re-export message types from hiroz_msgs_py.types
 from hiroz_msgs_py import types as types
@@ -183,6 +183,7 @@ class ZNode:
         msg_type: Any,
         qos: QosProfile | dict[str, object] | None = None,
         callback: Any | None = None,
+        buffer_group: Literal["auto", "cpu", "off"] = "auto",
     ) -> ZSubscriber: ...
     def create_client(self, service: str, srv_type: Any) -> ZClient: ...
     def create_server(self, service: str, srv_type: Any) -> ZServer: ...

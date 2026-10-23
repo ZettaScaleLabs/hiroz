@@ -51,6 +51,9 @@ pub struct CSubscriber {
 
 /// Create a subscriber with callback (default QoS)
 ///
+/// The subscriber joins rmw_zenoh's CPU buffer group, as `hiroz_subscriber_create_with_group`
+/// does with group `2`.
+///
 /// # Safety
 /// `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
 /// must be valid C strings. `callback` must be a valid function pointer.
@@ -79,6 +82,9 @@ pub unsafe extern "C" fn hiroz_subscriber_create(
 
 /// Create a subscriber with callback and QoS profile
 ///
+/// The subscriber joins rmw_zenoh's CPU buffer group, as `hiroz_subscriber_create_with_group`
+/// does with group `2`. Use that function with group `0` to stay out.
+///
 /// # Safety
 /// `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
 /// must be valid C strings. `callback` must be a valid function pointer.
@@ -92,6 +98,78 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_qos(
     callback: MessageCallback,
     user_data: usize,
     qos: *const CQosProfile,
+) -> *mut CSubscriber {
+    unsafe {
+        create_subscriber(
+            node,
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            user_data,
+            qos,
+            crate::BufferGroup::Auto,
+        )
+    }
+}
+
+/// Create a subscriber with callback, QoS profile and a buffer group choice
+///
+/// `group` is `0` to stay out of rmw_zenoh's CPU buffer group, `1` to join it, or `2` to
+/// join it as `hiroz_subscriber_create_with_qos` does. A raw subscriber has no message
+/// definition, so `1` and `2` join the same way. A subscriber that joins announces
+/// `backends:cpu:` and receives from both the base key and the group key. Any other value is
+/// an error: the function returns null and logs a warning. A QoS that rmw_zenoh does not
+/// serve on the group key (transient-local) stays out whatever `group` says.
+///
+/// # Safety
+/// `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
+/// must be valid C strings. `callback` must be a valid function pointer.
+/// `qos` may be null for default QoS.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hiroz_subscriber_create_with_group(
+    node: *mut CNode,
+    topic: *const c_char,
+    type_name: *const c_char,
+    type_hash: *const c_char,
+    callback: MessageCallback,
+    user_data: usize,
+    qos: *const CQosProfile,
+    group: i32,
+) -> *mut CSubscriber {
+    let group = match group {
+        0 => crate::BufferGroup::Off,
+        1 => crate::BufferGroup::Cpu,
+        2 => crate::BufferGroup::Auto,
+        other => {
+            tracing::warn!(
+                "hiroz: Unknown buffer group {} for subscriber (expected 0, 1 or 2)",
+                other
+            );
+            return std::ptr::null_mut();
+        }
+    };
+    unsafe {
+        create_subscriber(
+            node, topic, type_name, type_hash, callback, user_data, qos, group,
+        )
+    }
+}
+
+/// The body shared by the two `with_` creators.
+///
+/// # Safety
+/// The same as `hiroz_subscriber_create_with_qos`.
+#[allow(clippy::too_many_arguments)]
+unsafe fn create_subscriber(
+    node: *mut CNode,
+    topic: *const c_char,
+    type_name: *const c_char,
+    type_hash: *const c_char,
+    callback: MessageCallback,
+    user_data: usize,
+    qos: *const CQosProfile,
+    group: crate::BufferGroup,
 ) -> *mut CSubscriber {
     unsafe {
         let node_ref = match get_node_ref(node) {
@@ -116,7 +194,7 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_qos(
 
         let qos_profile = CQosProfile::to_qos_profile(qos);
 
-        match node_ref.create_raw_subscriber_with_qos(
+        match node_ref.create_raw_subscriber_with_group(
             topic_str,
             type_name_str,
             type_hash_str,
@@ -124,6 +202,7 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_qos(
                 callback(user_data, data.as_ptr(), data.len());
             },
             qos_profile,
+            group,
         ) {
             Ok(raw_sub) => Box::into_raw(Box::new(CSubscriber {
                 inner: Box::new(raw_sub),

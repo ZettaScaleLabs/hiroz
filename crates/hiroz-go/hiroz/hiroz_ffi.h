@@ -710,6 +710,9 @@ int32_t hiroz_service_server_destroy(struct hiroz_service_server_t *server);
 /**
  * Create a subscriber with callback (default QoS)
  *
+ * The subscriber joins rmw_zenoh's CPU buffer group, as `hiroz_subscriber_create_with_group`
+ * does with group `2`.
+ *
  * # Safety
  * `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
  * must be valid C strings. `callback` must be a valid function pointer.
@@ -725,6 +728,9 @@ struct hiroz_subscriber_t *hiroz_subscriber_create(struct hiroz_node_t *node,
 /**
  * Create a subscriber with callback and QoS profile
  *
+ * The subscriber joins rmw_zenoh's CPU buffer group, as `hiroz_subscriber_create_with_group`
+ * does with group `2`. Use that function with group `0` to stay out.
+ *
  * # Safety
  * `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
  * must be valid C strings. `callback` must be a valid function pointer.
@@ -737,6 +743,30 @@ struct hiroz_subscriber_t *hiroz_subscriber_create_with_qos(struct hiroz_node_t 
                                                             hiroz_MessageCallback callback,
                                                             uintptr_t user_data,
                                                             const struct hiroz_qos_profile_t *qos);
+
+/**
+ * Create a subscriber with callback, QoS profile and a buffer group choice
+ *
+ * `group` is `0` to stay out of rmw_zenoh's CPU buffer group, `1` to join it, or `2` to
+ * join it as `hiroz_subscriber_create_with_qos` does. A raw subscriber has no message
+ * definition, so `1` and `2` join the same way. A subscriber that joins announces
+ * `backends:cpu:` and receives from both the base key and the group key. Any other value is
+ * an error: the function returns null and logs a warning. A QoS that rmw_zenoh does not
+ * serve on the group key (transient-local) stays out whatever `group` says.
+ *
+ * # Safety
+ * `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
+ * must be valid C strings. `callback` must be a valid function pointer.
+ * `qos` may be null for default QoS.
+ */
+struct hiroz_subscriber_t *hiroz_subscriber_create_with_group(struct hiroz_node_t *node,
+                                                              const char *topic,
+                                                              const char *type_name,
+                                                              const char *type_hash,
+                                                              hiroz_MessageCallback callback,
+                                                              uintptr_t user_data,
+                                                              const struct hiroz_qos_profile_t *qos,
+                                                              int32_t group);
 
 /**
  * Destroy a subscriber
