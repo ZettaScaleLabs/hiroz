@@ -224,7 +224,9 @@ impl PyZNode {
     ///
     /// `buffer_group` is `'auto'`, `'cpu'` or `'off'` and decides whether the subscriber joins
     /// the CPU buffer group of rmw_zenoh. The bindings have no message schema to inspect, so
-    /// `'auto'` joins on every topic. Any other string raises `ValueError`.
+    /// `'auto'` and `'cpu'` do the same: the subscriber joins on every topic, unless it uses
+    /// transient-local QoS or a key format other than rmw_zenoh's. `'off'` never joins. Any other
+    /// string raises `ValueError`.
     #[pyo3(signature = (topic, msg_type, qos=None, callback=None, buffer_group="auto"))]
     fn create_subscriber(
         &mut self,

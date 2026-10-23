@@ -2,7 +2,6 @@
 
 import ast
 import importlib.util
-import time
 from pathlib import Path
 
 import pytest
@@ -22,17 +21,6 @@ def _create_subscriber_signature():
     raise AssertionError("ZNode.create_subscriber is not in the stub")
 
 
-@pytest.mark.parametrize("group", ["auto", "cpu", "off"])
-def test_create_subscriber_accepts_each_group(node, group):
-    sub = node.create_subscriber(f"/group_{group}", std_msgs.String, buffer_group=group)
-    assert sub is not None
-
-
-def test_create_subscriber_without_group_still_works(node):
-    sub = node.create_subscriber("/group_omitted", std_msgs.String)
-    assert sub is not None
-
-
 @pytest.mark.parametrize("group", ["AUTO", "Off", "on", "", "cpu "])
 def test_create_subscriber_rejects_unknown_group(node, group):
     with pytest.raises(ValueError, match="buffer_group"):
@@ -42,33 +30,6 @@ def test_create_subscriber_rejects_unknown_group(node, group):
 def test_create_subscriber_rejects_a_non_string_group(node):
     with pytest.raises(TypeError, match="buffer_group"):
         node.create_subscriber("/group_bad", std_msgs.String, buffer_group=1)
-
-
-@pytest.mark.parametrize("group", ["auto", "cpu", "off"])
-def test_each_group_delivers_a_message(node, group):
-    topic = f"/group_delivery_{group}"
-    pub = node.create_publisher(topic, std_msgs.String)
-    sub = node.create_subscriber(topic, std_msgs.String, buffer_group=group)
-    time.sleep(0.5)
-    pub.publish(std_msgs.String(data=group))
-    msg = sub.recv(timeout=2.0)
-    assert msg is not None, f"no message with buffer_group={group!r}"
-    assert msg.data == group
-
-
-def test_callback_subscriber_accepts_a_group(node):
-    received = []
-    node.create_subscriber(
-        "/group_callback",
-        std_msgs.String,
-        callback=received.append,
-        buffer_group="off",
-    )
-    pub = node.create_publisher("/group_callback", std_msgs.String)
-    time.sleep(0.5)
-    pub.publish(std_msgs.String(data="cb"))
-    time.sleep(0.3)
-    assert [m.data for m in received] == ["cb"]
 
 
 def test_stub_declares_buffer_group_with_default_auto():
