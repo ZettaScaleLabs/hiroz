@@ -766,3 +766,261 @@ fn raw_create_and_teardown_cycles_leave_no_token_and_no_callback() {
         assert_torn_down(&name, &f.raw, TOPIC, &count);
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// The C ABI: `hiroz_subscriber_create_with_group`
+// ---------------------------------------------------------------------------------------------
+
+/// The C callback of the ABI tests. `user_data` is the address of a leaked `Tally`, which sorts a
+/// sample by its payload as `counter` does.
+extern "C" fn c_count(user_data: usize, data: *const u8, len: usize) {
+    let tally = unsafe { &*(user_data as *const Tally) };
+    let payload = unsafe { std::slice::from_raw_parts(data, len) };
+    let slot = if payload == GROUP_PAYLOAD {
+        &tally.group
+    } else {
+        &tally.base
+    };
+    slot.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A tally that outlives the test, and the `user_data` that names it. The C callback can run on a
+/// Rust thread until the subscriber is destroyed, so the tally is never freed.
+fn c_tally() -> (&'static Tally, usize) {
+    let tally: &'static Tally = Box::leak(Box::new(Tally {
+        group: AtomicUsize::new(0),
+        base: AtomicUsize::new(0),
+    }));
+    (tally, tally as *const Tally as usize)
+}
+
+type CCtx = *mut hiroz::ffi::context::CContext;
+type CNode = *mut hiroz::ffi::node::CNode;
+type CSub = *mut hiroz::ffi::subscriber::CSubscriber;
+
+/// A context and a node made through the C ABI, as a C caller makes them.
+fn c_node(endpoint: &str, name: &str) -> (CCtx, CNode) {
+    use std::ffi::CString;
+    let endpoint = CString::new(endpoint).unwrap();
+    let endpoints = [endpoint.as_ptr()];
+    let mode = CString::new("client").unwrap();
+    let config = hiroz::ffi::context::CContextConfig {
+        domain_id: 0,
+        config_file: std::ptr::null(),
+        connect_endpoints: endpoints.as_ptr(),
+        connect_endpoints_count: 1,
+        mode: mode.as_ptr(),
+        disable_multicast_scouting: true,
+        connect_to_local_zenohd: false,
+        json_config: std::ptr::null(),
+        remap_rules: std::ptr::null(),
+        remap_rules_count: 0,
+        enable_logging: false,
+        namespace: std::ptr::null(),
+    };
+    let name = CString::new(name).unwrap();
+    unsafe {
+        let ctx = hiroz::ffi::context::hiroz_context_create_with_config(&config);
+        assert!(!ctx.is_null(), "the C context was not created");
+        let node = hiroz::ffi::node::hiroz_node_create(ctx, name.as_ptr(), std::ptr::null());
+        assert!(!node.is_null(), "the C node was not created");
+        (ctx, node)
+    }
+}
+
+fn c_close(ctx: CCtx, node: CNode) {
+    unsafe {
+        hiroz::ffi::node::hiroz_node_destroy(node);
+        hiroz::ffi::context::hiroz_context_destroy(ctx);
+    }
+}
+
+fn c_destroy(sub: CSub) {
+    unsafe { hiroz::ffi::subscriber::hiroz_subscriber_destroy(sub) };
+}
+
+/// The creator that a C caller picks.
+#[derive(Clone, Copy)]
+enum CCreate {
+    /// `hiroz_subscriber_create`
+    Plain,
+    /// `hiroz_subscriber_create_with_qos`, with a null QoS
+    Qos,
+    /// `hiroz_subscriber_create_with_group` with this group value
+    Group(i32),
+}
+
+/// A C subscriber on `topic` (no leading slash) from `create`. Null on failure.
+fn c_subscribe(node: CNode, topic: &str, user_data: usize, create: CCreate) -> CSub {
+    use std::ffi::CString;
+
+    use hiroz::ffi::subscriber::{
+        hiroz_subscriber_create, hiroz_subscriber_create_with_group,
+        hiroz_subscriber_create_with_qos,
+    };
+    let topic = CString::new(format!("/{topic}")).unwrap();
+    let type_name = CString::new(TYPE_NAME).unwrap();
+    let type_hash = CString::new(TYPE_HASH).unwrap();
+    let (t, n, h) = (topic.as_ptr(), type_name.as_ptr(), type_hash.as_ptr());
+    unsafe {
+        match create {
+            CCreate::Plain => hiroz_subscriber_create(node, t, n, h, c_count, user_data),
+            CCreate::Qos => hiroz_subscriber_create_with_qos(
+                node,
+                t,
+                n,
+                h,
+                c_count,
+                user_data,
+                std::ptr::null(),
+            ),
+            CCreate::Group(group) => hiroz_subscriber_create_with_group(
+                node,
+                t,
+                n,
+                h,
+                c_count,
+                user_data,
+                std::ptr::null(),
+                group,
+            ),
+        }
+    }
+}
+
+/// A C subscriber joins when it is made with group `1` or `2`, with `hiroz_subscriber_create` or
+/// with `hiroz_subscriber_create_with_qos`: it announces `backends:cpu:`, and one callback serves
+/// the base key and the group key. A C subscriber with group `0` is the control that the token
+/// query tells the two apart.
+#[test]
+fn c_abi_subscriber_joins_for_group_1_group_2_and_the_defaults() {
+    const NAME: &str = "c_abi_subscriber_joins_for_group_1_group_2_and_the_defaults";
+    let f = Fixture::new("c_abi_fixture");
+    let (c_ctx, c_node) = c_node(f.router.endpoint(), "c_abi_join");
+    let (_off_tally, off_data) = c_tally();
+    let off = c_subscribe(c_node, "c_abi_off", off_data, CCreate::Group(0));
+    assert!(!off.is_null(), "{NAME}: group 0 returned null");
+
+    let cases = [
+        ("c_abi_g1", CCreate::Group(1)),
+        ("c_abi_g2", CCreate::Group(2)),
+        ("c_abi_plain", CCreate::Plain),
+        ("c_abi_qos", CCreate::Qos),
+    ];
+    let mut subs = Vec::new();
+    for (topic, create) in cases {
+        let (tally, data) = c_tally();
+        let sub = c_subscribe(c_node, topic, data, create);
+        assert!(!sub.is_null(), "{NAME}: {topic}: the creator returned null");
+        subs.push((topic, tally, sub));
+    }
+
+    for (topic, tally, _) in &subs {
+        assert_joins(NAME, &f.raw, topic, &format!("the C subscriber {topic}"));
+        assert_delivers_on_both_keys(NAME, &f.raw, topic, tally, "the C callback");
+    }
+    let off_tokens = tokens_of(&f.raw, "c_abi_off");
+    assert!(
+        off_tokens.iter().all(|t| !t.contains("backends:")),
+        "{NAME}: the group 0 control announced backends: {off_tokens:?}"
+    );
+
+    for (_, _, sub) in subs {
+        c_destroy(sub);
+    }
+    c_destroy(off);
+    c_close(c_ctx, c_node);
+}
+
+/// A C subscriber created with group `0` stays out. A C subscriber with group `1` on the same node
+/// is the control.
+#[test]
+fn c_abi_subscriber_with_group_off_stays_out() {
+    const NAME: &str = "c_abi_subscriber_with_group_off_stays_out";
+    let f = Fixture::new("c_abi_fixture");
+    let (c_ctx, c_node) = c_node(f.router.endpoint(), "c_abi_off");
+    let (_control_tally, control_data) = c_tally();
+    let (tally, data) = c_tally();
+    let control = c_subscribe(c_node, "c_abi_off_control", control_data, CCreate::Group(1));
+    let subject = c_subscribe(c_node, "c_abi_off_subject", data, CCreate::Group(0));
+    assert!(!control.is_null(), "{NAME}: the control returned null");
+    assert!(!subject.is_null(), "{NAME}: group 0 returned null");
+
+    assert_stays_out(
+        NAME,
+        &f.raw,
+        "c_abi_off_control",
+        "c_abi_off_subject",
+        tally,
+    );
+
+    c_destroy(subject);
+    c_destroy(control);
+    c_close(c_ctx, c_node);
+}
+
+/// Every cycle of `hiroz_subscriber_create` and `hiroz_subscriber_destroy` on one topic declares
+/// one token, removes it, and leaves no callback on the group key or the base key.
+#[test]
+fn c_abi_create_and_destroy_cycles_leave_no_token_and_no_callback() {
+    const NAME: &str = "c_abi_create_and_destroy_cycles_leave_no_token_and_no_callback";
+    const CYCLES: usize = 5;
+    const TOPIC: &str = "c_abi_cycle_topic";
+    let f = Fixture::new("c_abi_fixture");
+    let (c_ctx, c_node) = c_node(f.router.endpoint(), "c_abi_cycle");
+
+    for cycle in 0..CYCLES {
+        let name = format!("{NAME}: cycle {cycle}");
+        let (tally, data) = c_tally();
+        let sub = c_subscribe(c_node, TOPIC, data, CCreate::Plain);
+        assert!(!sub.is_null(), "{name}: the creator returned null");
+        assert_joins(&name, &f.raw, TOPIC, "the C subscriber");
+        assert_delivers_on_both_keys(&name, &f.raw, TOPIC, tally, "the C callback");
+
+        c_destroy(sub);
+        assert_torn_down(&name, &f.raw, TOPIC, tally);
+    }
+
+    c_close(c_ctx, c_node);
+}
+
+/// A group value other than 0, 1 and 2 is an error: the function returns null and declares
+/// nothing. Group `1` on the same node is the control that the node and the arguments are
+/// otherwise valid.
+#[test]
+fn c_abi_subscriber_rejects_an_unknown_group() {
+    const NAME: &str = "c_abi_subscriber_rejects_an_unknown_group";
+    let f = Fixture::new("c_abi_fixture");
+    let (c_ctx, c_node) = c_node(f.router.endpoint(), "c_abi_bad");
+    let (_tally, data) = c_tally();
+
+    let control = c_subscribe(c_node, "c_abi_bad_control", data, CCreate::Group(1));
+    assert!(
+        !control.is_null(),
+        "{NAME}: the control with group 1 returned null, so a null below proves nothing"
+    );
+    assert_joins(NAME, &f.raw, "c_abi_bad_control", "the control");
+    for (i, bad) in [3, -1, 99, i32::MIN].into_iter().enumerate() {
+        let sub = c_subscribe(
+            c_node,
+            &format!("c_abi_bad_topic_{i}"),
+            data,
+            CCreate::Group(bad),
+        );
+        let accepted = !sub.is_null();
+        if accepted {
+            c_destroy(sub);
+        }
+        assert!(!accepted, "{NAME}: group {bad} was accepted");
+    }
+    for i in 0..4 {
+        let left = tokens_of(&f.raw, &format!("c_abi_bad_topic_{i}"));
+        assert!(
+            left.is_empty(),
+            "{NAME}: a rejected group left tokens behind: {left:?}"
+        );
+    }
+
+    c_destroy(control);
+    c_close(c_ctx, c_node);
+}
