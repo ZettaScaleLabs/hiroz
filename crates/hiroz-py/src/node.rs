@@ -17,6 +17,18 @@ use pyo3::prelude::*;
 use std::any::Any;
 use std::sync::Arc;
 
+/// Parse the `buffer_group` argument of `create_subscriber`.
+fn parse_buffer_group(group: &str) -> PyResult<hiroz::BufferGroup> {
+    match group {
+        "auto" => Ok(hiroz::BufferGroup::Auto),
+        "cpu" => Ok(hiroz::BufferGroup::Cpu),
+        "off" => Ok(hiroz::BufferGroup::Off),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "buffer_group must be 'auto', 'cpu' or 'off', got {other:?}"
+        ))),
+    }
+}
+
 /// Try to extract type info from a message class.
 ///
 /// Returns `None` if `__msgtype__` or `__hash__` are absent or not strings —
@@ -209,7 +221,11 @@ impl PyZNode {
     /// Create a subscriber for a given topic and message type.
     ///
     /// Works with any registered message type — no factory limitations.
-    #[pyo3(signature = (topic, msg_type, qos=None, callback=None))]
+    ///
+    /// `buffer_group` is `'auto'`, `'cpu'` or `'off'` and decides whether the subscriber joins
+    /// the CPU buffer group of rmw_zenoh. The bindings have no message definition to ask, so
+    /// `'auto'` joins on every topic. Any other string raises `ValueError`.
+    #[pyo3(signature = (topic, msg_type, qos=None, callback=None, buffer_group="auto"))]
     fn create_subscriber(
         &mut self,
         _py: Python,
@@ -217,15 +233,18 @@ impl PyZNode {
         msg_type: &Bound<'_, PyAny>,
         qos: Option<&Bound<'_, PyAny>>,
         callback: Option<PyObject>,
+        buffer_group: &str,
     ) -> PyResult<PyZSubscriber> {
         let (msg_type_str, type_info) = extract_type_info_from_class(msg_type)?;
         let qos_profile = extract_qos(qos)?;
+        let group = parse_buffer_group(buffer_group)?;
 
         let sub_builder = self
             .inner
             .create_sub_impl::<RawBytesMessage>(&topic, Some(type_info))
             .with_serdes::<RawBytesCdrSerdes>()
-            .with_qos(qos_profile);
+            .with_qos(qos_profile)
+            .with_buffer_group(group);
 
         if let Some(py_callback) = callback {
             // Callback-based subscription: no queue, callback fires on each message.
