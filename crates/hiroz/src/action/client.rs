@@ -233,7 +233,6 @@ impl<'a, A: ZAction> Builder for ZActionClientBuilder<'a, A> {
             })?;
         tracing::debug!("Feedback subscriber created successfully");
 
-        // Create status subscriber with callback for direct message routing
         // Use the action's status_type_info for proper ROS 2 interop
         let status_type_info = Some(A::status_type_info());
         // The status message has no buffer field, so the subscriber stays out of the buffer group.

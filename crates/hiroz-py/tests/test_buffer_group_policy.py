@@ -2,12 +2,14 @@
 
 A plain Zenoh session plays the publisher. It reads the liveliness token of the subscriber, and it
 writes to the group key `<base>/_buf_cpu`. A subscriber that joined announces `backends:cpu:` in
-its token and receives the group key. A subscriber that did not join announces no backends and
-receives the base key only.
+its token and receives the group key. A subscriber that did not join keeps its token, without the
+`backends:cpu:` part, and receives the base key only.
 
 Each case has live controls. A second subscriber created with `buffer_group='cpu'` shows that the
 token query and the group key work in the same run. A put on the base key shows that the subscriber
-under test is alive. So an argument that is ignored or mapped to another value fails a case.
+under test is alive. So the tests detect incorrect joining: an ignored `off`, an `off` mapped to a
+joining value, and a missing group subscription. They cannot tell `auto` from `cpu`, because the
+two behave the same in Python.
 """
 
 import socket

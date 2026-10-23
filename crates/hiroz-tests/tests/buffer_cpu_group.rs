@@ -676,10 +676,10 @@ fn cache_join_policy() {
     check_rows(&raw, "cache_join_policy", &rows);
 }
 
-/// The join policy of an action client. With no schema the feedback subscriber joins, as a typed
-/// subscriber with no schema does. The status subscriber stays out, because its topic carries no
-/// buffer. A transient-local feedback subscriber stays out, and the feedback subscriber of the
-/// default client joins as the control.
+/// The join policy of an action client. The status subscriber stays out, because its message has
+/// no buffer field. A transient-local feedback subscriber stays out, as for every subscriber. The
+/// feedback subscriber of the default client joins, and it is the control that shows the group
+/// token is visible in this run.
 #[test]
 fn action_client_join_policy() {
     let router = TestRouter::new();
