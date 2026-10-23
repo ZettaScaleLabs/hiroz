@@ -830,20 +830,14 @@ where
         ))
     }
 
-    /// The group key when the subscriber joins the group, and `None` when it stays out. A join logs
-    /// one debug line.
     fn joined_group_key(&self, base: &str) -> Option<String> {
-        crate::buffer_group::joins(
+        crate::buffer_group::joined_group_key(
             self.buffer_group,
             self.has_buffer_fields,
             &self.keyexpr_format,
             &self.entity,
+            base,
         )
-        .then(|| {
-            let group = crate::buffer_group::group_key(base);
-            crate::buffer_group::log_join(base, &group);
-            group
-        })
     }
 
     /// Internal method that all build variants use.

@@ -7,9 +7,40 @@ use zenoh_ext::AdvancedSubscriber;
 /// Callback type for receiving messages
 pub type MessageCallback = extern "C" fn(user_data: usize, data: *const u8, len: usize);
 
-/// Raw subscriber wrapper that keeps the zenoh subscriber alive
+/// Raw subscriber wrapper that keeps the zenoh subscriptions and the liveliness token alive.
+///
+/// Dropping it stops them all. [`RawSubscriber::undeclare`] does the same and returns the first error.
 pub struct RawSubscriber {
-    pub inner: AdvancedSubscriber<()>,
+    /// Declared first, so it drops first: the token goes before the subscriptions it announces.
+    token: Option<zenoh::liveliness::LivelinessToken>,
+    base: AdvancedSubscriber<()>,
+    /// The exact subscription on the group key, when the subscriber joins.
+    group: Option<zenoh::pubsub::Subscriber<()>>,
+}
+
+impl RawSubscriber {
+    pub(crate) fn new(
+        token: Option<zenoh::liveliness::LivelinessToken>,
+        base: AdvancedSubscriber<()>,
+        group: Option<zenoh::pubsub::Subscriber<()>>,
+    ) -> Self {
+        Self { token, base, group }
+    }
+
+    /// Stop the whole subscription: the token first, then the subscription on the base key, then
+    /// the subscription on the group key. Every handle is undeclared even when an earlier one
+    /// fails. The result is the first error.
+    pub fn undeclare(self) -> zenoh::Result<()> {
+        use zenoh::Wait;
+        let Self { token, base, group } = self;
+        [
+            token.map_or(Ok(()), |t| t.undeclare().wait()),
+            base.undeclare().wait(),
+            group.map_or(Ok(()), |g| g.undeclare().wait()),
+        ]
+        .into_iter()
+        .collect()
+    }
 }
 
 /// Opaque subscriber handle for FFI

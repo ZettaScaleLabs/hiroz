@@ -23,7 +23,10 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use common::{buffer_rmw::client_session as raw_session, *};
+use common::{
+    buffer_rmw::{self, client_session as raw_session, put_until, router_allowing_only, tokens},
+    *,
+};
 use hiroz::{
     BufferGroup, Builder, MessageTypeInfo,
     cache::ZCache,
@@ -39,7 +42,7 @@ use tracing_subscriber::{
     layer::SubscriberExt,
     util::SubscriberInitExt,
 };
-use zenoh::{Wait, sample::SampleKind};
+use zenoh::Wait;
 
 const RECV: Duration = Duration::from_secs(3);
 const QUIET: Duration = Duration::from_millis(1500);
@@ -110,24 +113,6 @@ const PAYLOAD: [u8; 19] = [
     3, 0, 0, 0, // data length
     1, 2, 3,
 ];
-
-/// Every liveliness token currently declared. An error reply fails the test.
-fn tokens(session: &zenoh::Session) -> Vec<String> {
-    let replies = session
-        .liveliness()
-        .get("@ros2_lv/**")
-        .timeout(Duration::from_secs(2))
-        .wait()
-        .expect("liveliness get");
-    let mut keys = Vec::new();
-    while let Ok(reply) = replies.recv() {
-        match reply.result() {
-            Ok(sample) => keys.push(sample.key_expr().to_string()),
-            Err(e) => panic!("liveliness query returned an error: {e:?}"),
-        }
-    }
-    keys
-}
 
 /// The one token for `topic`, once it is visible. A token that never appears fails the test.
 fn token_for(session: &zenoh::Session, topic: &str) -> String {
@@ -209,25 +194,6 @@ fn group_key(topic: &str, wire: &Wire) -> String {
 
 fn base_key(topic: &str, wire: &Wire) -> String {
     format!("0/{topic}/{}/{}", wire.name, wire.key_hash())
-}
-
-/// Put `payload` on `key` until `done` is true or `limit` passes.
-fn put_until(
-    session: &zenoh::Session,
-    key: &str,
-    payload: &[u8],
-    limit: Duration,
-    mut done: impl FnMut() -> bool,
-) -> bool {
-    let end = Instant::now() + limit;
-    while Instant::now() < end {
-        session.put(key, payload.to_vec()).wait().expect("put");
-        if done() {
-            return true;
-        }
-        std::thread::sleep(DRAIN);
-    }
-    false
 }
 
 /// The value of `counter` once it stops rising. `put_until` stops at the first sample, but samples
@@ -916,88 +882,15 @@ fn joined_subscriber_reads_the_group_key_with_its_locality() {
 /// callback that reports the token.
 #[test]
 fn group_subscription_is_declared_before_the_token_is_visible() {
-    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
-    const TRIALS: usize = 30;
-    let endpoint = {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("free port");
-        format!("tcp/127.0.0.1:{}", listener.local_addr().unwrap().port())
-    };
-    let mut config = zenoh::Config::default();
-    config.insert_json5("mode", "\"peer\"").unwrap();
-    config
-        .insert_json5("listen/endpoints", &format!("[\"{endpoint}\"]"))
-        .unwrap();
-    config
-        .insert_json5("scouting/multicast/enabled", "false")
-        .unwrap();
-    let raw = zenoh::open(config).wait().expect("raw peer session");
-    let ctx = ZContextBuilder::default()
-        .disable_multicast_scouting()
-        .with_connect_endpoints([endpoint])
-        .with_mode("peer")
-        .build()
-        .expect("ctx");
-    let node = ctx.create_node("tok_node").build().expect("node");
-
-    // The raw session declares a matching listener on each key before the node declares anything.
-    // The check below reads the matching state when the token callback runs.
-    let publishers: Arc<Vec<_>> = Arc::new(
-        (0..TRIALS)
-            .map(|i| {
-                let key = group_key(&format!("order_{i}"), &UINT8);
-                raw.declare_publisher(key).wait().unwrap()
-            })
-            .collect(),
-    );
-    let _listeners: Vec<_> = publishers
-        .iter()
-        .map(|p| p.matching_listener().callback(|_| {}).wait().unwrap())
-        .collect();
-    std::thread::sleep(Duration::from_secs(1));
-
-    // Per trial: 0 token not seen, 1 matched when the token was seen, 2 not matched.
-    let seen: Arc<Vec<AtomicUsize>> = Arc::new((0..TRIALS).map(|_| AtomicUsize::new(0)).collect());
-    let _watch = raw
-        .liveliness()
-        .declare_subscriber("@ros2_lv/**")
-        .callback({
-            let (publishers, seen) = (publishers.clone(), seen.clone());
-            move |sample| {
-                let trial = sample
-                    .key_expr()
-                    .as_str()
-                    .split('/')
-                    .find_map(|c| c.strip_prefix("%order_")?.parse::<usize>().ok());
-                if let (SampleKind::Put, Some(i)) = (sample.kind(), trial) {
-                    let matching = publishers[i].matching_status().wait().unwrap().matching();
-                    seen[i].store(if matching { 1 } else { 2 }, SeqCst);
-                }
-            }
-        })
-        .wait()
-        .unwrap();
-
-    let mut wrong = Vec::new();
-    for i in 0..TRIALS {
-        let _sub = node
-            .create_sub::<UInt8MultiArray>(&format!("/order_{i}"))
-            .with_buffer_group(BufferGroup::Auto)
-            .build()
-            .unwrap();
-        let end = Instant::now() + RECV;
-        while seen[i].load(SeqCst) == 0 && Instant::now() < end {
-            std::thread::sleep(Duration::from_millis(2));
-        }
-        if seen[i].load(SeqCst) != 1 {
-            wrong.push((i, seen[i].load(SeqCst)));
-        }
-        if !wrong.is_empty() {
-            break;
-        }
-    }
-    assert!(
-        wrong.is_empty(),
-        "group_subscription_is_declared_before_the_token_is_visible: no match at the token, or no token (trial, state: 0 no token, 2 no match): {wrong:?}"
+    buffer_rmw::assert_group_declared_before_token(
+        "group_subscription_is_declared_before_the_token_is_visible",
+        |topic| group_key(topic, &UINT8),
+        |node, topic| {
+            node.create_sub::<UInt8MultiArray>(&format!("/{topic}"))
+                .with_buffer_group(BufferGroup::Auto)
+                .build()
+                .unwrap()
+        },
     );
 }
 
@@ -1093,40 +986,6 @@ fn joining_logs_the_group_key_at_debug_level() {
         lines.iter().all(|l| l.contains(" DEBUG ")),
         "{NAME}: an event is not at debug level: {text}"
     );
-}
-
-/// A router with default-deny access control that allows only `key_exprs`, on every interface.
-/// This is the allow-list shape: the operator names the topic key and nothing else.
-fn router_allowing_only(key_exprs: &[String]) -> TestRouter {
-    let interfaces: Vec<String> = std::fs::read_dir("/sys/class/net")
-        .expect("list interfaces")
-        .map(|e| format!("\"{}\"", e.unwrap().file_name().to_string_lossy()))
-        .collect();
-    let keys: Vec<String> = key_exprs.iter().map(|k| format!("\"{k}\"")).collect();
-    let access_control = format!(
-        r#"{{
-            enabled: true,
-            default_permission: "deny",
-            rules: [{{
-                id: "allow_rule", permission: "allow",
-                messages: ["put", "declare_subscriber"], flows: ["egress", "ingress"],
-                key_exprs: [{}],
-            }}, {{
-                id: "allow_tokens", permission: "allow",
-                messages: ["liveliness_token", "liveliness_query", "declare_liveliness_subscriber"],
-                flows: ["egress", "ingress"], key_exprs: ["@ros2_lv/**"],
-            }}],
-            subjects: [{{ id: "all", interfaces: [{}] }}],
-            policies: [{{ rules: ["allow_rule", "allow_tokens"], subjects: ["all"] }}],
-        }}"#,
-        keys.join(","),
-        interfaces.join(",")
-    );
-    TestRouter::with_config(move |config| {
-        config
-            .insert_json5("access_control", &access_control)
-            .unwrap();
-    })
 }
 
 /// `Num` as a token and a key write it: a message with no schema and no byte field.

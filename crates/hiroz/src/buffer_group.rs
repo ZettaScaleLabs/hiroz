@@ -37,7 +37,7 @@ use crate::entity::EndpointEntity;
 #[non_exhaustive]
 pub enum BufferGroup {
     /// Join when the message can carry a buffer: an unbounded `uint8[]` or `char[]`, directly or
-    /// nested, or hiroz has no message definition. A typed message also counts an unbounded
+    /// nested, or hiroz has no message schema. A typed message also counts an unbounded
     /// `byte[]`, which `rmw_zenoh_cpp` does not: one extra join, no data lost. This is the default.
     #[default]
     Auto,
@@ -48,7 +48,7 @@ pub enum BufferGroup {
     Off,
 }
 
-/// Whether a subscriber joins. `has_buffer_fields` is `None` when hiroz has no message definition.
+/// Whether a subscriber joins. `has_buffer_fields` is `None` when hiroz has no message schema.
 ///
 /// Only the `rmw_zenoh` key format has the group. A transient-local subscriber stays out: the
 /// released `rmw_zenoh_cpp` serves its history on the base key only.
@@ -93,6 +93,22 @@ pub(crate) fn declare_token(
         .liveliness()
         .declare_token(KeyExpr::try_from(token_key)?)
         .wait()
+}
+
+/// The group key when the subscriber joins the group, and `None` when it stays out. A join logs
+/// one debug line.
+pub(crate) fn joined_group_key(
+    group: BufferGroup,
+    has_buffer_fields: Option<bool>,
+    format: &KeyExprFormat,
+    entity: &EndpointEntity,
+    base: &str,
+) -> Option<String> {
+    joins(group, has_buffer_fields, format, entity).then(|| {
+        let group = group_key(base);
+        log_join(base, &group);
+        group
+    })
 }
 
 /// Log one join, so an operator can find the two keys that a router rule must allow.
