@@ -228,7 +228,7 @@ type ActionClient struct {
 	handle    atomic.Pointer[cActionClientHandle]
 	node      *Node
 	action    string
-	inflight  sync.WaitGroup // tracks goroutines blocked inside GetResultWithContext
+	inflight  sync.WaitGroup // tracks goroutines blocked inside GetResultWithContext and SendGoalContext
 	closeOnce sync.Once
 }
 
@@ -372,6 +372,43 @@ func (c *ActionClient) SendGoal(goal Message) (*GoalHandle, error) {
 	runtime.SetFinalizer(handle, (*GoalHandle).Close)
 
 	return handle, nil
+}
+
+// SendGoalContext sends a goal and returns when the server answers or ctx ends.
+// When ctx ends first, the call returns ctx.Err() and closes the goal handle once the C layer
+// returns. The server may already hold the goal. Cancelling ctx does not cancel the goal.
+// If ctx has already ended, nothing is sent.
+func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*GoalHandle, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if c.handle.Load() == nil {
+		return nil, fmt.Errorf("action client is closed")
+	}
+
+	type result struct {
+		h   *GoalHandle
+		err error
+	}
+	ch := make(chan result, 1)
+	c.inflight.Add(1)
+	go func() {
+		defer c.inflight.Done()
+		h, err := c.SendGoal(goal)
+		ch <- result{h, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		go func() {
+			if r := <-ch; r.h != nil {
+				_ = r.h.Close()
+			}
+		}()
+		return nil, ctx.Err()
+	case r := <-ch:
+		return r.h, r.err
+	}
 }
 
 // Close destroys the action client.
