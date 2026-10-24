@@ -164,39 +164,35 @@ where
             .get()
             .payload(payload)
             .attachment(attachment)
-            .callback(move |reply| match reply.into_result() {
-                Ok(sample) => {
-                    let sender = response_tx
-                        .lock()
-                        .expect("service reply sender mutex poisoned")
-                        .take();
-                    match sender {
-                        Some(sender) => {
-                            if sender.send(sample).is_err() {
-                                tracing::warn!(
-                                    "Service call receiver dropped before reply delivery"
-                                );
-                            }
-                        }
-                        None => {
-                            tracing::warn!("Service call received extra reply after completion");
+            .callback(move |reply| {
+                let reply = reply.into_result();
+                let sender = response_tx
+                    .lock()
+                    .expect("service reply sender mutex poisoned")
+                    .take();
+                match sender {
+                    Some(sender) => {
+                        if sender.send(reply).is_err() {
+                            tracing::warn!("Service call receiver dropped before reply delivery");
                         }
                     }
-                }
-                Err(error) => {
-                    tracing::debug!("Service reply error: {error:?}");
+                    None => {
+                        tracing::warn!("Service call received extra reply after completion");
+                    }
                 }
             })
             .await?;
 
-        let sample = response_rx.await.map_err(|_| {
-            zenoh::Error::from("Service call ended before any response was received")
-        })?;
-
-        Ok(sample)
+        let reply = response_rx
+            .await
+            .map_err(|_| crate::error::Error::no_service_reply())?;
+        reply.map_err(|error| Box::new(error) as zenoh::Error)
     }
 
     /// Call the service and wait indefinitely for the first reply.
+    ///
+    /// The first reply determines the outcome, whether it is a response or an
+    /// explicit server error. This also applies when multiple queryables match.
     pub async fn call(&self, msg: &T::Request) -> Result<T::Response>
     where
         T::Request: ZMessage,
@@ -212,6 +208,10 @@ where
     }
 
     /// Call the service and fail if no reply arrives before `timeout` elapses.
+    ///
+    /// As with [`call`](Self::call), the first response or explicit server error
+    /// determines the outcome. A timeout does not prove that the request was not
+    /// executed and does not make retrying it safe.
     pub async fn call_with_timeout(
         &self,
         msg: &T::Request,
