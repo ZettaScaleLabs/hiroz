@@ -5,7 +5,12 @@ import "C"
 import (
 	"runtime"
 	"runtime/cgo"
+	"sync/atomic"
 )
+
+// liveClosures counts the closure contexts that were created and not yet dropped.
+// Tests read it to see that a failed build leaves no callback state behind.
+var liveClosures atomic.Int64
 
 // closureContext holds a pinned Go closure that can be safely passed to C callbacks.
 // The context is pinned using runtime.Pinner to prevent GC relocation, and callbacks
@@ -30,6 +35,7 @@ func (context *closureContext[T]) call(value T) {
 // Calls the optional drop function, deletes all cgo.Handles, and unpins the context.
 // This is called from C when the entity is destroyed.
 func (context *closureContext[T]) drop() {
+	liveClosures.Add(-1)
 	if C.uintptr_t(context.onDrop) != 0 {
 		cgo.Handle(context.onDrop).Value().(func())()
 		cgo.Handle(context.onDrop).Delete()
@@ -47,6 +53,7 @@ func (context *closureContext[T]) drop() {
 // The returned pointer is safe to pass to C and will remain valid until drop() is called.
 func newClosure[T any](callback func(T), drop func()) *closureContext[T] {
 	closure := closureContext[T]{}
+	liveClosures.Add(1)
 	closure.onCall = C.uintptr_t(cgo.NewHandle(callback))
 	if drop != nil {
 		closure.onDrop = C.uintptr_t(cgo.NewHandle(drop))
