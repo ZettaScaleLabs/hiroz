@@ -173,6 +173,87 @@ typedef struct hiroz_node_t {
 } hiroz_node_t;
 
 /**
+ * Versioned C-compatible QoS profile for FFI
+ *
+ * `struct_size` comes first. The caller sets it to `sizeof(hiroz_qos_profile_v2_t)` of the
+ * header it compiled against, or calls `hiroz_qos_profile_v2_init`, which sets it. A later
+ * release can add fields at the end. hiroz reads only the fields inside `struct_size` and takes
+ * the default for the others, so a program built against an older header keeps working. A
+ * `struct_size` below 4 is invalid: the creator returns null.
+ *
+ * The fields after `struct_size` have the meaning that they have in `hiroz_qos_profile_t`.
+ */
+typedef struct hiroz_qos_profile_v2_t {
+  /**
+   * `sizeof(hiroz_qos_profile_v2_t)` as the caller knows it
+   */
+  uint32_t struct_size;
+  /**
+   * 0 = Reliable (default), 1 = BestEffort
+   */
+  int32_t reliability;
+  /**
+   * 0 = Volatile (default), 1 = TransientLocal
+   */
+  int32_t durability;
+  /**
+   * 0 = KeepLast (default), 1 = KeepAll
+   */
+  int32_t history;
+  /**
+   * Depth for KeepLast (default: 10, ignored for KeepAll)
+   */
+  int32_t history_depth;
+  uint64_t deadline_sec;
+  uint64_t deadline_nsec;
+  uint64_t lifespan_sec;
+  uint64_t lifespan_nsec;
+  /**
+   * 0 = Automatic (default), 1 = ManualByNode, 2 = ManualByTopic
+   */
+  int32_t liveliness;
+  uint64_t liveliness_lease_sec;
+  uint64_t liveliness_lease_nsec;
+} hiroz_qos_profile_v2_t;
+
+/**
+ * Versioned C-compatible QoS of the five entities of an action
+ *
+ * `struct_size` comes first and works as in `hiroz_qos_profile_v2_t`: the caller sets it to
+ * `sizeof(hiroz_action_qos_v2_t)`, hiroz reads only the members inside it, and a member outside
+ * it counts as null. A null member asks for the default profile. A `struct_size` below 4 is
+ * invalid: the creator returns null.
+ *
+ * Each member points to a `hiroz_qos_profile_v2_t` that must stay valid for the creator call only.
+ */
+typedef struct hiroz_action_qos_v2_t {
+  /**
+   * `sizeof(hiroz_action_qos_v2_t)` as the caller knows it
+   */
+  uint32_t struct_size;
+  /**
+   * The SendGoal service
+   */
+  const struct hiroz_qos_profile_v2_t *goal_service;
+  /**
+   * The GetResult service
+   */
+  const struct hiroz_qos_profile_v2_t *result_service;
+  /**
+   * The CancelGoal service
+   */
+  const struct hiroz_qos_profile_v2_t *cancel_service;
+  /**
+   * The feedback topic
+   */
+  const struct hiroz_qos_profile_v2_t *feedback_topic;
+  /**
+   * The status topic. An action client has no status subscriber and ignores it.
+   */
+  const struct hiroz_qos_profile_v2_t *status_topic;
+} hiroz_action_qos_v2_t;
+
+/**
  * Callback type for goal acceptance.
  * Returns 1 for accept, 0 for reject.
  */
@@ -323,87 +404,6 @@ typedef struct hiroz_qos_profile_t {
   uint64_t liveliness_lease_sec;
   uint64_t liveliness_lease_nsec;
 } hiroz_qos_profile_t;
-
-/**
- * Versioned C-compatible QoS profile for FFI
- *
- * `struct_size` comes first. The caller sets it to `sizeof(hiroz_qos_profile_v2_t)` of the
- * header it compiled against, or calls `hiroz_qos_profile_v2_init`, which sets it. A later
- * release can add fields at the end. hiroz reads only the fields inside `struct_size` and takes
- * the default for the others, so a program built against an older header keeps working. A
- * `struct_size` below 4 is invalid: the creator returns null.
- *
- * The fields after `struct_size` have the meaning that they have in `hiroz_qos_profile_t`.
- */
-typedef struct hiroz_qos_profile_v2_t {
-  /**
-   * `sizeof(hiroz_qos_profile_v2_t)` as the caller knows it
-   */
-  uint32_t struct_size;
-  /**
-   * 0 = Reliable (default), 1 = BestEffort
-   */
-  int32_t reliability;
-  /**
-   * 0 = Volatile (default), 1 = TransientLocal
-   */
-  int32_t durability;
-  /**
-   * 0 = KeepLast (default), 1 = KeepAll
-   */
-  int32_t history;
-  /**
-   * Depth for KeepLast (default: 10, ignored for KeepAll)
-   */
-  int32_t history_depth;
-  uint64_t deadline_sec;
-  uint64_t deadline_nsec;
-  uint64_t lifespan_sec;
-  uint64_t lifespan_nsec;
-  /**
-   * 0 = Automatic (default), 1 = ManualByNode, 2 = ManualByTopic
-   */
-  int32_t liveliness;
-  uint64_t liveliness_lease_sec;
-  uint64_t liveliness_lease_nsec;
-} hiroz_qos_profile_v2_t;
-
-/**
- * Versioned C-compatible QoS of the five entities of an action
- *
- * `struct_size` comes first and works as in `hiroz_qos_profile_v2_t`: the caller sets it to
- * `sizeof(hiroz_action_qos_v2_t)`, hiroz reads only the members inside it, and a member outside
- * it counts as null. A null member asks for the default profile. A `struct_size` below 4 is
- * invalid: the creator returns null.
- *
- * Each member points to a `hiroz_qos_profile_v2_t` that must stay valid for the creator call only.
- */
-typedef struct hiroz_action_qos_v2_t {
-  /**
-   * `sizeof(hiroz_action_qos_v2_t)` as the caller knows it
-   */
-  uint32_t struct_size;
-  /**
-   * The SendGoal service
-   */
-  const struct hiroz_qos_profile_v2_t *goal_service;
-  /**
-   * The GetResult service
-   */
-  const struct hiroz_qos_profile_v2_t *result_service;
-  /**
-   * The CancelGoal service
-   */
-  const struct hiroz_qos_profile_v2_t *cancel_service;
-  /**
-   * The feedback topic
-   */
-  const struct hiroz_qos_profile_v2_t *feedback_topic;
-  /**
-   * The status topic. An action client has no status subscriber and ignores it.
-   */
-  const struct hiroz_qos_profile_v2_t *status_topic;
-} hiroz_action_qos_v2_t;
 
 /**
  * Opaque service client handle for FFI
