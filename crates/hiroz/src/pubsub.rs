@@ -826,17 +826,22 @@ where
         // Both subscriptions come before the token, so a publisher that reads the token finds a
         // subscription. The callback is `Fn`, so the two subscriptions share one `Arc` of it.
         let shared = Arc::new(callback);
-        let group_sub =
-            declare_group_subscription(&self.session, group_key.as_deref(), None, &shared)?;
+        let group_sub = declare_group_subscription(
+            &self.session,
+            group_key.as_deref(),
+            self.locality,
+            &shared,
+        )?;
         let h = shared.clone();
-        let sub = apply_transient_local_sub(
-            self.session
-                .declare_subscriber(key_expr.clone())
-                .callback(move |s: Sample| h(s))
-                .advanced(),
-            &self.entity.qos,
-        )
-        .wait()?;
+        let mut sub_builder = self
+            .session
+            .declare_subscriber(key_expr.clone())
+            .callback(move |s: Sample| h(s))
+            .advanced();
+        if let Some(locality) = self.locality {
+            sub_builder = sub_builder.allowed_origin(locality);
+        }
+        let sub = apply_transient_local_sub(sub_builder, &self.entity.qos).wait()?;
 
         let token = crate::buffer_group::declare_token(
             &self.session,

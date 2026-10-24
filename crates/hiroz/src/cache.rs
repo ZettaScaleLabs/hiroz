@@ -295,38 +295,30 @@ impl<T: ZMessage, S> ZCacheBuilder<T, S, ZenohStamp> {
             stamp: ExtractorStamp(extractor, PhantomData),
         }
     }
-
-    /// Maximum number of messages to retain. Oldest are evicted when full.
-    pub fn with_capacity(mut self, capacity: usize) -> Self {
-        self.capacity = capacity;
-        self
-    }
-
-    /// Apply a QoS profile to the underlying subscriber.
-    pub fn with_qos(mut self, qos: crate::qos::QosProfile) -> Self {
-        self.sub_builder = self.sub_builder.with_qos(qos);
-        self
-    }
-}
-
-impl<T: ZMessage, S, F> ZCacheBuilder<T, S, ExtractorStamp<T, F>>
-where
-    F: Fn(&T) -> SystemTime + Send + Sync + 'static,
-{
-    /// Maximum number of messages to retain. Oldest are evicted when full.
-    pub fn with_capacity(mut self, capacity: usize) -> Self {
-        self.capacity = capacity;
-        self
-    }
-
-    /// Apply a QoS profile to the underlying subscriber.
-    pub fn with_qos(mut self, qos: crate::qos::QosProfile) -> Self {
-        self.sub_builder = self.sub_builder.with_qos(qos);
-        self
-    }
 }
 
 impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
+    /// Maximum number of messages to retain. Oldest are evicted when full.
+    pub fn with_capacity(mut self, capacity: usize) -> Self {
+        self.capacity = capacity;
+        self
+    }
+
+    /// Apply a QoS profile to the underlying subscriber. A `TransientLocal` durability makes the
+    /// cache request the history of publishers that started earlier.
+    pub fn with_qos(mut self, qos: crate::qos::QosProfile) -> Self {
+        self.sub_builder = self.sub_builder.with_qos(qos);
+        self
+    }
+
+    /// Restrict the cache to samples from publishers of one locality: the same session, remote
+    /// sessions or both. The default is both. The restriction applies to the topic subscription
+    /// and to the buffer-group subscription alike.
+    pub fn with_locality(mut self, locality: zenoh::sample::Locality) -> Self {
+        self.sub_builder = self.sub_builder.with_locality(locality);
+        self
+    }
+
     /// Choose whether the cache joins rmw_zenoh's CPU buffer group. The setting holds before or
     /// after [`with_stamp`](ZCacheBuilder::with_stamp). The default is the node default, which is
     /// [`BufferGroup::Auto`](crate::BufferGroup::Auto) unless
