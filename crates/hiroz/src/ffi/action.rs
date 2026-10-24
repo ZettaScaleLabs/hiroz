@@ -76,6 +76,11 @@ pub struct CGoalHandle {
 }
 
 /// Create an action client
+///
+/// # Safety
+/// `node` must be a pointer returned by `hiroz_node_create`, or null.
+/// Every string argument must be a valid null-terminated C string, or null.
+/// The returned pointer must be freed with `hiroz_action_client_destroy`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_action_client_create(
     node: *mut CNode,
@@ -156,6 +161,12 @@ pub unsafe extern "C" fn hiroz_action_client_create(
 
 /// Send a goal to an action server.
 /// On success, writes the goal_id (16 bytes) and creates a goal handle.
+///
+/// # Safety
+/// `client_handle` must be a pointer returned by `hiroz_action_client_create`, or null.
+/// `goal_data` must be valid for reads of `goal_len` bytes.
+/// `goal_id` must be valid for writes of 16 bytes, and `handle` for writes of one pointer.
+/// On success, `*handle` must be freed with `hiroz_goal_handle_destroy`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_action_client_send_goal(
     client_handle: *mut CActionClient,
@@ -223,6 +234,12 @@ pub unsafe extern "C" fn hiroz_action_client_send_goal(
 }
 
 /// Get result for a goal
+///
+/// # Safety
+/// `goal_handle` must be a pointer written by `hiroz_action_client_send_goal`, or null.
+/// `result_data` and `result_len` must each be valid for writes.
+/// On success, the buffer written to `*result_data` must be freed with
+/// `hiroz_free_bytes(*result_data, *result_len)`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_action_client_get_result(
     goal_handle: *mut CGoalHandle,
@@ -273,6 +290,10 @@ pub unsafe extern "C" fn hiroz_action_client_get_result(
 }
 
 /// Cancel a goal
+///
+/// # Safety
+/// `goal_handle` must be a pointer written by `hiroz_action_client_send_goal`, or null.
+/// Its originating client must not have been destroyed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_action_client_cancel_goal(goal_handle: *mut CGoalHandle) -> i32 {
     if goal_handle.is_null() {
@@ -298,6 +319,11 @@ pub unsafe extern "C" fn hiroz_action_client_cancel_goal(goal_handle: *mut CGoal
 }
 
 /// Destroy an action client
+///
+/// # Safety
+/// `client` must be a pointer returned by `hiroz_action_client_create`, or null.
+/// It must not be used again afterwards, and no goal handle derived from it may
+/// outlive this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_action_client_destroy(client: *mut CActionClient) -> i32 {
     if client.is_null() {
@@ -318,6 +344,14 @@ unsafe extern "C" {
 /// Create an action server.
 /// Spawns a background thread that polls for goals, calls the goal callback,
 /// and if accepted, calls the execute callback.
+///
+/// # Safety
+/// `node` must be a pointer returned by `hiroz_node_create`, or null.
+/// Every string argument must be a valid null-terminated C string, or null.
+/// `goal_callback` and `execute_callback` must remain callable for the lifetime of
+/// the server; a background thread invokes them from a thread the caller does not own.
+/// `user_data` is passed back to them unchanged and is not dereferenced here.
+/// The returned pointer must be freed with `hiroz_action_server_destroy`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_action_server_create(
     node: *mut CNode,
@@ -623,6 +657,11 @@ pub unsafe extern "C" fn hiroz_action_server_create(
 }
 
 /// Publish feedback for a goal
+///
+/// # Safety
+/// `server_handle` must be a pointer returned by `hiroz_action_server_create`, or null.
+/// `goal_id` must be valid for reads of 16 bytes, and `feedback_data` for reads of
+/// `feedback_len` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_action_server_publish_feedback(
     server_handle: *mut CActionServer,
@@ -663,6 +702,11 @@ pub unsafe extern "C" fn hiroz_action_server_publish_feedback(
 }
 
 /// Mark a goal as succeeded
+///
+/// # Safety
+/// `server_handle` must be a pointer returned by `hiroz_action_server_create`, or null.
+/// `goal_id` must be valid for reads of 16 bytes, and `result_data` for reads of
+/// `result_len` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_action_server_succeed(
     server_handle: *mut CActionServer,
@@ -674,6 +718,11 @@ pub unsafe extern "C" fn hiroz_action_server_succeed(
 }
 
 /// Mark a goal as aborted
+///
+/// # Safety
+/// `server_handle` must be a pointer returned by `hiroz_action_server_create`, or null.
+/// `goal_id` must be valid for reads of 16 bytes, and `result_data` for reads of
+/// `result_len` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_action_server_abort(
     server_handle: *mut CActionServer,
@@ -685,6 +734,11 @@ pub unsafe extern "C" fn hiroz_action_server_abort(
 }
 
 /// Mark a goal as canceled
+///
+/// # Safety
+/// `server_handle` must be a pointer returned by `hiroz_action_server_create`, or null.
+/// `goal_id` must be valid for reads of 16 bytes, and `result_data` for reads of
+/// `result_len` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_action_server_canceled(
     server_handle: *mut CActionServer,
@@ -730,6 +784,10 @@ unsafe fn store_result(
 
 /// Check whether a cancel has been requested for the given goal.
 /// Returns 1 if cancel was requested, 0 otherwise.
+///
+/// # Safety
+/// `server_handle` must be a pointer returned by `hiroz_action_server_create`, or null.
+/// `goal_id` must be valid for reads of 16 bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_action_server_is_cancel_requested(
     server_handle: *mut CActionServer,
@@ -751,6 +809,10 @@ pub unsafe extern "C" fn hiroz_action_server_is_cancel_requested(
 }
 
 /// Destroy an action server
+///
+/// # Safety
+/// `server` must be a pointer returned by `hiroz_action_server_create`, or null.
+/// It must not be used again afterwards.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_action_server_destroy(server: *mut CActionServer) -> i32 {
     if server.is_null() {
@@ -768,6 +830,10 @@ pub unsafe extern "C" fn hiroz_action_server_destroy(server: *mut CActionServer)
 }
 
 /// Destroy a goal handle
+///
+/// # Safety
+/// `handle` must be a pointer written by `hiroz_action_client_send_goal`, or null.
+/// It must not be used again afterwards.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_goal_handle_destroy(handle: *mut CGoalHandle) -> i32 {
     if handle.is_null() {
