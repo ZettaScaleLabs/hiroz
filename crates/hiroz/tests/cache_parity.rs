@@ -16,6 +16,7 @@ use hiroz::{
     qos::{QosDurability, QosHistory, QosProfile, QosReliability},
 };
 use hiroz_msgs::std_msgs::String as RosString;
+use zenoh::sample::Locality;
 
 /// A node on a session that has no router and no peer.
 fn isolated_node(name: &str) -> (ZContext, ZNode) {
@@ -89,5 +90,41 @@ fn cache_replays_transient_local_history() {
         volatile.len(),
         0,
         "a volatile cache received history that was published before it existed"
+    );
+}
+
+/// A cache with `Locality::Remote` ignores a publisher on its own session. A cache with the
+/// default locality receives the same message.
+///
+/// Control in the same test: the default cache receives the message, so the empty cache is the
+/// locality and not a publisher that never delivered.
+#[test]
+fn cache_honours_locality() {
+    const TOPIC: &str = "/cache_parity_locality";
+    let (_ctx, node) = isolated_node("cache_locality");
+    let remote_only = node
+        .create_cache::<RosString>(TOPIC, 10)
+        .with_locality(Locality::Remote)
+        .build()
+        .expect("remote-only cache");
+    let any = node
+        .create_cache::<RosString>(TOPIC, 10)
+        .build()
+        .expect("default cache");
+    let publisher = node
+        .create_pub::<RosString>(TOPIC)
+        .build()
+        .expect("publisher");
+
+    publisher.publish(&message("local")).expect("publish");
+
+    wait_until("the default cache to receive the message", || {
+        any.len() == 1
+    });
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        remote_only.len(),
+        0,
+        "a cache restricted to remote publishers received a local message"
     );
 }
