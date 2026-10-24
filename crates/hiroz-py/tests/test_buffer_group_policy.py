@@ -130,15 +130,6 @@ def _put_until_seen(session, key, probe, tag, limit=LISTEN_WAIT):
     return False
 
 
-def _put_quietly(session, key, probe, tag):
-    """Put `tag` on `key` for a fixed window. True when `probe` never received it."""
-    end = time.monotonic() + QUIET
-    while time.monotonic() < end:
-        session.put(key, _cdr_string(tag))
-        time.sleep(0.05)
-    return tag not in probe.data()
-
-
 @pytest.mark.parametrize("form", FORMS)
 @pytest.mark.parametrize("group,joins", POLICIES)
 def test_policy_takes_effect(rig, form, group, joins):
@@ -150,12 +141,10 @@ def test_policy_takes_effect(rig, form, group, joins):
     probe = _Probe(node, f"/{name}", form, group)
     twin = _Probe(node, f"/{twin_name}", form, "cpu")
 
-    # Control: the twin joined, so the token query sees a joined subscriber.
     twin_token = _token_for(session, twin_name)
     assert twin_token.endswith("/backends:cpu:"), (
         f"control: the cpu twin did not announce backends:cpu: {twin_token}"
     )
-    # The token of the subscriber under test announces its policy.
     token = _token_for(session, name)
     assert token.endswith("/backends:cpu:") == joins, (
         f"buffer_group={label!r} ({form} form): expected joined={joins}, token is {token}"
@@ -165,11 +154,9 @@ def test_policy_takes_effect(rig, form, group, joins):
     group_key = f"{base}/_buf_cpu"
     twin_group_key = f"{_base_key(twin_token, twin_name)}/_buf_cpu"
 
-    # Control: a put on the base key reaches the subscriber under test.
     assert _put_until_seen(session, base, probe, "base"), (
         f"control: nothing reached the {form} subscriber from {base}"
     )
-    # Control: a put on a joined subscriber's group key arrives in this run.
     assert _put_until_seen(session, twin_group_key, twin, "group"), (
         f"control: nothing reached the cpu twin from {twin_group_key}"
     )
@@ -179,6 +166,6 @@ def test_policy_takes_effect(rig, form, group, joins):
             f"buffer_group={label!r} ({form} form) joined but the group key does not deliver"
         )
     else:
-        assert _put_quietly(session, group_key, probe, "group"), (
+        assert not _put_until_seen(session, group_key, probe, "group", limit=QUIET), (
             f"buffer_group={label!r} ({form} form) did not join but received the group key"
         )
