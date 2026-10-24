@@ -122,13 +122,47 @@ Set the choice with `with_buffer_group` on a subscriber builder or a cache build
 - A subscriber with no message schema joins on every topic, not only on buffer topics. The feedback subscriber of an action client and the Python bindings have no message schema.
 - The Python `create_subscriber(..., buffer_group=...)` takes `'auto'`, `'cpu'` or `'off'`. `'auto'` and `'cpu'` do the same in Python. Any other string raises `ValueError`.
 - The status subscriber of an action client always stays out, because its message has no buffer. The feedback subscriber has no `Off` switch yet.
-- A raw subscriber has no message schema, so `Auto` joins it. `create_raw_subscriber` and `create_raw_subscriber_with_qos` follow the node default, so they join unless the node default says otherwise. `create_raw_subscriber_with_group` takes `Auto`, `Cpu` or `Off` and replaces the node default. It exists only with the `ffi` feature. The feedback subscriber of a raw action client reads nothing and stays out.
+- A raw subscriber has no message schema, so `Auto` joins it unless the caller says what the type is (see the next section). `create_raw_subscriber` and `create_raw_subscriber_with_qos` follow the node default, so they join unless the node default says otherwise. `create_raw_subscriber_with_group` takes `Auto`, `Cpu` or `Off` and replaces the node default. It exists only with the `ffi` feature. The feedback subscriber of a raw action client reads nothing and stays out.
 - In C, `hiroz_subscriber_create` and `hiroz_subscriber_create_with_qos` join. `hiroz_subscriber_create_with_group` takes `group` `0` (`Off`), `1` (`Cpu`) or `2` (`Auto`). Any other value returns null and logs a warning. A subscriber with a transient-local QoS stays out under every value. A C node has no setting for the node default, so it always has `Auto`.
 - In Go, `SubscriberBuilder.WithBufferGroup` takes `BufferGroupOff`, `BufferGroupCpu` or `BufferGroupAuto`, and the default is `BufferGroupAuto`. The last two join in the same way. Go calls `hiroz_subscriber_create_with_group` for every subscriber. An unknown value fails the build before any callback state exists.
 - A subscriber that stays out subscribes to the base key only. A typed or Python subscriber that stays out keeps its liveliness token, without the `backends:cpu:` part. A raw subscriber that stays out declares no token.
 - `RawSubscriber` has no public field. In release 0.2.0 the `inner` field is public, with the `ffi` feature. A caller of `raw.inner.undeclare().wait()` must call `raw.undeclare()` now. That call stops the token and both subscriptions. Dropping the wrapper stops the same handles.
 - A transient-local subscriber never joins, and `Cpu` does not change that, because it reads its cached history from the base key. `rmw_zenoh_cpp` does the same: [0.10.6](https://github.com/ros2/rmw_zenoh/blob/4e17ccf/rmw_zenoh_cpp/src/detail/rmw_subscription_data.cpp#L99-L103) and [rolling at 678931f](https://github.com/ros2/rmw_zenoh/blob/678931f/rmw_zenoh_cpp/src/detail/rmw_subscription_data.cpp#L103-L107) disable buffer endpoints for transient-local subscribers, and rolling does so for [publishers](https://github.com/ros2/rmw_zenoh/blob/678931f/rmw_zenoh_cpp/src/detail/rmw_publisher_data.cpp#L94-L98). This limit concerns buffer transport and does not disable transient-local QoS. A subscriber on a key format other than `rmw_zenoh`'s never joins, under every setting.
 - `rmw-zenoh-rs` subscriptions use `Off`.
+
+### Join only on buffer topics: a raw subscriber that knows its type
+
+A caller that knows its message type can tell a raw subscriber whether the type has a buffer field. The subscriber then joins only on buffer topics, as `rmw_zenoh_cpp` decides. With the `ffi` feature, call `ZNode::create_raw_subscriber_with_buffer_fields(topic, type_name, type_hash, callback, qos, group, has_buffer_fields)`. The last argument is an `Option<bool>`:
+
+| `group` | `has_buffer_fields` | the subscriber joins |
+|---|---|---|
+| `Auto` | `None` | yes: the same as `create_raw_subscriber_with_group` |
+| `Auto` | `Some(true)` | yes |
+| `Auto` | `Some(false)` | no |
+| `Cpu` | any | yes |
+| `Off` | any | no |
+
+A transient-local QoS and a key format other than `rmw_zenoh`'s never join, under every setting. A caller with a `MessageSchema` can pass `Some(schema.has_buffer_fields())`. That method also counts an unbounded `byte[]`, which `rmw_zenoh_cpp` does not, and the rule may change. Pass your own flag when you need the exact `rmw_zenoh_cpp` rule.
+
+hiroz cannot check the flag. The two wrong answers differ:
+
+| Wrong flag | Result |
+|---|---|
+| `Some(true)` on a type with no buffer field | one extra join, no data lost |
+| `Some(false)` on a type with a buffer field | the subscriber receives nothing on that topic, without an error |
+
+The second row follows from one fact: a raw subscriber that stays out declares no liveliness token. A buffer-aware publisher writes a buffer message only for a subscriber whose token ends in `backends:cpu:`, so it never writes to this one. A typed `Off` subscriber declares a token without `backends:`, and a buffer-aware publisher does not write buffer messages to it until a release carries [ros2/rmw_zenoh#1078](https://github.com/ros2/rmw_zenoh/pull/1078). Pass `Cpu` when you are not sure.
+
+The C library has `hiroz_subscriber_create_with_buffer_fields`. It takes the arguments of `hiroz_subscriber_create_with_qos` and a last `int32_t buffer_fields`. It uses the node default for the group, which is always `Auto` for a C node:
+
+| `buffer_fields` | constant | meaning |
+|---|---|---|
+| `0` | `hiroz_BUFFER_FIELDS_UNKNOWN` | `None`: join |
+| `1` | `hiroz_BUFFER_FIELDS_ABSENT` | `Some(false)` |
+| `2` | `hiroz_BUFFER_FIELDS_PRESENT` | `Some(true)` |
+| any other value | | the call logs a warning and returns null |
+
+The Go bindings do not call this function. Go calls `hiroz_subscriber_create_with_group`, and Go needs its message generator to supply the flag first. Python subscribers pass no schema, so with `'auto'` they join on every topic, and this entry point does not change that.
 
 A transient-local subscriber reads its history from `<topic key>`. The released 0.10.6 package gave this result in 75 cells with Image topics: five kinds of late joiner, three publish-time situations, n=5 per cell. The history arrived on `<topic key>` in every cell and never on `<topic key>/_buf_cpu`. No test covers history after [ros2/rmw_zenoh#1078](https://github.com/ros2/rmw_zenoh/pull/1078).
 
