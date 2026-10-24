@@ -702,7 +702,8 @@ impl ZNode {
     /// A raw subscriber has no message schema, so `Auto` and `Cpu` both join: two exact
     /// subscriptions, the base key and `<key>/_buf_cpu`, then a token ending `backends:cpu:`. One
     /// callback serves both keys. `Off`, a transient-local QoS and a custom key expression format
-    /// stay out: the base key only, and no token.
+    /// stay out: the base key only, and no token. A caller that knows its message type can join
+    /// only on buffer topics with [`ZNode::create_raw_subscriber_with_buffer_fields`].
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_group<F>(
         &self,
@@ -723,6 +724,24 @@ impl ZNode {
 
     /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group` and
     /// `has_buffer_fields` ask for it.
+    ///
+    /// `has_buffer_fields` is the caller's claim about the message type: `Some(true)` when the type
+    /// has an unbounded `uint8[]` or `char[]` field, directly or nested, `Some(false)` when it has
+    /// none, and `None` when the caller does not know. hiroz cannot check the claim. A caller that
+    /// has a [`MessageSchema`](crate::dynamic::MessageSchema) can pass
+    /// `Some(schema.has_buffer_fields())`. That method also counts an unbounded `byte[]`, which
+    /// `rmw_zenoh_cpp` does not, so pass your own flag for an exact answer.
+    ///
+    /// Only `BufferGroup::Auto` reads the flag. `Auto` with `None` or `Some(true)` joins, as
+    /// [`ZNode::create_raw_subscriber_with_group`] does. `Auto` with `Some(false)` stays out: it
+    /// declares the base key only and no token. `Cpu` joins and `Off` stays out whatever the flag
+    /// says. A transient-local QoS or a custom key expression format stays out under every
+    /// setting.
+    ///
+    /// A wrong `Some(true)` costs one extra join and loses no data. A wrong `Some(false)` on a
+    /// buffer topic is the dangerous direction: the subscriber declares no token, so a
+    /// buffer-aware publisher never writes to it, and it receives nothing on that topic without an
+    /// error. Pass `Cpu` when you are not sure.
     #[cfg(feature = "ffi")]
     #[allow(clippy::too_many_arguments)]
     pub fn create_raw_subscriber_with_buffer_fields<F>(
@@ -738,7 +757,6 @@ impl ZNode {
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
     {
-        let _ = has_buffer_fields;
         use crate::{
             entity::{EndpointEntity, EndpointKind},
             pubsub::apply_transient_local_sub,
@@ -769,7 +787,7 @@ impl ZNode {
 
         let group_key = crate::buffer_group::joined_group_key(
             group,
-            None,
+            has_buffer_fields,
             &self.keyexpr_format,
             &entity,
             key_expr.as_str(),

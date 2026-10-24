@@ -168,7 +168,10 @@ impl MessageSchema {
     ///
     /// The typed code generator maps ROS `byte`, `uint8` and `char` to `FieldType::Uint8`, so a
     /// typed unbounded `byte[]` also counts. This over-approximation costs one extra join and loses
-    /// no data.
+    /// no data. The rule may change if hiroz stops counting `byte[]`.
+    ///
+    /// Pass `Some(schema.has_buffer_fields())` as the `has_buffer_fields` argument of
+    /// `ZNode::create_raw_subscriber_with_buffer_fields` (feature `ffi`).
     pub fn has_buffer_fields(&self) -> bool {
         fn is_buffer_sequence(field_type: &FieldType) -> bool {
             matches!(field_type, FieldType::Sequence(inner) if matches!(**inner, FieldType::Uint8))
