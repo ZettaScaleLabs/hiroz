@@ -346,6 +346,27 @@ Apply with `.WithQoS(profile)` on the publisher or subscriber builder.
 !!! tip
     Match QoS profiles on both sides. BestEffort publisher + Reliable subscriber will not exchange messages.
 
+### C: the versioned QoS struct
+
+The C header has two QoS structs. `hiroz_qos_profile_t` has no size field and cannot grow. The `_with_qos` functions take it, and it does not change. `hiroz_qos_profile_v2_t` starts with a `uint32_t struct_size` and has the same fields after it. The `_with_qos_v2` functions take it. A later release can add fields at the end of the v2 struct without breaking a program that was built against an older header.
+
+Call `hiroz_qos_profile_v2_init(&qos)` to write the default profile and the size, then change single fields. A zeroed struct does not give the default: the deadline, the lifespan and the lease are then zero and not infinite. If you set the fields yourself, set `struct_size = sizeof(hiroz_qos_profile_v2_t)`. hiroz reads only the fields inside `struct_size` and uses the default for the others. A `struct_size` below 4 is an error: the creator logs a warning and returns null. A null `qos` pointer gives the default profile.
+
+| Entity | Function | Where a peer sees the QoS |
+|---|---|---|
+| Publisher | `hiroz_publisher_create_with_qos_v2` | liveliness token, and delivery for transient-local |
+| Subscriber | `hiroz_subscriber_create_with_qos_v2` | liveliness token when the subscriber joins the buffer group, and delivery for transient-local |
+| Service client | `hiroz_service_client_create_with_qos_v2` | liveliness token |
+| Service server | `hiroz_service_server_create_with_qos_v2` | liveliness token |
+| Action client | `hiroz_action_client_create_with_qos_v2` | liveliness token of the three services |
+| Action server | `hiroz_action_server_create_with_qos_v2` | liveliness token of the three services, the feedback publisher and the status publisher |
+
+The QoS of a service goes into the liveliness token and does not change how a call is delivered. The subscriber functions with a buffer-group choice (`hiroz_subscriber_create_with_group`, `hiroz_subscriber_create_with_buffer_fields`) still take `hiroz_qos_profile_t`. They have no v2 form yet.
+
+An action takes one `hiroz_action_qos_v2_t`. It starts with its own `struct_size` and has five pointers to `hiroz_qos_profile_v2_t`: `goal_service`, `result_service`, `cancel_service`, `feedback_topic` and `status_topic`. A null pointer, and a null member, give the default profile for that entity. The action client has no status subscriber and ignores `status_topic`. The feedback subscriber of the client stays out of the buffer group and declares no token, so a peer cannot read its QoS. The feedback QoS still reaches the subscriber, where it controls transient-local replay.
+
+The Go bindings do not use the v2 functions. Go service and action builders have no QoS setting.
+
 ---
 
 ## Graph Introspection
