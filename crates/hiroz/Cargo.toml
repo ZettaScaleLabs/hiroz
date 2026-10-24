@@ -61,6 +61,8 @@ hiroz-codegen = { path = "../hiroz-codegen" }
 serial_test = "3.0"
 
 [build-dependencies]
+# Locates the bundled .msg assets for the embedded schema table (build.rs).
+hiroz-codegen = { workspace = true }
 serde = { workspace = true, features = ["serde_derive"] }
 serde_json = { workspace = true }
 zenoh = { workspace = true, default-features = false, features = [

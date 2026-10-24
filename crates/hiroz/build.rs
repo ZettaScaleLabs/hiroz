@@ -132,24 +132,16 @@ fn main() {
 /// fraction of a percent of binary size for "why is my type missing?", so
 /// everything bundled is embedded.
 ///
-/// Reads `../hiroz-codegen/assets/{distro}` directly rather than calling
-/// `hiroz_codegen::bundled_assets_dir`, which would make hiroz-codegen a
-/// build-dependency for a directory walk. If the directory is absent the table
-/// is empty and schema resolution behaves exactly as it did before.
+/// Locates the assets through `hiroz_codegen::bundled_assets_dir`, a
+/// build-dependency, because the `hiroz-codegen` package ships them and a
+/// sibling `../hiroz-codegen` directory exists only in the git repository, not
+/// in a crates.io build. If the directory is absent the table is empty and
+/// schema resolution behaves exactly as it did before.
 fn embed_bundled_msgs() {
     use std::fmt::Write as _;
 
-    let manifest = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let distro = if std::env::var_os("CARGO_FEATURE_HUMBLE").is_some() {
-        "humble"
-    } else {
-        "jazzy"
-    };
-    let assets = manifest
-        .join("..")
-        .join("hiroz-codegen")
-        .join("assets")
-        .join(distro);
+    let is_humble = std::env::var_os("CARGO_FEATURE_HUMBLE").is_some();
+    let assets = hiroz_codegen::bundled_assets_dir(is_humble);
     println!("cargo:rerun-if-changed={}", assets.display());
 
     let mut entries: Vec<(String, std::path::PathBuf)> = Vec::new();
