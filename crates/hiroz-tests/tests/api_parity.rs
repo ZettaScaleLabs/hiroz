@@ -166,12 +166,12 @@ fn validate_shape(text: &str) -> Vec<String> {
         for binding in BINDINGS {
             check_cell(id, binding, table.get(binding), &mut errors);
         }
-        if let Some(symbol) = rust_symbol(row) {
-            if !rust_symbols.insert(symbol.to_string()) {
-                errors.push(format!(
-                    "row `{id}`: Rust symbol `{symbol}` has a row already"
-                ));
-            }
+        if let Some(symbol) = rust_symbol(row)
+            && !rust_symbols.insert(symbol.to_string())
+        {
+            errors.push(format!(
+                "row `{id}`: Rust symbol `{symbol}` has a row already"
+            ));
         }
     }
     errors
@@ -449,12 +449,12 @@ fn scan_source(text: &str, found: &mut BTreeSet<String>) {
             owner = None;
             continue;
         }
-        if let Some(owner) = &owner {
-            if let Some(rest) = line.trim_start().strip_prefix("pub fn ") {
-                let name = ident_prefix(rest);
-                if !name.is_empty() {
-                    found.insert(format!("{owner}::{name}"));
-                }
+        if let Some(owner) = &owner
+            && let Some(rest) = line.trim_start().strip_prefix("pub fn ")
+        {
+            let name = ident_prefix(rest);
+            if !name.is_empty() {
+                found.insert(format!("{owner}::{name}"));
             }
         }
     }
