@@ -28,6 +28,11 @@ use hiroz::{
             hiroz_publisher_destroy,
         },
         qos::{CQosProfile, CQosProfileV2, hiroz_qos_profile_v2_init},
+        service::{
+            CServiceClient, CServiceServer, hiroz_service_client_create_with_qos_v2,
+            hiroz_service_client_destroy, hiroz_service_server_create_with_qos_v2,
+            hiroz_service_server_destroy,
+        },
         subscriber::{CSubscriber, hiroz_subscriber_create_with_qos_v2, hiroz_subscriber_destroy},
     },
     qos::{QosDurability, QosHistory, QosProfile, QosReliability},
@@ -189,6 +194,53 @@ impl CFixture {
             )
         }
     }
+
+    /// `hiroz_service_client_create_with_qos_v2` on `/service`. Null on failure.
+    fn service_client_v2(&self, service: &str, qos: *const CQosProfileV2) -> *mut CServiceClient {
+        let service = CString::new(format!("/{service}")).unwrap();
+        let type_name = CString::new("example_interfaces::srv::dds_::AddTwoInts_").unwrap();
+        let type_hash = CString::new("").unwrap();
+        unsafe {
+            hiroz_service_client_create_with_qos_v2(
+                self.node,
+                service.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                qos,
+            )
+        }
+    }
+
+    /// `hiroz_service_server_create_with_qos_v2` on `/service`. Null on failure.
+    fn service_server_v2(&self, service: &str, qos: *const CQosProfileV2) -> *mut CServiceServer {
+        extern "C" fn refuse(
+            _user_data: usize,
+            _request: *const u8,
+            _request_len: usize,
+            _response: *mut *mut u8,
+            _response_len: *mut usize,
+        ) -> i32 {
+            1
+        }
+        let service = CString::new(format!("/{service}")).unwrap();
+        let type_name = CString::new("example_interfaces::srv::dds_::AddTwoInts_").unwrap();
+        let type_hash = CString::new("").unwrap();
+        unsafe {
+            hiroz_service_server_create_with_qos_v2(
+                self.node,
+                service.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                refuse,
+                0,
+                qos,
+            )
+        }
+    }
 }
 
 impl Drop for CFixture {
@@ -326,4 +378,68 @@ fn c_abi_subscriber_qos_v2_reaches_the_token() {
     );
 
     unsafe { hiroz_subscriber_destroy(sub) };
+}
+
+/// A v2 service client and a v2 service server announce the QoS that the struct asks for. The
+/// service does not change how a call is delivered. The token is where a peer reads the QoS.
+#[test]
+fn c_abi_service_qos_v2_reaches_the_token() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_srv");
+
+    let qos = v2_non_default();
+    let client = c.service_client_v2("c_qos_v2_srv_client", &qos);
+    let server = c.service_server_v2("c_qos_v2_srv_server", &qos);
+    let default_client = c.service_client_v2("c_qos_v2_srv_default", std::ptr::null());
+    assert!(
+        !client.is_null() && !server.is_null() && !default_client.is_null(),
+        "a creator returned null"
+    );
+
+    assert_eq!(
+        qos_text(&raw, "c_qos_v2_srv_client"),
+        encoded(&non_default())
+    );
+    assert_eq!(
+        qos_text(&raw, "c_qos_v2_srv_server"),
+        encoded(&non_default())
+    );
+    assert_eq!(
+        qos_text(&raw, "c_qos_v2_srv_default"),
+        encoded(&QosProfile::default())
+    );
+
+    unsafe {
+        hiroz_service_client_destroy(client);
+        hiroz_service_client_destroy(default_client);
+        hiroz_service_server_destroy(server);
+    }
+}
+
+/// A service creator rejects a `struct_size` below the size field, as the publisher creator does.
+#[test]
+fn c_abi_service_qos_v2_rejects_a_short_struct_size() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_srv_short");
+
+    let mut qos = v2_non_default();
+    qos.struct_size = 0;
+    let client = c.service_client_v2("c_qos_v2_srv_short_client", &qos);
+    let server = c.service_server_v2("c_qos_v2_srv_short_server", &qos);
+    assert!(
+        client.is_null(),
+        "the client creator accepted struct_size 0"
+    );
+    assert!(
+        server.is_null(),
+        "the server creator accepted struct_size 0"
+    );
+    for topic in ["c_qos_v2_srv_short_client", "c_qos_v2_srv_short_server"] {
+        assert!(
+            tokens_of(&raw, topic).is_empty(),
+            "a rejected creator left a token for {topic}"
+        );
+    }
 }
