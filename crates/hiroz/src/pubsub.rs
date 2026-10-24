@@ -187,6 +187,8 @@ pub struct ZPubBuilder<T, S = SerdeCdrSerdes<T>> {
     /// Encoding format for this publisher.
     /// If set, all published messages will use this encoding.
     pub(crate) encoding: Option<crate::encoding::Encoding>,
+    /// Which subscribers the publisher may deliver to. `None` means all of them.
+    pub(crate) locality: Option<zenoh::sample::Locality>,
     pub(crate) _phantom_data: PhantomData<(T, S)>,
 }
 
@@ -266,8 +268,34 @@ impl<T, S> ZPubBuilder<T, S> {
             keyexpr_format: self.keyexpr_format.clone(),
             dyn_schema: self.dyn_schema,
             encoding: self.encoding,
+            locality: self.locality,
             _phantom_data: PhantomData,
         }
+    }
+
+    /// Restrict the publisher to subscribers of one locality: the same session, remote sessions
+    /// or both. The default is both. A restricted publisher does not deliver to a subscriber
+    /// outside that locality, even when the subscriber matches the key.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hiroz::Builder;
+    /// use zenoh::sample::Locality;
+    ///
+    /// # fn main() -> zenoh::Result<()> {
+    /// # let ctx = hiroz::context::ZContextBuilder::default().build()?;
+    /// # let node = ctx.create_node("test").build()?;
+    /// // Deliver to other sessions only
+    /// let publisher = node.create_pub::<hiroz_msgs::std_msgs::String>("/topic")
+    ///     .with_locality(Locality::Remote)
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_locality(mut self, locality: zenoh::sample::Locality) -> Self {
+        self.locality = Some(locality);
+        self
     }
 
     /// Set the encoding format for published messages.
@@ -370,6 +398,11 @@ where
                 pub_builder = pub_builder.congestion_control(zenoh::qos::CongestionControl::Drop);
                 debug!("[PUB] QoS: BestEffort (Drop)");
             }
+        }
+
+        if let Some(locality) = self.locality {
+            pub_builder = pub_builder.allowed_destination(locality);
+            debug!("[PUB] Locality restriction: {:?}", locality);
         }
 
         // Build an AdvancedPublisher and apply TransientLocal config if needed.

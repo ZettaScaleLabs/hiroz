@@ -379,6 +379,7 @@ impl ZNode {
             keyexpr_format: self.keyexpr_format.clone(),
             dyn_schema: None,
             encoding: None,
+            locality: None,
             _phantom_data: Default::default(),
         }
     }
