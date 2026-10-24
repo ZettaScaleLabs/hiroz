@@ -283,10 +283,19 @@ pub unsafe extern "C" fn hiroz_action_client_cancel_goal(goal_handle: *mut CGoal
         let gh = &(*goal_handle);
         let client = &(*gh.client);
 
+        // CDR-encoded action_msgs/srv/CancelGoal Request (GoalInfo = UUID + Time).
+        let request = crate::action::messages::CancelGoalServiceRequest {
+            goal_info: crate::action::GoalInfo::new(crate::action::GoalId::from_bytes(gh.goal_id)),
+        };
+        let request_bytes =
+            <crate::action::messages::CancelGoalServiceRequest as crate::msg::ZMessage>::serialize(
+                &request,
+            );
+
         match client
             .inner
             .cancel_goal_client
-            .call_raw(&gh.goal_id, Duration::from_secs(10))
+            .call_raw(&request_bytes, Duration::from_secs(10))
         {
             Ok(_) => ErrorCode::Success as i32,
             Err(e) => {
@@ -431,16 +440,49 @@ pub unsafe extern "C" fn hiroz_action_server_create(
                         None => continue,
                     };
 
-                    // Cancel request payload: 16-byte raw goal_id (Go client sends raw UUID).
-                    if payload.len() >= 16 {
-                        let mut goal_id = [0u8; 16];
-                        goal_id.copy_from_slice(&payload[..16]);
-                        cancel_flags_clone.lock().unwrap().insert(goal_id, true);
-                        // Store the query and reply with empty response.
-                        let mut server = server_mutex_cancel.lock().unwrap();
-                        server.cancel_goal_server.map.insert(key.clone(), query);
-                        let _ = server.cancel_goal_server.send_response_raw(&key, &[]);
-                    }
+                    // Prefer CDR CancelGoal request; fall back to legacy raw 16-byte UUID
+                    // for older Go clients that did not wrap GoalInfo.
+                    let goal_id = match <crate::action::messages::CancelGoalServiceRequest as crate::msg::ZMessage>::deserialize(
+                        &payload,
+                    ) {
+                        Ok(req) => *req.goal_info.goal_id.as_bytes(),
+                        Err(_) if payload.len() >= 16 => {
+                            let mut id = [0u8; 16];
+                            // Skip optional CDR header if present.
+                            let start = if payload.len() >= 20
+                                && payload[0] == 0x00
+                                && payload[1] == 0x01
+                            {
+                                4
+                            } else {
+                                0
+                            };
+                            id.copy_from_slice(&payload[start..start + 16]);
+                            id
+                        }
+                        Err(e) => {
+                            tracing::warn!("hiroz: Failed to parse cancel request: {}", e);
+                            continue;
+                        }
+                    };
+
+                    cancel_flags_clone.lock().unwrap().insert(goal_id, true);
+
+                    let response = crate::action::messages::CancelGoalServiceResponse {
+                        return_code: 0, // ERROR_NONE
+                        goals_canceling: vec![crate::action::GoalInfo::new(
+                            crate::action::GoalId::from_bytes(goal_id),
+                        )],
+                    };
+                    let response_bytes = <crate::action::messages::CancelGoalServiceResponse as crate::msg::ZMessage>::serialize(
+                        &response,
+                    );
+
+                    let mut server = server_mutex_cancel.lock().unwrap();
+                    server.cancel_goal_server.map.insert(key.clone(), query);
+                    let _ = server
+                        .cancel_goal_server
+                        .send_response_raw(&key, &response_bytes);
                 }
             }
         });
