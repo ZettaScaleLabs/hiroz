@@ -406,6 +406,9 @@ fn generate_complete_rust_module(
     // Generate serialize_to_zbuf function
     let serialize_to_zbuf_fn = generate_serialize_to_zbuf(packages, services);
 
+    // Generate the direct-dispatch deserializer (mirror of serialize_to_zbuf).
+    let deserialize_direct_fn = generate_deserialize_direct(packages, services);
+
     // Generate Rust API wrappers
     let rust_api_wrappers = quote! {
         /// Serialize a Python message to CDR bytes
@@ -414,8 +417,13 @@ fn generate_complete_rust_module(
         }
 
         /// Deserialize CDR bytes to a Python message
+        ///
+        /// Codegen-known types dispatch through the direct Rust `match` rather
+        /// than the Python REGISTRY, mirroring `serialize_to_zbuf`. Anything
+        /// else falls back to the registry, so types registered at runtime keep
+        /// decoding as they always have. See `generate_deserialize_direct`.
         pub fn deserialize_from_cdr(type_name: &str, py: Python, bytes: &[u8]) -> PyResult<PyObject> {
-            unsafe { deserialize_message(py, type_name, bytes) }
+            deserialize_direct(type_name, py, bytes)
         }
     };
 
@@ -448,6 +456,8 @@ fn generate_complete_rust_module(
         #helper_fns
 
         #serialize_to_zbuf_fn
+
+        #deserialize_direct_fn
 
         #rust_api_wrappers
     })
@@ -637,6 +647,99 @@ fn generate_helper_functions(
         }
 
         pub use helper_fns::{serialize_message, deserialize_message, list_registered_types, get_type_hash};
+    }
+}
+
+/// Generate `deserialize_direct` — the receive-side mirror of
+/// `serialize_to_zbuf`.
+///
+/// The send path already bypasses the Python REGISTRY with a plain Rust
+/// `match` on the type name. The receive path did not: `deserialize_message`
+/// resolved every single incoming message through
+/// `sys.modules["hiroz_py.hiroz_msgs"].REGISTRY[type_name]["deserialize"]` and
+/// then made a Python-level call. That is six Python C-API round trips plus two
+/// transient `PyString` allocations plus a `PyBytes` copy plus a tuple build,
+/// per message, all under the callback's re-acquired GIL — purely to reach a
+/// function whose identity is known at codegen time.
+///
+/// Measured on this host (12-joint JointState, inter-proc-local, half-trip
+/// p50): the send side costs 4.5 us of CDR encode while the receive side costs
+/// ~15 us fixed + ~0.55 us/field. The asymmetry is the registry walk, not the
+/// codec.
+fn generate_deserialize_direct(
+    packages: &BTreeMap<String, Vec<&ResolvedMessage>>,
+    services: &[ResolvedService],
+) -> TokenStream {
+    let mut match_arms = Vec::new();
+
+    // Each arm delegates to the per-type `deserialize_<name>` already emitted by
+    // `generate_deserialize_function`, rather than repeating its body. Inlining
+    // the decode here would give three copies of the same header handling,
+    // endianness choice and error mapping (messages, requests, responses) that
+    // could drift apart under any future fix. The call keeps the fast path
+    // intact -- it is a direct Rust call, no Python registry and no Python-level
+    // dispatch -- and those functions take the *whole* buffer because they strip
+    // the encapsulation header themselves.
+    for (package_name, package_msgs) in packages {
+        let mod_ident = format_ident!("{}_py", package_name.replace('-', "_"));
+        for msg in package_msgs {
+            let full_name = format!("{}/msg/{}", package_name, msg.parsed.name);
+            let fn_ident = format_ident!("deserialize_{}", msg.parsed.name.to_lowercase());
+            match_arms.push(quote! {
+                #full_name => #mod_ident::#fn_ident(py, bytes),
+            });
+        }
+    }
+
+    for srv in services {
+        let mod_ident = format_ident!("{}_srv_py", srv.parsed.package.replace('-', "_"));
+
+        let req_full_name = format!("{}/srv/{}_Request", srv.parsed.package, srv.parsed.name);
+        let req_fn_ident = format_ident!("deserialize_{}", srv.request.parsed.name.to_lowercase());
+        match_arms.push(quote! {
+            #req_full_name => #mod_ident::#req_fn_ident(py, bytes),
+        });
+
+        let resp_full_name = format!("{}/srv/{}_Response", srv.parsed.package, srv.parsed.name);
+        let resp_fn_ident =
+            format_ident!("deserialize_{}", srv.response.parsed.name.to_lowercase());
+        match_arms.push(quote! {
+            #resp_full_name => #mod_ident::#resp_fn_ident(py, bytes),
+        });
+    }
+
+    quote! {
+        /// Direct CDR deserialization for codegen-known types, falling back to
+        /// the Python REGISTRY for anything else.
+        ///
+        /// The fallback is not optional. `REGISTRY` is a live, mutable Python
+        /// dict, and `create_subscriber` accepts any class carrying
+        /// `__msgtype__` — it documents itself as working with "any registered
+        /// message type". Before the direct dispatch existed, every receive
+        /// resolved through `REGISTRY` at runtime, so a type registered after
+        /// module init decoded fine. Erroring on the wildcard instead would
+        /// silently withdraw that: the subscriber would still be created, then
+        /// every callback would raise `Unknown message type`. Codegen-known
+        /// types take the fast Rust path; everything else keeps working exactly
+        /// as it did.
+        pub fn deserialize_direct(type_name: &str, py: Python, bytes: &[u8]) -> PyResult<PyObject> {
+            // Header length is validated here so the error is identical for the
+            // registry fallback, which does not check. The per-type functions
+            // re-check and strip it themselves.
+            if bytes.len() < 4 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "CDR data too short: missing encapsulation header"
+                ));
+            }
+            match type_name {
+                #(#match_arms)*
+                // Not known at codegen time: defer to the runtime registry.
+                // `deserialize_message` takes the *whole* buffer, header
+                // included — it hands it to the type's own Python
+                // `deserialize`, which strips the header itself.
+                _ => unsafe { deserialize_message(py, type_name, bytes) },
+            }
+        }
     }
 }
 
