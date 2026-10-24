@@ -52,6 +52,28 @@ fn observe_loss(loss: &MessageLossTracker, sample: &Sample) {
     loss.observe(attachment.source_gid, attachment.sequence_number);
 }
 
+/// Log a warning when `sample` carries a known encoding that differs from `expected`. A sample
+/// with an encoding that hiroz does not know is only logged at debug level, and no check runs
+/// without an expected encoding. The message is delivered in every case. Every subscriber build
+/// path calls this, so the cache and the subscriber check the same way.
+fn warn_on_encoding_mismatch(expected: Option<&crate::encoding::Encoding>, sample: &Sample) {
+    let Some(expected) = expected else {
+        return;
+    };
+    let encoding_str = sample.encoding().to_string();
+    match crate::encoding::Encoding::from_zenoh_encoding(&encoding_str) {
+        Some(received) if &received != expected => {
+            tracing::warn!(
+                "Encoding mismatch: expected {:?}, received {:?}",
+                expected,
+                received
+            );
+        }
+        Some(_) => {}
+        None => tracing::debug!("Unknown encoding format: {}", encoding_str),
+    }
+}
+
 fn cache_depth_from_history(history: QosHistory) -> usize {
     // Mirrors rmw_zenoh_cpp's `QoS::best_available_qos` (`qos.cpp:107`):
     // a zero-valued depth (the rmw representation of "unspecified" or
@@ -835,8 +857,10 @@ where
             .expect("local endpoint always has node identity");
         let events_mgr = Arc::new(Mutex::new(EventsManager::new(gid)));
         let loss = MessageLossTracker::new(events_mgr.clone());
+        let expected_encoding = self.expected_encoding.clone();
         let shared = Arc::new(move |sample: Sample| {
             observe_loss(&loss, &sample);
+            warn_on_encoding_mismatch(expected_encoding.as_ref(), &sample);
             callback(sample)
         });
         let group_sub = declare_group_subscription(
@@ -918,27 +942,11 @@ where
         let events_mgr = Arc::new(Mutex::new(EventsManager::new(gid)));
         let loss = Arc::new(MessageLossTracker::new(events_mgr.clone()));
 
-        // Wrap handler with encoding validation if expected encoding is set
+        // Wrap the handler with the loss tracker and the encoding check
         let expected_encoding = self.expected_encoding.clone();
         let validated_handler = move |sample: Sample| {
             observe_loss(&loss, &sample);
-            // Validate encoding if expected encoding is set
-            if let Some(ref expected) = expected_encoding {
-                let encoding_str = sample.encoding().to_string();
-                if let Some(received) =
-                    crate::encoding::Encoding::from_zenoh_encoding(&encoding_str)
-                {
-                    if &received != expected {
-                        tracing::warn!(
-                            "Encoding mismatch: expected {:?}, received {:?}",
-                            expected,
-                            received
-                        );
-                    }
-                } else {
-                    tracing::debug!("Unknown encoding format: {}", encoding_str);
-                }
-            }
+            warn_on_encoding_mismatch(expected_encoding.as_ref(), &sample);
             handler.handle(sample)
         };
 
@@ -1021,26 +1029,8 @@ where
         F: Fn(S::Output) + Send + Sync + 'static,
         S: for<'a> ZDeserializer<Input<'a> = &'a [u8]> + 'static,
     {
-        let expected_encoding = self.expected_encoding.clone();
+        // `build_internal` wraps every handler with the encoding check.
         let callback = Arc::new(move |sample: Sample| {
-            // Validate encoding if expected encoding is set
-            if let Some(ref expected) = expected_encoding {
-                let encoding_str = sample.encoding().to_string();
-                if let Some(received) =
-                    crate::encoding::Encoding::from_zenoh_encoding(&encoding_str)
-                {
-                    if &received != expected {
-                        tracing::warn!(
-                            "Encoding mismatch: expected {:?}, received {:?}",
-                            expected,
-                            received
-                        );
-                    }
-                } else {
-                    tracing::debug!("Unknown encoding format: {}", encoding_str);
-                }
-            }
-
             let payload = sample.payload().to_bytes();
             match S::deserialize(&payload) {
                 Ok(msg) => callback(msg),

@@ -331,6 +331,15 @@ impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
         self
     }
 
+    /// Set the encoding that the cache expects on received messages, as
+    /// [`ZSubBuilder::with_encoding`](crate::pubsub::ZSubBuilder::with_encoding) does for a
+    /// subscriber. A sample with a known, different encoding logs a warning. The cache still
+    /// stores the message.
+    pub fn with_encoding(mut self, encoding: crate::encoding::Encoding) -> Self {
+        self.sub_builder = self.sub_builder.with_encoding(encoding);
+        self
+    }
+
     /// Choose whether the cache joins rmw_zenoh's CPU buffer group. The setting holds before or
     /// after [`with_stamp`](ZCacheBuilder::with_stamp). The default is the node default, which is
     /// [`BufferGroup::Auto`](crate::BufferGroup::Auto) unless
