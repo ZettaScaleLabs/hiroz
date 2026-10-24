@@ -127,6 +127,14 @@ let cache = node
     .build()?;
 ```
 
+## Subscriber Options
+
+A cache declares the same kind of subscription as `create_sub`, so the builder takes the same options.
+
+| Builder method | Effect |
+|---|---|
+| `with_qos(qos)` | A `TransientLocal` durability makes the cache request the history of publishers that started earlier. The cache stores the replayed messages like live ones. The default durability is `Volatile`. |
+
 ## Comparison with `message_filters::Cache<T>`
 
 `ZCache<T>` covers the core `message_filters::Cache<T>` API with some differences:

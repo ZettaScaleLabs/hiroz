@@ -633,9 +633,10 @@ impl ZPub<crate::dynamic::DynamicMessage, crate::dynamic::DynamicSerdeCdrSerdes>
 }
 
 /// The subscriptions of a raw-callback subscriber: one on the topic key, and one on the group key
-/// when the subscriber joins the group. Dropping the value undeclares both.
+/// when the subscriber joins the group. Dropping the value undeclares both. The topic-key
+/// subscription is an advanced subscriber, so a transient-local QoS replays history.
 pub(crate) struct RawSubscriptions {
-    _base: zenoh::pubsub::Subscriber<()>,
+    _base: AdvancedSubscriber<()>,
     _group: Option<zenoh::pubsub::Subscriber<()>>,
 }
 
@@ -828,11 +829,14 @@ where
         let group_sub =
             declare_group_subscription(&self.session, group_key.as_deref(), None, &shared)?;
         let h = shared.clone();
-        let sub = self
-            .session
-            .declare_subscriber(key_expr.clone())
-            .callback(move |s: Sample| h(s))
-            .wait()?;
+        let sub = apply_transient_local_sub(
+            self.session
+                .declare_subscriber(key_expr.clone())
+                .callback(move |s: Sample| h(s))
+                .advanced(),
+            &self.entity.qos,
+        )
+        .wait()?;
 
         let token = crate::buffer_group::declare_token(
             &self.session,
