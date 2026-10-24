@@ -11,12 +11,14 @@ use std::{
 
 use hiroz::{
     Builder,
+    attachment::Attachment,
     context::{ZContext, ZContextBuilder},
+    event::ZenohEventType,
     node::ZNode,
     qos::{QosDurability, QosHistory, QosProfile, QosReliability},
 };
 use hiroz_msgs::std_msgs::String as RosString;
-use zenoh::sample::Locality;
+use zenoh::{Wait, sample::Locality};
 
 /// A node on a session that has no router and no peer.
 fn isolated_node(name: &str) -> (ZContext, ZNode) {
@@ -126,5 +128,60 @@ fn cache_honours_locality() {
         remote_only.len(),
         0,
         "a cache restricted to remote publishers received a local message"
+    );
+}
+
+/// A cache counts the messages that a gap in the sequence numbers of one publisher skips, and
+/// reports them as a `MessageLost` event on its own event manager.
+///
+/// The test learns the topic key and a valid payload from one real publication, then puts three
+/// samples with a forged attachment: sequence numbers 0, 1 and 5. The first is the baseline, the
+/// second is contiguous, and the third skips 2, 3 and 4. Control in the same test: the baseline
+/// and the contiguous sample add nothing, so the count of 3 is the gap and not a phantom loss.
+#[test]
+fn cache_reports_message_loss() {
+    const TOPIC: &str = "cache_parity_loss";
+    let (_ctx, node) = isolated_node("cache_loss");
+    let cache = node
+        .create_cache::<RosString>(&format!("/{TOPIC}"), 10)
+        .build()
+        .expect("cache");
+    let publisher = node
+        .create_pub::<RosString>(&format!("/{TOPIC}"))
+        .build()
+        .expect("publisher");
+    let probe = node
+        .session()
+        .declare_subscriber(format!("**/{TOPIC}/**"))
+        .wait()
+        .expect("probe");
+
+    publisher.publish(&message("real")).expect("publish");
+    let sample = probe
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the probe receive")
+        .expect("the probe sees the real publication");
+    wait_until("the cache to store the real message", || cache.len() == 1);
+
+    let gid = [9u8; 16];
+    for sn in [0i64, 1, 5] {
+        node.session()
+            .put(sample.key_expr().clone(), sample.payload().clone())
+            .attachment(Attachment::new(sn, gid))
+            .wait()
+            .expect("forged put");
+    }
+    wait_until("the cache to store the forged messages", || {
+        cache.len() == 4
+    });
+
+    let status = cache
+        .events_mgr()
+        .lock()
+        .unwrap()
+        .take_event_status(ZenohEventType::MessageLost);
+    assert_eq!(
+        status.total_count, 3,
+        "expected the gap 2, 3, 4 and no other loss"
     );
 }
