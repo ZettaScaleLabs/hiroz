@@ -174,10 +174,22 @@ pub const BUFFER_FIELDS_ABSENT: i32 = 1;
 /// `buffer_fields` value: the message type has an unbounded `uint8[]` or `char[]` field.
 pub const BUFFER_FIELDS_PRESENT: i32 = 2;
 
-/// Create a subscriber with callback, QoS profile and a claim about the message type.
+/// Create a subscriber with callback and QoS profile, telling hiroz whether the message type
+/// has a buffer field.
+///
+/// `buffer_fields` is one of `BUFFER_FIELDS_UNKNOWN` (0), `BUFFER_FIELDS_ABSENT` (1) and
+/// `BUFFER_FIELDS_PRESENT` (2). Any other value makes the call log a warning and return null.
+/// The subscriber uses the node default for the buffer group, as
+/// `hiroz_subscriber_create_with_qos` does, and a C node has the default `Auto`. Under `Auto`,
+/// `UNKNOWN` and `PRESENT` join the CPU buffer group. `ABSENT` stays out: it declares the base
+/// key only and no liveliness token. Pass `ABSENT` only when the type has no unbounded `uint8[]`
+/// or `char[]` field, directly or nested. On a buffer topic the subscriber then receives
+/// nothing, without an error, and no token form fixes that on a released `rmw_zenoh_cpp`.
 ///
 /// # Safety
-/// The same as `hiroz_subscriber_create_with_qos`.
+/// `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
+/// must be valid C strings. `callback` must be a valid function pointer.
+/// `qos` may be null for default QoS.
 #[allow(clippy::too_many_arguments)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_subscriber_create_with_buffer_fields(
@@ -190,7 +202,17 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_buffer_fields(
     qos: *const CQosProfile,
     buffer_fields: i32,
 ) -> *mut CSubscriber {
-    let _ = buffer_fields;
+    let has_buffer_fields = match buffer_fields {
+        BUFFER_FIELDS_UNKNOWN => None,
+        BUFFER_FIELDS_ABSENT => Some(false),
+        BUFFER_FIELDS_PRESENT => Some(true),
+        other => {
+            tracing::warn!(
+                "hiroz: buffer_fields {other} is not 0 (unknown), 1 (absent) or 2 (present)"
+            );
+            return std::ptr::null_mut();
+        }
+    };
     unsafe {
         create_subscriber(
             node,
@@ -201,7 +223,7 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_buffer_fields(
             user_data,
             qos,
             None,
-            None,
+            has_buffer_fields,
         )
     }
 }

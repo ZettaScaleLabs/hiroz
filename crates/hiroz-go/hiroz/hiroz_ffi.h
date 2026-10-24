@@ -11,6 +11,21 @@
 #define hiroz_ZENOH_EVENT_ID_MAX 11
 
 /**
+ * `buffer_fields` value: the caller does not know whether the message type has a buffer field.
+ */
+#define hiroz_BUFFER_FIELDS_UNKNOWN 0
+
+/**
+ * `buffer_fields` value: the message type has no unbounded `uint8[]` or `char[]` field.
+ */
+#define hiroz_BUFFER_FIELDS_ABSENT 1
+
+/**
+ * `buffer_fields` value: the message type has an unbounded `uint8[]` or `char[]` field.
+ */
+#define hiroz_BUFFER_FIELDS_PRESENT 2
+
+/**
  * Default depth for `KeepLast` when SYSTEM_DEFAULT (depth=0) is used.
  * Matches rclcpp's default of 10. Note this is distinct from
  * [`KEEP_ALL_CACHE_DEPTH`] below, which is the rmw_zenoh-aligned cap
@@ -768,6 +783,33 @@ struct hiroz_subscriber_t *hiroz_subscriber_create_with_group(struct hiroz_node_
                                                               uintptr_t user_data,
                                                               const struct hiroz_qos_profile_t *qos,
                                                               int32_t group);
+
+/**
+ * Create a subscriber with callback and QoS profile, telling hiroz whether the message type
+ * has a buffer field.
+ *
+ * `buffer_fields` is one of `BUFFER_FIELDS_UNKNOWN` (0), `BUFFER_FIELDS_ABSENT` (1) and
+ * `BUFFER_FIELDS_PRESENT` (2). Any other value makes the call log a warning and return null.
+ * The subscriber uses the node default for the buffer group, as
+ * `hiroz_subscriber_create_with_qos` does, and a C node has the default `Auto`. Under `Auto`,
+ * `UNKNOWN` and `PRESENT` join the CPU buffer group. `ABSENT` stays out: it declares the base
+ * key only and no liveliness token. Pass `ABSENT` only when the type has no unbounded `uint8[]`
+ * or `char[]` field, directly or nested. On a buffer topic the subscriber then receives
+ * nothing, without an error, and no token form fixes that on a released `rmw_zenoh_cpp`.
+ *
+ * # Safety
+ * `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
+ * must be valid C strings. `callback` must be a valid function pointer.
+ * `qos` may be null for default QoS.
+ */
+struct hiroz_subscriber_t *hiroz_subscriber_create_with_buffer_fields(struct hiroz_node_t *node,
+                                                                      const char *topic,
+                                                                      const char *type_name,
+                                                                      const char *type_hash,
+                                                                      hiroz_MessageCallback callback,
+                                                                      uintptr_t user_data,
+                                                                      const struct hiroz_qos_profile_t *qos,
+                                                                      int32_t buffer_fields);
 
 /**
  * Destroy a subscriber
