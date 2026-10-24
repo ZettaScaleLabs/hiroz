@@ -369,6 +369,43 @@ typedef struct hiroz_qos_profile_v2_t {
 } hiroz_qos_profile_v2_t;
 
 /**
+ * Versioned C-compatible QoS of the five entities of an action
+ *
+ * `struct_size` comes first and works as in `hiroz_qos_profile_v2_t`: the caller sets it to
+ * `sizeof(hiroz_action_qos_v2_t)`, hiroz reads only the members inside it, and a member outside
+ * it counts as null. A null member asks for the default profile. A `struct_size` below 4 is
+ * invalid: the creator returns null.
+ *
+ * Each member points to a `hiroz_qos_profile_v2_t` that must stay valid for the creator call only.
+ */
+typedef struct hiroz_action_qos_v2_t {
+  /**
+   * `sizeof(hiroz_action_qos_v2_t)` as the caller knows it
+   */
+  uint32_t struct_size;
+  /**
+   * The SendGoal service
+   */
+  const struct hiroz_qos_profile_v2_t *goal_service;
+  /**
+   * The GetResult service
+   */
+  const struct hiroz_qos_profile_v2_t *result_service;
+  /**
+   * The CancelGoal service
+   */
+  const struct hiroz_qos_profile_v2_t *cancel_service;
+  /**
+   * The feedback topic
+   */
+  const struct hiroz_qos_profile_v2_t *feedback_topic;
+  /**
+   * The status topic. An action client has no status subscriber and ignores it.
+   */
+  const struct hiroz_qos_profile_v2_t *status_topic;
+} hiroz_action_qos_v2_t;
+
+/**
  * Opaque service client handle for FFI
  */
 typedef struct hiroz_service_client_t {
@@ -418,6 +455,31 @@ struct hiroz_action_client_t *hiroz_action_client_create(struct hiroz_node_t *no
                                                          const char *feedback_type_hash);
 
 /**
+ * Create an action client with a versioned QoS struct
+ *
+ * The same as `hiroz_action_client_create`, with a QoS profile for the three services and the
+ * feedback subscriber. A null `qos`, or a null member, asks for the default profile. The client
+ * has no status subscriber, so the client ignores `status_topic`. The profile of a service goes
+ * into its liveliness token and does not change how a call is delivered. Returns null if `qos`,
+ * or a member, has a `struct_size` below 4.
+ *
+ * # Safety
+ * `node` must be a valid node pointer. The strings must be valid C strings. `qos` must be null,
+ * or point to `struct_size` readable bytes. Each non-null member must point to `struct_size`
+ * readable bytes.
+ */
+struct hiroz_action_client_t *hiroz_action_client_create_with_qos_v2(struct hiroz_node_t *node,
+                                                                     const char *action_name,
+                                                                     const char *action_type_name,
+                                                                     const char *goal_type_name,
+                                                                     const char *goal_type_hash,
+                                                                     const char *result_type_name,
+                                                                     const char *result_type_hash,
+                                                                     const char *feedback_type_name,
+                                                                     const char *feedback_type_hash,
+                                                                     const struct hiroz_action_qos_v2_t *qos);
+
+/**
  * Send a goal to an action server.
  * On success, writes the goal_id (16 bytes) and creates a goal handle.
  */
@@ -463,6 +525,33 @@ struct hiroz_action_server_t *hiroz_action_server_create(struct hiroz_node_t *no
                                                          hiroz_ActionGoalCallback goal_callback,
                                                          hiroz_ActionExecuteCallback execute_callback,
                                                          uintptr_t user_data);
+
+/**
+ * Create an action server with a versioned QoS struct
+ *
+ * The same as `hiroz_action_server_create`, with a QoS profile for the three services, the
+ * feedback publisher and the status publisher. A null `qos`, or a null member, asks for the
+ * default profile. The profile of a service goes into its liveliness token and does not change
+ * how a request is delivered. Returns null if `qos`, or a member, has a `struct_size` below 4.
+ *
+ * # Safety
+ * `node` must be a valid node pointer. The strings must be valid C strings. The callbacks must be
+ * valid function pointers. `qos` must be null, or point to `struct_size` readable bytes. Each
+ * non-null member must point to `struct_size` readable bytes.
+ */
+struct hiroz_action_server_t *hiroz_action_server_create_with_qos_v2(struct hiroz_node_t *node,
+                                                                     const char *action_name,
+                                                                     const char *action_type_name,
+                                                                     const char *goal_type_name,
+                                                                     const char *goal_type_hash,
+                                                                     const char *result_type_name,
+                                                                     const char *result_type_hash,
+                                                                     const char *feedback_type_name,
+                                                                     const char *feedback_type_hash,
+                                                                     hiroz_ActionGoalCallback goal_callback,
+                                                                     hiroz_ActionExecuteCallback execute_callback,
+                                                                     uintptr_t user_data,
+                                                                     const struct hiroz_action_qos_v2_t *qos);
 
 /**
  * Publish feedback for a goal

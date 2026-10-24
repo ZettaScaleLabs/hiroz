@@ -1,5 +1,6 @@
 //! C-compatible QoS types for FFI
 
+use super::action::ActionQos;
 use crate::qos::{
     QosDurability, QosDuration, QosHistory, QosLiveliness, QosProfile, QosReliability,
 };
@@ -218,6 +219,77 @@ pub unsafe extern "C" fn hiroz_qos_profile_v2_init(out: *mut CQosProfileV2) -> i
     }
     unsafe { out.write(CQosProfileV2::defaults()) };
     super::ErrorCode::Success as i32
+}
+
+/// Versioned C-compatible QoS of the five entities of an action
+///
+/// `struct_size` comes first and works as in `hiroz_qos_profile_v2_t`: the caller sets it to
+/// `sizeof(hiroz_action_qos_v2_t)`, hiroz reads only the members inside it, and a member outside
+/// it counts as null. A null member asks for the default profile. A `struct_size` below 4 is
+/// invalid: the creator returns null.
+///
+/// Each member points to a `hiroz_qos_profile_v2_t` that must stay valid for the creator call only.
+#[repr(C)]
+pub struct CActionQosV2 {
+    /// `sizeof(hiroz_action_qos_v2_t)` as the caller knows it
+    pub struct_size: u32,
+    /// The SendGoal service
+    pub goal_service: *const CQosProfileV2,
+    /// The GetResult service
+    pub result_service: *const CQosProfileV2,
+    /// The CancelGoal service
+    pub cancel_service: *const CQosProfileV2,
+    /// The feedback topic
+    pub feedback_topic: *const CQosProfileV2,
+    /// The status topic. An action client has no status subscriber and ignores it.
+    pub status_topic: *const CQosProfileV2,
+}
+
+impl CActionQosV2 {
+    /// The size of the struct in this build.
+    const SIZE: u32 = std::mem::size_of::<Self>() as u32;
+
+    /// Convert a nullable pointer to the QoS of the five entities.
+    ///
+    /// Null gives the default for every entity. An invalid `struct_size`, here or in a member,
+    /// gives `Err`.
+    ///
+    /// # Safety
+    /// The pointer must be null, or point to at least `struct_size` readable bytes, and each
+    /// non-null member inside that size must meet the safety rule of
+    /// [`CQosProfileV2::to_qos_profile`].
+    pub unsafe fn to_action_qos(ptr: *const CActionQosV2) -> Result<ActionQos, InvalidStructSize> {
+        if ptr.is_null() {
+            return Ok(ActionQos::default());
+        }
+        let struct_size = unsafe { std::ptr::read_unaligned(ptr as *const u32) };
+        if struct_size < CQosProfileV2::MIN_SIZE {
+            return Err(InvalidStructSize(struct_size));
+        }
+        let mut full = Self {
+            struct_size: Self::SIZE,
+            goal_service: std::ptr::null(),
+            result_service: std::ptr::null(),
+            cancel_service: std::ptr::null(),
+            feedback_topic: std::ptr::null(),
+            status_topic: std::ptr::null(),
+        };
+        let covered = struct_size.min(Self::SIZE) as usize;
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                ptr as *const u8,
+                &mut full as *mut Self as *mut u8,
+                covered,
+            );
+            Ok(ActionQos {
+                goal_service: CQosProfileV2::to_qos_profile(full.goal_service)?,
+                result_service: CQosProfileV2::to_qos_profile(full.result_service)?,
+                cancel_service: CQosProfileV2::to_qos_profile(full.cancel_service)?,
+                feedback_topic: CQosProfileV2::to_qos_profile(full.feedback_topic)?,
+                status_topic: CQosProfileV2::to_qos_profile(full.status_topic)?,
+            })
+        }
+    }
 }
 
 #[cfg(test)]
