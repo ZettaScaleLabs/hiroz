@@ -94,6 +94,15 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 
 Callbacks flow in reverse: Rust invokes C function pointers → dispatched to Go via `//export` functions.
 
+### ABI version
+
+The library exports `hiroz_abi_version()`, an integer that changes only when an exported function, struct layout or error code is removed or altered.
+Adding a function does not change it.
+The first value is 1, and 0 means the library predates the function.
+Go exposes it as `hiroz.ABIVersion()`.
+Hiroz does not yet compare it with the version the header declares, and CI does not yet check ABI changes against the last release.
+So a mismatch between `hiroz_ffi.h` and `libhiroz` is still not detected automatically.
+
 ---
 
 ## Context
@@ -377,6 +386,18 @@ All `Build()` calls and operations return `error`. Use `errors.Is()` with sentin
 if errors.Is(err, hiroz.ErrBuildFailed) { /* construction failed */ }
 if errors.Is(err, hiroz.ErrTimeout)     { /* no server responded */ }
 ```
+
+A C caller can read the reason for a failure with `hiroz_last_error_message()`, which returns a thread-local string or NULL.
+Read it on the same OS thread, straight after the failing call.
+Call `hiroz_last_error_clear()` to discard it.
+A successful call does not clear it, so read it only after a non-zero return.
+The Go package does not expose it, because a goroutine can move to another OS thread between the C call and the read.
+
+!!! warning
+    `hiroz_action_client_send_goal`, `hiroz_action_client_get_result` and `hiroz_action_client_cancel_goal` return `-1` for a runtime failure.
+    The same value means `ErrorCodeNullPointer`, so the code alone does not tell the two apart.
+    For C callers, `hiroz_last_error_message()` names the real cause.
+    The Go package maps these paths to `ErrorCodeActionCancelFailed` and `ErrorCodeActionResultFailed`, but `SendGoal` passes the raw code through.
 
 Inspect the error code directly when you need fine-grained handling:
 

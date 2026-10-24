@@ -228,7 +228,7 @@ unsafe fn create_subscriber(
                 inner: Box::new(raw_sub),
             })),
             Err(e) => {
-                tracing::warn!("hiroz: Failed to create subscriber: {}", e);
+                ffi_warn!("hiroz: Failed to create subscriber: {}", e);
                 std::ptr::null_mut()
             }
         }

@@ -1,3 +1,40 @@
+//! Thread-local last-error message for the C interface.
+//!
+//! Error codes cannot say why a call failed, and several failures share one code.
+//! A failing FFI call records a message here.
+//! The caller reads it on the same OS thread, straight after the failing call.
+
+use std::cell::RefCell;
+use std::ffi::{CString, c_char};
+
+thread_local! {
+    static LAST_ERROR: RefCell<Option<CString>> = const { RefCell::new(None) };
+}
+
+/// Record `msg` as this thread's last error. An interior NUL byte becomes `?`.
+pub(crate) fn set(msg: &str) {
+    let c = CString::new(msg.replace('\0', "?")).unwrap_or_default();
+    let _ = LAST_ERROR.try_with(|slot| *slot.borrow_mut() = Some(c));
+}
+
+/// Return the last error message of the calling thread, or NULL if none is recorded. The pointer stays valid until the next failing hiroz call or `hiroz_last_error_clear` on the same thread. Do not free it.
+#[unsafe(no_mangle)]
+pub extern "C" fn hiroz_last_error_message() -> *const c_char {
+    LAST_ERROR
+        .try_with(|slot| {
+            slot.borrow()
+                .as_ref()
+                .map_or(std::ptr::null(), |c| c.as_ptr())
+        })
+        .unwrap_or(std::ptr::null())
+}
+
+/// Discard the last error message of the calling thread.
+#[unsafe(no_mangle)]
+pub extern "C" fn hiroz_last_error_clear() {
+    let _ = LAST_ERROR.try_with(|slot| *slot.borrow_mut() = None);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

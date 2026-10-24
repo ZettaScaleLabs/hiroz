@@ -54,7 +54,7 @@ pub unsafe extern "C" fn hiroz_node_create(
                 inner: Box::new(node),
             })),
             Err(e) => {
-                tracing::warn!("hiroz: Failed to create node: {}", e);
+                ffi_warn!("hiroz: Failed to create node: {}", e);
                 std::ptr::null_mut()
             }
         }
@@ -106,7 +106,7 @@ pub unsafe extern "C" fn hiroz_node_create_with_config(
                 inner: Box::new(node),
             })),
             Err(e) => {
-                tracing::warn!("hiroz: Failed to create node: {}", e);
+                ffi_warn!("hiroz: Failed to create node: {}", e);
                 std::ptr::null_mut()
             }
         }

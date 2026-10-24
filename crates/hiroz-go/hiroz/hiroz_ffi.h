@@ -346,6 +346,11 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Return the version of the C ABI this library exports. A binding compares it with the version it was built against.
+ */
+uint32_t hiroz_abi_version(void);
+
+/**
  * Create an action client
  */
 struct hiroz_action_client_t *hiroz_action_client_create(struct hiroz_node_t *node,
@@ -554,6 +559,16 @@ void hiroz_graph_free_services(struct hiroz_service_info_t *services, uintptr_t 
 int32_t hiroz_graph_node_exists(struct hiroz_context_t *ctx,
                                 const char *name,
                                 const char *namespace_);
+
+/**
+ * Return the last error message of the calling thread, or NULL if none is recorded. The pointer stays valid until the next failing hiroz call or `hiroz_last_error_clear` on the same thread. Do not free it.
+ */
+const char *hiroz_last_error_message(void);
+
+/**
+ * Discard the last error message of the calling thread.
+ */
+void hiroz_last_error_clear(void);
 
 /**
  * Create a new node (simple API)

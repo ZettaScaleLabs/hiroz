@@ -1,3 +1,18 @@
+//! ABI version of the C interface.
+
+/// Version of the C ABI this library exports.
+///
+/// Bump this integer whenever a change removes or alters an exported function, struct layout or error code.
+/// Adding a function does not change it.
+/// Zero is reserved for libraries that predate `hiroz_abi_version()`.
+const ABI_VERSION: u32 = 1;
+
+/// Return the version of the C ABI this library exports. A binding compares it with the version it was built against.
+#[unsafe(no_mangle)]
+pub extern "C" fn hiroz_abi_version() -> u32 {
+    ABI_VERSION
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
