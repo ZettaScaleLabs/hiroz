@@ -433,21 +433,28 @@ fn c_abi_qos_v2_rejects_a_struct_size_below_the_size_field() {
     }
 }
 
-/// A v2 subscriber announces the QoS that the struct asks for.
+/// A v2 subscriber announces the QoS that the struct asks for. The subscriber is volatile: a
+/// transient-local subscriber never joins the buffer group, so it declares no token.
 #[test]
 fn c_abi_subscriber_qos_v2_reaches_the_token() {
     let router = TestRouter::new();
     let raw = buffer_rmw::client_session(router.endpoint());
     let c = CFixture::new(router.endpoint(), "c_qos_v2_sub");
 
-    let qos = v2_non_default();
+    let qos = v2_with(|q| {
+        q.reliability = 1;
+        q.history_depth = 7;
+    });
+    let expected = encoded(&QosProfile {
+        reliability: QosReliability::BestEffort,
+        history: QosHistory::KeepLast(std::num::NonZeroUsize::new(7).unwrap()),
+        ..Default::default()
+    });
+    assert_ne!(expected, encoded(&QosProfile::default()));
     let sub = c.subscriber_v2("c_qos_v2_sub_topic", &qos);
     assert!(!sub.is_null(), "the creator returned null");
 
-    assert_eq!(
-        qos_text(&raw, "c_qos_v2_sub_topic"),
-        encoded(&non_default())
-    );
+    assert_eq!(qos_text(&raw, "c_qos_v2_sub_topic"), expected);
 
     unsafe { hiroz_subscriber_destroy(sub) };
 }
@@ -648,8 +655,9 @@ fn c_abi_action_server_qos_v2_reaches_each_token() {
     unsafe { hiroz_action_server_destroy(server) };
 }
 
-/// An action client announces the QoS of its three services and of its feedback subscriber. The
-/// client creates no status subscriber, so `status_topic` has no entity to reach.
+/// An action client announces the QoS of its three services. Its feedback subscriber stays out of
+/// the buffer group, so it declares no token and a peer cannot read the feedback QoS. The client
+/// creates no status subscriber, so `status_topic` has no entity to reach.
 #[test]
 fn c_abi_action_client_qos_v2_reaches_each_token() {
     let router = TestRouter::new();
@@ -674,14 +682,12 @@ fn c_abi_action_client_qos_v2_reaches_each_token() {
         qos_text(&raw, &format!("{name}/cancel_goal")),
         expected_cancel()
     );
-    assert_eq!(
-        qos_text(&raw, &format!("{name}/feedback")),
-        expected_feedback()
-    );
-    assert!(
-        tokens_of(&raw, &format!("{name}/status")).is_empty(),
-        "an action client declared a status entity"
-    );
+    for entity in ["feedback", "status"] {
+        assert!(
+            tokens_of(&raw, &format!("{name}/{entity}")).is_empty(),
+            "an action client declared a token for {entity}"
+        );
+    }
 
     unsafe { hiroz_action_client_destroy(client) };
 }
@@ -717,7 +723,7 @@ fn c_abi_action_qos_v2_null_means_default() {
         default
     );
     let null_name = "c_qos_v2_act_null_all/_action";
-    for entity in ["send_goal", "get_result", "cancel_goal", "feedback"] {
+    for entity in ["send_goal", "get_result", "cancel_goal"] {
         assert_eq!(qos_text(&raw, &format!("{null_name}/{entity}")), default);
     }
 
