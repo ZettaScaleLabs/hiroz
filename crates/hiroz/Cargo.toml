@@ -30,6 +30,9 @@ zenoh = { workspace = true, default-features = false, features = [
 ] }
 zenoh-ext = { workspace = true }
 zenoh-buffers = { workspace = true }
+# Snapshot for the intra-process subscriber list: the publish path reads it
+# without a lock and without cloning callbacks. Already in the tree via zenoh.
+arc-swap = "1.7"
 strum = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
 parking_lot = { workspace = true }
