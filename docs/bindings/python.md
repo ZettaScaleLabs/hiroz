@@ -188,9 +188,9 @@ Each must have a `__msgtype__` class attribute:
 
 #### Client Lifecycle
 
-1. `client.send_goal(goal)` → `ActionGoalHandle` — blocks until accepted (raises on rejection)
-2. `handle.recv_feedback(timeout)` — receive next feedback; returns `None` when channel closes
-3. `handle.get_result(timeout)` — block until terminal state; returns `None` on timeout
+1. `client.send_goal(goal)` → `ActionGoalHandle` — blocks until accepted. It raises on rejection, and it raises `RuntimeError` when no server answers within 11 seconds
+2. `handle.recv_feedback(timeout)` — receive next feedback; returns `None` on timeout or when the feedback channel closes
+3. `handle.get_result(timeout)` — block until terminal state; returns `None` on timeout. A second call raises `RuntimeError`
 4. `handle.cancel()` — request cancellation (the server decides when to honour it)
 
 ### Goal Status
@@ -260,6 +260,146 @@ ctx = (
 
 ```python
 node = ctx.create_node("my_node").with_namespace("/robot1").build()
+```
+
+## QoS
+
+`create_publisher` and `create_subscriber` take an optional `qos` argument. The other entity factories (`create_client`, `create_server`, `create_action_client`, `create_action_server`) have no `qos` argument. With no `qos`, an entity uses the `default` profile in the table below.
+
+```python
+import hiroz_py
+from hiroz_py import std_msgs
+
+qos = hiroz_py.QosProfile(reliability="best_effort", history="keep_last", depth=5)
+pub = node.create_publisher("/topic", std_msgs.String, qos=qos)
+
+sub = node.create_subscriber("/topic", std_msgs.String, qos=hiroz_py.QosProfile.sensor_data())
+```
+
+### Presets
+
+The module constants `QOS_DEFAULT`, `QOS_SENSOR_DATA`, `QOS_PARAMETERS` and `QOS_SERVICES` are `QosProfile` objects. The static methods `QosProfile.default()`, `sensor_data()`, `parameters()` and `services()` return the same profiles.
+
+| preset | reliability | durability | history |
+|---|---|---|---|
+| `default` | `reliable` | `volatile` | `keep_last`, depth 10 |
+| `sensor_data` | `best_effort` | `volatile` | `keep_last`, depth 5 |
+| `parameters` | `reliable` | `volatile` | `keep_last`, depth 1000 |
+| `services` | `reliable` | `volatile` | `keep_last`, depth 10 |
+
+All four presets use `automatic` liveliness. Their deadline, lifespan and liveliness lease duration are infinite.
+
+### Constructor arguments
+
+`QosProfile(...)` starts from the `default` profile and overrides each argument you pass. Every argument is optional.
+
+| argument | values | note |
+|---|---|---|
+| `reliability` | `"reliable"`, `"best_effort"` | |
+| `durability` | `"volatile"`, `"transient_local"` | |
+| `history` | `"keep_last"`, `"keep_all"` | `"keep_last"` with no `depth` uses depth 10 |
+| `depth` | integer greater than 0 | with no `history`, `depth` selects `keep_last` |
+| `liveliness` | `"automatic"`, `"manual_by_node"`, `"manual_by_topic"` | |
+| `deadline` | float, seconds | |
+| `lifespan` | float, seconds | |
+| `liveliness_lease_duration` | float, seconds | |
+
+A string outside the listed values raises `ValueError`. A `depth` of 0 raises `ValueError`.
+
+A profile has read-only properties `reliability`, `durability`, `history` and `depth`. `depth` is 0 for `keep_all`. There are no properties for the other fields.
+
+### Dictionaries
+
+`qos` also accepts a `dict` with the same keys as the constructor arguments, for example `{"reliability": "best_effort", "history": "keep_last", "depth": 5}`. Any other object raises `TypeError`.
+
+!!! warning
+    A dictionary key that is not in the table above is ignored without an error, so a misspelled key leaves that field at its default. A `depth` key with no `history` key is also ignored in a dictionary. Use `QosProfile(...)` when you want these mistakes to fail early.
+
+## Shared Memory
+
+Shared memory (SHM) is a property of the context. Enable it on the `ZContextBuilder` before you call `build()`:
+
+```python
+ctx = hiroz_py.ZContextBuilder().with_shm_enabled().build()
+```
+
+| method | effect |
+|---|---|
+| `with_shm_enabled()` | creates an SHM pool of 10 MiB |
+| `with_shm_pool_size(size_bytes)` | creates an SHM pool of `size_bytes` |
+| `with_shm_threshold(threshold)` | sets the message size, in bytes, from which SHM applies. The default threshold is 512 bytes. It has an effect only after `with_shm_enabled()` or `with_shm_pool_size()` |
+
+Pool creation can fail. The failure raises `HirozError`.
+
+### Environment variables
+
+| variable | read by | rule |
+|---|---|---|
+| `ZENOH_SHM_ALLOC_SIZE` | `with_shm_enabled()` | a positive integer, in bytes, replaces the 10 MiB pool size. Any other value is ignored |
+| `ZENOH_SHM_MESSAGE_SIZE_THRESHOLD` | `with_shm_enabled()` and `with_shm_pool_size()` | a positive power of two, in bytes, sets the threshold. Any other value is ignored without an error |
+
+`with_shm_pool_size()` does not read `ZENOH_SHM_ALLOC_SIZE`. A later call to `with_shm_threshold()` replaces a threshold that came from the environment.
+
+## Buffer Group
+
+`create_subscriber` has a `buffer_group` argument. It decides whether the subscriber joins the CPU buffer group of `rmw_zenoh`. A buffer-aware ROS 2 Lyrical publisher sends a message with an unbounded `uint8[]` or `char[]` field to the members of this group on a separate key. The [ROS 2 Interoperability](../user-guide/interop.md#buffer-messages-from-lyrical-publishers) chapter explains the mechanism.
+
+```python
+sub = node.create_subscriber("/chatter", std_msgs.String, buffer_group="off")
+```
+
+| value | the subscriber joins |
+|---|---|
+| `"auto"` (default) | on every topic. The Python bindings have no message schema to inspect, so `"auto"` does the same as `"cpu"` |
+| `"cpu"` | on every topic |
+| `"off"` | never |
+
+A subscriber never joins in two cases, under every value: it uses `transient_local` durability, or its key format is not the one of `rmw_zenoh`.
+
+A value outside the table raises `ValueError`. A value that is not a string raises `TypeError`. The argument works for queue subscribers and for callback subscribers.
+
+Publishers, service clients, service servers and action clients and servers have no `buffer_group` argument in Python.
+
+## Errors
+
+hiroz-py defines four exception classes. All of them are attributes of `hiroz_py`.
+
+| class | base | raised by hiroz-py |
+|---|---|---|
+| `HirozError` | `Exception` | yes |
+| `TimeoutError` | `HirozError` | yes |
+| `SerializationError` | `HirozError` | never |
+| `TypeMismatchError` | `HirozError` | never |
+
+`hiroz_py.TimeoutError` is not the built-in `TimeoutError`. Catch it as `hiroz_py.TimeoutError`.
+
+### What raises what
+
+| situation | result |
+|---|---|
+| `ZClient.call(..., timeout=t)` gets no response in time | `hiroz_py.TimeoutError` |
+| `ZClient.call(...)` with no `timeout` | waits for up to one hour, then raises `hiroz_py.TimeoutError` |
+| `ZSubscriber.recv(timeout=t)` gets no message in time | returns `None` |
+| `ZActionClient.send_goal(...)` gets no answer from a server in 11 seconds | `RuntimeError` |
+| `ZServer.take_request()` or `send_response(...)` fails in the core | `RuntimeError` |
+| an action client or server cannot be created, an action call fails in the core, you finish a goal twice, or you call `recv` on a callback subscriber | `RuntimeError` |
+| a context, node, publisher, subscriber, service client or service server cannot be created, or a publish or receive fails in the core | `HirozError` |
+| a QoS string, a depth or a `buffer_group` value is invalid | `ValueError` |
+| a message class has no `__msgtype__`, or `qos` has the wrong type | `TypeError` |
+
+In the code that converts Python messages to and from CDR, invalid values raise `ValueError` or `TypeError`. They do not raise `SerializationError` or `TypeMismatchError`.
+
+`ZServer.send_response(response, request_id)` needs the `request_id` dictionary that `take_request()` returned. Pass it unchanged.
+
+```python
+import hiroz_py
+
+try:
+    resp = client.call(req, timeout=2.0)
+except hiroz_py.TimeoutError:
+    print("no response in 2 s")
+except hiroz_py.HirozError as e:
+    print("call failed:", e)
 ```
 
 ## Performance: Zero-Copy Large Payloads
@@ -350,9 +490,8 @@ cargo test --features python-interop -p hiroz-tests --test python_interop -- --t
 
 ??? question "Message type not found"
     This error occurs when trying to use a message type that isn't supported by the Python bindings.
-    **Solution:** Check the supported message types by looking at the match arms in `crates/hiroz-py/src/node.rs`.
-    Currently supported: `std_msgs/String`, `std_msgs/ByteMultiArray`, `geometry_msgs/Vector3`,
-    `geometry_msgs/Twist`, `sensor_msgs/LaserScan`, and `example_interfaces/AddTwoInts`.
+    **Solution:** Check that the class comes from `hiroz_msgs_py` or defines `__msgtype__`.
+    `create_publisher` and `create_subscriber` raise `TypeError` when the class has no `__msgtype__` attribute. `hiroz_py.list_registered_types()` returns the registered message type names.
 
     Ensure you are passing a message class object (e.g., `std_msgs.String`), not a string.
 
