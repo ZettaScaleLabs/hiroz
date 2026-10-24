@@ -149,15 +149,7 @@ cargo build --all
 
 ### Message Package Resolution
 
-The build system automatically locates ROS message definitions:
-
-**Search order:**
-
-1. System ROS installation (`AMENT_PREFIX_PATH`, `CMAKE_PREFIX_PATH`)
-2. Common ROS paths (`/opt/ros/{rolling,jazzy,kilted,lyrical,humble}`)
-3. Bundled assets (built-in message definitions in hiroz-codegen)
-
-This fallback mechanism enables builds without ROS 2 installed.
+`hiroz-msgs` generates message types entirely from the bundled asset trees in `hiroz-codegen` (`crates/hiroz-codegen/assets/<distro>/`) — it never probes a system ROS 2 installation (`AMENT_PREFIX_PATH`, `CMAKE_PREFIX_PATH`, `/opt/ros/*`). The target distro (`humble`, `jazzy`, or `lyrical`) is selected by Cargo feature; a package requested by an enabled feature but missing from that distro's asset tree is a build error, not a silent fallback. This is why `hiroz-msgs` builds without ROS 2 installed.
 
 ### Common Development Commands
 
