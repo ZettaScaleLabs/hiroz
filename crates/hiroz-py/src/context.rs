@@ -137,7 +137,7 @@ impl PyZContextBuilder {
         slf
     }
 
-    /// Enable Zenoh shared memory transport with default pool size (48 MiB).
+    /// Enable Zenoh shared memory transport with the default pool size (10 MiB).
     ///
     /// SHM transparently accelerates large message transfers between nodes on the same
     /// host. Both publisher and subscriber must have SHM enabled. Also enable SHM on
