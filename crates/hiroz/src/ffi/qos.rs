@@ -97,6 +97,129 @@ impl CQosProfile {
     }
 }
 
+/// Versioned C-compatible QoS profile for FFI
+///
+/// `struct_size` comes first. The caller sets it to `sizeof(hiroz_qos_profile_v2_t)` of the
+/// header it compiled against, or calls `hiroz_qos_profile_v2_init`, which sets it. A later
+/// release can add fields at the end. hiroz reads only the fields inside `struct_size` and takes
+/// the default for the others, so a program built against an older header keeps working. A
+/// `struct_size` below 4 is invalid: the creator returns null.
+///
+/// The fields after `struct_size` have the meaning that they have in `hiroz_qos_profile_t`.
+#[repr(C)]
+pub struct CQosProfileV2 {
+    /// `sizeof(hiroz_qos_profile_v2_t)` as the caller knows it
+    pub struct_size: u32,
+    /// 0 = Reliable (default), 1 = BestEffort
+    pub reliability: i32,
+    /// 0 = Volatile (default), 1 = TransientLocal
+    pub durability: i32,
+    /// 0 = KeepLast (default), 1 = KeepAll
+    pub history: i32,
+    /// Depth for KeepLast (default: 10, ignored for KeepAll)
+    pub history_depth: i32,
+    pub deadline_sec: u64,
+    pub deadline_nsec: u64,
+    pub lifespan_sec: u64,
+    pub lifespan_nsec: u64,
+    /// 0 = Automatic (default), 1 = ManualByNode, 2 = ManualByTopic
+    pub liveliness: i32,
+    pub liveliness_lease_sec: u64,
+    pub liveliness_lease_nsec: u64,
+}
+
+/// A `struct_size` that cannot hold the size field. The value is the size the caller gave.
+#[derive(Debug)]
+pub struct InvalidStructSize(pub u32);
+
+impl CQosProfileV2 {
+    /// The size of the struct in this build.
+    const SIZE: u32 = std::mem::size_of::<Self>() as u32;
+
+    /// The smallest valid `struct_size`: the size field itself.
+    const MIN_SIZE: u32 = std::mem::size_of::<u32>() as u32;
+
+    /// The default profile. It has the same values as `QosProfile::default()`.
+    fn defaults() -> Self {
+        Self {
+            struct_size: Self::SIZE,
+            reliability: 0,
+            durability: 0,
+            history: 0,
+            history_depth: crate::qos::DEFAULT_HISTORY_DEPTH as i32,
+            deadline_sec: QosDuration::INFINITE.sec,
+            deadline_nsec: QosDuration::INFINITE.nsec,
+            lifespan_sec: QosDuration::INFINITE.sec,
+            lifespan_nsec: QosDuration::INFINITE.nsec,
+            liveliness: 0,
+            liveliness_lease_sec: QosDuration::INFINITE.sec,
+            liveliness_lease_nsec: QosDuration::INFINITE.nsec,
+        }
+    }
+
+    /// Convert a nullable pointer to an optional QosProfile.
+    ///
+    /// Null gives `Ok(None)`: the default QoS. A `struct_size` below the size field gives `Err`.
+    /// A `struct_size` below the full size gives the default for every field that it does not
+    /// cover. A `struct_size` above the full size is accepted and the extra bytes are not read.
+    ///
+    /// # Safety
+    /// The pointer must be null, or point to at least `struct_size` readable bytes.
+    pub unsafe fn to_qos_profile(ptr: *const CQosProfileV2) -> Result<Option<QosProfile>, InvalidStructSize> {
+        if ptr.is_null() {
+            return Ok(None);
+        }
+        let struct_size = unsafe { std::ptr::read_unaligned(ptr as *const u32) };
+        if struct_size < Self::MIN_SIZE {
+            return Err(InvalidStructSize(struct_size));
+        }
+        let mut full = Self::defaults();
+        let covered = struct_size.min(Self::SIZE) as usize;
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                ptr as *const u8,
+                &mut full as *mut Self as *mut u8,
+                covered,
+            );
+        }
+        Ok(Some(full.as_v1().as_qos_profile()))
+    }
+
+    fn as_v1(&self) -> CQosProfile {
+        CQosProfile {
+            reliability: self.reliability,
+            durability: self.durability,
+            history: self.history,
+            history_depth: self.history_depth,
+            deadline_sec: self.deadline_sec,
+            deadline_nsec: self.deadline_nsec,
+            lifespan_sec: self.lifespan_sec,
+            lifespan_nsec: self.lifespan_nsec,
+            liveliness: self.liveliness,
+            liveliness_lease_sec: self.liveliness_lease_sec,
+            liveliness_lease_nsec: self.liveliness_lease_nsec,
+        }
+    }
+}
+
+/// Write the default QoS profile, and the size of the struct, to `out`
+///
+/// Call this before you change single fields. A zeroed struct has deadline, lifespan and lease
+/// of zero, which is not the default of infinite.
+///
+/// Returns 0 on success and a negative `ErrorCode` if `out` is null.
+///
+/// # Safety
+/// `out` must be null or point to writable memory of `sizeof(hiroz_qos_profile_v2_t)` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hiroz_qos_profile_v2_init(out: *mut CQosProfileV2) -> i32 {
+    if out.is_null() {
+        return super::ErrorCode::NullPointer as i32;
+    }
+    unsafe { out.write(CQosProfileV2::defaults()) };
+    super::ErrorCode::Success as i32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

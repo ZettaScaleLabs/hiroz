@@ -1,5 +1,5 @@
 use super::node::{CNode, get_node_ref};
-use super::qos::CQosProfile;
+use super::qos::{CQosProfile, CQosProfileV2};
 use super::{ErrorCode, cstr_to_str};
 use std::ffi::c_char;
 use zenoh_ext::AdvancedSubscriber;
@@ -108,10 +108,50 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_qos(
             type_hash,
             callback,
             user_data,
-            qos,
+            CQosProfile::to_qos_profile(qos),
             None,
             None,
         )
+    }
+}
+
+/// Create a subscriber with callback and a versioned QoS profile
+///
+/// The same as `hiroz_subscriber_create_with_qos`, except that `qos` points to a
+/// `hiroz_qos_profile_v2_t`. Returns null if `qos` has a `struct_size` below 4.
+///
+/// # Safety
+/// `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
+/// must be valid C strings. `callback` must be a valid function pointer.
+/// `qos` may be null for default QoS. Otherwise it must point to `struct_size` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hiroz_subscriber_create_with_qos_v2(
+    node: *mut CNode,
+    topic: *const c_char,
+    type_name: *const c_char,
+    type_hash: *const c_char,
+    callback: MessageCallback,
+    user_data: usize,
+    qos: *const CQosProfileV2,
+) -> *mut CSubscriber {
+    unsafe {
+        match CQosProfileV2::to_qos_profile(qos) {
+            Ok(qos_profile) => create_subscriber(
+                node,
+                topic,
+                type_name,
+                type_hash,
+                callback,
+                user_data,
+                qos_profile,
+                None,
+                None,
+            ),
+            Err(e) => {
+                tracing::warn!("hiroz: Invalid QoS struct for a subscriber: {:?}", e);
+                std::ptr::null_mut()
+            }
+        }
     }
 }
 
@@ -160,7 +200,7 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_group(
             type_hash,
             callback,
             user_data,
-            qos,
+            CQosProfile::to_qos_profile(qos),
             Some(group),
             None,
         )
@@ -221,7 +261,7 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_buffer_fields(
             type_hash,
             callback,
             user_data,
-            qos,
+            CQosProfile::to_qos_profile(qos),
             None,
             has_buffer_fields,
         )
@@ -241,7 +281,7 @@ unsafe fn create_subscriber(
     type_hash: *const c_char,
     callback: MessageCallback,
     user_data: usize,
-    qos: *const CQosProfile,
+    qos_profile: Option<crate::qos::QosProfile>,
     group: Option<crate::BufferGroup>,
     has_buffer_fields: Option<bool>,
 ) -> *mut CSubscriber {
@@ -266,7 +306,6 @@ unsafe fn create_subscriber(
             Err(_) => return std::ptr::null_mut(),
         };
 
-        let qos_profile = CQosProfile::to_qos_profile(qos);
         let on_message = move |data: &[u8]| {
             callback(user_data, data.as_ptr(), data.len());
         };

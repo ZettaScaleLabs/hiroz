@@ -325,6 +325,50 @@ typedef struct hiroz_qos_profile_t {
 } hiroz_qos_profile_t;
 
 /**
+ * Versioned C-compatible QoS profile for FFI
+ *
+ * `struct_size` comes first. The caller sets it to `sizeof(hiroz_qos_profile_v2_t)` of the
+ * header it compiled against, or calls `hiroz_qos_profile_v2_init`, which sets it. A later
+ * release can add fields at the end. hiroz reads only the fields inside `struct_size` and takes
+ * the default for the others, so a program built against an older header keeps working. A
+ * `struct_size` below 4 is invalid: the creator returns null.
+ *
+ * The fields after `struct_size` have the meaning that they have in `hiroz_qos_profile_t`.
+ */
+typedef struct hiroz_qos_profile_v2_t {
+  /**
+   * `sizeof(hiroz_qos_profile_v2_t)` as the caller knows it
+   */
+  uint32_t struct_size;
+  /**
+   * 0 = Reliable (default), 1 = BestEffort
+   */
+  int32_t reliability;
+  /**
+   * 0 = Volatile (default), 1 = TransientLocal
+   */
+  int32_t durability;
+  /**
+   * 0 = KeepLast (default), 1 = KeepAll
+   */
+  int32_t history;
+  /**
+   * Depth for KeepLast (default: 10, ignored for KeepAll)
+   */
+  int32_t history_depth;
+  uint64_t deadline_sec;
+  uint64_t deadline_nsec;
+  uint64_t lifespan_sec;
+  uint64_t lifespan_nsec;
+  /**
+   * 0 = Automatic (default), 1 = ManualByNode, 2 = ManualByTopic
+   */
+  int32_t liveliness;
+  uint64_t liveliness_lease_sec;
+  uint64_t liveliness_lease_nsec;
+} hiroz_qos_profile_v2_t;
+
+/**
  * Opaque service client handle for FFI
  */
 typedef struct hiroz_service_client_t {
@@ -625,6 +669,23 @@ struct hiroz_publisher_t *hiroz_publisher_create_with_qos(struct hiroz_node_t *n
                                                           const struct hiroz_qos_profile_t *qos);
 
 /**
+ * Create a publisher with a versioned QoS profile
+ *
+ * The same as `hiroz_publisher_create_with_qos`, except that `qos` points to a
+ * `hiroz_qos_profile_v2_t`. Returns null if `qos` has a `struct_size` below 4.
+ *
+ * # Safety
+ * `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
+ * must be valid C strings. `qos` may be null for default QoS. Otherwise it must point to
+ * `struct_size` readable bytes.
+ */
+struct hiroz_publisher_t *hiroz_publisher_create_with_qos_v2(struct hiroz_node_t *node,
+                                                             const char *topic,
+                                                             const char *type_name,
+                                                             const char *type_hash,
+                                                             const struct hiroz_qos_profile_v2_t *qos);
+
+/**
  * Publish raw bytes (already CDR serialized)
  *
  * # Safety
@@ -641,6 +702,19 @@ int32_t hiroz_publisher_publish(struct hiroz_publisher_t *pub_handle,
  * `pub_handle` must be a valid publisher pointer or null.
  */
 int32_t hiroz_publisher_destroy(struct hiroz_publisher_t *pub_handle);
+
+/**
+ * Write the default QoS profile, and the size of the struct, to `out`
+ *
+ * Call this before you change single fields. A zeroed struct has deadline, lifespan and lease
+ * of zero, which is not the default of infinite.
+ *
+ * Returns 0 on success and a negative `ErrorCode` if `out` is null.
+ *
+ * # Safety
+ * `out` must be null or point to writable memory of `sizeof(hiroz_qos_profile_v2_t)` bytes.
+ */
+int32_t hiroz_qos_profile_v2_init(struct hiroz_qos_profile_v2_t *out);
 
 /**
  * Serialize a message to CDR format
@@ -759,6 +833,25 @@ struct hiroz_subscriber_t *hiroz_subscriber_create_with_qos(struct hiroz_node_t 
                                                             hiroz_MessageCallback callback,
                                                             uintptr_t user_data,
                                                             const struct hiroz_qos_profile_t *qos);
+
+/**
+ * Create a subscriber with callback and a versioned QoS profile
+ *
+ * The same as `hiroz_subscriber_create_with_qos`, except that `qos` points to a
+ * `hiroz_qos_profile_v2_t`. Returns null if `qos` has a `struct_size` below 4.
+ *
+ * # Safety
+ * `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
+ * must be valid C strings. `callback` must be a valid function pointer.
+ * `qos` may be null for default QoS. Otherwise it must point to `struct_size` readable bytes.
+ */
+struct hiroz_subscriber_t *hiroz_subscriber_create_with_qos_v2(struct hiroz_node_t *node,
+                                                               const char *topic,
+                                                               const char *type_name,
+                                                               const char *type_hash,
+                                                               hiroz_MessageCallback callback,
+                                                               uintptr_t user_data,
+                                                               const struct hiroz_qos_profile_v2_t *qos);
 
 /**
  * Create a subscriber with callback, QoS profile and a buffer group choice

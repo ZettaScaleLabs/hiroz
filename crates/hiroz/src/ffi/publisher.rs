@@ -1,5 +1,5 @@
 use super::node::{CNode, get_node_ref};
-use super::qos::CQosProfile;
+use super::qos::{CQosProfile, CQosProfileV2};
 use super::{ErrorCode, cstr_to_str};
 use crate::attachment::{Attachment, GidArray};
 use std::ffi::c_char;
@@ -79,6 +79,56 @@ pub unsafe extern "C" fn hiroz_publisher_create_with_qos(
     qos: *const CQosProfile,
 ) -> *mut CPublisher {
     unsafe {
+        create_publisher(
+            node,
+            topic,
+            type_name,
+            type_hash,
+            CQosProfile::to_qos_profile(qos),
+        )
+    }
+}
+
+/// Create a publisher with a versioned QoS profile
+///
+/// The same as `hiroz_publisher_create_with_qos`, except that `qos` points to a
+/// `hiroz_qos_profile_v2_t`. Returns null if `qos` has a `struct_size` below 4.
+///
+/// # Safety
+/// `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
+/// must be valid C strings. `qos` may be null for default QoS. Otherwise it must point to
+/// `struct_size` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hiroz_publisher_create_with_qos_v2(
+    node: *mut CNode,
+    topic: *const c_char,
+    type_name: *const c_char,
+    type_hash: *const c_char,
+    qos: *const CQosProfileV2,
+) -> *mut CPublisher {
+    unsafe {
+        match CQosProfileV2::to_qos_profile(qos) {
+            Ok(qos_profile) => create_publisher(node, topic, type_name, type_hash, qos_profile),
+            Err(e) => {
+                tracing::warn!("hiroz: Invalid QoS struct for a publisher: {:?}", e);
+                std::ptr::null_mut()
+            }
+        }
+    }
+}
+
+/// The body shared by the `with_qos` creators.
+///
+/// # Safety
+/// The same as `hiroz_publisher_create_with_qos`.
+unsafe fn create_publisher(
+    node: *mut CNode,
+    topic: *const c_char,
+    type_name: *const c_char,
+    type_hash: *const c_char,
+    qos_profile: Option<crate::qos::QosProfile>,
+) -> *mut CPublisher {
+    unsafe {
         let node_ref = match get_node_ref(node) {
             Some(n) => n,
             None => return std::ptr::null_mut(),
@@ -98,8 +148,6 @@ pub unsafe extern "C" fn hiroz_publisher_create_with_qos(
             Ok(s) => s,
             Err(_) => return std::ptr::null_mut(),
         };
-
-        let qos_profile = CQosProfile::to_qos_profile(qos);
 
         match node_ref.create_raw_publisher_with_qos(
             topic_str,
