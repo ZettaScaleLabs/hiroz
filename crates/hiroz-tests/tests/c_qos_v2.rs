@@ -19,6 +19,11 @@ use std::{
 use common::{TestRouter, buffer_rmw, buffer_rmw::tokens};
 use hiroz::{
     ffi::{
+        action::{
+            CActionClient, CActionServer, hiroz_action_client_create_with_qos_v2,
+            hiroz_action_client_destroy, hiroz_action_server_create_with_qos_v2,
+            hiroz_action_server_destroy,
+        },
         context::{
             CContext, CContextConfig, hiroz_context_create_with_config, hiroz_context_destroy,
         },
@@ -27,7 +32,7 @@ use hiroz::{
             CPublisher, hiroz_publisher_create_with_qos, hiroz_publisher_create_with_qos_v2,
             hiroz_publisher_destroy,
         },
-        qos::{CQosProfile, CQosProfileV2, hiroz_qos_profile_v2_init},
+        qos::{CActionQosV2, CQosProfile, CQosProfileV2, hiroz_qos_profile_v2_init},
         service::{
             CServiceClient, CServiceServer, hiroz_service_client_create_with_qos_v2,
             hiroz_service_client_destroy, hiroz_service_server_create_with_qos_v2,
@@ -241,6 +246,73 @@ impl CFixture {
             )
         }
     }
+
+    /// `hiroz_action_client_create_with_qos_v2` on `/action`. Null on failure.
+    fn action_client_v2(&self, action: &str, qos: *const CActionQosV2) -> *mut CActionClient {
+        let action = CString::new(format!("/{action}")).unwrap();
+        let (type_name, goal, result, feedback, hash) = action_names();
+        unsafe {
+            hiroz_action_client_create_with_qos_v2(
+                self.node,
+                action.as_ptr(),
+                type_name.as_ptr(),
+                goal.as_ptr(),
+                hash.as_ptr(),
+                result.as_ptr(),
+                hash.as_ptr(),
+                feedback.as_ptr(),
+                hash.as_ptr(),
+                qos,
+            )
+        }
+    }
+
+    /// `hiroz_action_server_create_with_qos_v2` on `/action`. Null on failure.
+    fn action_server_v2(&self, action: &str, qos: *const CActionQosV2) -> *mut CActionServer {
+        extern "C" fn reject(_user_data: usize, _goal: *const u8, _goal_len: usize) -> i32 {
+            0
+        }
+        extern "C" fn fail(
+            _user_data: usize,
+            _goal_id: *const u8,
+            _goal: *const u8,
+            _goal_len: usize,
+            _result: *mut *mut u8,
+            _result_len: *mut usize,
+        ) -> i32 {
+            1
+        }
+        let action = CString::new(format!("/{action}")).unwrap();
+        let (type_name, goal, result, feedback, hash) = action_names();
+        unsafe {
+            hiroz_action_server_create_with_qos_v2(
+                self.node,
+                action.as_ptr(),
+                type_name.as_ptr(),
+                goal.as_ptr(),
+                hash.as_ptr(),
+                result.as_ptr(),
+                hash.as_ptr(),
+                feedback.as_ptr(),
+                hash.as_ptr(),
+                reject,
+                fail,
+                0,
+                qos,
+            )
+        }
+    }
+}
+
+/// The type names and the empty hash that the action creators take.
+fn action_names() -> (CString, CString, CString, CString, CString) {
+    (
+        CString::new("example_interfaces/action/Fibonacci").unwrap(),
+        CString::new("example_interfaces/action/Fibonacci_Goal").unwrap(),
+        CString::new("example_interfaces/action/Fibonacci_Result").unwrap(),
+        CString::new("example_interfaces/action/Fibonacci_Feedback").unwrap(),
+        CString::new("").unwrap(),
+    )
 }
 
 impl Drop for CFixture {
@@ -440,6 +512,278 @@ fn c_abi_service_qos_v2_rejects_a_short_struct_size() {
         assert!(
             tokens_of(&raw, topic).is_empty(),
             "a rejected creator left a token for {topic}"
+        );
+    }
+}
+
+/// A v2 profile that differs from the default in one way that the token shows.
+fn v2_with(edit: impl FnOnce(&mut CQosProfileV2)) -> CQosProfileV2 {
+    let mut qos = init_v2();
+    edit(&mut qos);
+    qos
+}
+
+/// The five profiles of an action, each different, and what a token carries for each.
+struct ActionProfiles {
+    goal: CQosProfileV2,
+    result: CQosProfileV2,
+    cancel: CQosProfileV2,
+    feedback: CQosProfileV2,
+    status: CQosProfileV2,
+}
+
+impl ActionProfiles {
+    fn new() -> Self {
+        Self {
+            goal: v2_with(|q| q.reliability = 1),
+            result: v2_with(|q| q.durability = 1),
+            cancel: v2_with(|q| q.history_depth = 7),
+            feedback: v2_with(|q| q.history = 1),
+            status: v2_with(|q| {
+                q.reliability = 1;
+                q.history_depth = 3;
+            }),
+        }
+    }
+
+    /// The struct that points at the five profiles. It must not outlive `self`.
+    fn as_struct(&self) -> CActionQosV2 {
+        CActionQosV2 {
+            struct_size: std::mem::size_of::<CActionQosV2>() as u32,
+            goal_service: &self.goal,
+            result_service: &self.result,
+            cancel_service: &self.cancel,
+            feedback_topic: &self.feedback,
+            status_topic: &self.status,
+        }
+    }
+}
+
+fn expected_goal() -> String {
+    encoded(&QosProfile {
+        reliability: QosReliability::BestEffort,
+        ..Default::default()
+    })
+}
+
+fn expected_result() -> String {
+    encoded(&QosProfile {
+        durability: QosDurability::TransientLocal,
+        ..Default::default()
+    })
+}
+
+fn expected_cancel() -> String {
+    encoded(&QosProfile {
+        history: QosHistory::KeepLast(std::num::NonZeroUsize::new(7).unwrap()),
+        ..Default::default()
+    })
+}
+
+fn expected_feedback() -> String {
+    encoded(&QosProfile {
+        history: QosHistory::KeepAll,
+        ..Default::default()
+    })
+}
+
+fn expected_status() -> String {
+    encoded(&QosProfile {
+        reliability: QosReliability::BestEffort,
+        history: QosHistory::KeepLast(std::num::NonZeroUsize::new(3).unwrap()),
+        ..Default::default()
+    })
+}
+
+/// The five QoS values of an action are all different from each other and from the default. A
+/// value that lands on the wrong entity therefore shows.
+#[test]
+fn c_abi_action_qos_values_are_distinct() {
+    let all = [
+        expected_goal(),
+        expected_result(),
+        expected_cancel(),
+        expected_feedback(),
+        expected_status(),
+        encoded(&QosProfile::default()),
+    ];
+    for (i, a) in all.iter().enumerate() {
+        for b in &all[i + 1..] {
+            assert_ne!(a, b, "the control cannot tell two entities apart");
+        }
+    }
+}
+
+/// An action server announces each of its five QoS profiles on the entity it belongs to.
+#[test]
+fn c_abi_action_server_qos_v2_reaches_each_token() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_act_server");
+
+    let profiles = ActionProfiles::new();
+    let qos = profiles.as_struct();
+    let server = c.action_server_v2("c_qos_v2_act_server_name", &qos);
+    assert!(!server.is_null(), "the creator returned null");
+
+    let name = "c_qos_v2_act_server_name/_action";
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/send_goal")),
+        expected_goal()
+    );
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/get_result")),
+        expected_result()
+    );
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/cancel_goal")),
+        expected_cancel()
+    );
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/feedback")),
+        expected_feedback()
+    );
+    assert_eq!(qos_text(&raw, &format!("{name}/status")), expected_status());
+
+    unsafe { hiroz_action_server_destroy(server) };
+}
+
+/// An action client announces the QoS of its three services and of its feedback subscriber. The
+/// client creates no status subscriber, so `status_topic` has no entity to reach.
+#[test]
+fn c_abi_action_client_qos_v2_reaches_each_token() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_act_client");
+
+    let profiles = ActionProfiles::new();
+    let qos = profiles.as_struct();
+    let client = c.action_client_v2("c_qos_v2_act_client_name", &qos);
+    assert!(!client.is_null(), "the creator returned null");
+
+    let name = "c_qos_v2_act_client_name/_action";
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/send_goal")),
+        expected_goal()
+    );
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/get_result")),
+        expected_result()
+    );
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/cancel_goal")),
+        expected_cancel()
+    );
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/feedback")),
+        expected_feedback()
+    );
+    assert!(
+        tokens_of(&raw, &format!("{name}/status")).is_empty(),
+        "an action client declared a status entity"
+    );
+
+    unsafe { hiroz_action_client_destroy(client) };
+}
+
+/// A null pointer, and a null member, ask for the default profile.
+#[test]
+fn c_abi_action_qos_v2_null_means_default() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_act_null");
+
+    let profiles = ActionProfiles::new();
+    let mut partial = profiles.as_struct();
+    partial.result_service = std::ptr::null();
+    partial.cancel_service = std::ptr::null();
+    partial.feedback_topic = std::ptr::null();
+    partial.status_topic = std::ptr::null();
+    let with_goal_only = c.action_client_v2("c_qos_v2_act_null_partial", &partial);
+    let with_null = c.action_client_v2("c_qos_v2_act_null_all", std::ptr::null());
+    assert!(
+        !with_goal_only.is_null() && !with_null.is_null(),
+        "a creator returned null"
+    );
+
+    let default = encoded(&QosProfile::default());
+    let partial_name = "c_qos_v2_act_null_partial/_action";
+    assert_eq!(
+        qos_text(&raw, &format!("{partial_name}/send_goal")),
+        expected_goal()
+    );
+    assert_eq!(
+        qos_text(&raw, &format!("{partial_name}/get_result")),
+        default
+    );
+    let null_name = "c_qos_v2_act_null_all/_action";
+    for entity in ["send_goal", "get_result", "cancel_goal", "feedback"] {
+        assert_eq!(qos_text(&raw, &format!("{null_name}/{entity}")), default);
+    }
+
+    unsafe {
+        hiroz_action_client_destroy(with_goal_only);
+        hiroz_action_client_destroy(with_null);
+    }
+}
+
+/// A caller built against a shorter action struct sets `struct_size` below the full size. The
+/// profiles beyond that size are not read, so they take the default.
+#[test]
+fn c_abi_action_qos_v2_reads_only_the_members_inside_struct_size() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_act_prefix");
+
+    let profiles = ActionProfiles::new();
+    let mut qos = profiles.as_struct();
+    qos.struct_size = std::mem::offset_of!(CActionQosV2, result_service) as u32;
+    let client = c.action_client_v2("c_qos_v2_act_prefix_name", &qos);
+    assert!(!client.is_null(), "the creator returned null");
+
+    let name = "c_qos_v2_act_prefix_name/_action";
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/send_goal")),
+        expected_goal()
+    );
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/get_result")),
+        encoded(&QosProfile::default())
+    );
+
+    unsafe { hiroz_action_client_destroy(client) };
+}
+
+/// An action creator rejects a `struct_size` below the size field, and so does it for a member
+/// profile that has one. Neither leaves an entity behind.
+#[test]
+fn c_abi_action_qos_v2_rejects_a_short_struct_size() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_act_short");
+
+    let profiles = ActionProfiles::new();
+    let mut outer = profiles.as_struct();
+    outer.struct_size = 0;
+    let outer_client = c.action_client_v2("c_qos_v2_act_short_outer", &outer);
+    assert!(
+        outer_client.is_null(),
+        "the outer struct_size 0 was accepted"
+    );
+
+    let mut bad_member = ActionProfiles::new();
+    bad_member.cancel.struct_size = 0;
+    let member = bad_member.as_struct();
+    let member_server = c.action_server_v2("c_qos_v2_act_short_member", &member);
+    assert!(
+        member_server.is_null(),
+        "a member with struct_size 0 was accepted"
+    );
+
+    for name in ["c_qos_v2_act_short_outer", "c_qos_v2_act_short_member"] {
+        assert!(
+            tokens_of(&raw, &format!("{name}/_action/send_goal")).is_empty(),
+            "a rejected creator left a token for {name}"
         );
     }
 }
