@@ -1,8 +1,10 @@
 //! C-compatible FFI layer for Go/Python/etc. bindings
 
+pub mod abi;
 pub mod action;
 pub mod context;
 pub mod graph;
+pub mod last_error;
 pub mod node;
 pub mod publisher;
 pub mod qos;
