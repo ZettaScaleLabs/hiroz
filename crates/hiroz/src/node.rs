@@ -837,6 +837,21 @@ impl ZNode {
         type_name: &str,
         type_hash: &str,
     ) -> Result<crate::ffi::service::RawServiceClient> {
+        self.create_raw_service_client_with_qos(service, type_name, type_hash, None)
+    }
+
+    /// Create a raw service client for FFI (no type safety) with a QoS profile.
+    ///
+    /// The profile goes into the liveliness token, where a peer reads it. It does not change how a
+    /// call is delivered. `None` announces the default profile.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_service_client_with_qos(
+        &self,
+        service: &str,
+        type_name: &str,
+        type_hash: &str,
+        qos: Option<crate::qos::QosProfile>,
+    ) -> Result<crate::ffi::service::RawServiceClient> {
         use crate::entity::{EndpointEntity, EndpointKind};
         use crate::topic_name;
         use std::sync::atomic::AtomicUsize;
@@ -854,7 +869,7 @@ impl ZNode {
                 name: type_name.to_string(),
                 hash: TypeHash::from_rihs_string(type_hash).unwrap_or(TypeHash::zero()),
             }),
-            qos: Default::default(),
+            qos: qos.map(|q| q.to_protocol_qos()).unwrap_or_default(),
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
@@ -898,6 +913,21 @@ impl ZNode {
         type_name: &str,
         type_hash: &str,
     ) -> Result<crate::ffi::service::RawServiceServer> {
+        self.create_raw_service_server_with_qos(service, type_name, type_hash, None)
+    }
+
+    /// Create a raw service server for FFI (no type safety) with a QoS profile.
+    ///
+    /// The profile goes into the liveliness token, where a peer reads it. It does not change how a
+    /// request is delivered. `None` announces the default profile.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_service_server_with_qos(
+        &self,
+        service: &str,
+        type_name: &str,
+        type_hash: &str,
+        qos: Option<crate::qos::QosProfile>,
+    ) -> Result<crate::ffi::service::RawServiceServer> {
         use crate::common::DataHandler;
         use crate::entity::{EndpointEntity, EndpointKind};
         use crate::topic_name;
@@ -915,7 +945,7 @@ impl ZNode {
                 name: type_name.to_string(),
                 hash: TypeHash::from_rihs_string(type_hash).unwrap_or(TypeHash::zero()),
             }),
-            qos: Default::default(),
+            qos: qos.map(|q| q.to_protocol_qos()).unwrap_or_default(),
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;

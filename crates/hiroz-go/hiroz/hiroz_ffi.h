@@ -752,6 +752,25 @@ struct hiroz_service_client_t *hiroz_service_client_create(struct hiroz_node_t *
                                                            const char *resp_type_hash);
 
 /**
+ * Create a service client with a versioned QoS profile
+ *
+ * The profile goes into the liveliness token of the client, where a peer reads it. It does not
+ * change how a call is delivered. `qos` may be null for the default profile. Returns null if
+ * `qos` has a `struct_size` below 4.
+ *
+ * # Safety
+ * `node` must be a valid node pointer. The strings must be valid C strings. `qos` must be null,
+ * or point to `struct_size` readable bytes.
+ */
+struct hiroz_service_client_t *hiroz_service_client_create_with_qos_v2(struct hiroz_node_t *node,
+                                                                       const char *service_name,
+                                                                       const char *req_type_name,
+                                                                       const char *req_type_hash,
+                                                                       const char *resp_type_name,
+                                                                       const char *resp_type_hash,
+                                                                       const struct hiroz_qos_profile_v2_t *qos);
+
+/**
  * Call a service (synchronous with timeout).
  * Response bytes are allocated via Rust and must be freed with hiroz_free_bytes.
  */
@@ -790,6 +809,28 @@ struct hiroz_service_server_t *hiroz_service_server_create(struct hiroz_node_t *
                                                            const char *resp_type_hash,
                                                            hiroz_ServiceCallback callback,
                                                            uintptr_t user_data);
+
+/**
+ * Create a service server with a versioned QoS profile
+ *
+ * The same as `hiroz_service_server_create`, with a QoS profile. The profile goes into the
+ * liveliness token of the server, where a peer reads it. It does not change how a request is
+ * delivered. `qos` may be null for the default profile. Returns null if `qos` has a
+ * `struct_size` below 4.
+ *
+ * # Safety
+ * `node` must be a valid node pointer. The strings must be valid C strings. `callback` must be a
+ * valid function pointer. `qos` must be null, or point to `struct_size` readable bytes.
+ */
+struct hiroz_service_server_t *hiroz_service_server_create_with_qos_v2(struct hiroz_node_t *node,
+                                                                       const char *service_name,
+                                                                       const char *req_type_name,
+                                                                       const char *req_type_hash,
+                                                                       const char *resp_type_name,
+                                                                       const char *resp_type_hash,
+                                                                       hiroz_ServiceCallback callback,
+                                                                       uintptr_t user_data,
+                                                                       const struct hiroz_qos_profile_v2_t *qos);
 
 /**
  * Destroy a service server
