@@ -154,12 +154,6 @@ func minCDRSizeVisiting(fields []FieldDefinition, visiting map[string]bool) int6
 		case "Time", "Duration":
 			one = 8
 		case "Custom":
-			// The codec writes an array of nested messages with a length prefix
-			// whatever its declared kind, so 4 bytes is the bound that holds.
-			if f.IsArray {
-				total += 4
-				continue
-			}
 			one = nestedMinSize(f.FieldType, visiting)
 		default:
 			one = primitiveSize(f.FieldType.Kind)
@@ -445,7 +439,8 @@ func fieldNeedsBinary(field FieldDefinition) bool {
 		return field.IsArray && field.ArrayKind != "fixed"
 	case "Custom":
 		if field.IsArray {
-			return true // array length prefix uses binary
+			// A sequence has a length prefix that uses binary. A fixed array has none.
+			return field.ArrayKind != "fixed"
 		}
 		// Same-package custom single value: PackToRawAt doesn't use binary in the caller
 		return false
@@ -529,7 +524,14 @@ func generatePackField(g *CodeBuilder, field FieldDefinition) {
 		g.P("// Pack custom type: %s", field.Name)
 		g.P("{")
 		g.In()
-		if field.IsArray {
+		if field.IsArray && field.ArrayKind == "fixed" {
+			// A fixed array has no length prefix.
+			g.P("for i := range %s {", fieldAccess)
+			g.In()
+			g.P("buf, offset = %s[i].PackToRawAt(buf, offset)", fieldAccess)
+			g.Out()
+			g.P("}")
+		} else if field.IsArray {
 			emitPackAlign(g, 4)
 			g.P("b := make([]byte, 4)")
 			g.P("binary.LittleEndian.PutUint32(b, uint32(len(%s)))", fieldAccess)
@@ -719,7 +721,16 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 		g.P("// Unpack custom type: %s", field.Name)
 		g.P("{")
 		g.In()
-		if field.IsArray {
+		if field.IsArray && field.ArrayKind == "fixed" {
+			// A fixed array has no length prefix and no length to bound: the
+			// element count is the array size, and each element checks its own bytes.
+			g.P("for i := range %s {", fieldAccess)
+			g.In()
+			g.P("offset, err = %s[i].UnpackFromRawAt(data, offset)", fieldAccess)
+			g.P("if err != nil { return offset, err }")
+			g.Out()
+			g.P("}")
+		} else if field.IsArray {
 			emitUnpackAlign(g, 4)
 			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
 			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
