@@ -110,6 +110,7 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_qos(
             user_data,
             qos,
             None,
+            None,
         )
     }
 }
@@ -161,11 +162,52 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_group(
             user_data,
             qos,
             Some(group),
+            None,
         )
     }
 }
 
-/// The body shared by the two `with_` creators. `group` is `None` to follow the node default.
+/// `buffer_fields` value: the caller does not know whether the message type has a buffer field.
+pub const BUFFER_FIELDS_UNKNOWN: i32 = 0;
+/// `buffer_fields` value: the message type has no unbounded `uint8[]` or `char[]` field.
+pub const BUFFER_FIELDS_ABSENT: i32 = 1;
+/// `buffer_fields` value: the message type has an unbounded `uint8[]` or `char[]` field.
+pub const BUFFER_FIELDS_PRESENT: i32 = 2;
+
+/// Create a subscriber with callback, QoS profile and a claim about the message type.
+///
+/// # Safety
+/// The same as `hiroz_subscriber_create_with_qos`.
+#[allow(clippy::too_many_arguments)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hiroz_subscriber_create_with_buffer_fields(
+    node: *mut CNode,
+    topic: *const c_char,
+    type_name: *const c_char,
+    type_hash: *const c_char,
+    callback: MessageCallback,
+    user_data: usize,
+    qos: *const CQosProfile,
+    buffer_fields: i32,
+) -> *mut CSubscriber {
+    let _ = buffer_fields;
+    unsafe {
+        create_subscriber(
+            node,
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            user_data,
+            qos,
+            None,
+            None,
+        )
+    }
+}
+
+/// The body shared by the `with_` creators. `group` is `None` to follow the node default.
+/// `has_buffer_fields` is the caller's claim about the message type, or `None` when unknown.
 ///
 /// # Safety
 /// The same as `hiroz_subscriber_create_with_qos`.
@@ -179,6 +221,7 @@ unsafe fn create_subscriber(
     user_data: usize,
     qos: *const CQosProfile,
     group: Option<crate::BufferGroup>,
+    has_buffer_fields: Option<bool>,
 ) -> *mut CSubscriber {
     unsafe {
         let node_ref = match get_node_ref(node) {
@@ -206,23 +249,16 @@ unsafe fn create_subscriber(
             callback(user_data, data.as_ptr(), data.len());
         };
 
-        let created = match group {
-            Some(group) => node_ref.create_raw_subscriber_with_group(
-                topic_str,
-                type_name_str,
-                type_hash_str,
-                on_message,
-                qos_profile,
-                group,
-            ),
-            None => node_ref.create_raw_subscriber_with_qos(
-                topic_str,
-                type_name_str,
-                type_hash_str,
-                on_message,
-                qos_profile,
-            ),
-        };
+        let group = group.unwrap_or(node_ref.subscriber_options.buffer_group);
+        let created = node_ref.create_raw_subscriber_with_buffer_fields(
+            topic_str,
+            type_name_str,
+            type_hash_str,
+            on_message,
+            qos_profile,
+            group,
+            has_buffer_fields,
+        );
         match created {
             Ok(raw_sub) => Box::into_raw(Box::new(CSubscriber {
                 inner: Box::new(raw_sub),

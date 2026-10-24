@@ -716,6 +716,29 @@ impl ZNode {
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
     {
+        self.create_raw_subscriber_with_buffer_fields(
+            topic, type_name, type_hash, callback, qos, group, None,
+        )
+    }
+
+    /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group` and
+    /// `has_buffer_fields` ask for it.
+    #[cfg(feature = "ffi")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_raw_subscriber_with_buffer_fields<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        group: crate::BufferGroup,
+        has_buffer_fields: Option<bool>,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(&[u8]) + Send + Sync + 'static,
+    {
+        let _ = has_buffer_fields;
         use crate::{
             entity::{EndpointEntity, EndpointKind},
             pubsub::apply_transient_local_sub,

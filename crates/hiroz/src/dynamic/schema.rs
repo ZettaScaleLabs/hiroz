@@ -169,7 +169,7 @@ impl MessageSchema {
     /// The typed code generator maps ROS `byte`, `uint8` and `char` to `FieldType::Uint8`, so a
     /// typed unbounded `byte[]` also counts. This over-approximation costs one extra join and loses
     /// no data.
-    pub(crate) fn has_buffer_fields(&self) -> bool {
+    pub fn has_buffer_fields(&self) -> bool {
         fn is_buffer_sequence(field_type: &FieldType) -> bool {
             matches!(field_type, FieldType::Sequence(inner) if matches!(**inner, FieldType::Uint8))
         }
