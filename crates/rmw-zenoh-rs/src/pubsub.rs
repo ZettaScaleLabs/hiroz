@@ -72,6 +72,94 @@ impl PublisherImpl {
     }
 }
 
+/// The real notify-callback logic `rmw_create_subscription` wires into
+/// `build_with_notifier`. Extracted so it's directly unit-testable without
+/// a live zenoh session or the full `rmw_subscription_t` FFI chain.
+///
+/// Copies the callback function pointer out of `callback_holder` and drops
+/// the lock before calling it -- calling out while a lock is held risks a
+/// self-deadlock if the callback re-enters and takes the same lock (e.g. a
+/// GIL-holding executor thread calling back into this crate's own setter).
+pub(crate) fn build_subscription_notify_callback(
+    notifier: std::sync::Arc<crate::utils::Notifier>,
+    callback_holder: std::sync::Arc<
+        std::sync::Mutex<crate::ros::rmw_subscription_new_message_callback_t>,
+    >,
+    user_data_holder: std::sync::Arc<std::sync::Mutex<usize>>,
+    unread_count_holder: std::sync::Arc<std::sync::Mutex<usize>>,
+) -> impl Fn() + Send + Sync + 'static {
+    move || {
+        notifier.notify_all();
+        // The `.lock()` temporary is dropped at the end of this statement --
+        // released before any call-out below, unlike a `match`/`if let`
+        // scrutinee, which would extend it across the whole arm.
+        let Ok(callback_fn) = callback_holder.lock().map(|g| *g) else {
+            return;
+        };
+        match callback_fn {
+            Some(callback_fn) => {
+                // Copied out and the lock released before the call-out --
+                // the setter locks this same mutex, so holding it here
+                // would be a second AB-BA pair alongside `callback_holder`.
+                if let Ok(user_data_usize) = user_data_holder.lock().map(|g| *g) {
+                    let user_data_ptr = user_data_usize as *const std::ffi::c_void;
+                    unsafe { callback_fn(user_data_ptr, 1) }; // 1 new message
+                }
+            }
+            None => {
+                // No callback set, increment unread count
+                if let Ok(mut unread) = unread_count_holder.lock() {
+                    *unread += 1;
+                }
+            }
+        }
+    }
+}
+
+/// The real logic behind `rmw_subscription_set_on_new_message_callback`,
+/// extracted for the same reason as [`build_subscription_notify_callback`]
+/// above. Computes the retroactive-notification count and resets it, then
+/// stores the new callback, then calls out -- all three locks released
+/// before the call, none held during it.
+pub(crate) fn set_subscription_callback_core(
+    callback_holder: &std::sync::Mutex<crate::ros::rmw_subscription_new_message_callback_t>,
+    user_data_holder: &std::sync::Mutex<usize>,
+    unread_count_holder: &std::sync::Mutex<usize>,
+    callback: crate::ros::rmw_subscription_new_message_callback_t,
+    user_data: *mut crate::c_void,
+) {
+    if let Ok(mut ud) = user_data_holder.lock() {
+        *ud = user_data as usize;
+    }
+
+    // Nested inside callback_holder's own lock, matching the pre-fix
+    // structure exactly: if callback_holder is poisoned, nothing here
+    // runs -- no unread reset, no call-out, no store. Computing `pending`
+    // independently of this lock would make a poisoned callback_holder
+    // silently reset progress and still fire the call, which is a real
+    // (if narrow) behavior change from before, not just a refactor.
+    let Ok(mut cb) = callback_holder.lock() else {
+        return;
+    };
+    let pending = if callback.is_some() {
+        unread_count_holder.lock().ok().map(|mut unread| {
+            let n = *unread;
+            *unread = 0;
+            n
+        })
+    } else {
+        None
+    };
+    *cb = callback;
+    drop(cb); // released before any call-out below
+
+    if let (Some(callback_fn), Some(n)) = (callback, pending) {
+        if n > 0 {
+            unsafe { callback_fn(user_data as *const std::ffi::c_void, n) };
+        }
+    }
+}
+
 /// Subscription implementation for RMW
 pub struct SubscriptionImpl {
     pub inner: hiroz::pubsub::ZSub<crate::msg::RosMessage, Sample, crate::msg::RosSerdes>,
@@ -768,4 +856,146 @@ pub extern "C" fn rmw_subscription_get_content_filter(
 ) -> rmw_ret_t {
     // Content filtering is not supported yet
     RMW_RET_UNSUPPORTED as _
+}
+
+#[cfg(test)]
+mod gil_deadlock_tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use crate::c_void;
+
+    // Raw C function pointers carry no captured state, so the handshake
+    // between the notify thread and the setter thread has to live in
+    // statics. This file has exactly one test that touches these.
+    static GIL_ACQUIRED: AtomicBool = AtomicBool::new(false);
+    static ENTERED_CALLBACK: AtomicBool = AtomicBool::new(false);
+    static CALLBACK_RAN: AtomicBool = AtomicBool::new(false);
+
+    /// Stands in for `rclpy`'s registered Python callback: the real path
+    /// this crate cannot see past `rmw_subscription_new_message_callback_t`,
+    /// which is a raw C function pointer that (via `rcl`'s
+    /// `RclEventCallbackTrampoline` and pybind11's auto-generated
+    /// Python-callable wrapper) wants the GIL to run user code.
+    unsafe extern "C" fn gil_wanting_callback(_user_data: *const std::ffi::c_void, _n: usize) {
+        ENTERED_CALLBACK.store(true, Ordering::SeqCst);
+        pyo3::Python::with_gil(|_py| {
+            CALLBACK_RAN.store(true, Ordering::SeqCst);
+        });
+    }
+
+    fn wait_flag(flag: &AtomicBool, timeout: Duration) -> bool {
+        let start = Instant::now();
+        while !flag.load(Ordering::SeqCst) {
+            if start.elapsed() > timeout {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        true
+    }
+
+    /// Regression test for the callback-mutex/GIL AB-BA deadlock: a notify
+    /// thread calling out to a GIL-wanting callback, contended against a
+    /// setter thread that already holds the GIL and wants the same
+    /// `callback_holder` mutex. Before this fix, this pair deadlocked --
+    /// this test asserts it no longer does, unconditionally (no feature
+    /// flag needed: the fix removes the hazard outright).
+    #[test]
+    fn subscription_notify_and_setter_do_not_deadlock_under_gil_contention() {
+        pyo3::prepare_freethreaded_python();
+        GIL_ACQUIRED.store(false, Ordering::SeqCst);
+        ENTERED_CALLBACK.store(false, Ordering::SeqCst);
+        CALLBACK_RAN.store(false, Ordering::SeqCst);
+
+        let notifier = Arc::new(crate::utils::Notifier::default());
+        let callback_holder: Arc<Mutex<crate::ros::rmw_subscription_new_message_callback_t>> =
+            Arc::new(Mutex::new(Some(
+                gil_wanting_callback as unsafe extern "C" fn(*const std::ffi::c_void, usize),
+            )));
+        let user_data_holder = Arc::new(Mutex::new(0usize));
+        let unread_count_holder = Arc::new(Mutex::new(0usize));
+
+        let notify = super::build_subscription_notify_callback(
+            notifier,
+            callback_holder.clone(),
+            user_data_holder.clone(),
+            unread_count_holder.clone(),
+        );
+
+        // Thread S: acquire the GIL first (uncontended, instant), then wait
+        // for confirmation that the notify thread is inside the callback
+        // before trying to also lock `callback_holder` -- exactly the real
+        // setter's shape, since `rmw_subscription_set_on_new_message_
+        // callback` runs on a GIL-holding thread in real `rclpy` usage.
+        let cb2 = callback_holder.clone();
+        let ud2 = user_data_holder.clone();
+        let un2 = unread_count_holder.clone();
+        let setter_thread = std::thread::spawn(move || {
+            pyo3::Python::with_gil(|_py| {
+                GIL_ACQUIRED.store(true, Ordering::SeqCst);
+                wait_flag(&ENTERED_CALLBACK, Duration::from_secs(3));
+                super::set_subscription_callback_core(
+                    &cb2,
+                    &ud2,
+                    &un2,
+                    Some(gil_wanting_callback),
+                    std::ptr::null_mut::<c_void>(),
+                );
+            });
+        });
+
+        // Thread N: wait until S genuinely holds the GIL, then lock
+        // `callback_holder` and call the registered callback -- which
+        // wants the GIL, held by S.
+        let notify_thread = std::thread::spawn(move || {
+            wait_flag(&GIL_ACQUIRED, Duration::from_secs(3));
+            notify();
+        });
+
+        // Before the fix this pair deadlocked and these joins never
+        // returned. With the fix, both locks are released before either
+        // call-out, so both threads complete quickly regardless of
+        // scheduling order.
+        notify_thread.join().unwrap();
+        setter_thread.join().unwrap();
+
+        assert!(
+            CALLBACK_RAN.load(Ordering::SeqCst),
+            "the callback never actually ran -- the repro did not exercise the real call-out"
+        );
+    }
+
+    /// Control: registering a callback with no unread messages pending does
+    /// not call out at all (see `set_subscription_callback_core`'s
+    /// `pending` computation), and must complete immediately either way.
+    #[test]
+    fn subscription_setter_with_no_pending_messages_does_not_panic() {
+        // Own reset of the shared statics: this test doesn't run the GIL
+        // contention scenario, just checks the n == 0 boundary, but reuses
+        // `gil_wanting_callback` (the only extern "C" fn available) as the
+        // registered callback, so it must confirm that fn body never runs.
+        ENTERED_CALLBACK.store(false, Ordering::SeqCst);
+        CALLBACK_RAN.store(false, Ordering::SeqCst);
+
+        let callback_holder: Arc<Mutex<crate::ros::rmw_subscription_new_message_callback_t>> =
+            Arc::new(Mutex::new(None));
+        let user_data_holder = Arc::new(Mutex::new(0usize));
+        let unread_count_holder = Arc::new(Mutex::new(0usize));
+
+        super::set_subscription_callback_core(
+            &callback_holder,
+            &user_data_holder,
+            &unread_count_holder,
+            Some(gil_wanting_callback),
+            std::ptr::null_mut::<c_void>(),
+        );
+
+        assert!(callback_holder.lock().unwrap().is_some());
+        assert!(
+            !ENTERED_CALLBACK.load(Ordering::SeqCst),
+            "the callback fired despite zero pending messages"
+        );
+    }
 }
