@@ -53,6 +53,8 @@ pub struct ZNode {
     pub(crate) clock: crate::time::ZClock,
     pub(crate) shm_config: Option<Arc<crate::shm::ShmConfig>>,
     pub(crate) keyexpr_format: hiroz_protocol::KeyExprFormat,
+    /// Defaults for the subscribers of this node.
+    pub(crate) subscriber_options: crate::SubscriberOptions,
     /// Optional type description service for this node.
     /// Enabled via `ZNodeBuilder::with_type_description_service()`.
     /// The service uses callback mode and requires no background task.
@@ -88,9 +90,22 @@ pub struct ZNodeBuilder {
     pub(crate) enable_parameters: bool,
     /// Initial parameter overrides applied at declaration time.
     pub(crate) parameter_overrides: std::collections::HashMap<String, ParameterValue>,
+    /// Defaults for the subscribers of this node.
+    pub(crate) subscriber_options: crate::SubscriberOptions,
 }
 
 impl ZNodeBuilder {
+    /// Set the defaults for every subscriber that this node creates, cache and raw subscribers
+    /// included. A setting on a subscriber builder replaces the default for that subscriber. A
+    /// subscriber that the node creates for itself, such as the status subscriber of an action
+    /// client, keeps the choice that the node makes for it.
+    ///
+    /// See [`SubscriberOptions`](crate::SubscriberOptions) for the options.
+    pub fn with_subscriber_options(mut self, options: crate::SubscriberOptions) -> Self {
+        self.subscriber_options = options;
+        self
+    }
+
     pub fn with_namespace<S: AsRef<str>>(mut self, namespace: S) -> Self {
         self.namespace = normalize_node_namespace(namespace.as_ref());
         self
@@ -291,6 +306,7 @@ impl Builder for ZNodeBuilder {
             clock: self.clock,
             shm_config: self.shm_config,
             keyexpr_format: self.keyexpr_format.clone(),
+            subscriber_options: self.subscriber_options,
             type_desc_service,
             parameter_service,
         })
@@ -421,7 +437,7 @@ impl ZNode {
             dyn_schema: None,
             locality: None,
             expected_encoding: None,
-            buffer_group: Default::default(),
+            options: self.subscriber_options,
             has_buffer_fields: None,
             _phantom_data: Default::default(),
         }
@@ -637,7 +653,8 @@ impl ZNode {
 
     /// Create a raw subscriber for FFI (no type safety)
     /// Returns a RawSubscriber that must be kept alive as long as the subscription is active.
-    /// It joins the CPU buffer group, as [`ZNode::create_raw_subscriber_with_qos`] does.
+    /// It follows the node default for the CPU buffer group, as
+    /// [`ZNode::create_raw_subscriber_with_qos`] does.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber<F>(
         &self,
@@ -654,8 +671,9 @@ impl ZNode {
 
     /// Create a raw subscriber for FFI with optional QoS
     ///
-    /// It joins the CPU buffer group as `BufferGroup::Auto` does. Use
-    /// [`ZNode::create_raw_subscriber_with_group`] with `Off` to stay out.
+    /// It uses the buffer group of the node default, `BufferGroup::Auto` unless
+    /// [`ZNodeBuilder::with_subscriber_options`] says otherwise. Use
+    /// [`ZNode::create_raw_subscriber_with_group`] to choose for one subscriber.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_qos<F>(
         &self,
@@ -674,7 +692,7 @@ impl ZNode {
             type_hash,
             callback,
             qos,
-            crate::BufferGroup::Auto,
+            self.subscriber_options.buffer_group,
         )
     }
 
@@ -736,22 +754,20 @@ impl ZNode {
 
         // A joined subscriber declares two exact subscriptions, the base key and the group key,
         // both before the token. One callback serves both.
-        let shared = std::sync::Arc::new(callback);
-        let mut group_sub = None;
-        if let Some(group_key) = &group_key {
-            let h = shared.clone();
-            group_sub = Some(
-                self.session
-                    .declare_subscriber(zenoh::key_expr::KeyExpr::try_from(group_key.clone())?)
-                    .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()))
-                    .wait()?,
-            );
-        }
+        let shared = std::sync::Arc::new(move |sample: zenoh::sample::Sample| {
+            callback(&sample.payload().to_bytes())
+        });
+        let group_sub = crate::pubsub::declare_group_subscription(
+            &self.session,
+            group_key.as_deref(),
+            None,
+            &shared,
+        )?;
         let h = shared.clone();
         let builder = self
             .session
             .declare_subscriber(key_expr.clone())
-            .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()))
+            .callback(move |sample: zenoh::sample::Sample| h(sample))
             .advanced();
         let subscriber = apply_transient_local_sub(builder, &entity.qos).wait()?;
         let token = if group_key.is_some() {

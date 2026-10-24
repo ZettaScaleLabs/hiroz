@@ -639,6 +639,31 @@ pub(crate) struct RawSubscriptions {
     _group: Option<zenoh::pubsub::Subscriber<()>>,
 }
 
+/// Declare the group-key subscription of a joined subscriber, or nothing when `group_key` is
+/// `None`. Every subscriber build path calls this before it declares the base subscription and the
+/// token, so the order that a publisher relies on is written once. `shared` serves both keys.
+pub(crate) fn declare_group_subscription<F>(
+    session: &Session,
+    group_key: Option<&str>,
+    locality: Option<zenoh::sample::Locality>,
+    shared: &Arc<F>,
+) -> Result<Option<zenoh::pubsub::Subscriber<()>>>
+where
+    F: Fn(Sample) + Send + Sync + 'static,
+{
+    let Some(group_key) = group_key else {
+        return Ok(None);
+    };
+    let h = shared.clone();
+    let mut builder = session
+        .declare_subscriber(KeyExpr::try_from(group_key.to_owned())?)
+        .callback(move |s: Sample| h(s));
+    if let Some(locality) = locality {
+        builder = builder.allowed_origin(locality);
+    }
+    Ok(Some(builder.wait()?))
+}
+
 pub struct ZSubBuilder<T, S = SerdeCdrSerdes<T>> {
     pub(crate) entity: EndpointEntity,
     pub(crate) session: Arc<Session>,
@@ -649,7 +674,8 @@ pub struct ZSubBuilder<T, S = SerdeCdrSerdes<T>> {
     /// Expected encoding for received messages.
     /// If set, the subscriber will validate that received samples match this encoding.
     pub(crate) expected_encoding: Option<crate::encoding::Encoding>,
-    pub(crate) buffer_group: crate::BufferGroup,
+    /// Starts as a copy of the node default and `with_` methods replace single options.
+    pub(crate) options: crate::SubscriberOptions,
     /// Whether the message definition has a field that makes a subscriber join the buffer group,
     /// `None` without a definition. See [`BufferGroup::Auto`](crate::BufferGroup::Auto) for the
     /// fields.
@@ -675,17 +701,19 @@ where
             dyn_schema: self.dyn_schema,
             locality: self.locality,
             expected_encoding: self.expected_encoding,
-            buffer_group: self.buffer_group,
+            options: self.options,
             has_buffer_fields: self.has_buffer_fields,
             _phantom_data: PhantomData,
         }
     }
 
-    /// Choose whether this subscriber joins rmw_zenoh's CPU buffer group. The default is
-    /// [`BufferGroup::Auto`](crate::BufferGroup::Auto). See [`BufferGroup`](crate::BufferGroup) for
-    /// the join rule, the cases that never join, and the router access-control rule.
+    /// Choose whether this subscriber joins rmw_zenoh's CPU buffer group. The default is the
+    /// node default, which is [`BufferGroup::Auto`](crate::BufferGroup::Auto) unless
+    /// [`ZNodeBuilder::with_subscriber_options`](crate::node::ZNodeBuilder::with_subscriber_options)
+    /// says otherwise. See [`BufferGroup`](crate::BufferGroup) for the join rule, the cases that
+    /// never join, and the router access-control rule.
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
-        self.buffer_group = group;
+        self.options.buffer_group = group;
         self
     }
 
@@ -797,16 +825,8 @@ where
         // Both subscriptions come before the token, so a publisher that reads the token finds a
         // subscription. The callback is `Fn`, so the two subscriptions share one `Arc` of it.
         let shared = Arc::new(callback);
-        let mut group_sub = None;
-        if let Some(group_key) = &group_key {
-            let h = shared.clone();
-            group_sub = Some(
-                self.session
-                    .declare_subscriber(KeyExpr::try_from(group_key.clone())?)
-                    .callback(move |s: Sample| h(s))
-                    .wait()?,
-            );
-        }
+        let group_sub =
+            declare_group_subscription(&self.session, group_key.as_deref(), None, &shared)?;
         let h = shared.clone();
         let sub = self
             .session
@@ -832,7 +852,7 @@ where
 
     fn joined_group_key(&self, base: &str) -> Option<String> {
         crate::buffer_group::joined_group_key(
-            self.buffer_group,
+            self.options.buffer_group,
             self.has_buffer_fields,
             &self.keyexpr_format,
             &self.entity,
@@ -903,18 +923,12 @@ where
         let group_key = self.joined_group_key(key_expr.as_str());
         // Both subscriptions come before the token and share one `Arc` of the handler.
         let shared = Arc::new(validated_handler);
-        let mut group_sub = None;
-        if let Some(group_key) = &group_key {
-            let h = shared.clone();
-            let mut gb = self
-                .session
-                .declare_subscriber(KeyExpr::try_from(group_key.clone())?)
-                .callback(move |s: Sample| h(s));
-            if let Some(locality) = self.locality {
-                gb = gb.allowed_origin(locality);
-            }
-            group_sub = Some(gb.wait()?);
-        }
+        let group_sub = declare_group_subscription(
+            &self.session,
+            group_key.as_deref(),
+            self.locality,
+            &shared,
+        )?;
         let h = shared.clone();
         let mut sub_builder = self
             .session

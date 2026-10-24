@@ -15,8 +15,9 @@ use crate::entity::EndpointEntity;
 
 /// Whether a subscriber joins rmw_zenoh's CPU buffer group.
 ///
-/// Set it with `with_buffer_group` on the subscriber or cache builder. The default is
-/// [`BufferGroup::Auto`].
+/// Set it with `with_buffer_group` on the subscriber or cache builder, or for every subscriber of a
+/// node with [`SubscriberOptions`](crate::SubscriberOptions). A choice on the builder replaces the
+/// node default. Without either, the value is [`BufferGroup::Auto`].
 ///
 /// A joined subscriber subscribes to `<topic key>` and `<topic key>/_buf_cpu`, and its liveliness
 /// token announces the group. A router rule that allows `<topic key>` and not
