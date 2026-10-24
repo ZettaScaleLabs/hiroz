@@ -184,7 +184,7 @@ impl ::hiroz_cdr::CdrDeserialize for Strings {
         let bounded_string_value = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
         let unbounded_string_array: Vec<::std::string::String> = {
             let __count = __r.read_sequence_length()?;
-            let mut __v = Vec::with_capacity(__count);
+            let mut __v = Vec::with_capacity(__count.min(__r.remaining()));
             for _ in 0..__count {
                 __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
             }
@@ -199,7 +199,7 @@ impl ::hiroz_cdr::CdrDeserialize for Strings {
         };
         let bounded_string_sequence: Vec<::std::string::String> = {
             let __count = __r.read_sequence_length()?;
-            let mut __v = Vec::with_capacity(__count);
+            let mut __v = Vec::with_capacity(__count.min(__r.remaining()));
             for _ in 0..__count {
                 __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
             }
@@ -207,7 +207,7 @@ impl ::hiroz_cdr::CdrDeserialize for Strings {
         };
         let unbounded_bounded_string_array: Vec<::std::string::String> = {
             let __count = __r.read_sequence_length()?;
-            let mut __v = Vec::with_capacity(__count);
+            let mut __v = Vec::with_capacity(__count.min(__r.remaining()));
             for _ in 0..__count {
                 __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
             }
@@ -222,7 +222,7 @@ impl ::hiroz_cdr::CdrDeserialize for Strings {
         };
         let bounded_string_bounded_sequence: Vec<::std::string::String> = {
             let __count = __r.read_sequence_length()?;
-            let mut __v = Vec::with_capacity(__count);
+            let mut __v = Vec::with_capacity(__count.min(__r.remaining()));
             for _ in 0..__count {
                 __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
             }

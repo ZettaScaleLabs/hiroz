@@ -904,7 +904,7 @@ mod fast_cdr_tests {
         ) -> hiroz_cdr::Result<Self> {
             let header = Header::cdr_deserialize(r)?;
             let n = r.read_sequence_length()?;
-            let mut points = Vec::with_capacity(n);
+            let mut points = Vec::with_capacity(n.min(r.remaining()));
             for _ in 0..n {
                 points.push(Point3d::cdr_deserialize(r)?);
             }

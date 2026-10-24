@@ -20,5 +20,9 @@ thiserror.workspace = true
 serde = { workspace = true, features = ["derive"] }
 proptest = "1"
 
+# setrlimit(RLIMIT_AS) in the hostile-length child process. The test file and this dependency are Linux-only.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+nix = { version = "0.29", features = ["resource"] }
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
