@@ -792,7 +792,9 @@ where
 
     /// Build a raw Zenoh subscriber with a sample-level callback. It returns the
     /// [`RawSubscriptions`], whose group subscription is absent when the subscriber does not join,
-    /// and the liveliness token.
+    /// the liveliness token and the event manager. The callback runs after the loss tracker has
+    /// observed the sample, so a gap in the sequence numbers raises
+    /// [`MessageLost`](crate::event::ZenohEventType::MessageLost) on that manager.
     ///
     /// This is the canonical subscriber setup path used by [`ZCache`] so that
     /// topic qualification, key-expression construction, and liveliness-token
@@ -802,7 +804,11 @@ where
     pub(crate) fn build_raw_subscriber<F>(
         mut self,
         callback: F,
-    ) -> Result<(RawSubscriptions, zenoh::liveliness::LivelinessToken)>
+    ) -> Result<(
+        RawSubscriptions,
+        zenoh::liveliness::LivelinessToken,
+        Arc<Mutex<EventsManager>>,
+    )>
     where
         F: Fn(Sample) + Send + Sync + 'static,
     {
@@ -825,7 +831,14 @@ where
         let group_key = self.joined_group_key(key_expr.as_str());
         // Both subscriptions come before the token, so a publisher that reads the token finds a
         // subscription. The callback is `Fn`, so the two subscriptions share one `Arc` of it.
-        let shared = Arc::new(callback);
+        let gid = crate::entity::endpoint_gid(&self.entity)
+            .expect("local endpoint always has node identity");
+        let events_mgr = Arc::new(Mutex::new(EventsManager::new(gid)));
+        let loss = MessageLossTracker::new(events_mgr.clone());
+        let shared = Arc::new(move |sample: Sample| {
+            observe_loss(&loss, &sample);
+            callback(sample)
+        });
         let group_sub = declare_group_subscription(
             &self.session,
             group_key.as_deref(),
@@ -856,6 +869,7 @@ where
                 _group: group_sub,
             },
             token,
+            events_mgr,
         ))
     }
 

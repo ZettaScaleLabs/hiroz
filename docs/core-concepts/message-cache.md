@@ -136,6 +136,10 @@ A cache declares the same kind of subscription as `create_sub`, so the builder t
 | `with_qos(qos)` | A `TransientLocal` durability makes the cache request the history of publishers that started earlier. The cache stores the replayed messages like live ones. The default durability is `Volatile`. |
 | `with_locality(locality)` | Restricts the cache to publishers of one locality: `Locality::SessionLocal` (the same session), `Locality::Remote` or `Locality::Any`. The default is `Any`. |
 
+### Message loss
+
+A cache tracks the sequence numbers that hiroz publishers send in the sample attachment. A gap raises a `MessageLost` event with the number of skipped messages. Read it with `cache.events_mgr()`, the same handle that `ZSub::events_mgr()` returns. A publisher that sends no attachment, such as a plain Zenoh peer, is never reported as lossy. The first sample of a publisher is a baseline, so a cache that joins late reports no loss for history it never received. The cache raises no other event type itself.
+
 ## Comparison with `message_filters::Cache<T>`
 
 `ZCache<T>` covers the core `message_filters::Cache<T>` API with some differences:

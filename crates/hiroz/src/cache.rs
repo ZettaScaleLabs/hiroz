@@ -45,7 +45,7 @@
 
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use parking_lot::RwLock;
@@ -54,6 +54,7 @@ use zenoh::Result;
 use zenoh::liveliness::LivelinessToken;
 
 use crate::Builder;
+use crate::event::EventsManager;
 use crate::msg::{SerdeCdrSerdes, ZDeserializer, ZMessage};
 use crate::pubsub::ZSubBuilder;
 
@@ -125,9 +126,20 @@ pub struct ZCache<T: ZMessage> {
     inner: Arc<RwLock<CacheInner<T>>>,
     _sub: crate::pubsub::RawSubscriptions,
     _lv_token: LivelinessToken,
+    events_mgr: Arc<Mutex<EventsManager>>,
 }
 
 impl<T: ZMessage> ZCache<T> {
+    /// The event manager this cache raises endpoint events on.
+    ///
+    /// A cache raises [`MessageLost`](crate::event::ZenohEventType::MessageLost) when the
+    /// sequence numbers of a publisher skip. The loss tracker needs the attachment of each
+    /// sample, so a publisher that sends none is never reported as lossy. The cache raises
+    /// no other event type itself.
+    pub fn events_mgr(&self) -> &Arc<Mutex<EventsManager>> {
+        &self.events_mgr
+    }
+
     /// All messages with timestamp in `[t_start, t_end]`, inclusive, ordered
     /// by timestamp ascending.
     ///
@@ -351,7 +363,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, lv_token) =
+        let (sub, lv_token, events_mgr) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -383,6 +395,7 @@ where
             inner,
             _sub: sub,
             _lv_token: lv_token,
+            events_mgr,
         })
     }
 }
@@ -408,7 +421,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, lv_token) =
+        let (sub, lv_token, events_mgr) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -425,6 +438,7 @@ where
             inner,
             _sub: sub,
             _lv_token: lv_token,
+            events_mgr,
         })
     }
 }
