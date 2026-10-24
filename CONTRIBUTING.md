@@ -56,6 +56,10 @@ This runs:
 - Fix all `cargo clippy` warnings
 - Follow [conventional commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`
 
+## API Parity
+
+`api-parity.toml` lists each builder option for each entity and each binding (Rust, Python, C and Go), with the state `present`, `absent` or `planned`. A pull request that adds a public `with_*` method to a builder in `crates/hiroz/src` adds the matching row in the same change. The test `api_parity` in `crates/hiroz-tests` fails until the row exists. The file has no rows for events, and it does not compare behaviour between bindings.
+
 ## Pull Request Workflow
 
 ### For External Contributors
