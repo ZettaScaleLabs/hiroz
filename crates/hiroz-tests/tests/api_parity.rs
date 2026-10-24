@@ -4,7 +4,11 @@
 //! A cell is `present` (it names a symbol), `absent` (it gives a reason) or `planned` (it gives a reason and a release).
 //! These tests check the shape of the file. Other tests in this file compare it with the code.
 
-use std::{collections::BTreeSet, fs, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::{Path, PathBuf},
+};
 
 use toml::Value;
 
@@ -341,4 +345,458 @@ fn entity_check_reports_every_missing_entity() {
         "only `publisher` has a row"
     );
     assert!(!missing.contains(&"publisher"));
+}
+
+// ---------------------------------------------------------------------------
+// Comparison with the code
+//
+// The Rust check reads the source of `crates/hiroz/src`. It does not use rustdoc JSON, so it needs no nightly toolchain and no build of `hiroz`.
+// ---------------------------------------------------------------------------
+
+/// Builder types whose public methods need a row, with the entity that each one builds.
+const BUILDER_ENTITIES: [(&str, &str); 10] = [
+    ("ZPubBuilder", "publisher"),
+    ("ZSubBuilder", "subscriber"),
+    ("ZCacheBuilder", "cache"),
+    ("ZClientBuilder", "service_client"),
+    ("ZServerBuilder", "service_server"),
+    ("ZActionClientBuilder", "action_client"),
+    ("ZActionServerBuilder", "action_server"),
+    ("ZNodeBuilder", "node"),
+    ("ZLifecycleNodeBuilder", "node"),
+    ("ZContextBuilder", "context"),
+];
+
+/// Builder types that configure a zenoh session. They build no entity, so they have no rows.
+const NON_ENTITY_BUILDERS: [&str; 2] = ["RouterConfigBuilder", "SessionConfigBuilder"];
+
+/// The part of the Rust source that the scan reads.
+const RUST_SOURCE: &str = "crates/hiroz/src";
+
+/// The source of each binding, with the file extension to read. Rust symbols are checked by the scan.
+const BINDING_SOURCES: [(&str, &str, &str); 3] = [
+    ("python", "crates/hiroz-py/src", "rs"),
+    ("c", "crates/hiroz/src/ffi", "rs"),
+    ("go", "crates/hiroz-go/hiroz", "go"),
+];
+
+/// Returns the leading identifier of `text`.
+fn ident_prefix(text: &str) -> &str {
+    let end = text
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(text.len());
+    &text[..end]
+}
+
+/// Returns the self type of an `impl` header line. For `impl<T, S> ZPubBuilder<T, S> {` it returns `ZPubBuilder`.
+fn impl_self_type(header: &str) -> Option<String> {
+    let mut rest = header.strip_prefix("impl")?;
+    if !(rest.starts_with('<') || rest.starts_with(' ')) {
+        return None;
+    }
+    if rest.starts_with('<') {
+        let mut depth = 0usize;
+        let mut previous = ' ';
+        let mut end = None;
+        for (index, c) in rest.char_indices() {
+            match c {
+                '<' => depth += 1,
+                // The `>` of `->` does not close a generic list.
+                '>' if previous != '-' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(index + 1);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            previous = c;
+        }
+        rest = &rest[end?..];
+    }
+    let rest = rest.trim_start();
+    let target = match rest.find(" for ") {
+        Some(index) => &rest[index + 5..],
+        None => rest,
+    };
+    let name = ident_prefix(target.trim_start());
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+/// Adds `Type::method` to `found` for each `pub fn` in an `impl` block of a type whose name ends in `Builder`.
+/// Adds `Type::with_type_info` for each `impl_with_type_info!` call on such a type.
+/// It reads `impl` headers at the start of a line, which is where rustfmt puts them.
+fn scan_source(text: &str, found: &mut BTreeSet<String>) {
+    let mut owner: Option<String> = None;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("impl_with_type_info!(") {
+            let name = ident_prefix(rest);
+            if name.ends_with("Builder") {
+                found.insert(format!("{name}::with_type_info"));
+            }
+            continue;
+        }
+        if line.starts_with("impl") {
+            owner = impl_self_type(line).filter(|name| name.ends_with("Builder"));
+            continue;
+        }
+        if line.trim_end() == "}" {
+            owner = None;
+            continue;
+        }
+        if let Some(owner) = &owner {
+            if let Some(rest) = line.trim_start().strip_prefix("pub fn ") {
+                let name = ident_prefix(rest);
+                if !name.is_empty() {
+                    found.insert(format!("{owner}::{name}"));
+                }
+            }
+        }
+    }
+}
+
+fn collect_files(dir: &Path, extension: &str, out: &mut Vec<PathBuf>) {
+    let entries =
+        fs::read_dir(dir).unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
+    for entry in entries {
+        let path = entry.expect("directory entry").path();
+        if path.is_dir() {
+            collect_files(&path, extension, out);
+        } else if path.extension().and_then(|e| e.to_str()) == Some(extension) {
+            out.push(path);
+        }
+    }
+}
+
+/// Reads every file with `extension` under `dir`. Returns the file count and the text of all files.
+fn read_tree(dir: &Path, extension: &str) -> (usize, String) {
+    let mut files = Vec::new();
+    collect_files(dir, extension, &mut files);
+    files.sort();
+    let mut text = String::new();
+    for file in &files {
+        let content = fs::read_to_string(file)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", file.display()));
+        text.push_str(&content);
+        text.push('\n');
+    }
+    (files.len(), text)
+}
+
+/// Scans the Rust source of `hiroz` for the public methods of builder types.
+fn scan_builders() -> BTreeSet<String> {
+    let dir = workspace_root().join(RUST_SOURCE);
+    let mut files = Vec::new();
+    collect_files(&dir, "rs", &mut files);
+    files.sort();
+    let mut found = BTreeSet::new();
+    for file in &files {
+        let content = fs::read_to_string(file)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", file.display()));
+        scan_source(&content, &mut found);
+    }
+    found
+}
+
+/// Returns each way in which the scanned builder methods and the Rust cells of the rows disagree.
+///
+/// - A public `with_*` method of an entity builder needs a row that names it, under the right entity.
+/// - A row that names a Rust symbol needs a public method of a builder type with that name.
+/// - A scan that finds no `with_*` method is a defect, because it would pass for any file.
+fn check_builders(scan: &BTreeSet<String>, rows: &[Value]) -> Vec<String> {
+    let mut errors = Vec::new();
+    if !scan.iter().any(|symbol| symbol.contains("::with_")) {
+        errors.push("the scan found no `with_*` builder method".to_string());
+    }
+    let mut cited: BTreeMap<&str, &str> = BTreeMap::new();
+    for row in rows {
+        let entity = row.get("entity").and_then(Value::as_str);
+        if let (Some(symbol), Some(entity)) = (rust_symbol(row), entity) {
+            cited.insert(symbol, entity);
+        }
+    }
+    for symbol in scan {
+        let Some((owner, method)) = symbol.split_once("::") else {
+            continue;
+        };
+        if !method.starts_with("with_") || NON_ENTITY_BUILDERS.contains(&owner) {
+            continue;
+        }
+        let Some((_, entity)) = BUILDER_ENTITIES
+            .iter()
+            .find(|(builder, _)| *builder == owner)
+        else {
+            errors.push(format!(
+                "`{symbol}`: `{owner}` is not in BUILDER_ENTITIES. Add it there, or add it to NON_ENTITY_BUILDERS, and add rows."
+            ));
+            continue;
+        };
+        match cited.get(symbol.as_str()) {
+            None => errors.push(format!("`{symbol}` has no row in api-parity.toml")),
+            Some(row_entity) if row_entity != entity => errors.push(format!(
+                "`{symbol}` is under entity `{row_entity}`, but `{owner}` builds `{entity}`"
+            )),
+            Some(_) => {}
+        }
+    }
+    for symbol in cited.keys() {
+        if !scan.contains(*symbol) {
+            errors.push(format!(
+                "a row names Rust symbol `{symbol}`, which is not a public method of a builder type"
+            ));
+        }
+    }
+    errors
+}
+
+/// Returns each `present` cell of a non-Rust binding that names a symbol missing from the source of that binding.
+/// A symbol is a list of identifiers, such as `ZNode.create_publisher(qos)`. Each identifier must occur in the source.
+fn check_binding_symbols(rows: &[Value], sources: &BTreeMap<&str, String>) -> Vec<String> {
+    let mut errors = Vec::new();
+    for row in rows {
+        let id = row.get("id").and_then(Value::as_str).unwrap_or("?");
+        for (binding, _, _) in BINDING_SOURCES {
+            let Some(cell) = row.get(binding) else {
+                continue;
+            };
+            if cell.get("status").and_then(Value::as_str) != Some("present") {
+                continue;
+            }
+            let Some(symbol) = cell.get("symbol").and_then(Value::as_str) else {
+                continue;
+            };
+            let text = sources.get(binding).map(String::as_str).unwrap_or("");
+            let identifiers = symbol
+                .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .filter(|part| !part.is_empty());
+            for identifier in identifiers {
+                if !text.contains(identifier) {
+                    errors.push(format!(
+                        "row `{id}`, binding `{binding}`: `{identifier}` of symbol `{symbol}` is not in the source"
+                    ));
+                }
+            }
+        }
+    }
+    errors
+}
+
+fn binding_sources() -> BTreeMap<&'static str, String> {
+    let mut sources = BTreeMap::new();
+    for (binding, dir, extension) in BINDING_SOURCES {
+        let (count, text) = read_tree(&workspace_root().join(dir), extension);
+        // A source tree with no files would let every symbol pass.
+        assert!(count > 0, "no `.{extension}` files under {dir}");
+        sources.insert(binding, text);
+    }
+    sources
+}
+
+fn rows_of_file() -> Vec<Value> {
+    parse_rows(&parity_text()).expect("api-parity.toml parses")
+}
+
+/// A row that names only a Rust symbol, for the tests that add a row.
+fn rust_row(entity: &str, symbol: &str) -> Value {
+    let text = format!(
+        "[[row]]\nid = \"{entity}.extra\"\nentity = \"{entity}\"\noption = \"extra\"\nrust = {{ status = \"present\", symbol = \"{symbol}\" }}\n"
+    );
+    parse_rows(&text).expect("row parses").remove(0)
+}
+
+#[test]
+fn scan_reads_impl_headers_and_macro_calls() {
+    let source = r#"
+impl<'a, A: ZAction> ZThingBuilder<'a, A> {
+    pub fn with_one(mut self) -> Self {
+        self
+    }
+    pub fn plain(self) {}
+}
+
+impl<T> Builder for ZThingBuilder<T> {
+    fn build(self) {}
+}
+
+impl<F: Fn() -> u8> ZFnBuilder<F> {
+    pub fn with_f(self) {}
+}
+
+impl Other {
+    pub fn with_two(self) {}
+}
+
+impl_with_type_info!(ZThingBuilder<T>);
+impl_with_type_info!(NotAThing<T>);
+"#;
+    let mut found = BTreeSet::new();
+    scan_source(source, &mut found);
+    let expected: BTreeSet<String> = [
+        "ZThingBuilder::with_one",
+        "ZThingBuilder::plain",
+        "ZThingBuilder::with_type_info",
+        "ZFnBuilder::with_f",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    assert_eq!(found, expected);
+}
+
+#[test]
+fn scan_finds_the_known_builders() {
+    // Positive control: a scan that finds nothing would let every other check pass.
+    let scan = scan_builders();
+    let with_count = scan.iter().filter(|s| s.contains("::with_")).count();
+    assert!(
+        with_count >= 40,
+        "the scan found only {with_count} `with_*` methods: {scan:?}"
+    );
+    assert!(scan.contains("ZPubBuilder::with_qos"), "{scan:?}");
+    assert!(scan.contains("ZNodeBuilder::with_namespace"), "{scan:?}");
+    for (builder, _) in BUILDER_ENTITIES {
+        let prefix = format!("{builder}::");
+        assert!(
+            scan.iter().any(|s| s.starts_with(&prefix)),
+            "the scan found no method of `{builder}`"
+        );
+    }
+}
+
+#[test]
+fn every_with_method_has_a_row() {
+    let errors = check_builders(&scan_builders(), &rows_of_file());
+    assert!(
+        errors.is_empty(),
+        "builder methods and api-parity.toml disagree. Add a row for each new `with_*` method.\n{}",
+        errors.join("\n")
+    );
+}
+
+#[test]
+fn deleting_a_row_fails_the_check() {
+    let scan = scan_builders();
+    let mut rows = rows_of_file();
+    // Control: the unmodified file passes, so the failure below comes from the deletion.
+    assert!(check_builders(&scan, &rows).is_empty());
+    let before = rows.len();
+    rows.retain(|row| rust_symbol(row) != Some("ZPubBuilder::with_qos"));
+    assert_eq!(rows.len(), before - 1, "exactly one row had that symbol");
+    let errors = check_builders(&scan, &rows);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("`ZPubBuilder::with_qos` has no row")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_new_with_method_fails_until_it_has_a_row() {
+    let mut scan = scan_builders();
+    let mut rows = rows_of_file();
+    scan.insert("ZSubBuilder::with_new_option".to_string());
+    let errors = check_builders(&scan, &rows);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("`ZSubBuilder::with_new_option` has no row")),
+        "{errors:?}"
+    );
+    rows.push(rust_row("subscriber", "ZSubBuilder::with_new_option"));
+    assert!(check_builders(&scan, &rows).is_empty());
+}
+
+#[test]
+fn a_row_under_the_wrong_entity_fails() {
+    let scan = scan_builders();
+    let mut rows = rows_of_file();
+    rows.retain(|row| rust_symbol(row) != Some("ZSubBuilder::with_qos"));
+    rows.push(rust_row("publisher", "ZSubBuilder::with_qos"));
+    let errors = check_builders(&scan, &rows);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("is under entity `publisher`")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_new_builder_type_fails_until_it_is_mapped() {
+    let mut scan = scan_builders();
+    let rows = rows_of_file();
+    scan.insert("ZNewThingBuilder::with_x".to_string());
+    // A session configuration builder is not an entity, so it needs no row.
+    scan.insert("SessionConfigBuilder::with_x".to_string());
+    let errors = check_builders(&scan, &rows);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("`ZNewThingBuilder` is not in BUILDER_ENTITIES")),
+        "{errors:?}"
+    );
+    assert!(
+        !errors.iter().any(|e| e.contains("SessionConfigBuilder")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_row_for_a_missing_method_fails() {
+    let scan = scan_builders();
+    let mut rows = rows_of_file();
+    rows.push(rust_row("publisher", "ZPubBuilder::with_gone"));
+    let errors = check_builders(&scan, &rows);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("`ZPubBuilder::with_gone`, which is not a public method")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn an_empty_scan_fails() {
+    let errors = check_builders(&BTreeSet::new(), &rows_of_file());
+    assert!(
+        errors.iter().any(|e| e.contains("found no `with_*`")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn present_symbols_exist_in_each_binding() {
+    let errors = check_binding_symbols(&rows_of_file(), &binding_sources());
+    assert!(
+        errors.is_empty(),
+        "api-parity.toml names symbols that the bindings do not have:\n{}",
+        errors.join("\n")
+    );
+}
+
+#[test]
+fn a_missing_binding_symbol_fails() {
+    let sources = binding_sources();
+    let rows = parse_rows(
+        r#"
+[[row]]
+id = "publisher.extra"
+entity = "publisher"
+option = "extra"
+rust = { status = "present", symbol = "ZPubBuilder::with_qos" }
+python = { status = "present", symbol = "ZNode.no_such_method_xyz" }
+c = { status = "present", symbol = "hiroz_publisher_create" }
+go = { status = "present", symbol = "PublisherBuilder.Build" }
+"#,
+    )
+    .expect("row parses");
+    let errors = check_binding_symbols(&rows, &sources);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("binding `python`") && errors[0].contains("no_such_method_xyz"));
 }
