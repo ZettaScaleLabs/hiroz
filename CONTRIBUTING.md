@@ -58,7 +58,7 @@ This runs:
 
 ## API Parity
 
-`api-parity.toml` lists each builder option for each entity and each binding (Rust, Python, C and Go), with the state `present`, `absent` or `planned`. A pull request that adds a public `with_*` method to a builder in `crates/hiroz/src` adds the matching row in the same change. The test `api_parity` in `crates/hiroz-tests` fails until the row exists. The file has no rows for events, and it does not compare behaviour between bindings.
+`api-parity.toml` lists each builder option for each entity and each binding (Rust, Python, C and Go), with the state `present`, `absent` or `planned`. A pull request that adds a public `with_*` method to a builder in `crates/hiroz/src` adds the matching row in the same change. The test `api_parity` in `crates/hiroz-tests` fails until the row exists. It also checks that each `present` symbol is defined in the source of its binding: a Rust `fn`, type, field or parameter for Python and C, a `func` or `type` for Go. Comments, strings and calls do not count, and the check does not tie a method to its type. The file has no rows for events, and it does not compare behaviour between bindings.
 
 ## Pull Request Workflow
 

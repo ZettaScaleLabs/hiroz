@@ -3,6 +3,9 @@
 //! The table has one row per entity and option and one cell per binding.
 //! A cell is `present` (it names a symbol), `absent` (it gives a reason) or `planned` (it gives a reason and a release).
 //! These tests check the shape of the file. Other tests in this file compare it with the code.
+//! A `present` Rust cell must name a public method of a builder type, found by a scan of `crates/hiroz/src`.
+//! Each identifier of a `present` Python, C or Go symbol must be defined in the source of that binding, outside comments and strings: a Rust `fn`, type, field or parameter for Python and C, a `func` or `type` for Go.
+//! A use of the identifier does not count. The check does not tie a method to its type, and it does not run the binding.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -476,7 +479,9 @@ fn collect_files(dir: &Path, extension: &str, out: &mut Vec<PathBuf>) {
         let path = entry.expect("directory entry").path();
         if path.is_dir() {
             collect_files(&path, extension, out);
-        } else if path.extension().and_then(|e| e.to_str()) == Some(extension) {
+        } else if path.extension().and_then(|e| e.to_str()) == Some(extension)
+            && !path.to_string_lossy().ends_with("_test.go")
+        {
             out.push(path);
         }
     }
@@ -563,8 +568,156 @@ fn check_builders(scan: &BTreeSet<String>, rows: &[Value]) -> Vec<String> {
     errors
 }
 
-/// Returns each `present` cell of a non-Rust binding that names a symbol missing from the source of that binding.
-/// A symbol is a list of identifiers, such as `ZNode.create_publisher(qos)`. Each identifier must occur in the source.
+/// Replaces comments and string literals with spaces and keeps the line breaks.
+/// It handles `//` and `/* */` comments, `"` strings, Go raw strings and character literals.
+fn blank_comments_and_strings(source: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let mut out = String::with_capacity(source.len());
+    let blank = |c: char| if c == '\n' { '\n' } else { ' ' };
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let next = chars.get(i + 1).copied();
+        if c == '/' && next == Some('/') {
+            while i < chars.len() && chars[i] != '\n' {
+                out.push(' ');
+                i += 1;
+            }
+        } else if c == '/' && next == Some('*') {
+            out.push_str("  ");
+            i += 2;
+            while i < chars.len() && !(chars[i] == '*' && chars.get(i + 1) == Some(&'/')) {
+                out.push(blank(chars[i]));
+                i += 1;
+            }
+            out.push_str("  ");
+            i += 2;
+        } else if c == '"' || c == '`' {
+            out.push(' ');
+            i += 1;
+            while i < chars.len() && chars[i] != c {
+                let escaped = c == '"' && chars[i] == '\\';
+                out.push(blank(chars[i]));
+                i += 1;
+                if escaped && i < chars.len() {
+                    out.push(blank(chars[i]));
+                    i += 1;
+                }
+            }
+            out.push(' ');
+            i += 1;
+        } else if c == '\''
+            && (chars.get(i + 2) == Some(&'\'')
+                || (next == Some('\\') && chars.get(i + 3) == Some(&'\'')))
+        {
+            // A character literal such as `'"'`. A lifetime such as `'a` does not match.
+            let len = if next == Some('\\') { 4 } else { 3 };
+            out.push_str(&" ".repeat(len));
+            i += len;
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Splits source text into identifiers and single punctuation characters.
+fn tokens(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut word = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            word.push(c);
+            continue;
+        }
+        if !word.is_empty() {
+            out.push(std::mem::take(&mut word));
+        }
+        if !c.is_whitespace() {
+            out.push(c.to_string());
+        }
+    }
+    if !word.is_empty() {
+        out.push(word);
+    }
+    out
+}
+
+/// Names that a `#[pyclass(name = "...")]` or `#[pyo3(name = "...")]` attribute gives to a Python class or method.
+fn python_attribute_names(raw: &str) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let mut from = 0;
+    while let Some(at) = raw[from..].find("name = \"") {
+        let start = from + at;
+        let value_start = start + "name = \"".len();
+        from = value_start;
+        let Some(value_len) = raw[value_start..].find('"') else {
+            break;
+        };
+        let attribute_start = raw[..start].rfind("#[");
+        let inside_attribute = attribute_start
+            .is_some_and(|a| raw[a..start].starts_with("#[py") && !raw[a..start].contains(']'));
+        if inside_attribute {
+            names.insert(raw[value_start..value_start + value_len].to_string());
+        }
+    }
+    names
+}
+
+/// Returns true when Rust source defines `name` as a function, type, constant, field or parameter.
+/// `tokens` come from text without comments and strings.
+fn rust_defines(tokens: &[String], name: &str) -> bool {
+    const KEYWORDS: [&str; 8] = [
+        "fn", "struct", "enum", "type", "union", "const", "static", "trait",
+    ];
+    (0..tokens.len()).any(|i| {
+        if tokens[i] != name {
+            return false;
+        }
+        let prev = i.checked_sub(1).map(|p| tokens[p].as_str());
+        let next = tokens.get(i + 1).map(String::as_str);
+        let after = tokens.get(i + 2).map(String::as_str);
+        let keyword = prev.is_some_and(|p| KEYWORDS.contains(&p));
+        // `name: Type` is a field or a parameter. `a::name:` is not.
+        let typed = next == Some(":") && after != Some(":") && prev != Some(":");
+        // `signature = (a, name = None)` in a PyO3 attribute declares a parameter.
+        let defaulted =
+            next == Some("=") && after != Some("=") && matches!(prev, Some("(") | Some(","));
+        keyword || typed || defaulted
+    })
+}
+
+/// Returns true when Go source declares `name` as a function, a method or a type.
+/// `text` has no comments or strings.
+fn go_defines(text: &str, name: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.trim_start();
+        if let Some(rest) = line.strip_prefix("type ") {
+            return ident_prefix(rest.trim_start()) == name;
+        }
+        let Some(mut rest) = line.strip_prefix("func ") else {
+            return false;
+        };
+        rest = rest.trim_start();
+        if rest.starts_with('(') {
+            // Skip the receiver of a method.
+            let Some(close) = rest.find(')') else {
+                return false;
+            };
+            rest = rest[close + 1..].trim_start();
+        }
+        ident_prefix(rest) == name
+    })
+}
+
+/// Returns each `present` cell of a non-Rust binding that names a symbol the binding does not define.
+/// A symbol is a list of identifiers, such as `ZNode.create_publisher(qos)`.
+/// Each identifier must be defined in the source of the binding.
+/// For Python and C, that is a function, a type, a constant or a `name: Type` field or parameter in Rust source outside comments and strings, or a name that a PyO3 attribute sets.
+/// For Go, that is a `func`, a method or a `type` declaration outside comments and strings.
+/// A use of the identifier, such as a call, does not count.
+/// The check does not tie a method to its type or a parameter to its method.
 fn check_binding_symbols(rows: &[Value], sources: &BTreeMap<&str, String>) -> Vec<String> {
     let mut errors = Vec::new();
     for row in rows {
@@ -579,14 +732,23 @@ fn check_binding_symbols(rows: &[Value], sources: &BTreeMap<&str, String>) -> Ve
             let Some(symbol) = cell.get("symbol").and_then(Value::as_str) else {
                 continue;
             };
-            let text = sources.get(binding).map(String::as_str).unwrap_or("");
+            let raw = sources.get(binding).map(String::as_str).unwrap_or("");
+            let clean = blank_comments_and_strings(raw);
+            let rust_tokens = tokens(&clean);
+            let attribute_names = python_attribute_names(raw);
             let identifiers = symbol
                 .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
                 .filter(|part| !part.is_empty());
             for identifier in identifiers {
-                if !text.contains(identifier) {
+                let defined = if binding == "go" {
+                    go_defines(&clean, identifier)
+                } else {
+                    rust_defines(&rust_tokens, identifier)
+                        || (binding == "python" && attribute_names.contains(identifier))
+                };
+                if !defined {
                     errors.push(format!(
-                        "row `{id}`, binding `{binding}`: `{identifier}` of symbol `{symbol}` is not in the source"
+                        "row `{id}`, binding `{binding}`: `{identifier}` of symbol `{symbol}` is not defined in the source"
                     ));
                 }
             }
@@ -815,4 +977,40 @@ go = { status = "present", symbol = "PublisherBuilder.Build" }
     let errors = check_binding_symbols(&rows, &sources);
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(errors[0].contains("binding `python`") && errors[0].contains("no_such_method_xyz"));
+}
+
+#[test]
+fn a_symbol_that_is_only_mentioned_fails() {
+    // Negative control: a comment, a string or a call is not a definition.
+    let mention = |lang_fn: &str| {
+        format!(
+            "// {lang_fn} Ghost()\n/* {lang_fn} Ghost() */\nconst S: &str = \"{lang_fn} Ghost()\";\nlet s = \"{lang_fn} Ghost()\"\ncaller.Ghost();\nGhost()\n"
+        )
+    };
+    let mut sources = BTreeMap::new();
+    sources.insert("python", mention("fn"));
+    sources.insert("c", mention("fn"));
+    sources.insert("go", mention("func"));
+    let rows = parse_rows(
+        r#"
+[[row]]
+id = "publisher.extra"
+entity = "publisher"
+option = "extra"
+python = { status = "present", symbol = "Ghost" }
+c = { status = "present", symbol = "Ghost" }
+go = { status = "present", symbol = "Ghost" }
+"#,
+    )
+    .expect("row parses");
+    assert_eq!(check_binding_symbols(&rows, &sources).len(), 3);
+    // Positive control: the same symbol passes when it is defined.
+    sources.insert(
+        "python",
+        "#[pyo3(name = \"Ghost\")]\nfn ghost() {}".to_string(),
+    );
+    sources.insert("c", "pub unsafe extern \"C\" fn Ghost() {}".to_string());
+    sources.insert("go", "func (b *B) Ghost() {}".to_string());
+    let errors = check_binding_symbols(&rows, &sources);
+    assert!(errors.is_empty(), "{errors:?}");
 }
