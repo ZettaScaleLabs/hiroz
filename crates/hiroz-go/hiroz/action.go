@@ -158,8 +158,10 @@ func (h *GoalHandle) GetResult() ([]byte, error) {
 // or the action client is closed. Do not rely on context cancellation to abort
 // server-side execution.
 //
-// Close() on the ActionClient blocks until all in-flight GetResultWithContext
-// goroutines have returned, preventing use-after-free of the C handle.
+// Close() on the ActionClient blocks until every GetResultWithContext and SendGoalContext
+// call that registered with the client has returned, preventing use-after-free of the C
+// handle. GetTypedResultContext is included, because it calls GetResultWithContext.
+// SendGoal, GetResult and Cancel do not register, so Close does not wait for them.
 func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 	if h.handle.Load() == nil || h.client == nil {
 		return nil, fmt.Errorf("goal handle is closed")
@@ -426,8 +428,11 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 }
 
 // Close destroys the action client.
-// Blocks until all in-flight GetResultWithContext goroutines have returned
-// so that the C handle is never freed while a goroutine still holds it.
+// It refuses new GetResultWithContext and SendGoalContext calls, then blocks until the
+// calls that already registered have returned, so that the C handle is never freed while
+// a goroutine still holds it. A SendGoalContext call that is still inside the C layer holds
+// Close until the C layer returns. SendGoal, GetResult and Cancel do not register, so
+// Close does not wait for them.
 func (c *ActionClient) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
