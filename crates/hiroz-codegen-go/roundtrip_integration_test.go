@@ -32,6 +32,91 @@ import (
 	"testing"
 )
 
+type crossFailure int
+
+const (
+	crossOther crossFailure = iota
+	// The toolchain has no such GOOS/GOARCH pair (for example darwin/386).
+	crossUnsupportedPair
+	// The binary was built but the host cannot execute it.
+	crossExecFormat
+)
+
+// classifyCrossFailure sorts the output of a failed cross-arch `go test`.
+// Only these two precise messages count as an environment limit. Any other
+// failure stays a failure.
+func classifyCrossFailure(output string) crossFailure {
+	switch {
+	case strings.Contains(output, "unsupported GOOS/GOARCH pair"):
+		return crossUnsupportedPair
+	case strings.Contains(output, "exec format error"):
+		return crossExecFormat
+	}
+	return crossOther
+}
+
+// targetListed reports whether goos/goarch appears in `go tool dist list`
+// output (one "os/arch" pair per line).
+func targetListed(distList, goos, goarch string) bool {
+	want := goos + "/" + goarch
+	for _, line := range strings.Split(distList, "\n") {
+		if strings.TrimSpace(line) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// targetBuildable asks the toolchain whether the host GOOS with goarch is a
+// supported target. When the toolchain cannot answer, it returns true so the
+// probe runs and fails loudly instead of skipping silently.
+func targetBuildable(goBin, goarch string) (bool, string) {
+	goosOut, err := exec.Command(goBin, "env", "GOOS").Output()
+	if err != nil {
+		return true, ""
+	}
+	goos := strings.TrimSpace(string(goosOut))
+	list, err := exec.Command(goBin, "tool", "dist", "list").Output()
+	if err != nil {
+		return true, ""
+	}
+	if !targetListed(string(list), goos, goarch) {
+		return false, goos + "/" + goarch + " is absent from `go tool dist list`"
+	}
+	return true, ""
+}
+
+func TestCrossFailureClassification(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		out  string
+		want crossFailure
+	}{
+		{"unsupported", "go: unsupported GOOS/GOARCH pair darwin/386", crossUnsupportedPair},
+		{"exec", "fork/exec x.test: exec format error", crossExecFormat},
+		{"compile", "./x.go:3:1: syntax error", crossOther},
+		{"empty", "", crossOther},
+	} {
+		if got := classifyCrossFailure(c.out); got != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
+		}
+	}
+	list := "darwin/amd64\ndarwin/arm64\nlinux/386\nlinux/amd64\n"
+	for _, c := range []struct {
+		goos, arch string
+		want       bool
+	}{
+		{"linux", "386", true},
+		{"darwin", "386", false},
+		{"darwin", "arm64", true},
+		{"linux", "38", false},
+	} {
+		if got := targetListed(list, c.goos, c.arch); got != c.want {
+			t.Errorf("%s/%s: got %v, want %v", c.goos, c.arch, got, c.want)
+		}
+	}
+}
+
 func TestRoundtripExecutesGeneratedGo(t *testing.T) {
 	// Skip cleanly when `go` is unavailable on the test host (e.g. running
 	// `go test` from a stripped CI image). We still want the assertion
@@ -341,6 +426,11 @@ func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
 			label += "/" + c.goarch
 		}
 		t.Run(label, func(t *testing.T) {
+			if c.goarch != "" {
+				if ok, why := targetBuildable(goBin, c.goarch); !ok {
+					t.Skipf("GOARCH=%s is not a buildable target on this host: %s", c.goarch, why)
+				}
+			}
 			cmd := exec.Command(goBin, "test", "-count=1", "-run", "^"+c.name+"$", "-v", ".")
 			cmd.Dir = tmp
 			cmd.Env = append(os.Environ(),
@@ -354,8 +444,15 @@ func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
 			out, err := cmd.CombinedOutput()
 			text := string(out)
 			if err != nil {
-				if c.goarch != "" && strings.Contains(text, "exec format error") {
-					t.Skipf("host cannot run GOARCH=%s binaries: UNKNOWN, not a pass", c.goarch)
+				switch classifyCrossFailure(text) {
+				case crossUnsupportedPair:
+					if c.goarch != "" {
+						t.Skipf("GOARCH=%s: Go reports an unsupported GOOS/GOARCH pair on this host", c.goarch)
+					}
+				case crossExecFormat:
+					if c.goarch != "" {
+						t.Skipf("host cannot run GOARCH=%s binaries: UNKNOWN, not a pass", c.goarch)
+					}
 				}
 				t.Fatalf("probe %s failed: %v\n----- combined output -----\n%s", label, err, strings.TrimSpace(text))
 			}
