@@ -169,7 +169,7 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	var msgTemplate T
+	msgTemplate := newMessage[T]()
 	outCh := make(chan T, bufferSize)
 	done := make(chan struct{})
 	// senders holds a read lock while a callback may send. The teardown takes the write lock
@@ -178,7 +178,7 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 	closed := false
 
 	rawHandler := func(data []byte) {
-		var msg T
+		msg := newMessage[T]()
 		if err := msg.DeserializeCDR(data); err != nil {
 			return // drop malformed messages
 		}
