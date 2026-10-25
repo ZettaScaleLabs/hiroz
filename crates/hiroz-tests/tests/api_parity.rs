@@ -1355,3 +1355,18 @@ fn a_parameter_or_field_definition_passes() {
         }
     }
 }
+
+#[test]
+fn multibyte_text_before_a_rename_keeps_offsets_stable() {
+    // A comment, a string and a character literal with multibyte characters come before the attribute.
+    for prefix in [
+        "// é — note\n",
+        "/* é — note */\n",
+        "const S: &str = \"é — note\";\n",
+        "const C: char = 'é';\n",
+        "const R: &str = r#\"é — \" note\"#;\n",
+    ] {
+        let source = format!("{prefix}#[pyo3(name = \"Ghost\")]\nfn ghost() {{}}");
+        assert!(ghost_defined("python", &source), "rejected: {source}");
+    }
+}
