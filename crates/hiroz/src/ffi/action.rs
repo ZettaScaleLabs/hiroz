@@ -34,6 +34,7 @@ pub type ActionFeedbackCallback =
     extern "C" fn(user_data: usize, feedback_data: *const u8, feedback_len: usize);
 
 /// The QoS of the five entities of an action. An entity with `None` gets the default profile.
+/// The exception is `status_topic` on a client: `None` creates no status subscriber.
 #[derive(Default)]
 pub struct ActionQos {
     pub goal_service: Option<crate::qos::QosProfile>,
@@ -44,12 +45,14 @@ pub struct ActionQos {
 }
 
 /// Raw action client for FFI.
-/// Contains: service clients for SendGoal/GetResult/CancelGoal + subscriber for Feedback.
+/// Contains: service clients for SendGoal/GetResult/CancelGoal + subscriber for Feedback, and a
+/// subscriber for Status when the caller gave a status QoS.
 pub struct RawActionClient {
     pub(crate) send_goal_client: RawServiceClient,
     pub(crate) get_result_client: RawServiceClient,
     pub(crate) cancel_goal_client: RawServiceClient,
     pub(crate) _feedback_sub: RawSubscriber,
+    pub(crate) _status_sub: Option<RawSubscriber>,
 }
 
 /// Raw action server for FFI.
@@ -118,10 +121,12 @@ pub unsafe extern "C" fn hiroz_action_client_create(
 /// Create an action client with a versioned QoS struct
 ///
 /// The same as `hiroz_action_client_create`, with a QoS profile for the three services and the
-/// feedback subscriber. A null `qos`, or a null member, asks for the default profile. The client
-/// has no status subscriber, so the client ignores `status_topic`. The profile of a service goes
-/// into its liveliness token and does not change how a call is delivered. Returns null if `qos`,
-/// or a member, has a `struct_size` below 4.
+/// feedback subscriber. A null `qos`, or a null member, asks for the default profile, except
+/// `status_topic`: a null `status_topic` creates no status subscriber, and a non-null one creates
+/// a status subscriber with that profile. The subscriber declares a liveliness token that carries
+/// the profile, and it stays out of the buffer group. The profile of a service goes into its
+/// liveliness token and does not change how a call is delivered. Returns null if `qos`, or a
+/// member, has a `struct_size` below 4.
 ///
 /// # Safety
 /// `node` must be a valid node pointer. The strings must be valid C strings. `qos` must be null,

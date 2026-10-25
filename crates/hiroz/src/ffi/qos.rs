@@ -241,7 +241,8 @@ pub struct CActionQosV2 {
     pub cancel_service: *const CQosProfileV2,
     /// The feedback topic
     pub feedback_topic: *const CQosProfileV2,
-    /// The status topic. An action client has no status subscriber and ignores it.
+    /// The status topic. An action server publishes with it. An action client creates a status
+    /// subscriber with it when it is not null, and creates none when it is null.
     pub status_topic: *const CQosProfileV2,
 }
 

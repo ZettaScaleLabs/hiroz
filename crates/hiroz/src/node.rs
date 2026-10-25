@@ -757,6 +757,39 @@ impl ZNode {
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
     {
+        self.create_raw_subscriber_inner(
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            qos,
+            group,
+            has_buffer_fields,
+            false,
+        )
+    }
+
+    /// The body of [`ZNode::create_raw_subscriber_with_buffer_fields`].
+    ///
+    /// `announce` makes a subscriber that stays out of the buffer group declare a token without a
+    /// `backends:` segment, so a peer reads its QoS. A subscriber that joins always declares its
+    /// token.
+    #[cfg(feature = "ffi")]
+    #[allow(clippy::too_many_arguments)]
+    fn create_raw_subscriber_inner<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        group: crate::BufferGroup,
+        has_buffer_fields: Option<bool>,
+        announce: bool,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(&[u8]) + Send + Sync + 'static,
+    {
         use crate::{
             entity::{EndpointEntity, EndpointKind},
             pubsub::apply_transient_local_sub,
@@ -811,12 +844,12 @@ impl ZNode {
             .callback(move |sample: zenoh::sample::Sample| h(sample))
             .advanced();
         let subscriber = apply_transient_local_sub(builder, &entity.qos).wait()?;
-        let token = if group_key.is_some() {
+        let token = if group_key.is_some() || announce {
             Some(crate::buffer_group::declare_token(
                 &self.session,
                 &self.keyexpr_format,
                 &entity,
-                true,
+                group_key.is_some(),
             )?)
         } else {
             None
@@ -1013,8 +1046,10 @@ impl ZNode {
 
     /// Create a raw action client for FFI (no type safety) with a QoS profile per entity.
     ///
-    /// The client has no status subscriber, so `qos.status_topic` has no effect. An entity with
-    /// `None` gets the default profile.
+    /// An entity with `None` gets the default profile, except the status subscriber: the client
+    /// creates it only when `qos.status_topic` is `Some`, and the profile of the subscriber is
+    /// that value. The subscriber declares a token that carries the profile, and it stays out of
+    /// the buffer group.
     #[cfg(feature = "ffi")]
     #[allow(clippy::too_many_arguments)]
     pub fn create_raw_action_client_with_qos(
@@ -1033,6 +1068,7 @@ impl ZNode {
         let get_result_service = format!("{}/_action/get_result", action_name);
         let cancel_goal_service = format!("{}/_action/cancel_goal", action_name);
         let feedback_topic = format!("{}/_action/feedback", action_name);
+        let status_topic = format!("{}/_action/status", action_name);
 
         // Compute DDS-style type names required by rmw_zenoh_cpp's graph discovery.
         // action_type is e.g. "example_interfaces/action/Fibonacci" → package="example_interfaces", name="Fibonacci"
@@ -1043,6 +1079,7 @@ impl ZNode {
         let cancel_goal_type = dds_from_namespace("action_msgs::srv", "CancelGoal");
         let feedback_type_dds =
             dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
+        let status_type_dds = dds_from_namespace("action_msgs::msg", "GoalStatusArray");
 
         let send_goal_client = self.create_raw_service_client_with_qos(
             &send_goal_service,
@@ -1074,11 +1111,31 @@ impl ZNode {
             crate::BufferGroup::Off,
         )?;
 
+        // The status subscriber exists only when the caller gives a status QoS. Its callback reads
+        // nothing and its message has no buffer field, so it stays out of the buffer group. It
+        // declares a token without `backends:`, which is where a peer reads its QoS.
+        let status_sub = qos
+            .status_topic
+            .map(|status_qos| {
+                self.create_raw_subscriber_inner(
+                    &status_topic,
+                    &status_type_dds,
+                    "",
+                    |_| {},
+                    Some(status_qos),
+                    crate::BufferGroup::Off,
+                    None,
+                    true,
+                )
+            })
+            .transpose()?;
+
         Ok(crate::ffi::action::RawActionClient {
             send_goal_client,
             get_result_client,
             cancel_goal_client,
             _feedback_sub: feedback_sub,
+            _status_sub: status_sub,
         })
     }
 
