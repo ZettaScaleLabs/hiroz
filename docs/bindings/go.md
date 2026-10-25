@@ -302,7 +302,7 @@ err := hiroz.CallTyped(client, &example_interfaces.AddTwoIntsRequest{A: 5, B: 3}
 
 ### Context variants
 
-Each blocking call has a variant that ends when a `context.Context` ends.
+The calls in this table have a variant that ends when a `context.Context` ends. Other blocking calls, such as `CallTypedWithTimeout` and `WaitForService`, keep their timeout argument and have no other variant.
 
 | Call | Context variant |
 |------|-----------------|
@@ -313,9 +313,9 @@ Each blocking call has a variant that ends when a `context.Context` ends.
 | `hiroz.BuildWithTypedCallback` | `hiroz.BuildWithTypedCallbackContext(ctx, builder, handler)` |
 | `hiroz.SubscriberWithChannel` | `hiroz.SubscriberWithChannelContext[T](ctx, builder, size)` |
 
-A context deadline sets the timeout of `CallTypedContext`. Without a deadline the call uses `DefaultServiceTimeout` (5 s). When the context ends first, the error wraps `context.Canceled` or `context.DeadlineExceeded`. It never matches `hiroz.ErrTimeout`: `ErrTimeout` means the server did not answer within the call timeout. `WaitForServiceContext` waits in slices of at most 250 ms, so it returns within one slice of a cancel.
+A context deadline sets the timeout of `CallTypedContext`. Without a deadline the call uses `DefaultServiceTimeout` (5 s). When the context ends first, the error wraps `context.Canceled` or `context.DeadlineExceeded`. A call whose C timeout ends after the context deadline has passed also returns `context.DeadlineExceeded`, not `hiroz.ErrTimeout`. `ErrTimeout` means the server did not answer within the call timeout while the context deadline was still in the future. `WaitForServiceContext` waits in slices of at most 250 ms, so it returns within one slice of a cancel.
 
-A cancel does not stop work that the C layer already started. A service call runs until its timeout, and `ServiceClient.Close` waits for it. `SendGoalContext` closes the goal handle when the C layer returns, but the server may already hold the goal, and the cancel does not cancel it. The two subscriber variants destroy the subscriber when the context ends. `SubscriberWithChannelContext` then closes the channel, so a `range` loop finishes. It has no cleanup function, so pass a context that you cancel. The channel stays open until the context ends.
+A cancel does not stop work that the C layer already started. A service call runs until its timeout, and `ServiceClient.Close` waits for it. A `CallTypedContext` call without a deadline can hold `Close` for up to `DefaultServiceTimeout`. `Close` ends a running `WaitForServiceContext` within one slice, and that call returns a closed-client error. A call that starts after `Close` has begun returns a closed-client error and does not reach the C layer. `SendGoalContext` closes the goal handle when the C layer returns, but the server may already hold the goal, and the cancel does not cancel it. The two subscriber variants destroy the subscriber when the context ends. `SubscriberWithChannelContext` then closes the channel, so a `range` loop finishes. It has no cleanup function, so pass a context that you cancel. The channel stays open until the context ends.
 
 ### Action
 
