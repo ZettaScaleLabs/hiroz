@@ -428,6 +428,15 @@ fn impl_self_type(header: &str) -> Option<String> {
     }
 }
 
+/// Returns the text after `fn ` for a public function line. It accepts `pub fn`, `pub async fn`, `pub const fn` and `pub unsafe fn`.
+fn pub_fn_rest(line: &str) -> Option<&str> {
+    let mut rest = line.strip_prefix("pub ")?;
+    for qualifier in ["const ", "async ", "unsafe "] {
+        rest = rest.strip_prefix(qualifier).unwrap_or(rest);
+    }
+    rest.strip_prefix("fn ")
+}
+
 /// Adds `Type::method` to `found` for each `pub fn` in an `impl` block of a type whose name ends in `Builder`.
 /// Adds `Type::with_type_info` for each `impl_with_type_info!` call on such a type.
 /// It reads `impl` headers at the start of a line, which is where rustfmt puts them.
@@ -450,7 +459,7 @@ fn scan_source(text: &str, found: &mut BTreeSet<String>) {
             continue;
         }
         if let Some(owner) = &owner
-            && let Some(rest) = line.trim_start().strip_prefix("pub fn ")
+            && let Some(rest) = pub_fn_rest(line.trim_start())
         {
             let name = ident_prefix(rest);
             if !name.is_empty() {
@@ -617,6 +626,11 @@ impl<'a, A: ZAction> ZThingBuilder<'a, A> {
         self
     }
     pub fn plain(self) {}
+    pub async fn with_async(self) {}
+    pub const fn with_const(self) -> Self {
+        self
+    }
+    pub(crate) fn with_hidden(self) {}
 }
 
 impl<T> Builder for ZThingBuilder<T> {
@@ -639,6 +653,8 @@ impl_with_type_info!(NotAThing<T>);
     let expected: BTreeSet<String> = [
         "ZThingBuilder::with_one",
         "ZThingBuilder::plain",
+        "ZThingBuilder::with_async",
+        "ZThingBuilder::with_const",
         "ZThingBuilder::with_type_info",
         "ZFnBuilder::with_f",
     ]
