@@ -388,12 +388,15 @@ if errors.Is(err, hiroz.ErrTimeout)     { /* no server responded */ }
 ```
 
 A C caller can read the reason for some failures with `hiroz_last_error_message()`, which returns a thread-local string or NULL.
-Only some failing calls record a message: those that log a warning, and those that reject a null or non-UTF-8 string argument.
-Other failing calls, such as a null handle or a failed publish, record nothing.
-Check the return value first, and read the message on the same OS thread, straight after a non-zero return.
+A message is recorded in only two cases: a warning that the library routes through its FFI warning macro, and a null or non-UTF-8 string argument that a call rejects.
+The calls that record a message are the context, node, publisher, subscriber, service client, service server, action client and action server constructors, `hiroz_service_client_call`, `hiroz_action_client_send_goal`, `hiroz_action_client_get_result`, `hiroz_action_client_cancel_goal` and `hiroz_action_server_publish_feedback`.
+`hiroz_graph_node_exists`, `hiroz_serialize` and `hiroz_deserialize` record a message only for a null or non-UTF-8 string argument.
+Other failing calls record nothing. Examples are an unknown buffer group in `hiroz_subscriber_create_with_group`, a type that serialization does not implement, a null handle and a failed publish.
+Check the return value first, and read the message on the same OS thread, only after a call reported failure: a non-zero code, or NULL from a constructor.
+A message can be present after a successful call. For example, `hiroz_context_create_with_config` records one for a `json_config` that is not a JSON object, and still succeeds.
 Treat NULL as "no message recorded".
 The message stays valid until the next call on that thread that records a message, or until `hiroz_last_error_clear()` discards it.
-A successful call does not clear it, so a message can be stale.
+A successful call does not clear it, so a message can be stale. Call `hiroz_last_error_clear()` before a call to ignore an older message.
 The Go package does not expose it, because a goroutine can move to another OS thread between the C call and the read.
 
 !!! warning

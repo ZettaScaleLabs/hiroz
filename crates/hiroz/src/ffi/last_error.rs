@@ -1,10 +1,11 @@
 //! Thread-local last-error message for the C interface.
 //!
 //! Error codes cannot say why a call failed, and several failures share one code.
-//! Only some failures record a message here: the sites that log a warning, and `cstr_to_str` for a null or non-UTF-8 string argument.
-//! Other failing returns, such as a null handle or a failed publish, record nothing.
-//! A caller must check the return value first, and then read the message on the same OS thread.
-//! A NULL message means that no message is recorded.
+//! A message is recorded in only two cases: a warning that the library routes through its FFI warning macro, and a null or non-UTF-8 string argument rejected by the shared string conversion.
+//! A warning logged by a plain `tracing::warn!` records nothing, and neither do other failing returns, such as a null handle or a failed publish.
+//! A call that succeeds can also leave a message, because some recording paths do not fail the call.
+//! A caller must check the return value first, and read the message only after a call has reported failure: a non-zero code, or NULL from a constructor.
+//! The message is per OS thread. A NULL message means that none is recorded.
 
 use std::cell::RefCell;
 use std::ffi::{CString, c_char};
@@ -21,7 +22,13 @@ pub(crate) fn set(msg: &str) {
 
 /// Return the last error message of the calling thread, or NULL if none is recorded.
 ///
-/// Only some failing calls record a message: those that log a warning, and those that reject a null or non-UTF-8 string argument. Other failing calls record nothing. A successful call does not clear the message, so check the return value first and read the message only after a non-zero return. Treat NULL as "no message recorded". The message may also be stale, from an earlier failure on the same thread.
+/// A message is recorded in only two cases: a warning that the library routes through its FFI warning macro, and a null or non-UTF-8 string argument that a call rejects. Other failing calls record nothing, and so do warnings that the library logs without that macro.
+///
+/// These entry points record a message when they fail: `hiroz_context_create`, `hiroz_context_create_with_config`, `hiroz_node_create`, `hiroz_node_create_with_config`, `hiroz_publisher_create`, `hiroz_publisher_create_with_qos`, every `hiroz_subscriber_create*` variant except the unknown-group case below, `hiroz_service_client_create`, `hiroz_service_client_call`, `hiroz_service_server_create`, `hiroz_action_client_create`, `hiroz_action_client_send_goal`, `hiroz_action_client_get_result`, `hiroz_action_client_cancel_goal`, `hiroz_action_server_create` and `hiroz_action_server_publish_feedback`. `hiroz_graph_node_exists`, `hiroz_serialize` and `hiroz_deserialize` record a message only for a null or non-UTF-8 string argument.
+///
+/// These failures record nothing: an unknown buffer group in `hiroz_subscriber_create_with_group` (it returns NULL), a type that `hiroz_serialize` or `hiroz_deserialize` does not implement, a reply error that a service client receives, and every other failing return not named above.
+///
+/// Read the message only after a call has reported failure: a non-zero code, or NULL from a constructor. A message can also be present after a successful call. `hiroz_context_create_with_config` still succeeds, and records a message, when `json_config` is not a JSON object, when an optional string field holds invalid UTF-8, or when an element of `connect_endpoints` or `remap_rules` is NULL or invalid UTF-8. A successful call never clears the message, so check the return value first, and call `hiroz_last_error_clear` before a call if you want to ignore an older message. Treat NULL as "no message recorded".
 ///
 /// The pointer stays valid until the next call on the same thread that records a message, or `hiroz_last_error_clear`. Do not free it.
 #[unsafe(no_mangle)]
