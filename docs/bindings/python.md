@@ -190,7 +190,7 @@ Each must have a `__msgtype__` class attribute:
 
 1. `client.send_goal(goal)` → `ActionGoalHandle` — blocks until accepted. It raises on rejection, and it raises `RuntimeError` when no server answers within 11 seconds
 2. `handle.recv_feedback(timeout)` — receive next feedback; returns `None` on timeout or when the feedback channel closes
-3. `handle.get_result(timeout)` — block until terminal state; returns `None` on timeout. A second call raises `RuntimeError`
+3. `handle.get_result(timeout)` — block until terminal state; returns `None` on timeout. The first call consumes the handle, so a timeout cannot be retried: a second call always raises `RuntimeError`
 4. `handle.cancel()` — request cancellation (the server decides when to honour it)
 
 ### Goal Status
@@ -298,13 +298,13 @@ All four presets use `automatic` liveliness. Their deadline, lifespan and liveli
 | `reliability` | `"reliable"`, `"best_effort"` | |
 | `durability` | `"volatile"`, `"transient_local"` | |
 | `history` | `"keep_last"`, `"keep_all"` | `"keep_last"` with no `depth` uses depth 10 |
-| `depth` | integer greater than 0 | with no `history`, `depth` selects `keep_last` |
+| `depth` | integer greater than 0 | with no `history`, `depth` selects `keep_last`. With `history="keep_all"`, `depth` is ignored |
 | `liveliness` | `"automatic"`, `"manual_by_node"`, `"manual_by_topic"` | |
 | `deadline` | float, seconds | |
 | `lifespan` | float, seconds | |
 | `liveliness_lease_duration` | float, seconds | |
 
-A string outside the listed values raises `ValueError`. A `depth` of 0 raises `ValueError`.
+A string outside the listed values raises `ValueError`. With `keep_last`, a `depth` of 0 raises `ValueError`. A negative `depth` fails when Python converts the argument, with an exception that is not `ValueError`.
 
 A profile has read-only properties `reliability`, `durability`, `history` and `depth`. `depth` is 0 for `keep_all`. There are no properties for the other fields.
 
@@ -379,6 +379,7 @@ hiroz-py defines four exception classes. All of them are attributes of `hiroz_py
 |---|---|
 | `ZClient.call(..., timeout=t)` gets no response in time | `hiroz_py.TimeoutError` |
 | `ZClient.call(...)` with no `timeout` | waits for up to one hour, then raises `hiroz_py.TimeoutError` |
+| `ZClient.call(...)` fails for any reason other than a timeout, for example the server disappears | `RuntimeError` |
 | `ZSubscriber.recv(timeout=t)` gets no message in time | returns `None` |
 | `ZActionClient.send_goal(...)` gets no answer from a server in 11 seconds | `RuntimeError` |
 | `ZServer.take_request()` or `send_response(...)` fails in the core | `RuntimeError` |
@@ -398,7 +399,7 @@ try:
     resp = client.call(req, timeout=2.0)
 except hiroz_py.TimeoutError:
     print("no response in 2 s")
-except hiroz_py.HirozError as e:
+except RuntimeError as e:
     print("call failed:", e)
 ```
 
