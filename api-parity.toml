@@ -603,7 +603,7 @@ entity = "action_client"
 option = "status topic QoS"
 rust = { status = "present", symbol = "ZActionClientBuilder::with_status_topic_qos" }
 python = { status = "absent", reason = "The Python action client has no QoS options." }
-c = { status = "absent", reason = "The C action client creator ignores the `status_topic` member of the QoS struct." }
+c = { status = "present", symbol = "hiroz_action_client_create_with_qos_v2(CActionQosV2.status_topic)" }
 go = { status = "absent", reason = "The Go action client builder has no QoS options." }
 
 [[row]]
