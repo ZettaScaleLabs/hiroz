@@ -1,4 +1,4 @@
-# API parity across entities and bindings, as of v0.2.1.
+# API parity across entities and bindings, as of v0.2.2.
 #
 # One row per builder option. One cell per binding: rust, python, c, go.
 # A cell has one of three states:
@@ -235,6 +235,15 @@ c = { status = "present", symbol = "CNodeConfig.namespace" }
 go = { status = "present", symbol = "NodeBuilder.WithNamespace" }
 
 [[row]]
+id = "node.subscriber_options"
+entity = "node"
+option = "default subscriber options (buffer group)"
+rust = { status = "present", symbol = "ZNodeBuilder::with_subscriber_options" }
+python = { status = "absent", reason = "The Python node takes no default subscriber options. Each subscriber takes its own buffer group." }
+c = { status = "absent", reason = "The C node has no setting for the node default, so it always has Auto." }
+go = { status = "absent", reason = "The Go node builder has no subscriber options." }
+
+[[row]]
 id = "node.shm_config"
 entity = "node"
 option = "shared memory config object"
@@ -363,6 +372,15 @@ c = { status = "absent", reason = "The C publisher has no encoding option." }
 go = { status = "absent", reason = "The Go publisher builder has no encoding option." }
 
 [[row]]
+id = "publisher.locality"
+entity = "publisher"
+option = "locality"
+rust = { status = "present", symbol = "ZPubBuilder::with_locality" }
+python = { status = "absent", reason = "The Python publisher has no locality option." }
+c = { status = "absent", reason = "The C publisher has no locality option." }
+go = { status = "absent", reason = "The Go publisher builder has no locality option." }
+
+[[row]]
 id = "publisher.dyn_schema"
 entity = "publisher"
 option = "dynamic message schema"
@@ -397,8 +415,8 @@ entity = "subscriber"
 option = "buffer group"
 rust = { status = "present", symbol = "ZSubBuilder::with_buffer_group" }
 python = { status = "present", symbol = "ZNode.create_subscriber(buffer_group)" }
-c = { status = "planned", reason = "The C subscriber has no buffer group argument.", release = "0.2.2" }
-go = { status = "planned", reason = "The Go subscriber builder has no buffer group option.", release = "0.2.2" }
+c = { status = "present", symbol = "hiroz_subscriber_create_with_group" }
+go = { status = "present", symbol = "SubscriberBuilder.WithBufferGroup" }
 
 [[row]]
 id = "subscriber.locality"
@@ -483,6 +501,24 @@ python = { status = "absent", reason = "The Python binding has no message cache.
 c = { status = "absent", reason = "The C ABI has no message cache." }
 go = { status = "absent", reason = "The Go binding has no message cache." }
 
+[[row]]
+id = "cache.locality"
+entity = "cache"
+option = "locality"
+rust = { status = "present", symbol = "ZCacheBuilder::with_locality" }
+python = { status = "absent", reason = "The Python binding has no message cache." }
+c = { status = "absent", reason = "The C ABI has no message cache." }
+go = { status = "absent", reason = "The Go binding has no message cache." }
+
+[[row]]
+id = "cache.encoding"
+entity = "cache"
+option = "expected encoding"
+rust = { status = "present", symbol = "ZCacheBuilder::with_encoding" }
+python = { status = "absent", reason = "The Python binding has no message cache." }
+c = { status = "absent", reason = "The C ABI has no message cache." }
+go = { status = "absent", reason = "The Go binding has no message cache." }
+
 # ---------------------------------------------------------------- service client
 
 [[row]]
@@ -491,7 +527,7 @@ entity = "service_client"
 option = "QoS profile"
 rust = { status = "present", symbol = "ZClientBuilder::with_qos" }
 python = { status = "absent", reason = "The Python service client has no QoS option." }
-c = { status = "planned", reason = "The C service client has no QoS argument.", release = "0.2.2" }
+c = { status = "present", symbol = "hiroz_service_client_create_with_qos_v2" }
 go = { status = "absent", reason = "The Go service client builder has no QoS option." }
 
 [[row]]
@@ -511,7 +547,7 @@ entity = "service_server"
 option = "QoS profile"
 rust = { status = "present", symbol = "ZServerBuilder::with_qos" }
 python = { status = "absent", reason = "The Python service server has no QoS option." }
-c = { status = "planned", reason = "The C service server has no QoS argument.", release = "0.2.2" }
+c = { status = "present", symbol = "hiroz_service_server_create_with_qos_v2" }
 go = { status = "absent", reason = "The Go service server builder has no QoS option." }
 
 [[row]]
@@ -531,7 +567,7 @@ entity = "action_client"
 option = "goal service QoS"
 rust = { status = "present", symbol = "ZActionClientBuilder::with_goal_service_qos" }
 python = { status = "absent", reason = "The Python action client has no QoS options." }
-c = { status = "planned", reason = "The C action client has no QoS arguments.", release = "0.2.2" }
+c = { status = "present", symbol = "hiroz_action_client_create_with_qos_v2(CActionQosV2.goal_service)" }
 go = { status = "absent", reason = "The Go action client builder has no QoS options." }
 
 [[row]]
@@ -540,7 +576,7 @@ entity = "action_client"
 option = "result service QoS"
 rust = { status = "present", symbol = "ZActionClientBuilder::with_result_service_qos" }
 python = { status = "absent", reason = "The Python action client has no QoS options." }
-c = { status = "planned", reason = "The C action client has no QoS arguments.", release = "0.2.2" }
+c = { status = "present", symbol = "hiroz_action_client_create_with_qos_v2(CActionQosV2.result_service)" }
 go = { status = "absent", reason = "The Go action client builder has no QoS options." }
 
 [[row]]
@@ -549,7 +585,7 @@ entity = "action_client"
 option = "cancel service QoS"
 rust = { status = "present", symbol = "ZActionClientBuilder::with_cancel_service_qos" }
 python = { status = "absent", reason = "The Python action client has no QoS options." }
-c = { status = "planned", reason = "The C action client has no QoS arguments.", release = "0.2.2" }
+c = { status = "present", symbol = "hiroz_action_client_create_with_qos_v2(CActionQosV2.cancel_service)" }
 go = { status = "absent", reason = "The Go action client builder has no QoS options." }
 
 [[row]]
@@ -558,7 +594,7 @@ entity = "action_client"
 option = "feedback topic QoS"
 rust = { status = "present", symbol = "ZActionClientBuilder::with_feedback_topic_qos" }
 python = { status = "absent", reason = "The Python action client has no QoS options." }
-c = { status = "planned", reason = "The C action client has no QoS arguments.", release = "0.2.2" }
+c = { status = "present", symbol = "hiroz_action_client_create_with_qos_v2(CActionQosV2.feedback_topic)" }
 go = { status = "absent", reason = "The Go action client builder has no QoS options." }
 
 [[row]]
@@ -567,7 +603,7 @@ entity = "action_client"
 option = "status topic QoS"
 rust = { status = "present", symbol = "ZActionClientBuilder::with_status_topic_qos" }
 python = { status = "absent", reason = "The Python action client has no QoS options." }
-c = { status = "planned", reason = "The C action client has no QoS arguments.", release = "0.2.2" }
+c = { status = "absent", reason = "The C action client creator ignores the `status_topic` member of the QoS struct." }
 go = { status = "absent", reason = "The Go action client builder has no QoS options." }
 
 [[row]]
@@ -623,7 +659,7 @@ entity = "action_server"
 option = "goal service QoS"
 rust = { status = "present", symbol = "ZActionServerBuilder::with_goal_service_qos" }
 python = { status = "absent", reason = "The Python action server has no QoS options." }
-c = { status = "planned", reason = "The C action server has no QoS arguments.", release = "0.2.2" }
+c = { status = "present", symbol = "hiroz_action_server_create_with_qos_v2(CActionQosV2.goal_service)" }
 go = { status = "absent", reason = "The Go action server builder has no QoS options." }
 
 [[row]]
@@ -632,7 +668,7 @@ entity = "action_server"
 option = "result service QoS"
 rust = { status = "present", symbol = "ZActionServerBuilder::with_result_service_qos" }
 python = { status = "absent", reason = "The Python action server has no QoS options." }
-c = { status = "planned", reason = "The C action server has no QoS arguments.", release = "0.2.2" }
+c = { status = "present", symbol = "hiroz_action_server_create_with_qos_v2(CActionQosV2.result_service)" }
 go = { status = "absent", reason = "The Go action server builder has no QoS options." }
 
 [[row]]
@@ -641,7 +677,7 @@ entity = "action_server"
 option = "cancel service QoS"
 rust = { status = "present", symbol = "ZActionServerBuilder::with_cancel_service_qos" }
 python = { status = "absent", reason = "The Python action server has no QoS options." }
-c = { status = "planned", reason = "The C action server has no QoS arguments.", release = "0.2.2" }
+c = { status = "present", symbol = "hiroz_action_server_create_with_qos_v2(CActionQosV2.cancel_service)" }
 go = { status = "absent", reason = "The Go action server builder has no QoS options." }
 
 [[row]]
@@ -650,7 +686,7 @@ entity = "action_server"
 option = "feedback topic QoS"
 rust = { status = "present", symbol = "ZActionServerBuilder::with_feedback_topic_qos" }
 python = { status = "absent", reason = "The Python action server has no QoS options." }
-c = { status = "planned", reason = "The C action server has no QoS arguments.", release = "0.2.2" }
+c = { status = "present", symbol = "hiroz_action_server_create_with_qos_v2(CActionQosV2.feedback_topic)" }
 go = { status = "absent", reason = "The Go action server builder has no QoS options." }
 
 [[row]]
@@ -659,7 +695,7 @@ entity = "action_server"
 option = "status topic QoS"
 rust = { status = "present", symbol = "ZActionServerBuilder::with_status_topic_qos" }
 python = { status = "absent", reason = "The Python action server has no QoS options." }
-c = { status = "planned", reason = "The C action server has no QoS arguments.", release = "0.2.2" }
+c = { status = "present", symbol = "hiroz_action_server_create_with_qos_v2(CActionQosV2.status_topic)" }
 go = { status = "absent", reason = "The Go action server builder has no QoS options." }
 
 [[row]]
