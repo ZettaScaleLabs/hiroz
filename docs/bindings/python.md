@@ -389,7 +389,7 @@ hiroz-py defines four exception classes. All of them are attributes of `hiroz_py
 
 In the code that converts Python messages to and from CDR, invalid values raise `ValueError` or `TypeError`. They do not raise `SerializationError` or `TypeMismatchError`.
 
-`ZServer.send_response(response, request_id)` needs the `request_id` dictionary that `take_request()` returned. Pass it unchanged.
+`ZServer.send_response(response, request_id)` needs the `request_id` dictionary that `take_request()` returned. Pass it unchanged. A dictionary without an `sn` or `gid` key raises `KeyError`. A `gid` that does not hold 16 bytes raises `ValueError`.
 
 ```python
 import hiroz_py
