@@ -1,5 +1,18 @@
 package hiroz
 
+import "reflect"
+
+// newMessage returns a usable value of T. For a pointer type such as *std_msgs.String it
+// allocates the pointee, because the zero value is a nil pointer and DeserializeCDR on a nil
+// receiver panics. For any other type the zero value is already usable.
+func newMessage[T Message]() T {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	if t.Kind() == reflect.Pointer {
+		return reflect.New(t.Elem()).Interface().(T)
+	}
+	var zero T
+	return zero
+}
 
 // TypedMessageHandler is a callback for strongly-typed messages
 type TypedMessageHandler[T Message] func(msg T)
@@ -15,12 +28,12 @@ type TypedMessageHandler[T Message] func(msg T)
 //	    })
 func BuildWithTypedCallback[T Message](builder *SubscriberBuilder, handler TypedMessageHandler[T]) (*Subscriber, error) {
 	// Create a zero-value instance for type information
-	var msgTemplate T
+	msgTemplate := newMessage[T]()
 
 	// Wrap the typed handler with deserialization
 	rawHandler := func(data []byte) {
 		// Create a new instance of the message type
-		var msg T
+		msg := newMessage[T]()
 		if err := msg.DeserializeCDR(data); err != nil {
 			// Silently drop malformed messages
 			return
@@ -46,7 +59,7 @@ func BuildWithTypedCallback[T Message](builder *SubscriberBuilder, handler Typed
 //	    log.Printf("Received: %s", msg.Data)
 //	}
 func SubscriberWithChannel[T Message](builder *SubscriberBuilder, bufferSize int) (*Subscriber, <-chan T, func(), error) {
-	var msgTemplate T
+	msgTemplate := newMessage[T]()
 
 	// Create output channel and a done channel used to signal teardown.
 	// The done channel eliminates the TOCTOU window that existed with the
@@ -57,7 +70,7 @@ func SubscriberWithChannel[T Message](builder *SubscriberBuilder, bufferSize int
 	done := make(chan struct{})
 
 	rawHandler := func(data []byte) {
-		var msg T
+		msg := newMessage[T]()
 		if err := msg.DeserializeCDR(data); err != nil {
 			return // drop malformed messages
 		}
@@ -100,13 +113,13 @@ func SubscriberWithChannel[T Message](builder *SubscriberBuilder, bufferSize int
 //	    log.Printf("Received: %s", msg.Data)
 //	}
 func SubscriberWithHandler[T Message](builder *SubscriberBuilder, handler Handler[T]) (*Subscriber, <-chan T, func(), error) {
-	var msgTemplate T
+	msgTemplate := newMessage[T]()
 
 	callback, drop, ch := handler.ToCbDropHandler()
 
 	// Wrap callback with deserialization
 	rawCallback := func(data []byte) {
-		var msg T
+		msg := newMessage[T]()
 		if err := msg.DeserializeCDR(data); err != nil {
 			return
 		}
