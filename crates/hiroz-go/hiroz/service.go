@@ -9,6 +9,7 @@ extern hiroz_ServiceCallback getServiceCallback();
 import "C"
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"runtime/cgo"
@@ -74,7 +75,7 @@ type ServiceClient struct {
 	node      *Node
 	service   string
 	closeOnce sync.Once
-	inflight  sync.WaitGroup // tracks calls that run in a goroutine, so Close does not free the handle under them
+	inflight  inflightGate // tracks calls that run in a goroutine, so Close does not free the handle under them
 }
 
 // ServiceServer responds to ROS 2 service requests
@@ -193,6 +194,15 @@ func (c *ServiceClient) callRawContext(ctx context.Context, requestBytes []byte)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if !c.inflight.enter() {
+		return nil, fmt.Errorf("service client is closed")
+	}
+	registered := true
+	defer func() {
+		if registered {
+			c.inflight.leave()
+		}
+	}()
 	hw := c.handle.Load()
 	if hw == nil {
 		return nil, fmt.Errorf("service client is closed")
@@ -212,10 +222,10 @@ func (c *ServiceClient) callRawContext(ctx context.Context, requestBytes []byte)
 		err  error
 	}
 	ch := make(chan result, 1)
-	h := hw.p // capture before the goroutine to avoid a race with Close
-	c.inflight.Add(1)
+	h := hw.p          // read while registered, so Close has not freed it
+	registered = false // the goroutine now owns the registration
 	go func() {
-		defer c.inflight.Done()
+		defer c.inflight.leave()
 		data, err := c.invoke(h, requestBytes, timeoutMs)
 		ch <- result{data, err}
 	}()
@@ -224,8 +234,13 @@ func (c *ServiceClient) callRawContext(ctx context.Context, requestBytes []byte)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case r := <-ch:
-		if r.err != nil && ctx.Err() != nil {
-			return nil, ctx.Err()
+		if r.err != nil {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if dl, ok := ctx.Deadline(); ok && errors.Is(r.err, ErrTimeout) && !time.Now().Before(dl) {
+				return nil, context.DeadlineExceeded
+			}
 		}
 		return r.data, r.err
 	}
@@ -294,32 +309,52 @@ func (c *ServiceClient) WaitForService(timeout time.Duration) error {
 // It bounds how long a cancelled context waits before the call returns.
 const waitSlice = 250 * time.Millisecond
 
+// waitSliceMs turns the time left before a deadline into the timeout of one C wait. It
+// returns expired when no time is left. Otherwise the timeout is at least 1 ms and at most
+// waitSlice, and a fraction of a millisecond rounds up.
+func waitSliceMs(remaining time.Duration) (timeoutMs uint64, expired bool) {
+	if remaining <= 0 {
+		return 0, true
+	}
+	if remaining > waitSlice {
+		remaining = waitSlice
+	}
+	return uint64((remaining + time.Millisecond - 1) / time.Millisecond), false
+}
+
 // WaitForServiceContext blocks until a matching service server is visible in the ROS graph
 // or ctx ends. It returns nil when the service is ready and ctx.Err() when ctx ends first.
 // Any other failure returns the HirozError of the C layer. The C wait runs in slices of at
-// most 250 ms, so a cancelled context returns within one slice.
+// most 250 ms, so a cancelled context returns within one slice. Close also ends the wait
+// within one slice: the call then returns an error that says the client is closed.
 func (c *ServiceClient) WaitForServiceContext(ctx context.Context) error {
+	if !c.inflight.enter() {
+		return fmt.Errorf("service client is closed")
+	}
+	defer c.inflight.leave()
 	hw := c.handle.Load()
 	if hw == nil {
 		return fmt.Errorf("service client is closed")
 	}
 	h := hw.p
-	c.inflight.Add(1)
-	defer c.inflight.Done()
+	quit := c.inflight.quitting()
 
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		slice := waitSlice
-		if dl, ok := ctx.Deadline(); ok {
-			if remaining := time.Until(dl); remaining < slice {
-				slice = remaining
-			}
+		select {
+		case <-quit:
+			return fmt.Errorf("service client is closed")
+		default:
 		}
-		timeoutMs := uint64(slice / time.Millisecond)
-		if timeoutMs == 0 {
-			timeoutMs = 1
+		remaining := waitSlice
+		if dl, ok := ctx.Deadline(); ok {
+			remaining = time.Until(dl)
+		}
+		timeoutMs, expired := waitSliceMs(remaining)
+		if expired {
+			return context.DeadlineExceeded
 		}
 		rc := serviceWait(h, timeoutMs)
 		if rc == 0 {
@@ -333,11 +368,13 @@ func (c *ServiceClient) WaitForServiceContext(ctx context.Context) error {
 }
 
 // Close destroys the service client.
-// Close blocks until every call made through a context variant has returned.
+// Close blocks until every call made through a context variant has returned. A
+// CallTypedContext that is still inside the C layer holds Close until its call timeout
+// ends. A WaitForServiceContext call returns within one wait slice.
 func (c *ServiceClient) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
-		c.inflight.Wait() // drain in-flight calls before freeing the handle
+		c.inflight.shutdown() // refuse new calls, then drain in-flight calls before freeing the handle
 		hw := c.handle.Load()
 		if hw == nil {
 			return

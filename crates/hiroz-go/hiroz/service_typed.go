@@ -47,7 +47,9 @@ func CallTypedWithTimeout[Resp Message](client *ServiceClient, request Message, 
 // A context deadline sets the timeout of the call. Without a deadline the call uses
 // DefaultServiceTimeout. When ctx ends first, the error wraps ctx.Err()
 // (context.Canceled or context.DeadlineExceeded) and does not match ErrTimeout.
-// ErrTimeout still means the server did not answer within the call timeout.
+// A call timeout that ends after the context deadline has passed also returns
+// context.DeadlineExceeded. ErrTimeout means the server did not answer within the call
+// timeout while the context deadline was still in the future.
 //
 // Cancelling ctx does not abort the call in the C layer. The call ends at its timeout,
 // and ServiceClient.Close waits for it.

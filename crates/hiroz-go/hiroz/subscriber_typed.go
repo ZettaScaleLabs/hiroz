@@ -1,6 +1,9 @@
 package hiroz
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // TypedMessageHandler is a callback for strongly-typed messages
 type TypedMessageHandler[T Message] func(msg T)
@@ -169,11 +172,20 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 	var msgTemplate T
 	outCh := make(chan T, bufferSize)
 	done := make(chan struct{})
+	// senders holds a read lock while a callback may send. The teardown takes the write lock
+	// before it closes outCh, so no callback sends on a closed channel.
+	var senders sync.RWMutex
+	closed := false
 
 	rawHandler := func(data []byte) {
 		var msg T
 		if err := msg.DeserializeCDR(data); err != nil {
 			return // drop malformed messages
+		}
+		senders.RLock()
+		defer senders.RUnlock()
+		if closed {
+			return
 		}
 		select {
 		case outCh <- msg:
@@ -186,10 +198,14 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 		return nil, nil, err
 	}
 
-	// Order matters: release blocked callbacks, undeclare so none can start, then close.
+	// Order matters: release blocked callbacks, undeclare so none can start, wait for the
+	// callbacks that are still running, then close.
 	context.AfterFunc(ctx, func() {
 		close(done)
 		_ = sub.node.DestroySubscriber(sub)
+		senders.Lock()
+		closed = true
+		senders.Unlock()
 		close(outCh)
 	})
 	return sub, outCh, nil
