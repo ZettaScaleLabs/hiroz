@@ -7,7 +7,31 @@
 # reads the table that hiroz/build.rs generated.
 #
 # Usage: scripts/ci/check-embedded-msgs-packaged.sh   (from the repository root)
+#        scripts/ci/check-embedded-msgs-packaged.sh --self-test-layout
 set -u
+
+# The layout check, as a function so that it can be tested on a fake tree.
+# Args: crates directory, version. Returns 0 when the layout is the crates.io
+# one: hiroz-codegen exists only as hiroz-codegen-<version>, never unversioned.
+check_layout() {
+  local dir="$1" ver="$2"
+  if [ ! -d "$dir/hiroz-codegen-$ver" ]; then
+    echo "layout: $dir/hiroz-codegen-$ver is missing"; return 1
+  fi
+  if [ -e "$dir/hiroz-codegen" ]; then
+    echo "layout: a sibling directory named hiroz-codegen exists"; return 1
+  fi
+  return 0
+}
+
+if [ "${1:-}" = "--self-test-layout" ]; then
+  T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+  mkdir -p "$T/good/hiroz-codegen-1.2.3" "$T/bad/hiroz-codegen-1.2.3" "$T/bad/hiroz-codegen" "$T/empty"
+  check_layout "$T/good" 1.2.3 >/dev/null || { echo "SELFTEST=FAIL (good layout rejected)"; exit 1; }
+  check_layout "$T/bad" 1.2.3 >/dev/null && { echo "SELFTEST=FAIL (sibling not detected)"; exit 1; }
+  check_layout "$T/empty" 1.2.3 >/dev/null && { echo "SELFTEST=FAIL (missing crate not detected)"; exit 1; }
+  echo "SELFTEST=PASS"; exit 0
+fi
 
 ROOT="$(pwd)"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
@@ -17,28 +41,34 @@ case "$CARGO_TARGET_DIR" in
 esac
 
 VERSION="$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
-WORK="$ROOT/_tmp/packaged-build"
-rm -rf "$WORK"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/crates" "$WORK/consumer/src"
+CRATES="hiroz-cdr hiroz-schema hiroz-codegen hiroz-derive hiroz-protocol hiroz"
 
 echo "HEAD=$(git log --oneline -1)"
 echo "VERSION=$VERSION"
 
-cargo package -p hiroz-cdr -p hiroz-schema -p hiroz-codegen -p hiroz-derive -p hiroz-protocol -p hiroz --no-verify --allow-dirty > "$WORK/package.log" 2>&1
+PKG_ARGS=""
+for name in $CRATES; do PKG_ARGS="$PKG_ARGS -p $name"; done
+# shellcheck disable=SC2086
+cargo package $PKG_ARGS --no-verify --allow-dirty > "$WORK/package.log" 2>&1
 rc=$?
 echo "package rc=$rc"
 if [ "$rc" -ne 0 ]; then tail -30 "$WORK/package.log"; echo "RESULT=FAIL (package)"; exit 1; fi
 
 n=0
-for c in "$CARGO_TARGET_DIR"/package/*.crate; do
+for name in $CRATES; do
+  c="$CARGO_TARGET_DIR/package/$name-$VERSION.crate"
+  [ -f "$c" ] || { echo "RESULT=FAIL (missing $c)"; exit 1; }
   tar -xzf "$c" -C "$WORK/crates" || { echo "RESULT=FAIL (unpack $c)"; exit 1; }
   n=$((n + 1))
 done
 echo "unpacked $n crates"
 
 # The packaged hiroz must have no sibling named hiroz-codegen.
-if [ -e "$WORK/crates/hiroz-codegen" ]; then
-  echo "RESULT=FAIL (a sibling directory named hiroz-codegen exists)"; exit 1
+if ! out="$(check_layout "$WORK/crates" "$VERSION")"; then
+  echo "$out"; echo "RESULT=FAIL (layout)"; exit 1
 fi
 
 {
