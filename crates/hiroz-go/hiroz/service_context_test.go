@@ -210,3 +210,30 @@ func TestWaitForServiceContextHardError(t *testing.T) {
 		t.Fatalf("want HirozError with SessionClosed, got %v", err)
 	}
 }
+
+// pastDeadlineCtx reports a deadline that is in the future on the first read and in the
+// past after it, while Err stays nil. It models a timer that has not fired yet.
+type pastDeadlineCtx struct {
+	context.Context
+	reads atomic.Int32
+}
+
+func (c *pastDeadlineCtx) Deadline() (time.Time, bool) {
+	if c.reads.Add(1) == 1 {
+		return time.Now().Add(time.Hour), true
+	}
+	return time.Now().Add(-time.Second), true
+}
+
+// A C timeout that returns after the deadline is the context's deadline, not a server timeout.
+func TestCallTypedContextTimeoutAfterDeadlineIsDeadlineExceeded(t *testing.T) {
+	stubServiceCall(t, func([]byte, uint64) ([]byte, int32) { return nil, int32(ErrorCodeServiceTimeout) })
+	ctx := &pastDeadlineCtx{Context: context.Background()}
+	err := CallTypedContext(ctx, openTestClient(), mockReq(), &MockMessage{})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want context.DeadlineExceeded, got %v", err)
+	}
+	if errors.Is(err, ErrTimeout) {
+		t.Errorf("a passed deadline must not read as ErrTimeout: %v", err)
+	}
+}

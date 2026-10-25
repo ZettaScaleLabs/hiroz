@@ -374,6 +374,10 @@ func (c *ActionClient) SendGoal(goal Message) (*GoalHandle, error) {
 	return handle, nil
 }
 
+// sendGoal makes the blocking goal send of SendGoalContext. A test replaces it. Production
+// code never assigns it.
+var sendGoal = func(c *ActionClient, goal Message) (*GoalHandle, error) { return c.SendGoal(goal) }
+
 // SendGoalContext sends a goal and returns when the server answers or ctx ends.
 // When ctx ends first, the call returns ctx.Err() and closes the goal handle once the C layer
 // returns. The server may already hold the goal. Cancelling ctx does not cancel the goal.
@@ -394,7 +398,7 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 	c.inflight.Add(1)
 	go func() {
 		defer c.inflight.Done()
-		h, err := c.SendGoal(goal)
+		h, err := sendGoal(c, goal)
 		ch <- result{h, err}
 	}()
 
