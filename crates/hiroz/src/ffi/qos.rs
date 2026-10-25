@@ -166,7 +166,9 @@ impl CQosProfileV2 {
     ///
     /// # Safety
     /// The pointer must be null, or point to at least `struct_size` readable bytes.
-    pub unsafe fn to_qos_profile(ptr: *const CQosProfileV2) -> Result<Option<QosProfile>, InvalidStructSize> {
+    pub unsafe fn to_qos_profile(
+        ptr: *const CQosProfileV2,
+    ) -> Result<Option<QosProfile>, InvalidStructSize> {
         if ptr.is_null() {
             return Ok(None);
         }

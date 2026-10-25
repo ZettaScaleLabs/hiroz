@@ -215,9 +215,13 @@ pub unsafe extern "C" fn hiroz_service_client_create_with_qos_v2(
 ) -> *mut CServiceClient {
     unsafe {
         match CQosProfileV2::to_qos_profile(qos) {
-            Ok(qos_profile) => {
-                create_service_client(node, service_name, req_type_name, req_type_hash, qos_profile)
-            }
+            Ok(qos_profile) => create_service_client(
+                node,
+                service_name,
+                req_type_name,
+                req_type_hash,
+                qos_profile,
+            ),
             Err(e) => {
                 tracing::warn!("hiroz: Invalid QoS struct for a service client: {:?}", e);
                 std::ptr::null_mut()
