@@ -561,7 +561,11 @@ int32_t hiroz_graph_node_exists(struct hiroz_context_t *ctx,
                                 const char *namespace_);
 
 /**
- * Return the last error message of the calling thread, or NULL if none is recorded. The pointer stays valid until the next failing hiroz call or `hiroz_last_error_clear` on the same thread. Do not free it.
+ * Return the last error message of the calling thread, or NULL if none is recorded.
+ *
+ * Only some failing calls record a message: those that log a warning, and those that reject a null or non-UTF-8 string argument. Other failing calls record nothing. A successful call does not clear the message, so check the return value first and read the message only after a non-zero return. Treat NULL as "no message recorded". The message may also be stale, from an earlier failure on the same thread.
+ *
+ * The pointer stays valid until the next call on the same thread that records a message, or `hiroz_last_error_clear`. Do not free it.
  */
 const char *hiroz_last_error_message(void);
 

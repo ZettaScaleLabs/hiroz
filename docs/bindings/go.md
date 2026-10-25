@@ -387,16 +387,19 @@ if errors.Is(err, hiroz.ErrBuildFailed) { /* construction failed */ }
 if errors.Is(err, hiroz.ErrTimeout)     { /* no server responded */ }
 ```
 
-A C caller can read the reason for a failure with `hiroz_last_error_message()`, which returns a thread-local string or NULL.
-Read it on the same OS thread, straight after the failing call.
-Call `hiroz_last_error_clear()` to discard it.
-A successful call does not clear it, so read it only after a non-zero return.
+A C caller can read the reason for some failures with `hiroz_last_error_message()`, which returns a thread-local string or NULL.
+Only some failing calls record a message: those that log a warning, and those that reject a null or non-UTF-8 string argument.
+Other failing calls, such as a null handle or a failed publish, record nothing.
+Check the return value first, and read the message on the same OS thread, straight after a non-zero return.
+Treat NULL as "no message recorded".
+The message stays valid until the next call on that thread that records a message, or until `hiroz_last_error_clear()` discards it.
+A successful call does not clear it, so a message can be stale.
 The Go package does not expose it, because a goroutine can move to another OS thread between the C call and the read.
 
 !!! warning
     `hiroz_action_client_send_goal`, `hiroz_action_client_get_result` and `hiroz_action_client_cancel_goal` return `-1` for a runtime failure.
     The same value means `ErrorCodeNullPointer`, so the code alone does not tell the two apart.
-    For C callers, `hiroz_last_error_message()` names the real cause.
+    For C callers, `hiroz_last_error_message()` names the cause when the failing path records a message.
     The Go package maps these paths to `ErrorCodeActionCancelFailed` and `ErrorCodeActionResultFailed`, but `SendGoal` passes the raw code through.
 
 Inspect the error code directly when you need fine-grained handling:
