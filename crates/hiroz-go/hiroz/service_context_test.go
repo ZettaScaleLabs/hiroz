@@ -81,7 +81,6 @@ func TestCallTypedContextCancelReturnsCanceled(t *testing.T) {
 
 func TestCallTypedContextDeadlineIsNotServiceTimeout(t *testing.T) {
 	release := make(chan struct{})
-	defer close(release)
 	stubServiceCall(t, func([]byte, uint64) ([]byte, int32) {
 		<-release
 		return nil, int32(ErrorCodeServiceTimeout)
@@ -89,13 +88,18 @@ func TestCallTypedContextDeadlineIsNotServiceTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 
-	err := CallTypedContext(ctx, openTestClient(), mockReq(), &MockMessage{})
+	c := openTestClient()
+	err := CallTypedContext(ctx, c, mockReq(), &MockMessage{})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("want context.DeadlineExceeded, got %v", err)
 	}
 	if errors.Is(err, ErrTimeout) {
 		t.Errorf("a context deadline must not read as ErrTimeout: %v", err)
 	}
+
+	// Let the call that is still in the C layer finish before the stub is restored.
+	close(release)
+	_ = c.Close()
 }
 
 func TestCallTypedContextPassesDeadlineAsTimeout(t *testing.T) {
