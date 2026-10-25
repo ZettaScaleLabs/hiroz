@@ -1014,3 +1014,146 @@ go = { status = "present", symbol = "Ghost" }
     let errors = check_binding_symbols(&rows, &sources);
     assert!(errors.is_empty(), "{errors:?}");
 }
+
+/// Returns true when `source` is accepted as a definition of `Ghost` for a `present` cell of `binding`.
+fn ghost_defined(binding: &str, source: &str) -> bool {
+    let rows = parse_rows(&format!(
+        "[[row]]\nid = \"publisher.extra\"\nentity = \"publisher\"\noption = \"extra\"\n{binding} = {{ status = \"present\", symbol = \"Ghost\" }}\n"
+    ))
+    .expect("row parses");
+    let mut sources = BTreeMap::new();
+    sources.insert(binding, source.to_string());
+    check_binding_symbols(&rows, &sources).is_empty()
+}
+
+#[test]
+fn definition_in_a_commented_rename_fails() {
+    // Negative controls: the rename attribute is in a comment or a string.
+    for source in [
+        "// #[pyo3(name = \"Ghost\")]\nfn ghost() {}",
+        "/* #[pyo3(name = \"Ghost\")] */\nfn ghost() {}",
+        "/* /* */ #[pyo3(name = \"Ghost\")] */\nfn ghost() {}",
+        "const S: &str = \"#[pyo3(name = \\\"Ghost\\\")]\";\nfn ghost() {}",
+    ] {
+        assert!(!ghost_defined("python", source), "accepted: {source}");
+    }
+    // Positive controls: a live rename passes.
+    for source in [
+        "#[pyo3(name = \"Ghost\")]\nfn ghost() {}",
+        "#[pyclass(name = \"Ghost\", module = \"m\")]\nstruct G;",
+        "// note\n#[pyo3(\n    name = \"Ghost\"\n)]\nfn ghost() {}",
+    ] {
+        assert!(ghost_defined("python", source), "rejected: {source}");
+    }
+}
+
+#[test]
+fn definition_in_a_nested_rust_comment_fails() {
+    for binding in ["python", "c"] {
+        for source in [
+            "/* /* */ fn Ghost() {} */",
+            "/* /* /* */ */ fn Ghost() {} */",
+        ] {
+            assert!(!ghost_defined(binding, source), "accepted: {source}");
+        }
+        // Positive control: the comment is closed, so the function is code.
+        assert!(ghost_defined(binding, "/* /* */ */ fn Ghost() {}"));
+    }
+}
+
+#[test]
+fn go_block_comments_do_not_nest() {
+    assert!(!ghost_defined("go", "/* func Ghost() {} */"));
+    // The first `*/` ends the comment in Go, so the function is code.
+    assert!(ghost_defined("go", "/* /* */ func Ghost() {} */"));
+}
+
+#[test]
+fn definition_after_a_rust_raw_string_is_read_correctly() {
+    for binding in ["python", "c"] {
+        // Negative controls: the raw string holds quotes, and a later string holds the text.
+        for source in [
+            "let a = r#\"q\"#; let b = r#\"x \" y\"#;\nlet s = \"fn Ghost() {}\";",
+            "let b = r##\"x \"# y\"##;\nlet s = \"fn Ghost() {}\";",
+            "let s = r#\"say \"hi\" fn Ghost() {}\"#;",
+        ] {
+            assert!(!ghost_defined(binding, source), "accepted: {source}");
+        }
+        // Positive controls: a real definition after a raw string with a quote.
+        for source in [
+            "let s = r#\"x \" y\"#;\nfn Ghost() {}",
+            "let s = br##\"x \"# y\"##;\nfn Ghost() {}",
+        ] {
+            assert!(ghost_defined(binding, source), "rejected: {source}");
+        }
+    }
+}
+
+#[test]
+fn go_raw_strings_hide_their_content() {
+    assert!(!ghost_defined("go", "s := `say \" func Ghost() {}`"));
+    assert!(ghost_defined("go", "s := `a \\\"`\nfunc Ghost() {}"));
+}
+
+#[test]
+fn character_literals_and_lifetimes_do_not_confuse_the_blanker() {
+    for binding in ["python", "c"] {
+        let literals = "let a = '\\u{22}'; let b = '\\x22'; let c = '\\''; let d = '\"';\n";
+        assert!(ghost_defined(
+            binding,
+            &format!("{literals}fn Ghost<'a>(x: &'a str) -> &'a str {{ x }}")
+        ));
+        assert!(!ghost_defined(
+            binding,
+            &format!("{literals}let s = \"fn Ghost() {{}}\";")
+        ));
+        assert!(!ghost_defined(
+            binding,
+            "fn f<'a>(x: &'a u8) -> &'a u8 { x }\nconst S: &str = \"fn Ghost() {}\";"
+        ));
+    }
+    let runes = "r := '\\u00e9'\nq := '\\x41'\nz := '\\''\n";
+    assert!(ghost_defined("go", &format!("{runes}func Ghost() {{}}")));
+    assert!(!ghost_defined(
+        "go",
+        &format!("{runes}s := \"func Ghost() {{}}\"")
+    ));
+}
+
+#[test]
+fn a_name_that_is_not_a_parameter_or_field_fails() {
+    // Negative controls: each form uses `Ghost` without defining it.
+    for source in [
+        "fn f() { let s = S { Ghost: 1 }; }",
+        "fn f() { let Ghost: u8 = 1; }",
+        "fn f() { let c = |Ghost: u8| 1; }",
+        "fn f() { println!(\"{}\", Ghost = 1); }",
+        "fn f(x: *const Ghost) {}",
+        "fn f(x: Option<fn(Ghost: u8)>) {}",
+        "struct S { a: u8 }\nfn f() { let s = S { a: 1, Ghost: 2 }; }",
+    ] {
+        for binding in ["python", "c"] {
+            assert!(!ghost_defined(binding, source), "accepted: {source}");
+        }
+    }
+}
+
+#[test]
+fn a_parameter_or_field_definition_passes() {
+    // Positive controls for the rule above.
+    for source in [
+        "fn f(a: u8, Ghost: u8) {}",
+        "fn f<T: Into<String>>(mut Ghost: T) {}",
+        "pub extern \"C\" fn f(a: *const u8, Ghost: usize) -> i32 { 0 }",
+        "struct S { a: u8, pub Ghost: u8 }",
+        "struct S<T> where T: Copy { #[x] pub(crate) Ghost: T }",
+        "#[pyo3(signature = (a, Ghost=None))]\nfn f() {}",
+        "const Ghost: u8 = 1;",
+        "static mut Ghost: u8 = 1;",
+        "type Ghost = u8;",
+    ] {
+        for binding in ["python", "c"] {
+            assert!(ghost_defined(binding, source), "rejected: {source}");
+        }
+    }
+}
