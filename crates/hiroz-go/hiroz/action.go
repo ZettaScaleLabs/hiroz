@@ -161,6 +161,18 @@ func (h *GoalHandle) GetResult() ([]byte, error) {
 // Close() on the ActionClient blocks until all in-flight GetResultWithContext
 // goroutines have returned, preventing use-after-free of the C handle.
 func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
+	if h.handle.Load() == nil || h.client == nil {
+		return nil, fmt.Errorf("goal handle is closed")
+	}
+	if !h.client.inflight.enter() {
+		return nil, fmt.Errorf("action client is closed")
+	}
+	registered := true
+	defer func() {
+		if registered {
+			h.client.inflight.leave()
+		}
+	}()
 	hw := h.handle.Load()
 	if hw == nil {
 		return nil, fmt.Errorf("goal handle is closed")
@@ -172,10 +184,10 @@ func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 	}
 
 	ch := make(chan ffiResult, 1)
-	h.client.inflight.Add(1)
-	goalHandle := hw.p // capture before goroutine to avoid race with Close
+	goalHandle := hw.p // read while registered, so Close has not freed the client
+	registered = false // the goroutine now owns the registration
 	go func() {
-		defer h.client.inflight.Done()
+		defer h.client.inflight.leave()
 
 		var resultPtr *C.uint8_t
 		var resultLen C.uintptr_t
@@ -228,7 +240,7 @@ type ActionClient struct {
 	handle    atomic.Pointer[cActionClientHandle]
 	node      *Node
 	action    string
-	inflight  sync.WaitGroup // tracks goroutines blocked inside GetResultWithContext and SendGoalContext
+	inflight  inflightGate // tracks goroutines blocked inside GetResultWithContext and SendGoalContext
 	closeOnce sync.Once
 }
 
@@ -386,18 +398,16 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if c.handle.Load() == nil {
+	if !c.inflight.enter() {
 		return nil, fmt.Errorf("action client is closed")
 	}
-
 	type result struct {
 		h   *GoalHandle
 		err error
 	}
 	ch := make(chan result, 1)
-	c.inflight.Add(1)
 	go func() {
-		defer c.inflight.Done()
+		defer c.inflight.leave()
 		h, err := sendGoal(c, goal)
 		ch <- result{h, err}
 	}()
@@ -421,7 +431,7 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 func (c *ActionClient) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
-		c.inflight.Wait() // drain goroutines before freeing handle
+		c.inflight.shutdown() // refuse new calls, then drain goroutines before freeing handle
 		hw := c.handle.Load()
 		if hw == nil {
 			return
