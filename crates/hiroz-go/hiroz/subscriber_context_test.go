@@ -81,7 +81,7 @@ func stubSubscriber(t *testing.T) *fakeSubscriber {
 	createSubscriber = func(c subscriberCall) *cSubscriber {
 		h := cgo.Handle(c.userData)
 		f.deliver = func(b []byte) { h.Value().(*closureContext[[]byte]).call(b) }
-		return (*cSubscriber)(unsafe.Pointer(new(byte)))
+		return (*cSubscriber)(unsafe.Pointer(new([4096]byte)))
 	}
 	destroySubscriber = func(*cSubscriber) int32 {
 		f.destroys.Add(1)
