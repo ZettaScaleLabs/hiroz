@@ -248,7 +248,8 @@ typedef struct hiroz_action_qos_v2_t {
    */
   const struct hiroz_qos_profile_v2_t *feedback_topic;
   /**
-   * The status topic. An action client has no status subscriber and ignores it.
+   * The status topic. An action server publishes with it. An action client creates a status
+   * subscriber with it when it is not null, and creates none when it is null.
    */
   const struct hiroz_qos_profile_v2_t *status_topic;
 } hiroz_action_qos_v2_t;
@@ -458,10 +459,12 @@ struct hiroz_action_client_t *hiroz_action_client_create(struct hiroz_node_t *no
  * Create an action client with a versioned QoS struct
  *
  * The same as `hiroz_action_client_create`, with a QoS profile for the three services and the
- * feedback subscriber. A null `qos`, or a null member, asks for the default profile. The client
- * has no status subscriber, so the client ignores `status_topic`. The profile of a service goes
- * into its liveliness token and does not change how a call is delivered. Returns null if `qos`,
- * or a member, has a `struct_size` below 4.
+ * feedback subscriber. A null `qos`, or a null member, asks for the default profile, except
+ * `status_topic`: a null `status_topic` creates no status subscriber, and a non-null one creates
+ * a status subscriber with that profile. The subscriber declares a liveliness token that carries
+ * the profile, and it stays out of the buffer group. The profile of a service goes into its
+ * liveliness token and does not change how a call is delivered. Returns null if `qos`, or a
+ * member, has a `struct_size` below 4.
  *
  * # Safety
  * `node` must be a valid node pointer. The strings must be valid C strings. `qos` must be null,
