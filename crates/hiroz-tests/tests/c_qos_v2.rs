@@ -655,9 +655,9 @@ fn c_abi_action_server_qos_v2_reaches_each_token() {
     unsafe { hiroz_action_server_destroy(server) };
 }
 
-/// An action client announces the QoS of its three services. Its feedback subscriber stays out of
-/// the buffer group, so it declares no token and a peer cannot read the feedback QoS. The client
-/// creates no status subscriber, so `status_topic` has no entity to reach.
+/// An action client announces the QoS of its three services and of its status subscriber. Its
+/// feedback subscriber stays out of the buffer group, so it declares no token and a peer cannot
+/// read the feedback QoS.
 #[test]
 fn c_abi_action_client_qos_v2_reaches_each_token() {
     let router = TestRouter::new();
@@ -682,14 +682,67 @@ fn c_abi_action_client_qos_v2_reaches_each_token() {
         qos_text(&raw, &format!("{name}/cancel_goal")),
         expected_cancel()
     );
-    for entity in ["feedback", "status"] {
-        assert!(
-            tokens_of(&raw, &format!("{name}/{entity}")).is_empty(),
-            "an action client declared a token for {entity}"
-        );
-    }
+    assert_eq!(qos_text(&raw, &format!("{name}/status")), expected_status());
+    assert!(
+        tokens_of(&raw, &format!("{name}/feedback")).is_empty(),
+        "an action client declared a token for feedback"
+    );
 
     unsafe { hiroz_action_client_destroy(client) };
+}
+
+/// The `status_topic` member reaches the status subscriber of an action client. Three clients
+/// control each other: a member with a distinct profile, a member with the default profile, and
+/// no member. The first announces the distinct QoS, so the value is not lost. The second announces
+/// the default, so the QoS is not forced to the distinct value. The third creates no status
+/// subscriber, as an action client without the member never did.
+#[test]
+fn c_abi_action_client_status_qos_v2_reaches_the_status_subscriber() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_act_status");
+
+    let profiles = ActionProfiles::new();
+    let distinct = profiles.as_struct();
+    let default_status = init_v2();
+    let mut with_default = profiles.as_struct();
+    with_default.status_topic = &default_status;
+    let mut without = profiles.as_struct();
+    without.status_topic = std::ptr::null();
+
+    let a = c.action_client_v2("c_qos_v2_act_status_distinct", &distinct);
+    let b = c.action_client_v2("c_qos_v2_act_status_default", &with_default);
+    let n = c.action_client_v2("c_qos_v2_act_status_none", &without);
+    assert!(
+        !a.is_null() && !b.is_null() && !n.is_null(),
+        "a creator returned null"
+    );
+
+    assert_eq!(
+        qos_text(&raw, "c_qos_v2_act_status_distinct/_action/status"),
+        expected_status()
+    );
+    assert_ne!(expected_status(), encoded(&QosProfile::default()));
+    assert_eq!(
+        qos_text(&raw, "c_qos_v2_act_status_default/_action/status"),
+        encoded(&QosProfile::default())
+    );
+    // The services of the third client are visible, so a missing status token is not a dead
+    // client.
+    assert_eq!(
+        qos_text(&raw, "c_qos_v2_act_status_none/_action/send_goal"),
+        expected_goal()
+    );
+    assert!(
+        tokens_of(&raw, "c_qos_v2_act_status_none/_action/status").is_empty(),
+        "an action client without a status member declared a status token"
+    );
+
+    unsafe {
+        hiroz_action_client_destroy(a);
+        hiroz_action_client_destroy(b);
+        hiroz_action_client_destroy(n);
+    }
 }
 
 /// A null pointer, and a null member, ask for the default profile.
@@ -726,6 +779,12 @@ fn c_abi_action_qos_v2_null_means_default() {
     for entity in ["send_goal", "get_result", "cancel_goal"] {
         assert_eq!(qos_text(&raw, &format!("{null_name}/{entity}")), default);
     }
+    for name in [partial_name, null_name] {
+        assert!(
+            tokens_of(&raw, &format!("{name}/status")).is_empty(),
+            "a null status member made a status token on {name}"
+        );
+    }
 
     unsafe {
         hiroz_action_client_destroy(with_goal_only);
@@ -755,6 +814,10 @@ fn c_abi_action_qos_v2_reads_only_the_members_inside_struct_size() {
     assert_eq!(
         qos_text(&raw, &format!("{name}/get_result")),
         encoded(&QosProfile::default())
+    );
+    assert!(
+        tokens_of(&raw, &format!("{name}/status")).is_empty(),
+        "a status member outside struct_size made a status token"
     );
 
     unsafe { hiroz_action_client_destroy(client) };
