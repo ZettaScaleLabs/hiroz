@@ -605,8 +605,8 @@ fn raw_string_hashes(chars: &[char], i: usize) -> Option<usize> {
     let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
     let before = i.checked_sub(1).map(|p| chars[p]);
     let before2 = i.checked_sub(2).map(|p| chars[p]);
-    let ends_identifier =
-        before.is_some_and(is_ident) && !(before == Some('b') && !before2.is_some_and(is_ident));
+    let after_byte_prefix = before == Some('b') && !before2.is_some_and(is_ident);
+    let ends_identifier = before.is_some_and(is_ident) && !after_byte_prefix;
     if chars[i] != 'r' || ends_identifier {
         return None;
     }
@@ -634,7 +634,7 @@ fn blank_source(source: &str, lang: Lang, mark_strings: bool) -> String {
         let next = chars.get(i + 1).copied();
         if c == '/' && next == Some('/') {
             while i < chars.len() && chars[i] != '\n' {
-                out.push(' ');
+                push_blank(&mut out, chars[i], ' ');
                 i += 1;
             }
         } else if c == '/' && next == Some('*') {
