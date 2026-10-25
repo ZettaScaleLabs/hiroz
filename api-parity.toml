@@ -41,7 +41,7 @@ option = "default namespace for nodes"
 rust = { status = "present", symbol = "ZContextBuilder::with_namespace" }
 python = { status = "present", symbol = "ZContextBuilder.with_namespace" }
 c = { status = "present", symbol = "CContextConfig.namespace" }
-go = { status = "planned", reason = "The Go context builder has no namespace setter, although the C configuration struct has the field.", release = "0.2.2" }
+go = { status = "planned", reason = "The Go context builder has no namespace setter, although the C configuration struct has the field.", release = "0.3.0" }
 
 [[row]]
 id = "context.enclave"
