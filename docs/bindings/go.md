@@ -98,7 +98,8 @@ Callbacks flow in reverse: Rust invokes C function pointers → dispatched to Go
 
 The library exports `hiroz_abi_version()`, an integer that changes only when an exported function, struct layout or error code is removed or altered.
 Adding a function does not change it.
-The first value is 1, and 0 means the library predates the function.
+The first value is 1. The function never returns 0.
+Go needs a library that exports `hiroz_abi_version` (0.2.2 or later). Linking against an older library fails with an undefined symbol.
 Go exposes it as `hiroz.ABIVersion()`.
 Hiroz does not yet compare it with the version the header declares, and CI does not yet check ABI changes against the last release.
 So a mismatch between `hiroz_ffi.h` and `libhiroz` is still not detected automatically.
@@ -388,8 +389,9 @@ if errors.Is(err, hiroz.ErrTimeout)     { /* no server responded */ }
 ```
 
 A C caller can read a diagnostic message with `hiroz_last_error_message()`, which returns a thread-local string or NULL.
-The message is a hint for logging. The return value of a call is the only contract for failure: a non-zero code, or NULL from a constructor.
-The library records a message in two cases only: a warning that it routes through its FFI warning macro, and a null or non-UTF-8 string argument that a call rejects.
+The message is a hint for logging. The return value of a call is the only contract for failure: a negative code, or NULL from a constructor.
+Two functions return a positive value that is not a failure: `hiroz_graph_node_exists` returns 1 when the node is found, and `hiroz_action_server_is_cancel_requested` returns 1 when a cancel was requested and 0 for a null handle.
+The library records a message in two cases only: a warning that it routes through its FFI warning macro, and a null or non-UTF-8 string argument that a call rejects or skips.
 Many failures record no message. Examples are a null context or node handle, a `NullPointer` return for a null client, a goal that the action server rejects, and an unknown buffer group. So a NULL message never means that a call succeeded.
 A message can be present after a successful call. For example, `hiroz_context_create_with_config` records one for a `json_config` that is not a JSON object, and still succeeds.
 A successful call never clears the message. Call `hiroz_last_error_clear()` to clear it.

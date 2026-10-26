@@ -4,7 +4,7 @@
 ///
 /// Bump this integer whenever a change removes or alters an exported function, struct layout or error code.
 /// Adding a function does not change it.
-/// Zero is reserved for libraries that predate `hiroz_abi_version()`.
+/// This function never returns 0. A library that predates it does not export the symbol.
 const ABI_VERSION: u32 = 1;
 
 /// Return the version of the C ABI this library exports. A binding compares it with the version it was built against.

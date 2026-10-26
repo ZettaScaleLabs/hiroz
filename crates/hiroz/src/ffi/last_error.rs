@@ -1,7 +1,7 @@
 //! Thread-local last-error message for the C interface.
 //!
 //! The message is a hint for logging. The return value of a call is the only contract for failure.
-//! The library records a message in two cases: a warning that it routes through its FFI warning macro, and a null or non-UTF-8 string argument that a call rejects.
+//! The library records a message in two cases: a warning that it routes through its FFI warning macro, and a null or non-UTF-8 string argument that a call rejects or skips.
 //! Many failures record no message, so a NULL message never means that a call succeeded.
 //! A call that succeeds can leave a message, and no successful call clears it.
 //! The message is per OS thread.
@@ -21,9 +21,9 @@ pub(crate) fn set(msg: &str) {
 
 /// Return the last error message of the calling thread, or NULL if none is recorded.
 ///
-/// The message is a hint for logging. Use the return value of a call to learn whether it failed: a non-zero code, or NULL from a constructor. A NULL message never means that a call succeeded.
+/// The message is a hint for logging. Use the return value of a call to learn whether it failed: a negative code, or NULL from a constructor. Two functions return a positive value that is not a failure: `hiroz_graph_node_exists` returns 1 when the node is found, and `hiroz_action_server_is_cancel_requested` returns 1 when a cancel was requested and 0 for a null handle. A NULL message never means that a call succeeded.
 ///
-/// The library records a message in two cases only. One is a warning that it routes through its FFI warning macro. The other is a null or non-UTF-8 string argument that a call rejects.
+/// The library records a message in two cases only. One is a warning that it routes through its FFI warning macro. The other is a null or non-UTF-8 string argument that a call rejects or skips.
 ///
 /// Many failures record no message. Examples: a null context or node handle, a `NullPointer` return for a null client or null output pointer, a goal that the action server rejects, and an unknown buffer group in `hiroz_subscriber_create_with_group`.
 ///
