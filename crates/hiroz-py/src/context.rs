@@ -139,9 +139,9 @@ impl PyZContextBuilder {
 
     /// Enable Zenoh shared memory transport with the default pool size (10 MiB).
     ///
-    /// SHM transparently accelerates large message transfers between nodes on the same
-    /// host. Both publisher and subscriber must have SHM enabled. Also enable SHM on
-    /// the router if messages must be routed.
+    /// This configures the Zenoh shared memory pool and the message size threshold for
+    /// the context. Both publisher and subscriber must have SHM enabled. Also enable SHM
+    /// on the router if messages must be routed.
     ///
     /// Pool size and threshold can be overridden via env vars ``ZENOH_SHM_ALLOC_SIZE``
     /// and ``ZENOH_SHM_MESSAGE_SIZE_THRESHOLD`` (must be power of two), matching

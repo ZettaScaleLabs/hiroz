@@ -399,6 +399,8 @@ A negative, NaN, infinite or overflowing `timeout` is not supported. An overflow
 | a message field holds an integer outside the range of its type | `OverflowError`, raised when the message is converted |
 | a message object lacks a field that its type defines | `AttributeError`, raised when the message is converted |
 | a message class has no `__msgtype__`, or `qos` has the wrong type | `TypeError` |
+| the request class passed to `create_client` or `create_server` has no `__hash__` string | `TypeError` |
+| the request class passed to `create_client` or `create_server` has a malformed `__hash__` | `ValueError` |
 
 In the code that converts Python messages to and from CDR, invalid values raise `ValueError`, `TypeError`, `OverflowError` or `AttributeError`. They do not raise `SerializationError` or `TypeMismatchError`.
 
@@ -503,8 +505,7 @@ cargo test --features python-interop -p hiroz-tests --test python_interop -- --t
 
 ??? question "Message type not found"
     This error occurs when trying to use a message type that isn't supported by the Python bindings.
-    **Solution:** Check that the class comes from `hiroz_msgs_py` or defines `__msgtype__`.
-    `create_publisher` and `create_subscriber` raise `TypeError` when the class has no `__msgtype__` attribute. `hiroz_py.list_registered_types()` returns the registered message type names.
+    **Solution:** Use a class from `hiroz_msgs_py`. A class that only defines `__msgtype__` passes `create_publisher` and `create_subscriber`, but `publish` raises `ValueError` and `recv` raises `TypeError` when the type is not in the generated registry. `hiroz_py.list_registered_types()` returns the registered message type names.
 
     Ensure you are passing a message class object (e.g., `std_msgs.String`), not a string.
 
