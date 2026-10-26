@@ -342,6 +342,19 @@ Common presets:
 !!! tip
     Always use the same QoS preset on both publisher and subscriber. Mismatches silently drop messages — run `ros2 topic info -v /topic` to compare QoS on both sides.
 
+## Locality
+
+Publishers, subscribers and caches take a `Locality` from `zenoh::sample`. `with_locality` restricts an entity to peers of one locality: `SessionLocal` (the same Zenoh session), `Remote` (other sessions) or `Any` (the default). On a publisher it limits the subscribers that receive the message. On a subscriber or a cache it limits the publishers that the entity receives from.
+
+```rust
+use hiroz::prelude::*;
+use hiroz_msgs::std_msgs::String as RosString;
+use zenoh::sample::Locality;
+
+// Deliver to other sessions only.
+let publisher = node.create_pub::<RosString>("/topic").with_locality(Locality::Remote).build()?;
+```
+
 ## Name Remapping
 
 hiroz supports ROS 2-style topic remapping via `ZContextBuilder::with_remap_rule()`. Remapping rules apply to all nodes created from the same context and redirect topic/service names at the context level.

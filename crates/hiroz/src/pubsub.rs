@@ -52,6 +52,28 @@ fn observe_loss(loss: &MessageLossTracker, sample: &Sample) {
     loss.observe(attachment.source_gid, attachment.sequence_number);
 }
 
+/// Log a warning when `sample` carries a known encoding that differs from `expected`. A sample
+/// with an encoding that hiroz does not know is only logged at debug level, and no check runs
+/// without an expected encoding. The message is delivered in every case. Every subscriber build
+/// path calls this, so the cache and the subscriber check the same way.
+fn warn_on_encoding_mismatch(expected: Option<&crate::encoding::Encoding>, sample: &Sample) {
+    let Some(expected) = expected else {
+        return;
+    };
+    let encoding_str = sample.encoding().to_string();
+    match crate::encoding::Encoding::from_zenoh_encoding(&encoding_str) {
+        Some(received) if &received != expected => {
+            tracing::warn!(
+                "Encoding mismatch: expected {:?}, received {:?}",
+                expected,
+                received
+            );
+        }
+        Some(_) => {}
+        None => tracing::debug!("Unknown encoding format: {}", encoding_str),
+    }
+}
+
 fn cache_depth_from_history(history: QosHistory) -> usize {
     // Mirrors rmw_zenoh_cpp's `QoS::best_available_qos` (`qos.cpp:107`):
     // a zero-valued depth (the rmw representation of "unspecified" or
@@ -165,6 +187,8 @@ pub struct ZPubBuilder<T, S = SerdeCdrSerdes<T>> {
     /// Encoding format for this publisher.
     /// If set, all published messages will use this encoding.
     pub(crate) encoding: Option<crate::encoding::Encoding>,
+    /// Which subscribers the publisher may deliver to. `None` means all of them.
+    pub(crate) locality: Option<zenoh::sample::Locality>,
     pub(crate) _phantom_data: PhantomData<(T, S)>,
 }
 
@@ -244,8 +268,34 @@ impl<T, S> ZPubBuilder<T, S> {
             keyexpr_format: self.keyexpr_format.clone(),
             dyn_schema: self.dyn_schema,
             encoding: self.encoding,
+            locality: self.locality,
             _phantom_data: PhantomData,
         }
+    }
+
+    /// Restrict the publisher to subscribers of one locality: the same session, remote sessions
+    /// or both. The default is both. A restricted publisher does not deliver to a subscriber
+    /// outside that locality, even when the subscriber matches the key.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hiroz::Builder;
+    /// use zenoh::sample::Locality;
+    ///
+    /// # fn main() -> zenoh::Result<()> {
+    /// # let ctx = hiroz::context::ZContextBuilder::default().build()?;
+    /// # let node = ctx.create_node("test").build()?;
+    /// // Deliver to other sessions only
+    /// let publisher = node.create_pub::<hiroz_msgs::std_msgs::String>("/topic")
+    ///     .with_locality(Locality::Remote)
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_locality(mut self, locality: zenoh::sample::Locality) -> Self {
+        self.locality = Some(locality);
+        self
     }
 
     /// Set the encoding format for published messages.
@@ -348,6 +398,11 @@ where
                 pub_builder = pub_builder.congestion_control(zenoh::qos::CongestionControl::Drop);
                 debug!("[PUB] QoS: BestEffort (Drop)");
             }
+        }
+
+        if let Some(locality) = self.locality {
+            pub_builder = pub_builder.allowed_destination(locality);
+            debug!("[PUB] Locality restriction: {:?}", locality);
         }
 
         // Build an AdvancedPublisher and apply TransientLocal config if needed.
@@ -633,9 +688,10 @@ impl ZPub<crate::dynamic::DynamicMessage, crate::dynamic::DynamicSerdeCdrSerdes>
 }
 
 /// The subscriptions of a raw-callback subscriber: one on the topic key, and one on the group key
-/// when the subscriber joins the group. Dropping the value undeclares both.
+/// when the subscriber joins the group. Dropping the value undeclares both. The topic-key
+/// subscription is an advanced subscriber, so a transient-local QoS replays history.
 pub(crate) struct RawSubscriptions {
-    _base: zenoh::pubsub::Subscriber<()>,
+    _base: AdvancedSubscriber<()>,
     _group: Option<zenoh::pubsub::Subscriber<()>>,
 }
 
@@ -791,7 +847,9 @@ where
 
     /// Build a raw Zenoh subscriber with a sample-level callback. It returns the
     /// [`RawSubscriptions`], whose group subscription is absent when the subscriber does not join,
-    /// and the liveliness token.
+    /// the liveliness token and the event manager. The callback runs after the loss tracker has
+    /// observed the sample, so a gap in the sequence numbers raises
+    /// [`MessageLost`](crate::event::ZenohEventType::MessageLost) on that manager.
     ///
     /// This is the canonical subscriber setup path used by [`ZCache`] so that
     /// topic qualification, key-expression construction, and liveliness-token
@@ -801,7 +859,11 @@ where
     pub(crate) fn build_raw_subscriber<F>(
         mut self,
         callback: F,
-    ) -> Result<(RawSubscriptions, zenoh::liveliness::LivelinessToken)>
+    ) -> Result<(
+        RawSubscriptions,
+        zenoh::liveliness::LivelinessToken,
+        Arc<Mutex<EventsManager>>,
+    )>
     where
         F: Fn(Sample) + Send + Sync + 'static,
     {
@@ -824,15 +886,32 @@ where
         let group_key = self.joined_group_key(key_expr.as_str());
         // Both subscriptions come before the token, so a publisher that reads the token finds a
         // subscription. The callback is `Fn`, so the two subscriptions share one `Arc` of it.
-        let shared = Arc::new(callback);
-        let group_sub =
-            declare_group_subscription(&self.session, group_key.as_deref(), None, &shared)?;
+        let gid = crate::entity::endpoint_gid(&self.entity)
+            .expect("local endpoint always has node identity");
+        let events_mgr = Arc::new(Mutex::new(EventsManager::new(gid)));
+        let loss = MessageLossTracker::new(events_mgr.clone());
+        let expected_encoding = self.expected_encoding.clone();
+        let shared = Arc::new(move |sample: Sample| {
+            observe_loss(&loss, &sample);
+            warn_on_encoding_mismatch(expected_encoding.as_ref(), &sample);
+            callback(sample)
+        });
+        let group_sub = declare_group_subscription(
+            &self.session,
+            group_key.as_deref(),
+            self.locality,
+            &shared,
+        )?;
         let h = shared.clone();
-        let sub = self
+        let mut sub_builder = self
             .session
             .declare_subscriber(key_expr.clone())
             .callback(move |s: Sample| h(s))
-            .wait()?;
+            .advanced();
+        if let Some(locality) = self.locality {
+            sub_builder = sub_builder.allowed_origin(locality);
+        }
+        let sub = apply_transient_local_sub(sub_builder, &self.entity.qos).wait()?;
 
         let token = crate::buffer_group::declare_token(
             &self.session,
@@ -847,6 +926,7 @@ where
                 _group: group_sub,
             },
             token,
+            events_mgr,
         ))
     }
 
@@ -895,27 +975,11 @@ where
         let events_mgr = Arc::new(Mutex::new(EventsManager::new(gid)));
         let loss = Arc::new(MessageLossTracker::new(events_mgr.clone()));
 
-        // Wrap handler with encoding validation if expected encoding is set
+        // Wrap the handler with the loss tracker and the encoding check
         let expected_encoding = self.expected_encoding.clone();
         let validated_handler = move |sample: Sample| {
             observe_loss(&loss, &sample);
-            // Validate encoding if expected encoding is set
-            if let Some(ref expected) = expected_encoding {
-                let encoding_str = sample.encoding().to_string();
-                if let Some(received) =
-                    crate::encoding::Encoding::from_zenoh_encoding(&encoding_str)
-                {
-                    if &received != expected {
-                        tracing::warn!(
-                            "Encoding mismatch: expected {:?}, received {:?}",
-                            expected,
-                            received
-                        );
-                    }
-                } else {
-                    tracing::debug!("Unknown encoding format: {}", encoding_str);
-                }
-            }
+            warn_on_encoding_mismatch(expected_encoding.as_ref(), &sample);
             handler.handle(sample)
         };
 
@@ -998,26 +1062,8 @@ where
         F: Fn(S::Output) + Send + Sync + 'static,
         S: for<'a> ZDeserializer<Input<'a> = &'a [u8]> + 'static,
     {
-        let expected_encoding = self.expected_encoding.clone();
+        // `build_internal` wraps every handler with the encoding check.
         let callback = Arc::new(move |sample: Sample| {
-            // Validate encoding if expected encoding is set
-            if let Some(ref expected) = expected_encoding {
-                let encoding_str = sample.encoding().to_string();
-                if let Some(received) =
-                    crate::encoding::Encoding::from_zenoh_encoding(&encoding_str)
-                {
-                    if &received != expected {
-                        tracing::warn!(
-                            "Encoding mismatch: expected {:?}, received {:?}",
-                            expected,
-                            received
-                        );
-                    }
-                } else {
-                    tracing::debug!("Unknown encoding format: {}", encoding_str);
-                }
-            }
-
             let payload = sample.payload().to_bytes();
             match S::deserialize(&payload) {
                 Ok(msg) => callback(msg),
