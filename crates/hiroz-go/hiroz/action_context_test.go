@@ -3,6 +3,7 @@ package hiroz
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 )
 
@@ -116,4 +117,67 @@ func TestSendGoalContextCancelInFlightClosesHandle(t *testing.T) {
 	close(release)
 	waitUntil(t, "the late goal handle to close", func() bool { return late.handle.Load() == nil })
 	<-closed
+}
+
+// ownedGoal is a goal whose bytes the caller may change after a call returns. It counts the
+// serialisations so a test can tell when SerializeCDR ran.
+type ownedGoal struct {
+	mu    sync.Mutex
+	data  []byte
+	calls int
+}
+
+func (g *ownedGoal) TypeName() string { return "x" }
+func (g *ownedGoal) TypeHash() string { return "y" }
+func (g *ownedGoal) SerializeCDR() ([]byte, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.calls++
+	return append([]byte(nil), g.data...), nil
+}
+func (g *ownedGoal) DeserializeCDR([]byte) error { return nil }
+func (g *ownedGoal) set(b []byte) {
+	g.mu.Lock()
+	g.data = b
+	g.mu.Unlock()
+}
+func (g *ownedGoal) serialisations() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.calls
+}
+
+// SendGoalContext reads the goal before it returns. A caller that changes the goal after a
+// cancelled call must not change the goal that the C layer sends later.
+func TestSendGoalContextSerialisesBeforeReturn(t *testing.T) {
+	c := openTestActionClient()
+	goal := &ownedGoal{data: []byte{1}}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	sent := make(chan []byte, 1)
+	stubSendGoal(t, func(_ *ActionClient, g Message) (*GoalHandle, error) {
+		close(started)
+		<-release
+		b, _ := g.SerializeCDR() // the C layer reads the goal here
+		sent <- b
+		return nil, errors.New("stub")
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() { _, err := c.SendGoalContext(ctx, goal); done <- err }()
+	<-started
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	if n := goal.serialisations(); n != 1 {
+		t.Errorf("the goal was serialised %d times before the call returned, want 1", n)
+	}
+	goal.set([]byte{9}) // the caller reuses the goal
+	close(release)
+	if got := <-sent; len(got) != 1 || got[0] != 1 {
+		t.Errorf("the C layer sent %v, want the goal as it was at the call: [1]", got)
+	}
+	_ = c.Close()
 }
