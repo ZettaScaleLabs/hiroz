@@ -176,10 +176,12 @@ typedef struct hiroz_node_t {
  * Versioned C-compatible QoS profile for FFI
  *
  * `struct_size` comes first. The caller sets it to `sizeof(hiroz_qos_profile_v2_t)` of the
- * header it compiled against, or calls `hiroz_qos_profile_v2_init`, which sets it. A later
- * release can add fields at the end. hiroz reads only the fields inside `struct_size` and takes
- * the default for the others, so a program built against an older header keeps working. A
- * `struct_size` below 4 is invalid: the creator returns null.
+ * header it compiled against, or calls `hiroz_qos_profile_v2_init` with that size, which sets
+ * it. A later release can add fields at the end. hiroz reads only the fields that lie
+ * completely inside `struct_size` and takes the default for the others, so a program built
+ * against an older header keeps working. A field that `struct_size` cuts in two counts as
+ * absent: hiroz never reads part of a field. A `struct_size` below 4 is invalid: the creator
+ * returns null.
  *
  * The fields after `struct_size` have the meaning that they have in `hiroz_qos_profile_t`.
  */
@@ -220,9 +222,10 @@ typedef struct hiroz_qos_profile_v2_t {
  * Versioned C-compatible QoS of the five entities of an action
  *
  * `struct_size` comes first and works as in `hiroz_qos_profile_v2_t`: the caller sets it to
- * `sizeof(hiroz_action_qos_v2_t)`, hiroz reads only the members inside it, and a member outside
- * it counts as null. A null member asks for the default profile. A `struct_size` below 4 is
- * invalid: the creator returns null.
+ * `sizeof(hiroz_action_qos_v2_t)`, hiroz reads only the members that lie completely inside it,
+ * and any other member counts as null. A member that `struct_size` cuts in two is not read, not
+ * even in part. A null member asks for the default profile. A `struct_size` below 4 is invalid:
+ * the creator returns null.
  *
  * Each member points to a `hiroz_qos_profile_v2_t` that must stay valid for the creator call only.
  */
@@ -798,15 +801,26 @@ int32_t hiroz_publisher_destroy(struct hiroz_publisher_t *pub_handle);
 /**
  * Write the default QoS profile, and the size of the struct, to `out`
  *
- * Call this before you change single fields. A zeroed struct has deadline, lifespan and lease
- * of zero, which is not the default of infinite.
+ * `size` is the size of the allocation that `out` points to, as the caller knows it:
+ * `sizeof(hiroz_qos_profile_v2_t)` of the header that the caller compiled against. The function
+ * writes the fields that lie completely inside `size` and no other byte, and it sets
+ * `struct_size` to `size`. Call it before you change single fields. A zeroed struct has
+ * deadline, lifespan and lease of zero, which is not the default of infinite.
  *
- * Returns 0 on success and a negative `ErrorCode` if `out` is null.
+ * Two cases need no other care. A program built against an older header passes its smaller
+ * size: a newer library writes only the fields that the program has, and the creator takes the
+ * default for the fields that it does not have. A program built against a newer header passes
+ * its larger size: an older library writes the fields that it knows and leaves the bytes after
+ * them as they were, so the program must set the fields that are new to it. The creator ignores
+ * the bytes beyond the struct that it knows.
+ *
+ * Returns 0 on success, `ErrorCode::NullPointer` if `out` is null, and `ErrorCode::Unknown` if
+ * `size` is below 4, which cannot hold `struct_size`. A failed call writes nothing.
  *
  * # Safety
- * `out` must be null or point to writable memory of `sizeof(hiroz_qos_profile_v2_t)` bytes.
+ * `out` must be null or point to writable memory of `size` bytes.
  */
-int32_t hiroz_qos_profile_v2_init(struct hiroz_qos_profile_v2_t *out);
+int32_t hiroz_qos_profile_v2_init(struct hiroz_qos_profile_v2_t *out, uintptr_t size);
 
 /**
  * Serialize a message to CDR format

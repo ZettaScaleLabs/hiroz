@@ -102,10 +102,11 @@ impl CQosProfile {
 ///
 /// `struct_size` comes first. The caller sets it to `sizeof(hiroz_qos_profile_v2_t)` of the
 /// header it compiled against, or calls `hiroz_qos_profile_v2_init` with that size, which sets
-/// it. A later release can add fields at the end. hiroz reads only the fields that lie completely inside
-/// `struct_size` and takes the default for the others, so a program built against an older header
-/// keeps working. A field that `struct_size` cuts in two counts as absent: hiroz never reads part
-/// of a field. A `struct_size` below 4 is invalid: the creator returns null.
+/// it. A later release can add fields at the end. hiroz reads only the fields that lie
+/// completely inside `struct_size` and takes the default for the others, so a program built
+/// against an older header keeps working. A field that `struct_size` cuts in two counts as
+/// absent: hiroz never reads part of a field. A `struct_size` below 4 is invalid: the creator
+/// returns null.
 ///
 /// The fields after `struct_size` have the meaning that they have in `hiroz_qos_profile_t`.
 #[repr(C)]
