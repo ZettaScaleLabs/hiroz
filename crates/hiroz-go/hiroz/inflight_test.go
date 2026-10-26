@@ -117,7 +117,7 @@ func TestSendGoalContextRefusedOnceCloseStarted(t *testing.T) {
 	var sends atomic.Int32
 	started := make(chan struct{})
 	release := make(chan struct{})
-	stubSendGoal(t, func(cl *ActionClient, _ Message) (*GoalHandle, error) {
+	stubSendGoal(t, func(cl *ActionClient, _ []byte) (*GoalHandle, error) {
 		if sends.Add(1) == 1 {
 			close(started)
 			<-release
