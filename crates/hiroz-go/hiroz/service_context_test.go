@@ -275,3 +275,34 @@ func TestWaitForServiceContextCloseDuringWaitWinsOverReady(t *testing.T) {
 	}
 	<-closed
 }
+
+// A request that returns shared storage must not change what the C layer sends after the call
+// returned on cancel. callRawContext copies the bytes before the worker starts.
+func TestCallTypedContextOwnsSerialisedBytes(t *testing.T) {
+	c := openTestClient()
+	req := &sharedGoal{data: []byte{1, 2}}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	sent := make(chan []byte, 1)
+	stubServiceCall(t, func(b []byte, _ uint64) ([]byte, int32) {
+		close(started)
+		<-release
+		sent <- append([]byte(nil), b...) // the C layer reads the request bytes here
+		return nil, 1
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() { done <- CallTypedContext(ctx, c, req, &MockMessage{}) }()
+	<-started
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	req.data[0] = 9 // the caller reuses the request storage in place
+	close(release)
+	if got := <-sent; len(got) != 2 || got[0] != 1 || got[1] != 2 {
+		t.Errorf("the C layer sent %v, want the request as it was at the call: [1 2]", got)
+	}
+	_ = c.Close()
+}
