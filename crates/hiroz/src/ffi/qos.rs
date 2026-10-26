@@ -102,9 +102,10 @@ impl CQosProfile {
 ///
 /// `struct_size` comes first. The caller sets it to `sizeof(hiroz_qos_profile_v2_t)` of the
 /// header it compiled against, or calls `hiroz_qos_profile_v2_init`, which sets it. A later
-/// release can add fields at the end. hiroz reads only the fields inside `struct_size` and takes
-/// the default for the others, so a program built against an older header keeps working. A
-/// `struct_size` below 4 is invalid: the creator returns null.
+/// release can add fields at the end. hiroz reads only the fields that lie completely inside
+/// `struct_size` and takes the default for the others, so a program built against an older header
+/// keeps working. A field that `struct_size` cuts in two counts as absent: hiroz never reads part
+/// of a field. A `struct_size` below 4 is invalid: the creator returns null.
 ///
 /// The fields after `struct_size` have the meaning that they have in `hiroz_qos_profile_t`.
 #[repr(C)]
@@ -162,7 +163,7 @@ impl CQosProfileV2 {
     ///
     /// Null gives `Ok(None)`: the default QoS. A `struct_size` below the size field gives `Err`.
     /// A `struct_size` below the full size gives the default for every field that it does not
-    /// cover. A `struct_size` above the full size is accepted and the extra bytes are not read.
+    /// cover completely. A `struct_size` above the full size is accepted and the extra bytes are not read.
     ///
     /// # Safety
     /// The pointer must be null, or point to at least `struct_size` readable bytes.
@@ -178,14 +179,44 @@ impl CQosProfileV2 {
         }
         let mut full = Self::defaults();
         let covered = struct_size.min(Self::SIZE) as usize;
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                ptr as *const u8,
-                &mut full as *mut Self as *mut u8,
-                covered,
-            );
-        }
+        unsafe { Self::copy_whole_members(ptr as *const u8, &mut full, covered) };
         Ok(Some(full.as_v1().as_qos_profile()))
+    }
+
+    /// Copy each member whose whole extent lies inside the first `covered` bytes of `src` into
+    /// `dst`. A member that `covered` splits or excludes is not present: it keeps the value in
+    /// `dst`. A partial copy of a member would give a value that nobody wrote.
+    ///
+    /// # Safety
+    /// `src` must point to at least `covered` readable bytes.
+    unsafe fn copy_whole_members(src: *const u8, dst: &mut Self, covered: usize) {
+        macro_rules! member {
+            ($field:ident) => {{
+                let offset = std::mem::offset_of!(Self, $field);
+                let size = std::mem::size_of_val(&dst.$field);
+                if offset + size <= covered {
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            src.add(offset),
+                            std::ptr::addr_of_mut!(dst.$field) as *mut u8,
+                            size,
+                        );
+                    }
+                }
+            }};
+        }
+        member!(struct_size);
+        member!(reliability);
+        member!(durability);
+        member!(history);
+        member!(history_depth);
+        member!(deadline_sec);
+        member!(deadline_nsec);
+        member!(lifespan_sec);
+        member!(lifespan_nsec);
+        member!(liveliness);
+        member!(liveliness_lease_sec);
+        member!(liveliness_lease_nsec);
     }
 
     fn as_v1(&self) -> CQosProfile {
@@ -226,9 +257,10 @@ pub unsafe extern "C" fn hiroz_qos_profile_v2_init(out: *mut CQosProfileV2) -> i
 /// Versioned C-compatible QoS of the five entities of an action
 ///
 /// `struct_size` comes first and works as in `hiroz_qos_profile_v2_t`: the caller sets it to
-/// `sizeof(hiroz_action_qos_v2_t)`, hiroz reads only the members inside it, and a member outside
-/// it counts as null. A null member asks for the default profile. A `struct_size` below 4 is
-/// invalid: the creator returns null.
+/// `sizeof(hiroz_action_qos_v2_t)`, hiroz reads only the members that lie completely inside it,
+/// and any other member counts as null. A member that `struct_size` cuts in two is not read, not
+/// even in part. A null member asks for the default profile. A `struct_size` below 4 is invalid:
+/// the creator returns null.
 ///
 /// Each member points to a `hiroz_qos_profile_v2_t` that must stay valid for the creator call only.
 #[repr(C)]
@@ -278,12 +310,27 @@ impl CActionQosV2 {
             status_topic: std::ptr::null(),
         };
         let covered = struct_size.min(Self::SIZE) as usize;
+        macro_rules! member {
+            ($field:ident) => {{
+                let offset = std::mem::offset_of!(Self, $field);
+                let size = std::mem::size_of_val(&full.$field);
+                if offset + size <= covered {
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            (ptr as *const u8).add(offset),
+                            std::ptr::addr_of_mut!(full.$field) as *mut u8,
+                            size,
+                        );
+                    }
+                }
+            }};
+        }
+        member!(goal_service);
+        member!(result_service);
+        member!(cancel_service);
+        member!(feedback_topic);
+        member!(status_topic);
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                ptr as *const u8,
-                &mut full as *mut Self as *mut u8,
-                covered,
-            );
             Ok(ActionQos {
                 goal_service: CQosProfileV2::to_qos_profile(full.goal_service)?,
                 result_service: CQosProfileV2::to_qos_profile(full.result_service)?,
