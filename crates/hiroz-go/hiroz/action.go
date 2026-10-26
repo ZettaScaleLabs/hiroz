@@ -340,17 +340,29 @@ func (c *ActionClient) SendGoal(goal Message) (*GoalHandle, error) {
 	if hw == nil {
 		return nil, fmt.Errorf("action client is closed")
 	}
-	h := hw.p
 
+	goalBytes, err := serializeGoal(goal)
+	if err != nil {
+		return nil, err
+	}
+	return c.sendGoalBytes(hw.p, goalBytes)
+}
+
+// serializeGoal serialises a goal into bytes that the caller owns.
+func serializeGoal(goal Message) ([]byte, error) {
 	goalBytes, err := goal.SerializeCDR()
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize goal: %w", err)
 	}
-
 	if len(goalBytes) == 0 {
 		return nil, fmt.Errorf("empty goal")
 	}
+	return goalBytes, nil
+}
 
+// sendGoalBytes makes the blocking C goal send with goal bytes that are already serialised.
+// It never reads a Message, so a caller may change the goal while this call runs.
+func (c *ActionClient) sendGoalBytes(h *C.hiroz_action_client_t, goalBytes []byte) (*GoalHandle, error) {
 	// Pin the goal data to prevent GC relocation during the C call
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
@@ -390,14 +402,21 @@ func (c *ActionClient) SendGoal(goal Message) (*GoalHandle, error) {
 	return handle, nil
 }
 
-// sendGoal makes the blocking goal send of SendGoalContext. A test replaces it. Production
-// code never assigns it.
-var sendGoal = func(c *ActionClient, goal Message) (*GoalHandle, error) { return c.SendGoal(goal) }
+// sendGoal makes the blocking goal send of SendGoalContext with serialised goal bytes. A test
+// replaces it. Production code never assigns it.
+var sendGoal = func(c *ActionClient, goalBytes []byte) (*GoalHandle, error) {
+	hw := c.handle.Load()
+	if hw == nil {
+		return nil, fmt.Errorf("action client is closed")
+	}
+	return c.sendGoalBytes(hw.p, goalBytes)
+}
 
 // SendGoalContext sends a goal and returns when the server answers or ctx ends.
 // When ctx ends first, the call returns ctx.Err() and closes the goal handle once the C layer
 // returns. The server may already hold the goal. Cancelling ctx does not cancel the goal.
-// If ctx has already ended, nothing is sent.
+// If ctx has already ended, nothing is sent. SendGoalContext serialises the goal before it
+// returns, so the caller may reuse or change the goal after any return.
 //
 // Known limit: the goroutine that closes the goal handle after ctx ended first does not
 // register with the client. It can run after ActionClient.Close destroyed the client handle.
@@ -411,6 +430,13 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 	if !c.inflight.enter() {
 		return nil, fmt.Errorf("action client is closed")
 	}
+	// Serialise here, before the worker starts. The worker gets only these bytes, so a
+	// caller that reuses the goal after a cancelled call cannot race with the send.
+	goalBytes, err := serializeGoal(goal)
+	if err != nil {
+		c.inflight.leave()
+		return nil, err
+	}
 	type result struct {
 		h   *GoalHandle
 		err error
@@ -418,7 +444,7 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 	ch := make(chan result, 1)
 	go func() {
 		defer c.inflight.leave()
-		h, err := sendGoal(c, goal)
+		h, err := sendGoal(c, goalBytes)
 		ch <- result{h, err}
 	}()
 

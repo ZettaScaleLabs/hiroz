@@ -45,7 +45,7 @@ func TestGetTypedResultContextOnClosedHandle(t *testing.T) {
 
 func goalMsg() *MockMessage { return &MockMessage{typeName: "x", typeHash: "y", data: []byte{1}} }
 
-func stubSendGoal(t *testing.T, f func(c *ActionClient, goal Message) (*GoalHandle, error)) {
+func stubSendGoal(t *testing.T, f func(c *ActionClient, goalBytes []byte) (*GoalHandle, error)) {
 	t.Helper()
 	old := sendGoal
 	sendGoal = f
@@ -69,7 +69,7 @@ func fakeGoalHandle(c *ActionClient) *GoalHandle {
 func TestSendGoalContextDeliversHandle(t *testing.T) {
 	c := openTestActionClient()
 	want := fakeGoalHandle(c)
-	stubSendGoal(t, func(*ActionClient, Message) (*GoalHandle, error) { return want, nil })
+	stubSendGoal(t, func(*ActionClient, []byte) (*GoalHandle, error) { return want, nil })
 
 	h, err := c.SendGoalContext(context.Background(), goalMsg())
 	if err != nil || h != want {
@@ -87,7 +87,7 @@ func TestSendGoalContextCancelInFlightClosesHandle(t *testing.T) {
 	late := fakeGoalHandle(c)
 	started := make(chan struct{})
 	release := make(chan struct{})
-	stubSendGoal(t, func(*ActionClient, Message) (*GoalHandle, error) {
+	stubSendGoal(t, func(*ActionClient, []byte) (*GoalHandle, error) {
 		close(started)
 		<-release
 		return late, nil
@@ -155,11 +155,10 @@ func TestSendGoalContextSerialisesBeforeReturn(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	sent := make(chan []byte, 1)
-	stubSendGoal(t, func(_ *ActionClient, g Message) (*GoalHandle, error) {
+	stubSendGoal(t, func(_ *ActionClient, b []byte) (*GoalHandle, error) {
 		close(started)
 		<-release
-		b, _ := g.SerializeCDR() // the C layer reads the goal here
-		sent <- b
+		sent <- b // the C layer reads the goal bytes here
 		return nil, errors.New("stub")
 	})
 	ctx, cancel := context.WithCancel(context.Background())
