@@ -6,7 +6,7 @@
 #   absent   the binding does not offer the option. `reason` says why.
 #   planned  the binding does not offer the option yet. `reason` says why and `release` names the release that adds it.
 #
-# The rule: an option that ships exists in every binding in that release, or it has a row here.
+# The rule: an option that ships as a public Rust `with_*` builder method has a row here. The row states, for each binding, whether it offers the option.
 # A pull request that adds a public `with_*` builder method adds its row in the same change.
 #
 # crates/hiroz-tests/tests/api_parity.rs checks this file:
@@ -21,6 +21,8 @@
 #
 # Limits of the file:
 #   - It has no entity of its own for parameters or lifecycle nodes. Only their builder options appear, under `node`. It has no rows for events.
+#   - The scan reads only `impl` headers that start a line, and the one macro `impl_with_type_info!`. A `with_*` method that another macro or an indented `impl` header defines is not found, so the test does not demand a row for it.
+#   - It demands rows only for Rust `with_*` builder methods. An option that exists only as a C field, a Python keyword argument or a Go method needs no row.
 #   - It does not compare behaviour. A `present` cell says that each identifier of the symbol is defined in the binding, as above. It does not say that the symbol behaves like the Rust one, and the check does not run the binding.
 #   - The Rust check covers builder types whose name ends in `Builder` and that map to an entity.
 #     `RouterConfigBuilder` and `SessionConfigBuilder` configure zenoh sessions and are not entities, so they have no rows.
