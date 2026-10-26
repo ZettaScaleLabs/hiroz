@@ -278,7 +278,7 @@ sub = node.create_subscriber("/topic", std_msgs.String, qos=hiroz_py.QosProfile.
 
 ### Presets
 
-The module constants `QOS_DEFAULT`, `QOS_SENSOR_DATA`, `QOS_PARAMETERS` and `QOS_SERVICES` are `QosProfile` objects. The static methods `QosProfile.default()`, `sensor_data()`, `parameters()` and `services()` return the same profiles.
+The module constants `QOS_DEFAULT`, `QOS_SENSOR_DATA`, `QOS_PARAMETERS` and `QOS_SERVICES` are plain `dict` objects, not `QosProfile` objects. Pass one as the `qos` argument, because `qos` accepts a `dict`. The static methods `QosProfile.default()`, `sensor_data()`, `parameters()` and `services()` return `QosProfile` objects with the same values.
 
 | preset | reliability | durability | history |
 |---|---|---|---|
@@ -373,9 +373,9 @@ hiroz-py defines four exception classes. All of them are attributes of `hiroz_py
 
 `hiroz_py.TimeoutError` is not the built-in `TimeoutError`. Catch it as `hiroz_py.TimeoutError`.
 
-Every service client query ends after 10 seconds. A call has no way to wait longer for a reply, so the default `timeout` of one hour is never reached. A `timeout` below 10 seconds raises `hiroz_py.TimeoutError` when no reply comes. A `timeout` above 10 seconds raises `RuntimeError` instead. At exactly 10 seconds either error may happen, because the `timeout` and the 10 second query limit end at the same moment. A call whose query ends with no reply raises `RuntimeError` with the message `Service call ended before any response was received`. The query lasts at most 10 seconds.
+Every service client query ends after 10 seconds. A call has no way to wait longer for a reply, so the default `timeout` of one hour is never reached. A `timeout` below 10 seconds raises `hiroz_py.TimeoutError` when no reply comes. A `timeout` above 10 seconds raises `RuntimeError` instead. At exactly 10 seconds either error may happen, because the `timeout` and the 10 second query limit end at the same moment. A call whose query ends with no reply raises `RuntimeError` with the message `Failed to call service: Service call ended before any response was received`. The query lasts at most 10 seconds.
 
-A negative or NaN `timeout` is not supported. It does not raise a normal exception: the binding panics and Python raises `pyo3_runtime.PanicException`, which derives from `BaseException`, so `except Exception` does not catch it. Every `timeout` argument that is a float behaves this way.
+A negative, NaN, infinite or overflowing `timeout` is not supported. An overflowing `timeout` is a value too large for a `Duration`. It does not raise a normal exception: the binding panics and Python raises `pyo3_runtime.PanicException`, which derives from `BaseException`, so `except Exception` does not catch it. Every `timeout` argument that is a float behaves this way.
 
 ### What raises what
 
