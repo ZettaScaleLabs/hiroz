@@ -14,6 +14,8 @@ Before releasing, bump every version location below together. The table lists fi
 | `crates/hiroz-py/pyproject.toml` | `version` | the `hiroz-py` wheel |
 | `crates/hiroz-py/uv.lock` | `hiroz-py` package version | the locked local project metadata |
 
+After you bump the versions, regenerate the lock with `uv lock` in `crates/hiroz-py`. CI runs `uv lock --check` there and fails when the lock does not match the two `pyproject.toml` files.
+
 The `hiroz-py` wheel depends on `hiroz-msgs-py>=<version>` — update that lower bound too when bumping.
 
 Eight more literal strings carry the workspace version: the seven path dependencies in the root `Cargo.toml` `[workspace.dependencies]` table, and the `hiroz-protocol` dependency in `crates/hiroz/Cargo.toml`. Bump each of them with the workspace version, because `cargo publish` reads them.

@@ -27,6 +27,11 @@ dependencies = [
     "hiroz-msgs-py>=0.2.1",
 ]
 
+# `hiroz-msgs-py` is not published to PyPI, so `uv` resolves it from this repository.
+# pip and maturin ignore this table.
+[tool.uv.sources]
+hiroz-msgs-py = { path = "../hiroz-msgs/python" }
+
 [tool.maturin]
 features = ["pyo3/extension-module", "jazzy"]
 python-source = "python"
