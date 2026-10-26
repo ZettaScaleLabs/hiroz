@@ -278,7 +278,7 @@ sub = node.create_subscriber("/topic", std_msgs.String, qos=hiroz_py.QosProfile.
 
 ### Presets
 
-The module constants `QOS_DEFAULT`, `QOS_SENSOR_DATA`, `QOS_PARAMETERS` and `QOS_SERVICES` are plain `dict` objects, not `QosProfile` objects. Pass one as the `qos` argument, because `qos` accepts a `dict`. The static methods `QosProfile.default()`, `sensor_data()`, `parameters()` and `services()` return `QosProfile` objects with the same values.
+After `import hiroz_py`, the constants `hiroz_py.QOS_DEFAULT`, `QOS_SENSOR_DATA`, `QOS_PARAMETERS` and `QOS_SERVICES` are `QosProfile` objects. The package replaces the native module values with `QosProfile.default()`, `sensor_data()`, `parameters()` and `services()`. The native module `hiroz_py._native` holds the same four names as plain `dict` objects. Pass either form as the `qos` argument, because `qos` accepts both.
 
 | preset | reliability | durability | history |
 |---|---|---|---|
@@ -331,6 +331,8 @@ ctx = hiroz_py.ZContextBuilder().with_shm_enabled().build()
 
 Pool creation can fail. The failure raises `HirozError`.
 
+The Python publish methods do not use the pool or the threshold. `ZPublisher.publish()` serialises the message to a buffer and sends it. `ZPublisher.publish_raw()` sends the bytes you pass. Neither method allocates from the SHM pool, so `with_shm_pool_size()` and `with_shm_threshold()` do not change how Python publishes.
+
 ### Environment variables
 
 | variable | read by | rule |
@@ -373,7 +375,7 @@ hiroz-py defines four exception classes. All of them are attributes of `hiroz_py
 
 `hiroz_py.TimeoutError` is not the built-in `TimeoutError`. Catch it as `hiroz_py.TimeoutError`.
 
-Every service client query ends after 10 seconds. A call has no way to wait longer for a reply, so the default `timeout` of one hour is never reached. A `timeout` below 10 seconds raises `hiroz_py.TimeoutError` when no reply comes. A `timeout` above 10 seconds raises `RuntimeError` instead. At exactly 10 seconds either error may happen, because the `timeout` and the 10 second query limit end at the same moment. A call whose query ends with no reply raises `RuntimeError` with the message `Failed to call service: Service call ended before any response was received`. The query lasts at most 10 seconds.
+Every service client query ends after 10 seconds. A call has no way to wait longer for a reply, so the default `timeout` of one hour is never reached. The call raises `hiroz_py.TimeoutError` when the `timeout` ends first, so only a `timeout` below 10 seconds can raise it. The call raises `RuntimeError` when the query ends first with no reply. The message is `Failed to call service: Service call ended before any response was received`. The query can end before the `timeout`, for example when no server matches: the test in `crates/hiroz-py/tests/test_service.py` with `timeout=1.0` and no server expects `RuntimeError`. A `timeout` above 10 seconds always ends after the query, so it raises `RuntimeError`. At exactly 10 seconds either error may happen, because the `timeout` and the 10 second query limit end at the same moment.
 
 A negative, NaN, infinite or overflowing `timeout` is not supported. An overflowing `timeout` is a value too large for a `Duration`. It does not raise a normal exception: the binding panics and Python raises `pyo3_runtime.PanicException`, which derives from `BaseException`, so `except Exception` does not catch it. Every `timeout` argument that is a float behaves this way.
 
@@ -381,7 +383,8 @@ A negative, NaN, infinite or overflowing `timeout` is not supported. An overflow
 
 | situation | result |
 |---|---|
-| `ZClient.call(..., timeout=t)` with `t` below 10 seconds gets no response in time | `hiroz_py.TimeoutError` |
+| `ZClient.call(..., timeout=t)` with `t` below 10 seconds, and the `timeout` ends before the query does | `hiroz_py.TimeoutError` |
+| `ZClient.call(..., timeout=t)` with `t` below 10 seconds, and the query ends first with no reply, for example when no server matches | `RuntimeError` |
 | `ZClient.call(...)` with no `timeout`, or with `t` above 10 seconds, and no response arrives | `RuntimeError`, after at most 10 seconds |
 | `ZClient.call(..., timeout=10.0)` and no response arrives | `hiroz_py.TimeoutError` or `RuntimeError`: either may happen |
 | a server answers a `ZClient.call` after the 10 second query has ended | `RuntimeError`. The late reply is dropped |
@@ -393,9 +396,11 @@ A negative, NaN, infinite or overflowing `timeout` is not supported. An overflow
 | a context, node, publisher, subscriber, service client or service server cannot be created, or a publish or receive fails in the core | `HirozError` |
 | a QoS string, a depth of 0 with `keep_last`, or a `buffer_group` value is invalid | `ValueError` |
 | a negative `depth` | `OverflowError`, raised by the argument conversion |
+| a message field holds an integer outside the range of its type | `OverflowError`, raised when the message is converted |
+| a message object lacks a field that its type defines | `AttributeError`, raised when the message is converted |
 | a message class has no `__msgtype__`, or `qos` has the wrong type | `TypeError` |
 
-In the code that converts Python messages to and from CDR, invalid values raise `ValueError` or `TypeError`. They do not raise `SerializationError` or `TypeMismatchError`.
+In the code that converts Python messages to and from CDR, invalid values raise `ValueError`, `TypeError`, `OverflowError` or `AttributeError`. They do not raise `SerializationError` or `TypeMismatchError`.
 
 `ZServer.send_response(response, request_id)` needs the `request_id` dictionary that `take_request()` returned. Pass it unchanged. A dictionary without an `sn` or `gid` key raises `KeyError`. A `gid` that does not hold 16 bytes raises `ValueError`.
 
