@@ -180,3 +180,43 @@ func TestSendGoalContextSerialisesBeforeReturn(t *testing.T) {
 	}
 	_ = c.Close()
 }
+
+// sharedGoal returns its own backing array from SerializeCDR, as a message that caches its
+// buffer does. The Message interface does not forbid this.
+type sharedGoal struct{ data []byte }
+
+func (g *sharedGoal) TypeName() string { return "x" }
+func (g *sharedGoal) TypeHash() string { return "y" }
+func (g *sharedGoal) SerializeCDR() ([]byte, error) { return g.data, nil }
+func (g *sharedGoal) DeserializeCDR([]byte) error { return nil }
+
+// A goal that returns shared storage must not change what the C layer sends after the call
+// returned on cancel. SendGoalContext copies the bytes before the worker starts.
+func TestSendGoalContextOwnsSerialisedBytes(t *testing.T) {
+	c := openTestActionClient()
+	goal := &sharedGoal{data: []byte{1, 2}}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	sent := make(chan []byte, 1)
+	stubSendGoal(t, func(_ *ActionClient, b []byte) (*GoalHandle, error) {
+		close(started)
+		<-release
+		sent <- append([]byte(nil), b...) // the C layer reads the goal bytes here
+		return nil, errors.New("stub")
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() { _, err := c.SendGoalContext(ctx, goal); done <- err }()
+	<-started
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	goal.data[0] = 9 // the caller reuses the goal storage in place
+	close(release)
+	if got := <-sent; len(got) != 2 || got[0] != 1 || got[1] != 2 {
+		t.Errorf("the C layer sent %v, want the goal as it was at the call: [1 2]", got)
+	}
+	_ = c.Close()
+}
