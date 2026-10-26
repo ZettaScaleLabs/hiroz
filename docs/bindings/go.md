@@ -387,22 +387,19 @@ if errors.Is(err, hiroz.ErrBuildFailed) { /* construction failed */ }
 if errors.Is(err, hiroz.ErrTimeout)     { /* no server responded */ }
 ```
 
-A C caller can read the reason for some failures with `hiroz_last_error_message()`, which returns a thread-local string or NULL.
-A message is recorded in only two cases: a warning that the library routes through its FFI warning macro, and a null or non-UTF-8 string argument that a call rejects.
-The calls that record a message are the context, node, publisher, subscriber, service client, service server, action client and action server constructors, `hiroz_service_client_call`, `hiroz_action_client_send_goal`, `hiroz_action_client_get_result`, `hiroz_action_client_cancel_goal` and `hiroz_action_server_publish_feedback`.
-`hiroz_graph_node_exists`, `hiroz_serialize` and `hiroz_deserialize` record a message only for a null or non-UTF-8 string argument.
-Other failing calls record nothing. Examples are an unknown buffer group in `hiroz_subscriber_create_with_group`, a type that serialization does not implement, a null handle and a failed publish.
-Check the return value first, and read the message on the same OS thread, only after a call reported failure: a non-zero code, or NULL from a constructor.
+A C caller can read a diagnostic message with `hiroz_last_error_message()`, which returns a thread-local string or NULL.
+The message is a hint for logging. The return value of a call is the only contract for failure: a non-zero code, or NULL from a constructor.
+The library records a message in two cases only: a warning that it routes through its FFI warning macro, and a null or non-UTF-8 string argument that a call rejects.
+Many failures record no message. Examples are a null context or node handle, a `NullPointer` return for a null client, a goal that the action server rejects, and an unknown buffer group. So a NULL message never means that a call succeeded.
 A message can be present after a successful call. For example, `hiroz_context_create_with_config` records one for a `json_config` that is not a JSON object, and still succeeds.
-Treat NULL as "no message recorded".
-The message stays valid until the next call on that thread that records a message, or until `hiroz_last_error_clear()` discards it.
-A successful call does not clear it, so a message can be stale. Call `hiroz_last_error_clear()` before a call to ignore an older message.
+A successful call never clears the message. Call `hiroz_last_error_clear()` to clear it.
+The pointer stays valid until the next call on the same thread that records a message, or until `hiroz_last_error_clear()`. Do not free it.
 The Go package does not expose it, because a goroutine can move to another OS thread between the C call and the read.
 
 !!! warning
     `hiroz_action_client_send_goal`, `hiroz_action_client_get_result` and `hiroz_action_client_cancel_goal` return `-1` for a runtime failure.
     The same value means `ErrorCodeNullPointer`, so the code alone does not tell the two apart.
-    For C callers, `hiroz_last_error_message()` names the cause when the failing path records a message.
+    A C caller must not rely on `hiroz_last_error_message()` to tell them apart, because the message is only a hint and can be NULL.
     The Go package maps these paths to `ErrorCodeActionCancelFailed` and `ErrorCodeActionResultFailed`, but `SendGoal` passes the raw code through.
 
 Inspect the error code directly when you need fine-grained handling:
