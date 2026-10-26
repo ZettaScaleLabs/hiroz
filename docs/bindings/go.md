@@ -302,7 +302,7 @@ err := hiroz.CallTyped(client, &example_interfaces.AddTwoIntsRequest{A: 5, B: 3}
 
 ### Context variants
 
-The calls in this table have a variant that ends when a `context.Context` ends. Other blocking calls, such as `CallTypedWithTimeout` and `WaitForService`, keep their timeout argument and have no other variant.
+The calls in this table have a variant that ends when a `context.Context` ends. Other blocking calls, such as `CallTypedWithTimeout`, keep their timeout argument and have no other variant.
 
 | Call | Context variant |
 |------|-----------------|
