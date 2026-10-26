@@ -590,7 +590,7 @@ func TestMinCDRSize(t *testing.T) {
 		{"nested empty", []FieldDefinition{scalar(custom("Empty"))}, 0},
 		{"nested unknown", []FieldDefinition{scalar(custom("Missing"))}, 0},
 		{"cycle counts the cycle as zero", []FieldDefinition{scalar(custom("SelfA"))}, 6},
-		{"huge fixed array is capped", []FieldDefinition{fixed("UInt64", 1<<40)}, maxMinSize},
+		{"huge fixed array is capped", []FieldDefinition{fixed("UInt64", 1<<32-1)}, maxMinSize},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
