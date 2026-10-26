@@ -101,8 +101,8 @@ impl CQosProfile {
 /// Versioned C-compatible QoS profile for FFI
 ///
 /// `struct_size` comes first. The caller sets it to `sizeof(hiroz_qos_profile_v2_t)` of the
-/// header it compiled against, or calls `hiroz_qos_profile_v2_init`, which sets it. A later
-/// release can add fields at the end. hiroz reads only the fields that lie completely inside
+/// header it compiled against, or calls `hiroz_qos_profile_v2_init` with that size, which sets
+/// it. A later release can add fields at the end. hiroz reads only the fields that lie completely inside
 /// `struct_size` and takes the default for the others, so a program built against an older header
 /// keeps working. A field that `struct_size` cuts in two counts as absent: hiroz never reads part
 /// of a field. A `struct_size` below 4 is invalid: the creator returns null.
@@ -187,36 +187,40 @@ impl CQosProfileV2 {
     /// `dst`. A member that `covered` splits or excludes is not present: it keeps the value in
     /// `dst`. A partial copy of a member would give a value that nobody wrote.
     ///
+    /// The copy works on bytes and makes no reference to `dst`, so `dst` may be memory that the
+    /// caller did not initialise, and `src` and `dst` may be unaligned.
+    ///
     /// # Safety
-    /// `src` must point to at least `covered` readable bytes.
-    unsafe fn copy_whole_members(src: *const u8, dst: &mut Self, covered: usize) {
+    /// `src` must point to at least `covered` readable bytes. `dst` must be valid for writes of
+    /// every member that lies inside `covered` bytes.
+    unsafe fn copy_whole_members(src: *const u8, dst: *mut Self, covered: usize) {
         macro_rules! member {
-            ($field:ident) => {{
+            ($field:ident: $ty:ty) => {{
                 let offset = std::mem::offset_of!(Self, $field);
-                let size = std::mem::size_of_val(&dst.$field);
+                let size = std::mem::size_of::<$ty>();
                 if offset + size <= covered {
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             src.add(offset),
-                            std::ptr::addr_of_mut!(dst.$field) as *mut u8,
+                            std::ptr::addr_of_mut!((*dst).$field) as *mut u8,
                             size,
                         );
                     }
                 }
             }};
         }
-        member!(struct_size);
-        member!(reliability);
-        member!(durability);
-        member!(history);
-        member!(history_depth);
-        member!(deadline_sec);
-        member!(deadline_nsec);
-        member!(lifespan_sec);
-        member!(lifespan_nsec);
-        member!(liveliness);
-        member!(liveliness_lease_sec);
-        member!(liveliness_lease_nsec);
+        member!(struct_size: u32);
+        member!(reliability: i32);
+        member!(durability: i32);
+        member!(history: i32);
+        member!(history_depth: i32);
+        member!(deadline_sec: u64);
+        member!(deadline_nsec: u64);
+        member!(lifespan_sec: u64);
+        member!(lifespan_nsec: u64);
+        member!(liveliness: i32);
+        member!(liveliness_lease_sec: u64);
+        member!(liveliness_lease_nsec: u64);
     }
 
     fn as_v1(&self) -> CQosProfile {
@@ -238,19 +242,43 @@ impl CQosProfileV2 {
 
 /// Write the default QoS profile, and the size of the struct, to `out`
 ///
-/// Call this before you change single fields. A zeroed struct has deadline, lifespan and lease
-/// of zero, which is not the default of infinite.
+/// `size` is the size of the allocation that `out` points to, as the caller knows it:
+/// `sizeof(hiroz_qos_profile_v2_t)` of the header that the caller compiled against. The function
+/// writes the fields that lie completely inside `size` and no other byte, and it sets
+/// `struct_size` to `size`. Call it before you change single fields. A zeroed struct has
+/// deadline, lifespan and lease of zero, which is not the default of infinite.
 ///
-/// Returns 0 on success and a negative `ErrorCode` if `out` is null.
+/// Two cases need no other care. A program built against an older header passes its smaller
+/// size: a newer library writes only the fields that the program has, and the creator takes the
+/// default for the fields that it does not have. A program built against a newer header passes
+/// its larger size: an older library writes the fields that it knows and leaves the bytes after
+/// them as they were, so the program must set the fields that are new to it. The creator ignores
+/// the bytes beyond the struct that it knows.
+///
+/// Returns 0 on success, `ErrorCode::NullPointer` if `out` is null, and `ErrorCode::Unknown` if
+/// `size` is below 4, which cannot hold `struct_size`. A failed call writes nothing.
 ///
 /// # Safety
-/// `out` must be null or point to writable memory of `sizeof(hiroz_qos_profile_v2_t)` bytes.
+/// `out` must be null or point to writable memory of `size` bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn hiroz_qos_profile_v2_init(out: *mut CQosProfileV2) -> i32 {
+pub unsafe extern "C" fn hiroz_qos_profile_v2_init(out: *mut CQosProfileV2, size: usize) -> i32 {
     if out.is_null() {
         return super::ErrorCode::NullPointer as i32;
     }
-    unsafe { out.write(CQosProfileV2::defaults()) };
+    if size < CQosProfileV2::MIN_SIZE as usize {
+        return super::ErrorCode::Unknown as i32;
+    }
+    let defaults = CQosProfileV2::defaults();
+    let covered = size.min(CQosProfileV2::SIZE as usize);
+    unsafe {
+        CQosProfileV2::copy_whole_members(
+            &defaults as *const CQosProfileV2 as *const u8,
+            out,
+            covered,
+        );
+        // The caller's size, which may be smaller or larger than this library's struct.
+        std::ptr::write_unaligned(out as *mut u32, size.min(u32::MAX as usize) as u32);
+    }
     super::ErrorCode::Success as i32
 }
 
