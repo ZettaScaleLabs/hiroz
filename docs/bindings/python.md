@@ -188,9 +188,9 @@ Each must have a `__msgtype__` class attribute:
 
 #### Client Lifecycle
 
-1. `client.send_goal(goal)` → `ActionGoalHandle` — blocks until accepted. It raises on rejection, and it raises `RuntimeError` when no server answers within 11 seconds
+1. `client.send_goal(goal)` → `ActionGoalHandle` — blocks until accepted. It raises on rejection. It raises `RuntimeError` when no server answers: the goal query ends after at most 10 seconds, and a hard limit of 11 seconds applies on top. It never raises `TimeoutError`
 2. `handle.recv_feedback(timeout)` — receive next feedback; returns `None` on timeout or when the feedback channel closes
-3. `handle.get_result(timeout)` — block until terminal state; returns `None` on timeout. The first call consumes the handle, so a timeout cannot be retried: a second call always raises `RuntimeError`
+3. `handle.get_result(timeout)` — block until terminal state; returns `None` on timeout. Without `timeout` it has no time limit. The first call consumes the handle, so a timeout cannot be retried: a second call always raises `RuntimeError`
 4. `handle.cancel()` — request cancellation (the server decides when to honour it)
 
 ### Goal Status
@@ -373,15 +373,18 @@ hiroz-py defines four exception classes. All of them are attributes of `hiroz_py
 
 `hiroz_py.TimeoutError` is not the built-in `TimeoutError`. Catch it as `hiroz_py.TimeoutError`.
 
+Every service client query ends after 10 seconds. A call has no way to wait longer for a reply, so the default `timeout` of one hour is never reached. The call raises `hiroz_py.TimeoutError` only when you pass a `timeout` below 10 seconds. A call whose query ends with no reply raises `RuntimeError` with the message `Service call ended before any response was received`. The query may end sooner than 10 seconds when no server matches. That case is not confirmed by a run.
+
 ### What raises what
 
 | situation | result |
 |---|---|
-| `ZClient.call(..., timeout=t)` gets no response in time | `hiroz_py.TimeoutError` |
-| `ZClient.call(...)` with no `timeout` | waits for up to one hour, then raises `hiroz_py.TimeoutError` |
-| `ZClient.call(...)` fails for any reason other than a timeout, for example the server disappears | `RuntimeError` |
+| `ZClient.call(..., timeout=t)` with `t` below 10 seconds gets no response in time | `hiroz_py.TimeoutError` |
+| `ZClient.call(...)` with no `timeout`, or with `t` of 10 seconds or more, and no response arrives | `RuntimeError`, after at most 10 seconds |
+| a server answers a `ZClient.call` after the 10 second query has ended | `RuntimeError`. The late reply is dropped |
+| `ZClient.call(...)` fails for any other reason, for example the server disappears | `RuntimeError` |
 | `ZSubscriber.recv(timeout=t)` gets no message in time | returns `None` |
-| `ZActionClient.send_goal(...)` gets no answer from a server in 11 seconds | `RuntimeError` |
+| `ZActionClient.send_goal(...)` gets no answer from a server | `RuntimeError`, after at most 11 seconds |
 | `ZServer.take_request()` or `send_response(...)` fails in the core | `RuntimeError` |
 | an action client or server cannot be created, an action call fails in the core, you finish a goal twice, or you call `recv` on a callback subscriber | `RuntimeError` |
 | a context, node, publisher, subscriber, service client or service server cannot be created, or a publish or receive fails in the core | `HirozError` |
