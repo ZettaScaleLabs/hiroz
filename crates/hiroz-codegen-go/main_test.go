@@ -526,6 +526,8 @@ func TestGenerateUnpackBoundsArrayLength(t *testing.T) {
 // message has a known minimum size.
 func registerKnown(t *testing.T, msgs []MessageDefinition) {
 	t.Helper()
+	registerMessages(msgs)
+	t.Cleanup(func() { registerMessages(nil) })
 }
 
 func TestCustomSequenceReservationIsByteAware(t *testing.T) {
@@ -547,5 +549,54 @@ func TestCustomSequenceReservationIsByteAware(t *testing.T) {
 	want := "ifbound:=(len(data)-offset)/65536;capHint>bound{capHint=bound}"
 	if !strings.Contains(strings.Join(strings.Fields(string(code)), ""), want) {
 		t.Errorf("the reservation is not bounded by the encoded element size, want %q in:\n%s", want, code)
+	}
+}
+
+func TestMinCDRSize(t *testing.T) {
+	str := func(s string) *string { return &s }
+	n := func(v uint) *uint { return &v }
+	custom := func(name string) FieldType {
+		return FieldType{Kind: "Custom", Package: str("test_msgs"), Name: str(name)}
+	}
+	fixed := func(kind string, size uint) FieldDefinition {
+		return FieldDefinition{Name: "f", FieldType: FieldType{Kind: kind}, IsArray: true, ArrayKind: "fixed", ArraySize: n(size)}
+	}
+	scalar := func(ft FieldType) FieldDefinition { return FieldDefinition{Name: "f", FieldType: ft} }
+	seq := func(ft FieldType) FieldDefinition {
+		return FieldDefinition{Name: "f", FieldType: ft, IsArray: true, ArrayKind: "unbounded"}
+	}
+	registerKnown(t, []MessageDefinition{
+		{Package: "test_msgs", Name: "Pair", Fields: []FieldDefinition{scalar(FieldType{Kind: "Int32"}), scalar(FieldType{Kind: "Int64"})}},
+		{Package: "test_msgs", Name: "Outer", Fields: []FieldDefinition{scalar(custom("Pair")), scalar(FieldType{Kind: "UInt8"})}},
+		{Package: "test_msgs", Name: "Empty"},
+		{Package: "test_msgs", Name: "SelfA", Fields: []FieldDefinition{scalar(custom("SelfB")), scalar(FieldType{Kind: "Int32"})}},
+		{Package: "test_msgs", Name: "SelfB", Fields: []FieldDefinition{scalar(custom("SelfA")), scalar(FieldType{Kind: "Int16"})}},
+	})
+	cases := []struct {
+		name   string
+		fields []FieldDefinition
+		want   int64
+	}{
+		{"no fields", nil, 0},
+		{"bool int16 float64", []FieldDefinition{scalar(FieldType{Kind: "Bool"}), scalar(FieldType{Kind: "Int16"}), scalar(FieldType{Kind: "Float64"})}, 11},
+		{"fixed uint8 array", []FieldDefinition{fixed("UInt8", 65536)}, 65536},
+		{"fixed int32 array", []FieldDefinition{fixed("Int32", 3)}, 12},
+		{"string", []FieldDefinition{scalar(FieldType{Kind: "String"})}, 4},
+		{"time and duration", []FieldDefinition{scalar(FieldType{Kind: "Time"}), scalar(FieldType{Kind: "Duration"})}, 16},
+		{"unbounded sequence of float64", []FieldDefinition{seq(FieldType{Kind: "Float64"})}, 4},
+		{"sequence of strings", []FieldDefinition{seq(FieldType{Kind: "String"})}, 4},
+		{"sequence of nested", []FieldDefinition{seq(custom("Pair"))}, 4},
+		{"nested", []FieldDefinition{scalar(custom("Outer"))}, 13},
+		{"nested empty", []FieldDefinition{scalar(custom("Empty"))}, 0},
+		{"nested unknown", []FieldDefinition{scalar(custom("Missing"))}, 0},
+		{"cycle counts the cycle as zero", []FieldDefinition{scalar(custom("SelfA"))}, 6},
+		{"huge fixed array is capped", []FieldDefinition{fixed("UInt64", 1<<40)}, maxMinSize},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := minCDRSize(c.fields); got != c.want {
+				t.Errorf("minCDRSize = %d, want %d", got, c.want)
+			}
+		})
 	}
 }
