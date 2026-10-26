@@ -357,6 +357,16 @@ func (c *ServiceClient) WaitForServiceContext(ctx context.Context) error {
 			return context.DeadlineExceeded
 		}
 		rc := serviceWait(h, timeoutMs)
+		// A cancel or a Close that came while the C wait ran ends the call, even when the C
+		// wait then found the server.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		select {
+		case <-quit:
+			return fmt.Errorf("service client is closed")
+		default:
+		}
 		if rc == 0 {
 			return nil
 		}
