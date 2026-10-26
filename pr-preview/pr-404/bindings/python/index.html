@@ -3891,7 +3891,7 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 </span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="n">sub</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">create_subscriber</span><span class="p">(</span><span class="s2">&quot;/topic&quot;</span><span class="p">,</span> <span class="n">std_msgs</span><span class="o">.</span><span class="n">String</span><span class="p">,</span> <span class="n">qos</span><span class="o">=</span><span class="n">hiroz_py</span><span class="o">.</span><span class="n">QosProfile</span><span class="o">.</span><span class="n">sensor_data</span><span class="p">())</span>
 </span></code></pre></div>
 <h3 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h3>
-<p>The module constants <code>QOS_DEFAULT</code>, <code>QOS_SENSOR_DATA</code>, <code>QOS_PARAMETERS</code> and <code>QOS_SERVICES</code> are plain <code>dict</code> objects, not <code>QosProfile</code> objects. Pass one as the <code>qos</code> argument, because <code>qos</code> accepts a <code>dict</code>. The static methods <code>QosProfile.default()</code>, <code>sensor_data()</code>, <code>parameters()</code> and <code>services()</code> return <code>QosProfile</code> objects with the same values.</p>
+<p>After <code>import hiroz_py</code>, the constants <code>hiroz_py.QOS_DEFAULT</code>, <code>QOS_SENSOR_DATA</code>, <code>QOS_PARAMETERS</code> and <code>QOS_SERVICES</code> are <code>QosProfile</code> objects. The package replaces the native module values with <code>QosProfile.default()</code>, <code>sensor_data()</code>, <code>parameters()</code> and <code>services()</code>. The native module <code>hiroz_py._native</code> holds the same four names as plain <code>dict</code> objects. Pass either form as the <code>qos</code> argument, because <code>qos</code> accepts both.</p>
 <table>
 <thead>
 <tr>
@@ -4017,6 +4017,7 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 </tbody>
 </table>
 <p>Pool creation can fail. The failure raises <code>HirozError</code>.</p>
+<p>The Python publish methods do not use the pool or the threshold. <code>ZPublisher.publish()</code> serialises the message to a buffer and sends it. <code>ZPublisher.publish_raw()</code> sends the bytes you pass. Neither method allocates from the SHM pool, so <code>with_shm_pool_size()</code> and <code>with_shm_threshold()</code> do not change how Python publishes.</p>
 <h3 id="environment-variables">Environment variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -4103,7 +4104,7 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 </tbody>
 </table>
 <p><code>hiroz_py.TimeoutError</code> is not the built-in <code>TimeoutError</code>. Catch it as <code>hiroz_py.TimeoutError</code>.</p>
-<p>Every service client query ends after 10 seconds. A call has no way to wait longer for a reply, so the default <code>timeout</code> of one hour is never reached. A <code>timeout</code> below 10 seconds raises <code>hiroz_py.TimeoutError</code> when no reply comes. A <code>timeout</code> above 10 seconds raises <code>RuntimeError</code> instead. At exactly 10 seconds either error may happen, because the <code>timeout</code> and the 10 second query limit end at the same moment. A call whose query ends with no reply raises <code>RuntimeError</code> with the message <code>Failed to call service: Service call ended before any response was received</code>. The query lasts at most 10 seconds.</p>
+<p>Every service client query ends after 10 seconds. A call has no way to wait longer for a reply, so the default <code>timeout</code> of one hour is never reached. The call raises <code>hiroz_py.TimeoutError</code> when the <code>timeout</code> ends first, so only a <code>timeout</code> below 10 seconds can raise it. The call raises <code>RuntimeError</code> when the query ends first with no reply. The message is <code>Failed to call service: Service call ended before any response was received</code>. The query can end before the <code>timeout</code>, for example when no server matches: the test in <code>crates/hiroz-py/tests/test_service.py</code> with <code>timeout=1.0</code> and no server expects <code>RuntimeError</code>. A <code>timeout</code> above 10 seconds always ends after the query, so it raises <code>RuntimeError</code>. At exactly 10 seconds either error may happen, because the <code>timeout</code> and the 10 second query limit end at the same moment.</p>
 <p>A negative, NaN, infinite or overflowing <code>timeout</code> is not supported. An overflowing <code>timeout</code> is a value too large for a <code>Duration</code>. It does not raise a normal exception: the binding panics and Python raises <code>pyo3_runtime.PanicException</code>, which derives from <code>BaseException</code>, so <code>except Exception</code> does not catch it. Every <code>timeout</code> argument that is a float behaves this way.</p>
 <h3 id="what-raises-what">What raises what<a class="headerlink" href="#what-raises-what" title="Permanent link">&para;</a></h3>
 <table>
@@ -4115,8 +4116,12 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 </thead>
 <tbody>
 <tr>
-<td><code>ZClient.call(..., timeout=t)</code> with <code>t</code> below 10 seconds gets no response in time</td>
+<td><code>ZClient.call(..., timeout=t)</code> with <code>t</code> below 10 seconds, and the <code>timeout</code> ends before the query does</td>
 <td><code>hiroz_py.TimeoutError</code></td>
+</tr>
+<tr>
+<td><code>ZClient.call(..., timeout=t)</code> with <code>t</code> below 10 seconds, and the query ends first with no reply, for example when no server matches</td>
+<td><code>RuntimeError</code></td>
 </tr>
 <tr>
 <td><code>ZClient.call(...)</code> with no <code>timeout</code>, or with <code>t</code> above 10 seconds, and no response arrives</td>
@@ -4163,12 +4168,28 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 <td><code>OverflowError</code>, raised by the argument conversion</td>
 </tr>
 <tr>
+<td>a message field holds an integer outside the range of its type</td>
+<td><code>OverflowError</code>, raised when the message is converted</td>
+</tr>
+<tr>
+<td>a message object lacks a field that its type defines</td>
+<td><code>AttributeError</code>, raised when the message is converted</td>
+</tr>
+<tr>
 <td>a message class has no <code>__msgtype__</code>, or <code>qos</code> has the wrong type</td>
 <td><code>TypeError</code></td>
 </tr>
+<tr>
+<td>the request class passed to <code>create_client</code> or <code>create_server</code> has no <code>__hash__</code> string</td>
+<td><code>TypeError</code></td>
+</tr>
+<tr>
+<td>the request class passed to <code>create_client</code> or <code>create_server</code> has a malformed <code>__hash__</code></td>
+<td><code>ValueError</code></td>
+</tr>
 </tbody>
 </table>
-<p>In the code that converts Python messages to and from CDR, invalid values raise <code>ValueError</code> or <code>TypeError</code>. They do not raise <code>SerializationError</code> or <code>TypeMismatchError</code>.</p>
+<p>In the code that converts Python messages to and from CDR, invalid values raise <code>ValueError</code>, <code>TypeError</code>, <code>OverflowError</code> or <code>AttributeError</code>. They do not raise <code>SerializationError</code> or <code>TypeMismatchError</code>.</p>
 <p><code>ZServer.send_response(response, request_id)</code> needs the <code>request_id</code> dictionary that <code>take_request()</code> returned. Pass it unchanged. A dictionary without an <code>sn</code> or <code>gid</code> key raises <code>KeyError</code>. A <code>gid</code> that does not hold 16 bytes raises <code>ValueError</code>.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">hiroz_py</span>
 </span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>
@@ -4281,8 +4302,7 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 <details class="question">
 <summary>Message type not found</summary>
 <p>This error occurs when trying to use a message type that isn't supported by the Python bindings.
-<strong>Solution:</strong> Check that the class comes from <code>hiroz_msgs_py</code> or defines <code>__msgtype__</code>.
-<code>create_publisher</code> and <code>create_subscriber</code> raise <code>TypeError</code> when the class has no <code>__msgtype__</code> attribute. <code>hiroz_py.list_registered_types()</code> returns the registered message type names.</p>
+<strong>Solution:</strong> Use a class from <code>hiroz_msgs_py</code>. A class that only defines <code>__msgtype__</code> passes <code>create_publisher</code> and <code>create_subscriber</code>, but <code>publish</code> raises <code>ValueError</code> and <code>recv</code> raises <code>TypeError</code> when the type is not in the generated registry. <code>hiroz_py.list_registered_types()</code> returns the registered message type names.</p>
 <p>Ensure you are passing a message class object (e.g., <code>std_msgs.String</code>), not a string.</p>
 </details>
 <details class="question">
