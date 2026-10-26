@@ -856,3 +856,166 @@ fn c_abi_action_qos_v2_rejects_a_short_struct_size() {
         );
     }
 }
+
+/// A byte buffer with the alignment of the structs, to build a struct by hand. Every byte starts
+/// as `0x01`: a member that a creator reads from it without a check is a pointer to address
+/// `0x0101...`, or to address 1 when only one byte of it is copied.
+#[repr(C, align(8))]
+struct RawStruct([u8; 64]);
+
+impl RawStruct {
+    fn filled(struct_size: u32) -> Self {
+        let mut raw = Self([0x01; 64]);
+        raw.0[..4].copy_from_slice(&struct_size.to_ne_bytes());
+        raw
+    }
+
+    fn put(&mut self, offset: usize, bytes: &[u8]) {
+        self.0[offset..offset + bytes.len()].copy_from_slice(bytes);
+    }
+
+    fn action(&self) -> *const CActionQosV2 {
+        self.0.as_ptr().cast()
+    }
+}
+
+/// An action struct whose `struct_size` ends inside the first pointer member. The member bytes
+/// are garbage, not null. A member that is not whole inside `struct_size` is not present, so the
+/// creator must use the default for every entity and must not read the member.
+#[test]
+fn c_abi_action_qos_v2_ignores_a_partial_first_member() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_act_partial");
+
+    let one_byte = (std::mem::offset_of!(CActionQosV2, goal_service) + 1) as u32;
+    let partial = RawStruct::filled(one_byte);
+    let client = c.action_client_v2("c_qos_v2_act_partial_client", partial.action());
+    let server = c.action_server_v2("c_qos_v2_act_partial_server", partial.action());
+    assert!(
+        !client.is_null() && !server.is_null(),
+        "a creator returned null"
+    );
+
+    let default = encoded(&QosProfile::default());
+    for name in ["c_qos_v2_act_partial_client", "c_qos_v2_act_partial_server"] {
+        for entity in ["send_goal", "get_result", "cancel_goal"] {
+            assert_eq!(
+                qos_text(&raw, &format!("{name}/_action/{entity}")),
+                default,
+                "{name} {entity}"
+            );
+        }
+    }
+    assert!(
+        tokens_of(&raw, "c_qos_v2_act_partial_client/_action/status").is_empty(),
+        "a partial status member made a status token"
+    );
+
+    unsafe {
+        hiroz_action_client_destroy(client);
+        hiroz_action_server_destroy(server);
+    }
+}
+
+/// An action struct whose `struct_size` ends inside the last member. The members before it are
+/// whole and are read: the goal profile is the positive control. The last member is garbage and
+/// partly inside the size: it counts as null, so the client creates no status subscriber.
+#[test]
+fn c_abi_action_qos_v2_ignores_a_partial_last_member() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_act_partial_last");
+
+    let profiles = ActionProfiles::new();
+    let full = profiles.as_struct();
+    let mut partial = RawStruct::filled(0);
+    let before_status = std::mem::offset_of!(CActionQosV2, status_topic);
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            (&full as *const CActionQosV2).cast::<u8>(),
+            partial.0.as_mut_ptr(),
+            before_status,
+        );
+    }
+    partial.put(0, &((before_status + 3) as u32).to_ne_bytes());
+    let client = c.action_client_v2("c_qos_v2_act_partial_last_name", partial.action());
+    assert!(!client.is_null(), "the creator returned null");
+
+    let name = "c_qos_v2_act_partial_last_name/_action";
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/send_goal")),
+        expected_goal()
+    );
+    assert!(
+        tokens_of(&raw, &format!("{name}/status")).is_empty(),
+        "a partial status member made a status token"
+    );
+
+    unsafe { hiroz_action_client_destroy(client) };
+}
+
+/// A profile struct whose `struct_size` ends inside the `reliability` member. The low bytes that
+/// are inside the size hold the value 1. A scalar that is not whole inside the size is not
+/// present, so every entry point uses the default. A struct that holds `reliability` whole is the
+/// positive control and announces best effort.
+#[test]
+fn c_abi_qos_v2_ignores_a_partial_scalar_member() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_scalar");
+
+    let mut whole = init_v2();
+    whole.reliability = 1;
+    whole.struct_size = std::mem::offset_of!(CQosProfileV2, durability) as u32;
+    let mut partial = init_v2();
+    partial.reliability = 1;
+    partial.struct_size = (std::mem::offset_of!(CQosProfileV2, reliability) + 2) as u32;
+
+    let default = encoded(&QosProfile::default());
+    let best_effort = encoded(&QosProfile {
+        reliability: QosReliability::BestEffort,
+        ..Default::default()
+    });
+    assert_ne!(default, best_effort);
+
+    let p_whole = c.publisher_v2("c_qos_v2_scalar_pub_whole", &whole);
+    let p_partial = c.publisher_v2("c_qos_v2_scalar_pub_partial", &partial);
+    let s_whole = c.subscriber_v2("c_qos_v2_scalar_sub_whole", &whole);
+    let s_partial = c.subscriber_v2("c_qos_v2_scalar_sub_partial", &partial);
+    let c_whole = c.service_client_v2("c_qos_v2_scalar_cli_whole", &whole);
+    let c_partial = c.service_client_v2("c_qos_v2_scalar_cli_partial", &partial);
+    let v_whole = c.service_server_v2("c_qos_v2_scalar_srv_whole", &whole);
+    let v_partial = c.service_server_v2("c_qos_v2_scalar_srv_partial", &partial);
+    assert!(
+        ![p_whole, p_partial].iter().any(|p| p.is_null())
+            && ![s_whole, s_partial].iter().any(|p| p.is_null())
+            && ![c_whole, c_partial].iter().any(|p| p.is_null())
+            && ![v_whole, v_partial].iter().any(|p| p.is_null()),
+        "a creator returned null"
+    );
+
+    for kind in ["pub", "sub", "cli", "srv"] {
+        assert_eq!(
+            qos_text(&raw, &format!("c_qos_v2_scalar_{kind}_whole")),
+            best_effort,
+            "{kind} with a whole member"
+        );
+        assert_eq!(
+            qos_text(&raw, &format!("c_qos_v2_scalar_{kind}_partial")),
+            default,
+            "{kind} with a partial member"
+        );
+    }
+
+    unsafe {
+        hiroz_publisher_destroy(p_whole);
+        hiroz_publisher_destroy(p_partial);
+        hiroz_subscriber_destroy(s_whole);
+        hiroz_subscriber_destroy(s_partial);
+        hiroz_service_client_destroy(c_whole);
+        hiroz_service_client_destroy(c_partial);
+        hiroz_service_server_destroy(v_whole);
+        hiroz_service_server_destroy(v_partial);
+    }
+}
