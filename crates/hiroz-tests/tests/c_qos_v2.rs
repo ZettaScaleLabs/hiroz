@@ -109,7 +109,9 @@ fn v2_non_default() -> CQosProfileV2 {
 
 fn init_v2() -> CQosProfileV2 {
     let mut qos = std::mem::MaybeUninit::<CQosProfileV2>::uninit();
-    let rc = unsafe { hiroz_qos_profile_v2_init(qos.as_mut_ptr()) };
+    let rc = unsafe {
+        hiroz_qos_profile_v2_init(qos.as_mut_ptr(), std::mem::size_of::<CQosProfileV2>())
+    };
     assert_eq!(rc, 0, "hiroz_qos_profile_v2_init failed");
     unsafe { qos.assume_init() }
 }
@@ -338,7 +340,9 @@ fn c_abi_qos_v2_init_writes_size_and_defaults() {
         .expect("a non-null pointer gives a profile");
     assert_eq!(converted, QosProfile::default());
 
-    let null = unsafe { hiroz_qos_profile_v2_init(std::ptr::null_mut()) };
+    let null = unsafe {
+        hiroz_qos_profile_v2_init(std::ptr::null_mut(), std::mem::size_of::<CQosProfileV2>())
+    };
     assert_ne!(null, 0, "init of a null pointer must fail");
 }
 
@@ -861,11 +865,11 @@ fn c_abi_action_qos_v2_rejects_a_short_struct_size() {
 /// as `0x01`: a member that a creator reads from it without a check is a pointer to address
 /// `0x0101...`, or to address 1 when only one byte of it is copied.
 #[repr(C, align(8))]
-struct RawStruct([u8; 64]);
+struct RawStruct([u8; 128]);
 
 impl RawStruct {
     fn filled(struct_size: u32) -> Self {
-        let mut raw = Self([0x01; 64]);
+        let mut raw = Self([0x01; 128]);
         raw.0[..4].copy_from_slice(&struct_size.to_ne_bytes());
         raw
     }
@@ -1017,5 +1021,87 @@ fn c_abi_qos_v2_ignores_a_partial_scalar_member() {
         hiroz_service_client_destroy(c_partial);
         hiroz_service_server_destroy(v_whole);
         hiroz_service_server_destroy(v_partial);
+    }
+}
+
+/// A buffer longer than the struct, filled with a canary byte, and the init function called with a
+/// size. The function writes at most `size` bytes: the bytes after it must keep the canary.
+fn init_into_canary(size: usize) -> (RawStruct, i32) {
+    const CANARY: u8 = 0xCC;
+    let mut buffer = RawStruct([CANARY; 128]);
+    assert!(std::mem::size_of::<CQosProfileV2>() + 16 <= buffer.0.len());
+    let rc = unsafe { hiroz_qos_profile_v2_init(buffer.0.as_mut_ptr().cast(), size) };
+    (buffer, rc)
+}
+
+fn word(buffer: &RawStruct, offset: usize) -> u32 {
+    u32::from_ne_bytes(buffer.0[offset..offset + 4].try_into().unwrap())
+}
+
+/// An old program that was built against a header with a short struct passes its own size. The
+/// init function writes only the whole fields inside that size, and records that size.
+#[test]
+fn c_abi_qos_v2_init_writes_no_more_than_the_size_given() {
+    let reliability = std::mem::offset_of!(CQosProfileV2, reliability);
+    let history = std::mem::offset_of!(CQosProfileV2, history);
+    let durability = std::mem::offset_of!(CQosProfileV2, durability);
+
+    // Whole fields: the size field and `reliability`. The bytes after them keep the canary.
+    let (buffer, rc) = init_into_canary(durability);
+    assert_eq!(rc, 0);
+    assert_eq!(word(&buffer, 0) as usize, durability);
+    assert_eq!(word(&buffer, reliability), 0);
+    assert!(
+        buffer.0[durability..].iter().all(|b| *b == 0xCC),
+        "init wrote past the size given: {:?}",
+        &buffer.0[durability..]
+    );
+
+    // A size that cuts `durability` in two: the field is not written, not even in part.
+    let (buffer, rc) = init_into_canary(durability + 2);
+    assert_eq!(rc, 0);
+    assert_eq!(word(&buffer, 0) as usize, durability + 2);
+    assert!(
+        buffer.0[durability..].iter().all(|b| *b == 0xCC),
+        "init wrote part of a field: {:?}",
+        &buffer.0[durability..]
+    );
+
+    // Four fields fit: the history field is the last one that is written.
+    let (buffer, rc) = init_into_canary(history + 4);
+    assert_eq!(rc, 0);
+    assert_eq!(word(&buffer, history), 0);
+    assert!(buffer.0[history + 4..].iter().all(|b| *b == 0xCC));
+}
+
+/// A new program against an older library, and the reverse, both reduce to this: the size the
+/// caller gives can be larger than the struct that the library knows. The library writes the
+/// fields that it knows, and leaves the rest of the caller's allocation alone.
+#[test]
+fn c_abi_qos_v2_init_leaves_bytes_beyond_the_known_struct() {
+    let known = std::mem::size_of::<CQosProfileV2>();
+    let (buffer, rc) = init_into_canary(known + 16);
+    assert_eq!(rc, 0);
+    assert_eq!(word(&buffer, 0) as usize, known + 16);
+    assert!(
+        buffer.0[known..known + 16].iter().all(|b| *b == 0xCC),
+        "init wrote beyond the struct that it knows"
+    );
+    let converted = unsafe { CQosProfileV2::to_qos_profile(buffer.0.as_ptr().cast()) }
+        .expect("a larger struct_size is valid")
+        .expect("a non-null pointer gives a profile");
+    assert_eq!(converted, QosProfile::default());
+}
+
+/// A size below the size field cannot hold anything. The function fails and writes nothing.
+#[test]
+fn c_abi_qos_v2_init_rejects_a_size_below_the_size_field() {
+    for size in [0usize, 3] {
+        let (buffer, rc) = init_into_canary(size);
+        assert_ne!(rc, 0, "size {size} must be rejected");
+        assert!(
+            buffer.0.iter().all(|b| *b == 0xCC),
+            "a rejected init wrote bytes for size {size}"
+        );
     }
 }
