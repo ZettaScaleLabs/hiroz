@@ -346,6 +346,34 @@ func TestPrimitiveBoundary(t *testing.T) {
 	}
 }
 
+// An element that holds a 64 KiB fixed array takes at least 65536 bytes. A
+// count of 65536 with 65536 bytes left passes a bound on the element count, yet
+// reserving that many elements would take 4 GiB. The decoder must reserve by
+// the bytes the elements need and fail without a large allocation.
+func TestHostileBigElements(t *testing.T) {
+	raw := make([]byte, 4+4+65536)
+	raw[1] = 0x01
+	raw[4+2] = 0x01 // count 65536, little endian
+	var m test_msgs.BigArr
+	rejects(t, raw, m.DeserializeCDR)
+}
+
+// The boundary of a sequence of nested messages: a count whose elements fit the
+// bytes left decodes, and one more element is rejected.
+func TestCustomBoundary(t *testing.T) {
+	var ok test_msgs.CustomArr
+	if err := ok.DeserializeCDR([]byte{0x00, 0x01, 0x00, 0x00, 2, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0}); err != nil {
+		t.Fatalf("two elements in eight bytes were rejected: %v", err)
+	}
+	if len(ok.V) != 2 || ok.V[0].X != 1 || ok.V[1].X != 2 {
+		t.Fatalf("decoded %v, want x=1 and x=2", ok.V)
+	}
+	var over test_msgs.CustomArr
+	if err := over.DeserializeCDR([]byte{0x00, 0x01, 0x00, 0x00, 3, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0}); err == nil {
+		t.Fatalf("three elements in eight bytes decoded without an error")
+	}
+}
+
 // An element of a message with no fields takes zero bytes, so a valid
 // sequence of them is longer than the bytes left. The bound must not reject it.
 func TestSequenceOfEmptyMessagesDecodes(t *testing.T) {
@@ -377,6 +405,8 @@ func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
 	// Time and Duration arrays have no runtime probe: the generated code for such
 	// a field does not compile (the slice element type falls back to interface{}).
 	// Their bound is checked as text in TestGenerateUnpackBoundsArrayLength.
+	bigN := uint(65536)
+	bigFixed := []FieldDefinition{{Name: "b", FieldType: u8, IsArray: true, ArrayKind: "fixed", ArraySize: &bigN}}
 	msgs := []MessageDefinition{
 		{Package: "test_msgs", Name: "Empty", FullName: "test_msgs/Empty"},
 		{Package: "test_msgs", Name: "One", FullName: "test_msgs/One", Fields: []FieldDefinition{
@@ -387,7 +417,10 @@ func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
 		{Package: "test_msgs", Name: "BytesArr", FullName: "test_msgs/BytesArr", Fields: seq("v", u8)},
 		{Package: "test_msgs", Name: "CustomArr", FullName: "test_msgs/CustomArr", Fields: seq("v", custom("One"))},
 		{Package: "test_msgs", Name: "EmptyArr", FullName: "test_msgs/EmptyArr", Fields: seq("v", custom("Empty"))},
+		{Package: "test_msgs", Name: "Big", FullName: "test_msgs/Big", Fields: bigFixed},
+		{Package: "test_msgs", Name: "BigArr", FullName: "test_msgs/BigArr", Fields: seq("v", custom("Big"))},
 	}
+	registerKnown(t, msgs)
 
 	tmp := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module roundtripprobe\n\ngo 1.23\n"), 0o644); err != nil {
@@ -416,6 +449,8 @@ func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
 		{name: "TestHostileCustomArray"},
 		{name: "TestPrimitiveBoundary"},
 		{name: "TestSequenceOfEmptyMessagesDecodes"},
+		{name: "TestHostileBigElements"},
+		{name: "TestCustomBoundary"},
 		// On a 32-bit target int(uint32) of 0xFFFFFFFF is negative.
 		{name: "TestHostilePrimitiveArray", goarch: "386"},
 		{name: "TestHostileStringArray", goarch: "386"},

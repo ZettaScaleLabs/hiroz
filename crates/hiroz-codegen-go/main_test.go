@@ -521,3 +521,31 @@ func TestGenerateUnpackBoundsArrayLength(t *testing.T) {
 		})
 	}
 }
+
+// registerKnown tells the generator which messages exist, so that a nested
+// message has a known minimum size.
+func registerKnown(t *testing.T, msgs []MessageDefinition) {
+	t.Helper()
+}
+
+func TestCustomSequenceReservationIsByteAware(t *testing.T) {
+	str := func(s string) *string { return &s }
+	n := uint(65536)
+	u8 := FieldType{Kind: "UInt8"}
+	big := MessageDefinition{Package: "test_msgs", Name: "Big", FullName: "test_msgs/Big", Fields: []FieldDefinition{
+		{Name: "b", FieldType: u8, IsArray: true, ArrayKind: "fixed", ArraySize: &n},
+	}}
+	arr := MessageDefinition{Package: "test_msgs", Name: "BigArr", FullName: "test_msgs/BigArr", Fields: []FieldDefinition{
+		{Name: "v", FieldType: FieldType{Kind: "Custom", Package: str("test_msgs"), Name: str("Big")}, IsArray: true, ArrayKind: "unbounded"},
+	}}
+	registerKnown(t, []MessageDefinition{big, arr})
+	code, err := GenerateGoMessage(arr, "test")
+	if err != nil {
+		t.Fatalf("GenerateGoMessage failed: %v", err)
+	}
+	// gofmt decides the spacing, so compare with the spaces removed.
+	want := "ifbound:=(len(data)-offset)/65536;capHint>bound{capHint=bound}"
+	if !strings.Contains(strings.Join(strings.Fields(string(code)), ""), want) {
+		t.Errorf("the reservation is not bounded by the encoded element size, want %q in:\n%s", want, code)
+	}
+}
