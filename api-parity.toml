@@ -11,12 +11,17 @@
 #
 # crates/hiroz-tests/tests/api_parity.rs checks this file:
 #   - every row and cell has the required fields
-#   - every public `with_*` method of an entity builder in crates/hiroz/src has a row
-#   - every `symbol` exists in the source of its binding
+#   - every public `with_*` method of a builder type found by the scan of crates/hiroz/src has a row (see Limits)
+#   - a `present` Rust cell names a public method of a builder type found by that scan
+#   - each identifier of a `present` Python, C or Go symbol is defined in the source of that binding, outside comments and strings
+#     A definition is a `fn`, `struct`, `enum`, `union`, `trait`, `type`, `const` or `static` item, a parameter `name: Type` of a `fn`, a field `name: Type` of a `struct` or `union`, a PyO3 `signature` parameter or rename attribute (Python only), or a Go `func` or `type` line.
+#     A call, a struct literal, a `let` binding, a closure parameter or a format argument does not count.
+#     The check does not tie a method to its type or a parameter to its function: a parameter or field name counts when any function or struct of the binding has it.
+#     It does not check enum variants, `impl` blocks, macro-generated items, Go struct fields or Go parameters.
 #
 # Limits of the file:
 #   - It has no entity of its own for parameters or lifecycle nodes. Only their builder options appear, under `node`. It has no rows for events.
-#   - It does not compare behaviour. A `present` cell says that the symbol exists, not that it behaves like the Rust one.
+#   - It does not compare behaviour. A `present` cell says that each identifier of the symbol is defined in the binding, as above. It does not say that the symbol behaves like the Rust one, and the check does not run the binding.
 #   - The Rust check covers builder types whose name ends in `Builder` and that map to an entity.
 #     `RouterConfigBuilder` and `SessionConfigBuilder` configure zenoh sessions and are not entities, so they have no rows.
 #   - Python symbols are `Class.method`. The Python builders take options as methods, and the node takes options as keyword arguments.
