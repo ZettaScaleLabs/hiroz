@@ -159,8 +159,9 @@ func (h *GoalHandle) GetResult() ([]byte, error) {
 //
 // This call registers with the client, and so does every wrapper of it: GetResult,
 // GetTypedResult and GetTypedResultContext. ActionClient.Close waits for the C call, not for
-// ctx. A call without a deadline, such as GetResult, can hold Close until the server answers.
-// SendGoalContext registers too. SendGoal and Cancel do not register.
+// ctx. The C call of a result wait has a fixed timeout of 30 seconds, so a call without a
+// deadline, such as GetResult, holds Close for at most 30 seconds and then fails with an error.
+// SendGoalContext registers too, and its C call has a fixed timeout of 10 seconds. SendGoal and Cancel do not register.
 func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 	if h.handle.Load() == nil || h.client == nil {
 		return nil, fmt.Errorf("goal handle is closed")
@@ -220,7 +221,9 @@ func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 	}
 }
 
-// Close destroys the goal handle
+// Close destroys the goal handle.
+// Known limit: Close is not gated by the client. Do not close a goal handle while a result
+// wait on it is running. The C call of the wait reads the handle, and Close frees it.
 func (h *GoalHandle) Close() error {
 	var err error
 	h.closeOnce.Do(func() {
@@ -241,7 +244,7 @@ type ActionClient struct {
 	handle    atomic.Pointer[cActionClientHandle]
 	node      *Node
 	action    string
-	inflight  inflightGate // tracks goroutines blocked inside GetResultWithContext and SendGoalContext
+	inflight  inflightGate // tracks goroutines blocked inside GetResultWithContext, GetResult, GetTypedResult, GetTypedResultContext and SendGoalContext
 	closeOnce sync.Once
 }
 
@@ -437,7 +440,8 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 // registered have returned, so that the C handle is never freed while a goroutine still
 // holds it. Registered calls: GetResultWithContext, GetResult, GetTypedResult,
 // GetTypedResultContext and SendGoalContext. Close waits for the C call of each, not for
-// its context. A GetResult call without a deadline holds Close until the server answers.
+// its context. A result wait holds Close for at most 30 seconds, the fixed timeout of its C
+// call, and a goal send for at most 10 seconds. After that the call returns an error.
 // Unregistered calls: SendGoal and GoalHandle.Cancel. Close does not wait for them.
 // Do not call them concurrently with Close.
 func (c *ActionClient) Close() error {
