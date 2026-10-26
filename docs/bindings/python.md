@@ -304,7 +304,7 @@ All four presets use `automatic` liveliness. Their deadline, lifespan and liveli
 | `lifespan` | float, seconds | |
 | `liveliness_lease_duration` | float, seconds | |
 
-A string outside the listed values raises `ValueError`. With `keep_last`, a `depth` of 0 raises `ValueError`. A negative `depth` fails when Python converts the argument, with an exception that is not `ValueError`.
+A string outside the listed values raises `ValueError`. With `keep_last`, a `depth` of 0 raises `ValueError`. A negative `depth` raises `OverflowError` when Python converts the argument, before the profile checks it.
 
 A profile has read-only properties `reliability`, `durability`, `history` and `depth`. `depth` is 0 for `keep_all`. There are no properties for the other fields.
 
@@ -373,14 +373,17 @@ hiroz-py defines four exception classes. All of them are attributes of `hiroz_py
 
 `hiroz_py.TimeoutError` is not the built-in `TimeoutError`. Catch it as `hiroz_py.TimeoutError`.
 
-Every service client query ends after 10 seconds. A call has no way to wait longer for a reply, so the default `timeout` of one hour is never reached. The call raises `hiroz_py.TimeoutError` only when you pass a `timeout` below 10 seconds. A call whose query ends with no reply raises `RuntimeError` with the message `Service call ended before any response was received`. The query may end sooner than 10 seconds when no server matches. That case is not confirmed by a run.
+Every service client query ends after 10 seconds. A call has no way to wait longer for a reply, so the default `timeout` of one hour is never reached. A `timeout` below 10 seconds raises `hiroz_py.TimeoutError` when no reply comes. A `timeout` above 10 seconds raises `RuntimeError` instead. At exactly 10 seconds either error may happen, because the `timeout` and the 10 second query limit end at the same moment. A call whose query ends with no reply raises `RuntimeError` with the message `Service call ended before any response was received`. The query lasts at most 10 seconds.
+
+A negative or NaN `timeout` is not supported. It does not raise a normal exception: the binding panics and Python raises `pyo3_runtime.PanicException`, which derives from `BaseException`, so `except Exception` does not catch it. Every `timeout` argument that is a float behaves this way.
 
 ### What raises what
 
 | situation | result |
 |---|---|
 | `ZClient.call(..., timeout=t)` with `t` below 10 seconds gets no response in time | `hiroz_py.TimeoutError` |
-| `ZClient.call(...)` with no `timeout`, or with `t` of 10 seconds or more, and no response arrives | `RuntimeError`, after at most 10 seconds |
+| `ZClient.call(...)` with no `timeout`, or with `t` above 10 seconds, and no response arrives | `RuntimeError`, after at most 10 seconds |
+| `ZClient.call(..., timeout=10.0)` and no response arrives | `hiroz_py.TimeoutError` or `RuntimeError`: either may happen |
 | a server answers a `ZClient.call` after the 10 second query has ended | `RuntimeError`. The late reply is dropped |
 | `ZClient.call(...)` fails for any other reason, for example the server disappears | `RuntimeError` |
 | `ZSubscriber.recv(timeout=t)` gets no message in time | returns `None` |
@@ -388,7 +391,8 @@ Every service client query ends after 10 seconds. A call has no way to wait long
 | `ZServer.take_request()` or `send_response(...)` fails in the core | `RuntimeError` |
 | an action client or server cannot be created, an action call fails in the core, you finish a goal twice, or you call `recv` on a callback subscriber | `RuntimeError` |
 | a context, node, publisher, subscriber, service client or service server cannot be created, or a publish or receive fails in the core | `HirozError` |
-| a QoS string, a depth or a `buffer_group` value is invalid | `ValueError` |
+| a QoS string, a depth of 0 with `keep_last`, or a `buffer_group` value is invalid | `ValueError` |
+| a negative `depth` | `OverflowError`, raised by the argument conversion |
 | a message class has no `__msgtype__`, or `qos` has the wrong type | `TypeError` |
 
 In the code that converts Python messages to and from CDR, invalid values raise `ValueError` or `TypeError`. They do not raise `SerializationError` or `TypeMismatchError`.
