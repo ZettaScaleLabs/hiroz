@@ -415,8 +415,8 @@ var sendGoal = func(c *ActionClient, goalBytes []byte) (*GoalHandle, error) {
 // SendGoalContext sends a goal and returns when the server answers or ctx ends.
 // When ctx ends first, the call returns ctx.Err() and closes the goal handle once the C layer
 // returns. The server may already hold the goal. Cancelling ctx does not cancel the goal.
-// If ctx has already ended, nothing is sent. SendGoalContext serialises the goal before it
-// returns, so the caller may reuse or change the goal after any return.
+// If ctx has already ended, nothing is sent. SendGoalContext serialises the goal and copies
+// the bytes before it returns, so the caller may reuse or change the goal after any return.
 //
 // Known limit: the goroutine that closes the goal handle after ctx ended first does not
 // register with the client. It can run after ActionClient.Close destroyed the client handle.
@@ -430,13 +430,16 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 	if !c.inflight.enter() {
 		return nil, fmt.Errorf("action client is closed")
 	}
-	// Serialise here, before the worker starts. The worker gets only these bytes, so a
-	// caller that reuses the goal after a cancelled call cannot race with the send.
+	// Serialise here, before the worker starts, and copy the bytes. SerializeCDR may return
+	// storage that the goal owns, and the Message interface does not forbid it. The worker
+	// gets only the copy, so a caller that reuses the goal after a cancelled call cannot
+	// change or race with the send. The generated SerializeCDR returns a fresh buffer.
 	goalBytes, err := serializeGoal(goal)
 	if err != nil {
 		c.inflight.leave()
 		return nil, err
 	}
+	goalBytes = append([]byte(nil), goalBytes...)
 	type result struct {
 		h   *GoalHandle
 		err error
