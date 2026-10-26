@@ -222,6 +222,9 @@ func (c *ServiceClient) callRawContext(ctx context.Context, requestBytes []byte)
 		err  error
 	}
 	ch := make(chan result, 1)
+	// Copy the request before the worker starts. SerializeCDR may return storage that the
+	// message owns, and a cancelled call returns while the worker can still read the bytes.
+	requestBytes = append([]byte(nil), requestBytes...)
 	h := hw.p          // read while registered, so Close has not freed it
 	registered = false // the goroutine now owns the registration
 	go func() {
