@@ -185,10 +185,10 @@ func TestSendGoalContextSerialisesBeforeReturn(t *testing.T) {
 // buffer does. The Message interface does not forbid this.
 type sharedGoal struct{ data []byte }
 
-func (g *sharedGoal) TypeName() string { return "x" }
-func (g *sharedGoal) TypeHash() string { return "y" }
+func (g *sharedGoal) TypeName() string              { return "x" }
+func (g *sharedGoal) TypeHash() string              { return "y" }
 func (g *sharedGoal) SerializeCDR() ([]byte, error) { return g.data, nil }
-func (g *sharedGoal) DeserializeCDR([]byte) error { return nil }
+func (g *sharedGoal) DeserializeCDR([]byte) error   { return nil }
 
 // A goal that returns shared storage must not change what the C layer sends after the call
 // returned on cancel. SendGoalContext copies the bytes before the worker starts.
