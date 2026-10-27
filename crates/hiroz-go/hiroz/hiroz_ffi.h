@@ -339,6 +339,11 @@ typedef struct hiroz_subscriber_t {
  */
 typedef void (*hiroz_MessageCallback)(uintptr_t user_data, const uint8_t *data, uintptr_t len);
 
+/**
+ * CDR encapsulation header for little-endian encoding.
+ */
+#define hiroz_CDR_HEADER_LE { 0, 1, 0, 0, }
+
 
 
 #ifdef __cplusplus
