@@ -56,6 +56,7 @@
 
 pub(crate) mod discovery;
 pub mod error;
+pub(crate) mod limits;
 pub mod message;
 pub mod registry;
 pub mod schema;

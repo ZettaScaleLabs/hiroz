@@ -153,7 +153,7 @@ fn field_type_to_description(field_type: &FieldType) -> Result<FieldTypeDescript
 
         // Bounded string
         FieldType::BoundedString(capacity) => Ok(FieldTypeDescription {
-            type_id: TypeId::STRING,
+            type_id: TypeId::BOUNDED_STRING,
             capacity: 0,
             string_capacity: *capacity as u64,
             nested_type_name: String::new(),
@@ -165,73 +165,22 @@ fn field_type_to_description(field_type: &FieldType) -> Result<FieldTypeDescript
             &schema.type_name,
         )),
 
-        // Fixed-size array
-        FieldType::Array(inner, size) => {
-            let base_type_id = get_base_type_id(inner)?;
-            let array_type_id = base_type_id + TypeId::ARRAY_OFFSET;
-
-            if let FieldType::Message(schema) = inner.as_ref() {
-                Ok(FieldTypeDescription::nested_array(
-                    array_type_id,
-                    *size as u64,
-                    &schema.type_name,
-                ))
+        // Preserve string bounds and nested identity when adding collection modifiers.
+        FieldType::Array(inner, capacity) | FieldType::BoundedSequence(inner, capacity) => {
+            let mut description = field_type_to_description(inner)?;
+            description.type_id += if matches!(field_type, FieldType::Array(..)) {
+                TypeId::ARRAY_OFFSET
             } else {
-                Ok(FieldTypeDescription::array(array_type_id, *size as u64))
-            }
+                TypeId::BOUNDED_SEQUENCE_OFFSET
+            };
+            description.capacity = *capacity as u64;
+            Ok(description)
         }
-
-        // Unbounded sequence
         FieldType::Sequence(inner) => {
-            let base_type_id = get_base_type_id(inner)?;
-            let seq_type_id = base_type_id + TypeId::UNBOUNDED_SEQUENCE_OFFSET;
-
-            if let FieldType::Message(schema) = inner.as_ref() {
-                Ok(FieldTypeDescription::nested(seq_type_id, &schema.type_name))
-            } else {
-                Ok(FieldTypeDescription::primitive(seq_type_id))
-            }
+            let mut description = field_type_to_description(inner)?;
+            description.type_id += TypeId::UNBOUNDED_SEQUENCE_OFFSET;
+            Ok(description)
         }
-
-        // Bounded sequence
-        FieldType::BoundedSequence(inner, capacity) => {
-            let base_type_id = get_base_type_id(inner)?;
-            let seq_type_id = base_type_id + TypeId::BOUNDED_SEQUENCE_OFFSET;
-
-            if let FieldType::Message(schema) = inner.as_ref() {
-                Ok(FieldTypeDescription::nested_array(
-                    seq_type_id,
-                    *capacity as u64,
-                    &schema.type_name,
-                ))
-            } else {
-                Ok(FieldTypeDescription::array(seq_type_id, *capacity as u64))
-            }
-        }
-    }
-}
-
-/// Get the base type ID for a field type (without array/sequence modifiers).
-fn get_base_type_id(field_type: &FieldType) -> Result<u8, DynamicError> {
-    match field_type {
-        FieldType::Bool => Ok(TypeId::BOOL),
-        FieldType::Int8 => Ok(TypeId::INT8),
-        FieldType::Int16 => Ok(TypeId::INT16),
-        FieldType::Int32 => Ok(TypeId::INT32),
-        FieldType::Int64 => Ok(TypeId::INT64),
-        FieldType::Byte => Ok(TypeId::BYTE),
-        FieldType::Uint8 => Ok(TypeId::UINT8),
-        FieldType::Uint16 => Ok(TypeId::UINT16),
-        FieldType::Uint32 => Ok(TypeId::UINT32),
-        FieldType::Uint64 => Ok(TypeId::UINT64),
-        FieldType::Float32 => Ok(TypeId::FLOAT32),
-        FieldType::Float64 => Ok(TypeId::FLOAT64),
-        FieldType::String | FieldType::BoundedString(_) => Ok(TypeId::STRING),
-        FieldType::Message(_) => Ok(TypeId::NESTED_TYPE),
-        // For nested arrays/sequences, we get the innermost type
-        FieldType::Array(inner, _)
-        | FieldType::Sequence(inner)
-        | FieldType::BoundedSequence(inner, _) => get_base_type_id(inner),
     }
 }
 
@@ -347,6 +296,12 @@ fn field_type_description_to_type(
     let is_array = TypeId::is_array(ftd.type_id);
     let is_bounded_seq = TypeId::is_bounded_sequence(ftd.type_id);
     let is_unbounded_seq = TypeId::is_unbounded_sequence(ftd.type_id);
+    let capacity = usize::try_from(ftd.capacity).map_err(|_| {
+        DynamicError::SerializationError("collection capacity does not fit this platform".into())
+    })?;
+    let string_capacity = usize::try_from(ftd.string_capacity).map_err(|_| {
+        DynamicError::SerializationError("string capacity does not fit this platform".into())
+    })?;
 
     // Get the base field type
     let base_type = match base_type_id {
@@ -362,9 +317,10 @@ fn field_type_description_to_type(
         TypeId::UINT64 => FieldType::Uint64,
         TypeId::FLOAT32 => FieldType::Float32,
         TypeId::FLOAT64 => FieldType::Float64,
+        TypeId::BOUNDED_STRING => FieldType::BoundedString(string_capacity),
         TypeId::STRING => {
             if ftd.string_capacity > 0 {
-                FieldType::BoundedString(ftd.string_capacity as usize)
+                FieldType::BoundedString(string_capacity)
             } else {
                 FieldType::String
             }
@@ -388,12 +344,9 @@ fn field_type_description_to_type(
 
     // Apply array/sequence modifiers
     if is_array {
-        Ok(FieldType::Array(Box::new(base_type), ftd.capacity as usize))
+        Ok(FieldType::Array(Box::new(base_type), capacity))
     } else if is_bounded_seq {
-        Ok(FieldType::BoundedSequence(
-            Box::new(base_type),
-            ftd.capacity as usize,
-        ))
+        Ok(FieldType::BoundedSequence(Box::new(base_type), capacity))
     } else if is_unbounded_seq {
         Ok(FieldType::Sequence(Box::new(base_type)))
     } else {
@@ -600,7 +553,7 @@ mod tests {
             .unwrap();
 
         let td = schema.to_type_description().unwrap();
-        assert_eq!(td.fields[0].field_type.type_id, TypeId::STRING);
+        assert_eq!(td.fields[0].field_type.type_id, TypeId::BOUNDED_STRING);
         assert_eq!(td.fields[0].field_type.string_capacity, 256);
     }
 

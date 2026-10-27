@@ -111,6 +111,24 @@ fn both_inverses_leave_a_name_that_is_already_canonical_alone() {
     }
 }
 
+#[test]
+fn legacy_go_component_names_are_canonicalized_only_for_schema_lookup() {
+    for name in [
+        "AddTwoIntsRequest",
+        "AddTwoIntsResponse",
+        "FibonacciGoal",
+        "FibonacciResult",
+        "FibonacciFeedback",
+    ] {
+        let wire = format!("example_interfaces/{name}");
+        assert_eq!(ros_from_dds(&wire), format!("example_interfaces/msg/{name}"));
+        assert_eq!(ros_from_dds_strict(&wire), wire);
+    }
+    for malformed in ["/Name", "package/", "package//Name", "package/msg/Name/extra"] {
+        assert_eq!(ros_from_dds(malformed), malformed);
+    }
+}
+
 /// The second case where the two are required to differ. The lenient one
 /// trims a trailing underscore from any name, which is what the schema
 /// lookup it serves has always done; the strict one may not, because

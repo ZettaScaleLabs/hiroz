@@ -31,9 +31,10 @@ type Subscriber struct {
 
 // SubscriberBuilder builds a Subscriber
 type SubscriberBuilder struct {
-	node  *Node
-	topic string
-	qos   *QosProfile
+	node     *Node
+	topic    string
+	qos      *QosProfile
+	locality Locality
 }
 
 // WithQoS sets the QoS profile for the subscriber
@@ -49,59 +50,10 @@ func (b *SubscriberBuilder) BuildWithCallback(msg Message, handler MessageHandle
 }
 
 func (b *SubscriberBuilder) buildWithCallback(msg Message, handler MessageHandler, onClose func()) (*Subscriber, error) {
-	node, release, err := b.node.acquire()
-	if err != nil {
-		return nil, err
-	}
-	defer release()
 	if handler == nil {
 		return nil, fmt.Errorf("callback handler cannot be nil")
 	}
-
-	topicC := C.CString(b.topic)
-	defer C.free(unsafe.Pointer(topicC))
-
-	typeNameC := C.CString(msg.TypeName())
-	defer C.free(unsafe.Pointer(typeNameC))
-
-	typeHashC := C.CString(msg.TypeHash())
-	defer C.free(unsafe.Pointer(typeHashC))
-
-	// Create closure with the user's callback
-	// The closure will be dropped by Rust when the subscriber is destroyed
-	closure := newClosure(handler, nil)
-
-	var qos *C.hiroz_qos_profile_t
-	if b.qos != nil {
-		cQos := b.qos.toCQos()
-		qos = &cQos
-	}
-	// Rust owns closure from this call onward, including on creation failure.
-	handle := C.hiroz_subscriber_create_owned(
-		node, topicC, typeNameC, typeHashC,
-		C.getSubscriberCallback(), closure.selfHandle, qos,
-		C.getSubscriberDropCallback(),
-	)
-
-	if handle == nil {
-		return nil, fmt.Errorf("%w: subscriber for %s", ErrBuildFailed, b.topic)
-	}
-
-	sub := &Subscriber{
-		handle:  handle,
-		node:    b.node,
-		onClose: onClose,
-	}
-	runtime.SetFinalizer(sub, (*Subscriber).Close)
-
-	// Store in node so the subscription lives until the node is closed,
-	// even if the caller discards the returned *Subscriber.
-	if err := b.node.ownSubscriber(sub); err != nil {
-		_ = sub.Close()
-		return nil, err
-	}
-
-	return sub, nil
+	return b.buildWithSampleCallback(msg, func(sample Sample) { handler(sample.Data) }, onClose)
 }
 
 // acquire keeps the native handle alive for a synchronous operation.

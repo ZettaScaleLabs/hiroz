@@ -464,7 +464,8 @@ impl ZNode {
         let mut sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
         // The rule of `create_sub`. A cache does not call `create_sub`, because that also registers
         // the type-description service.
-        sub_builder.has_buffer_fields = T::message_schema().map(|schema| schema.has_buffer_fields());
+        sub_builder.has_buffer_fields =
+            T::message_schema().map(|schema| schema.has_buffer_fields());
         ZCacheBuilder::new(sub_builder, capacity)
     }
 
@@ -585,6 +586,20 @@ impl ZNode {
         type_hash: &str,
         qos: Option<crate::qos::QosProfile>,
     ) -> Result<RawPublisher> {
+        self.create_raw_publisher_with_options(topic, type_name, type_hash, qos, None, None)
+    }
+
+    /// Raw publisher with transport encoding and per-publisher SHM override.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_publisher_with_options(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        qos: Option<crate::qos::QosProfile>,
+        encoding: Option<zenoh::bytes::Encoding>,
+        shm: Option<Option<Arc<crate::shm::ShmConfig>>>,
+    ) -> Result<RawPublisher> {
         use zenoh::qos::CongestionControl;
         use zenoh_ext::AdvancedPublisherBuilderExt;
 
@@ -618,7 +633,10 @@ impl ZNode {
         let publisher = self
             .session
             .declare_publisher((*topic_ke).clone())
-            .congestion_control(CongestionControl::Block)
+            .congestion_control(match entity.qos.reliability {
+                hiroz_protocol::qos::QosReliability::Reliable => CongestionControl::Block,
+                hiroz_protocol::qos::QosReliability::BestEffort => CongestionControl::Drop,
+            })
             .advanced();
         let publisher = apply_transient_local_pub(publisher, &entity.qos).wait()?;
 
@@ -632,7 +650,16 @@ impl ZNode {
             .declare_token((*lv_ke).clone())
             .wait()?;
 
-        Ok(RawPublisher::new(publisher, gid, lv_token, self.session.clone()))
+        Ok(RawPublisher::new(
+            publisher,
+            gid,
+            lv_token,
+            entity,
+            self.graph.clone(),
+            encoding,
+            shm.unwrap_or_else(|| self.shm_config.clone()),
+            self.session.clone(),
+        ))
     }
 
     /// Create a raw subscriber for FFI (no type safety)
@@ -838,6 +865,8 @@ impl ZNode {
             token,
             inner: subscriber,
             group: group_sub,
+            entity,
+            graph: self.graph.clone(),
             _session: self.session.clone(),
         })
     }
@@ -1339,8 +1368,8 @@ impl ZNode {
     /// * `request_type_name` / `response_type_name` — the `msg`-namespaced schema
     ///   names codegen registers, e.g. `example_interfaces/msg/AddTwoIntsRequest`
     ///   (not `/srv/`-namespaced).
-    /// * `timeout` — applied per phase (the graph wait, then each of the two
-    ///   `get_type_description` calls), so worst-case is `3 * timeout`.
+    /// * `timeout` — total budget shared by graph discovery, description-service
+    ///   route readiness, and both request/response schema queries.
     pub async fn discover_service_schema(
         &self,
         service_name: &str,
@@ -1348,6 +1377,7 @@ impl ZNode {
         response_type_name: &str,
         timeout: Duration,
     ) -> std::result::Result<(Arc<MessageSchema>, Arc<MessageSchema>), DynamicError> {
+        let deadline = tokio::time::Instant::now().checked_add(timeout);
         let qualified_service =
             crate::topic_name::qualify_service_name(service_name, self.namespace(), self.name())
                 .map_err(|error| {
@@ -1358,7 +1388,7 @@ impl ZNode {
         // wait (event-driven) for a service server that exposes a node identity —
         // we need a concrete node to query for the type description.
         self.graph
-            .wait_until(timeout, |g| {
+            .wait_until_deadline(deadline, |g| {
                 g.get_entities_by_service(EndpointKind::Service, &qualified_service)
                     .iter()
                     .any(|e| matches!(e.as_ref(), Entity::Endpoint(ep) if ep.node.is_some()))
@@ -1399,23 +1429,26 @@ impl ZNode {
             node_name: node.name.clone(),
             namespace: node.namespace.clone(),
             type_name: type_name.to_string(),
+            transport_type_name: type_name.to_string(),
             type_hash: String::new(),
         };
 
-        let (request_schema, _) = crate::dynamic::type_description_client::query_type_description(
-            self,
-            &candidate(request_type_name),
-            timeout,
-            false,
-        )
-        .await?;
-        let (response_schema, _) = crate::dynamic::type_description_client::query_type_description(
-            self,
-            &candidate(response_type_name),
-            timeout,
-            false,
-        )
-        .await?;
+        let request_candidate = candidate(request_type_name);
+        let response_candidate = candidate(response_type_name);
+        let ((request_schema, _), (response_schema, _)) = tokio::try_join!(
+            crate::dynamic::type_description_client::query_type_description(
+                self,
+                &request_candidate,
+                deadline,
+                false,
+            ),
+            crate::dynamic::type_description_client::query_type_description(
+                self,
+                &response_candidate,
+                deadline,
+                false,
+            ),
+        )?;
 
         Ok((request_schema, response_schema))
     }
