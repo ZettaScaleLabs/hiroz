@@ -31,6 +31,8 @@ pub struct RawPublisher {
 }
 
 impl RawPublisher {
+    // Each argument is an independently owned resource retained by the handle.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         publisher: AdvancedPublisher<'static>,
         gid: GidArray,
@@ -70,13 +72,14 @@ impl RawPublisher {
         timestamp: Option<zenoh::time::Timestamp>,
     ) -> zenoh::Result<()> {
         let mut payload = zenoh::bytes::ZBytes::from(data.to_vec());
-        if let Some(config) = &self.shm {
-            if !data.is_empty() && data.len() >= config.threshold() {
-                // Nonblocking allocation: exhausted pools fall back to ordinary memory.
-                if let Ok(mut buffer) = config.provider().alloc(data.len()).wait() {
-                    buffer.copy_from_slice(data);
-                    payload = buffer.into();
-                }
+        if let Some(config) = &self.shm
+            && !data.is_empty()
+            && data.len() >= config.threshold()
+        {
+            // Nonblocking allocation: exhausted pools fall back to ordinary memory.
+            if let Ok(mut buffer) = config.provider().alloc(data.len()).wait() {
+                buffer.copy_from_slice(data);
+                payload = buffer.into();
             }
         }
         let mut put = self
