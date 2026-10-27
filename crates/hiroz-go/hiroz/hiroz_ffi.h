@@ -386,6 +386,22 @@ extern void free(void *ptr);
  * Legacy constructor: foreign callback data remains caller-owned. Destroy waits
  * for active events, so an event callback must not destroy its own client. Use
  * `hiroz_action_client_create_owned` for callback-safe, deferred data release.
+ *
+ * # Safety
+ * `node` must be null or a live Hiroz node handle that is not destroyed during
+ * this call. Non-null string pointers must reference valid, immutable,
+ * NUL-terminated C strings for the call. `qos` must be null or point to an
+ * aligned, initialized `CActionQos` that remains readable and unchanged for the
+ * call. These arguments are not retained.
+ *
+ * `callback` and any state identified by `user_data` must remain valid until
+ * this call fails or `hiroz_action_client_destroy` returns. Events may arrive
+ * on native threads before construction returns; the callback must synchronize
+ * access to shared foreign state, must not unwind across the FFI boundary, and
+ * must not mutate its borrowed byte buffer or retain it beyond the invocation.
+ * The callback must not destroy its own client or wait for its destruction.
+ * The caller retains ownership of `user_data` and must destroy a non-null
+ * returned handle exactly once.
  */
 struct hiroz_action_client_t *hiroz_action_client_create_with_options(struct hiroz_node_t *node,
                                                                       const char *name,
@@ -405,6 +421,25 @@ struct hiroz_action_client_t *hiroz_action_client_create_with_options(struct hir
  * every in-progress delivery and native transport/request clone has released
  * the data. Destroy disables new delivery without waiting for active callbacks,
  * so a callback may destroy its own client. Do not release user_data separately.
+ *
+ * # Safety
+ * `node` must be null or a live Hiroz node handle that is not destroyed during
+ * this call. Non-null string pointers must reference valid, immutable,
+ * NUL-terminated C strings for the call. `qos` must be null or point to an
+ * aligned, initialized `CActionQos` that remains readable and unchanged for the
+ * call. These arguments are not retained.
+ *
+ * Ownership of the state identified by `user_data` transfers to
+ * `drop_callback`, even if construction fails. The state must remain valid
+ * until that callback releases it, and both callback functions must remain
+ * callable until it finishes. The caller must not release the state separately.
+ * Events may begin before construction returns and may run concurrently on
+ * native threads. The callbacks must synchronize foreign state and must not
+ * unwind across the FFI boundary.
+ * Event bytes are immutable and borrowed only for the invocation. The drop
+ * callback must be safe to run on whichever thread releases the last reference.
+ * A non-null returned handle must be destroyed exactly once. An event may
+ * destroy its own client but must not wait for the drop callback or teardown.
  */
 struct hiroz_action_client_t *hiroz_action_client_create_owned(struct hiroz_node_t *node,
                                                                const char *name,
@@ -421,6 +456,15 @@ struct hiroz_action_client_t *hiroz_action_client_create_owned(struct hiroz_node
 
 /**
  * Start a request without retaining foreign memory. kind: 0=SendGoal, 1=GetResult, 2=CancelGoal.
+ *
+ * # Safety
+ * `client` must be null or a live handle returned by an action client
+ * constructor, and must not be destroyed during this call. If non-null,
+ * `bytes` must reference `len` initialized, immutable bytes within one live
+ * allocation for the call, with `len <= isize::MAX` (including when `len` is
+ * zero). The bytes are copied, and the request retains its own transport
+ * reference, so neither input needs to outlive this call. A non-null returned
+ * request must be destroyed exactly once with `hiroz_action_request_destroy`.
  */
 struct hiroz_CActionRequest *hiroz_action_request_create(struct hiroz_action_client_t *client,
                                                          int32_t kind,
@@ -430,22 +474,91 @@ struct hiroz_CActionRequest *hiroz_action_request_create(struct hiroz_action_cli
 
 /**
  * Returns 1 while pending, 0 with owned response bytes, or a negative error code.
+ *
+ * # Safety
+ * `request` must be null or a live handle returned by
+ * `hiroz_action_request_create`. All polling and destruction of the same
+ * request must be serialized. Non-null `data` and `len` must point to aligned,
+ * writable storage of their declared types, exclusively accessible for the
+ * call and not overlapping each other or the request. On success, the caller
+ * owns the returned buffer and must pass its exact pointer and length once to
+ * `hiroz_free_bytes`; it must not use C `free` or access the buffer after release.
+ * Output storage is unchanged while pending or on error.
  */
 int32_t hiroz_action_request_poll(struct hiroz_CActionRequest *request,
                                   uint8_t **data,
                                   uintptr_t *len);
 
+/**
+ * Cancel an outstanding request, join its worker, and release its handle.
+ *
+ * # Safety
+ * `request` must be null or a live handle returned by
+ * `hiroz_action_request_create`. A non-null handle must be destroyed exactly
+ * once, with no concurrent poll, destruction, or later use of that handle.
+ * Buffers previously returned by polling remain separately caller-owned.
+ */
 void hiroz_action_request_destroy(struct hiroz_CActionRequest *request);
 
+/**
+ * Check whether all three action services are available.
+ *
+ * # Safety
+ * `client` must be null or a live handle returned by an action client
+ * constructor. The handle must remain alive throughout the call; destruction
+ * must not run concurrently. Other shared client operations may run concurrently.
+ */
 bool hiroz_action_client_ready(struct hiroz_action_client_t *client);
 
 /**
  * Disable event delivery and destroy the client handle. Owned clients release
  * foreign data through their drop callback after outstanding references drain.
  * Legacy clients wait for callbacks here and must not call this from an event.
+ *
+ * # Safety
+ * `client` must be null or a live handle returned by an action client
+ * constructor. A non-null handle must be destroyed exactly once, with no
+ * concurrent use of the handle and no later use, including from callbacks.
+ * Existing requests retain their own transport references and may outlive it.
+ * For a legacy client, callback code and `user_data` must remain valid until
+ * this function returns, and this function must not be called from its event
+ * callback or a thread that the callback is waiting for. For an owned client,
+ * callback code must remain valid until its drop callback finishes, and
+ * `user_data` must remain valid until that callback releases it. An event may
+ * destroy an owned client but must not wait for its drop callback or teardown.
  */
 int32_t hiroz_action_client_destroy(struct hiroz_action_client_t *client);
 
+/**
+ * Create an action server with foreign goal, execution, and cancellation callbacks.
+ *
+ * # Safety
+ * `node` must be null or a live Hiroz node handle that is not destroyed during
+ * this call. Non-null string pointers must reference valid, immutable,
+ * NUL-terminated C strings for the call. `qos` must be null or point to an
+ * aligned, initialized `CActionQos` that remains readable and unchanged for the
+ * call. If non-null, `default_result` must reference `default_result_len`
+ * initialized, immutable bytes within one live allocation for the call, with
+ * `default_result_len <= isize::MAX`. These inputs are not retained.
+ *
+ * Callback code and the caller-owned state identified by `user_data` must
+ * remain valid until construction fails or `hiroz_action_server_destroy`
+ * returns. Callbacks may start before construction returns and execute
+ * concurrently on native threads; they must synchronize foreign state and
+ * must not unwind across the FFI boundary. Callback goal IDs reference 16
+ * immutable bytes, and goal payloads are immutable buffers of the supplied
+ * length; these pointers are borrowed only for the invocation.
+ *
+ * The execution callback's writable output pointers are borrowed only for the
+ * invocation. Any non-null result it returns, even on error, must transfer
+ * ownership of an allocation compatible with C `free`, containing the stated
+ * number of initialized bytes within one allocation, with length at most
+ * `isize::MAX`. Rust copies and frees that allocation after the callback
+ * returns; foreign code must neither access nor free it thereafter.
+ * A non-null server handle must be destroyed exactly once. Callbacks must not
+ * destroy their own server or wait for its destruction; they may request
+ * shutdown with `hiroz_action_server_shutdown` instead.
+ */
 struct hiroz_action_server_t *hiroz_action_server_create_with_options(struct hiroz_node_t *node,
                                                                       const char *name,
                                                                       const char *action_type,
@@ -464,17 +577,53 @@ struct hiroz_action_server_t *hiroz_action_server_create_with_options(struct hir
                                                                       uint64_t result_timeout_ms,
                                                                       uint64_t goal_timeout_ms);
 
+/**
+ * Read the current status of a goal, or zero when it is unknown.
+ *
+ * # Safety
+ * `server` must be null or a live handle returned by the action server
+ * constructor, with no concurrent destruction. If non-null, `id` must reference
+ * 16 initialized, immutable bytes within one live allocation for the call.
+ * Other server operations may run concurrently.
+ */
 int32_t hiroz_action_server_goal_status(struct hiroz_action_server_t *server, const uint8_t *id);
 
+/**
+ * Transition an accepted goal to executing.
+ *
+ * # Safety
+ * `server` must be null or a live handle returned by the action server
+ * constructor, with no concurrent destruction. If non-null, `id` must reference
+ * 16 initialized, immutable bytes within one live allocation for the call.
+ * Other server operations may run concurrently.
+ */
 int32_t hiroz_action_server_execute(struct hiroz_action_server_t *server, const uint8_t *id);
 
 /**
  * Publish a fully encoded FeedbackMessage supplied by the binding.
+ *
+ * # Safety
+ * `server` must be null or a live handle returned by the action server
+ * constructor, with no concurrent destruction. If non-null, `bytes` must
+ * reference `len` initialized, immutable bytes within one live allocation for
+ * the call, with `len <= isize::MAX`. The buffer is not retained. Other server
+ * operations may run concurrently.
  */
 int32_t hiroz_action_server_publish_feedback_message(struct hiroz_action_server_t *server,
                                                      const uint8_t *bytes,
                                                      uintptr_t len);
 
+/**
+ * Complete a goal with a fully encoded result response.
+ *
+ * # Safety
+ * `server` must be null or a live handle returned by the action server
+ * constructor, with no concurrent destruction. If non-null, `id` must reference
+ * 16 initialized, immutable bytes, and `bytes` must reference `len` initialized,
+ * immutable bytes, each within one live allocation for the call, with
+ * `len <= isize::MAX`. The result is copied; neither buffer is retained. Other
+ * server operations may run concurrently.
+ */
 int32_t hiroz_action_server_finish(struct hiroz_action_server_t *server,
                                    const uint8_t *id,
                                    const uint8_t *bytes,
@@ -482,19 +631,54 @@ int32_t hiroz_action_server_finish(struct hiroz_action_server_t *server,
 
 /**
  * Read acceptance metadata without exposing a borrowed goal record.
+ *
+ * # Safety
+ * `server` must be null or a live handle returned by the action server
+ * constructor, with no concurrent destruction. If non-null, `id` must reference
+ * 16 initialized, immutable bytes within one live allocation for the call.
+ * Non-null `sec` and `nanosec` must point to aligned, writable storage of their
+ * declared types, exclusively accessible for the call and not overlapping
+ * each other, `id`, or the server. Other server operations may run concurrently
+ * with separate output storage. Outputs are unchanged when this returns false.
  */
 bool hiroz_action_server_goal_info(struct hiroz_action_server_t *server,
                                    const uint8_t *id,
                                    int32_t *sec,
                                    uint32_t *nanosec);
 
+/**
+ * Check whether a feedback subscriber is matched.
+ *
+ * # Safety
+ * `server` must be null or a live handle returned by the action server
+ * constructor. The handle must remain alive throughout the call, with no
+ * concurrent destruction. Other server operations may run concurrently.
+ */
 bool hiroz_action_server_feedback_ready(struct hiroz_action_server_t *server);
 
 /**
  * Stop accepting requests without waiting for callbacks. Safe from a callback.
+ *
+ * # Safety
+ * `server` must be null or a live handle returned by the action server
+ * constructor. The handle must remain alive throughout the call, with no
+ * concurrent destruction. This may run alongside other server operations,
+ * including callbacks. It does not release the handle or callback state;
+ * those must remain valid until `hiroz_action_server_destroy` completes.
  */
 void hiroz_action_server_shutdown(struct hiroz_action_server_t *server);
 
+/**
+ * Shut down the server, drain its callbacks, and release its handle.
+ *
+ * # Safety
+ * `server` must be null or a live handle returned by the action server
+ * constructor. A non-null handle must be destroyed exactly once, with no
+ * concurrent or later use of that handle, including from callbacks. Callback
+ * code and `user_data` must remain valid until this function returns. This
+ * function must not run inside one of this server's callbacks or on a thread
+ * that a callback is waiting for, because it joins all callback workers.
+ */
 int32_t hiroz_action_server_destroy(struct hiroz_action_server_t *server);
 
 /**
