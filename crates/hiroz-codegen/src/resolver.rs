@@ -950,7 +950,7 @@ impl Default for Resolver {
 }
 
 /// Extension trait for ResolvedMessage to get TypeDescription
-trait ResolvedMessageExt {
+pub(crate) trait ResolvedMessageExt {
     fn type_description(&self) -> TypeDescription;
 }
 
