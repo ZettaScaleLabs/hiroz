@@ -33,6 +33,9 @@ pub struct MessageDefinition {
     pub type_hash: String,
     pub fields: Vec<FieldDefinition>,
     pub constants: Vec<ConstantDefinition>,
+    /// Complete ROS description, including referenced types, for runtime registration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_description: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -105,12 +108,78 @@ pub fn export_json(
     actions: &[ResolvedAction],
     output_path: &Path,
 ) -> Result<()> {
-    let manifest = CodegenManifest {
+    let mut manifest = CodegenManifest {
         version: SCHEMA_VERSION,
         messages: messages.iter().map(convert_message).collect(),
         services: services.iter().map(convert_service).collect(),
         actions: actions.iter().map(convert_action).collect(),
     };
+
+    // Build descriptors using the same identities and dependency descriptions as
+    // payload hashing. In particular, historical service/action payload names
+    // must not be replaced by their canonical RPC wrapper identities here.
+    use crate::resolver::ResolvedMessageExt;
+    let all = messages
+        .iter()
+        .chain(services.iter().flat_map(|s| [&s.request, &s.response]))
+        .chain(actions.iter().flat_map(|a| {
+            std::iter::once(&a.goal)
+                .chain(a.result.iter())
+                .chain(a.feedback.iter())
+        }));
+    let descriptions = all
+        .map(|message| {
+            (
+                format!("{}/{}", message.parsed.package, message.parsed.name),
+                message.type_description(),
+            )
+        })
+        .collect();
+    fn attach(
+        message: &mut MessageDefinition,
+        resolved: &ResolvedMessage,
+        descriptions: &std::collections::BTreeMap<String, crate::hashing::TypeDescription>,
+    ) -> Result<()> {
+        let description =
+            crate::hashing::build_type_description_msg(&resolved.parsed, descriptions)?;
+        let referenced: std::collections::BTreeSet<_> = description
+            .referenced_type_descriptions
+            .iter()
+            .map(|nested| nested.type_name.as_str())
+            .chain(std::iter::once(
+                description.type_description.type_name.as_str(),
+            ))
+            .collect();
+        for nested in std::iter::once(&description.type_description)
+            .chain(&description.referenced_type_descriptions)
+        {
+            for field in &nested.fields {
+                let name = field.field_type.nested_type_name.as_str();
+                // Partial manifests remain usable, but must not advertise an incomplete schema.
+                if !name.is_empty() && !referenced.contains(name) {
+                    return Ok(());
+                }
+            }
+        }
+        message.type_description = Some(serde_json::to_value(description)?);
+        Ok(())
+    }
+    for (message, resolved) in manifest.messages.iter_mut().zip(messages) {
+        attach(message, resolved, &descriptions)?;
+    }
+    for (service, resolved) in manifest.services.iter_mut().zip(services) {
+        attach(&mut service.request, &resolved.request, &descriptions)?;
+        attach(&mut service.response, &resolved.response, &descriptions)?;
+    }
+    for (action, resolved) in manifest.actions.iter_mut().zip(actions) {
+        attach(&mut action.goal, &resolved.goal, &descriptions)?;
+        if let (Some(message), Some(resolved)) = (&mut action.result, &resolved.result) {
+            attach(message, resolved, &descriptions)?;
+        }
+        if let (Some(message), Some(resolved)) = (&mut action.feedback, &resolved.feedback) {
+            attach(message, resolved, &descriptions)?;
+        }
+    }
 
     let json = serde_json::to_string_pretty(&manifest)?;
     std::fs::write(output_path, json)?;
@@ -132,6 +201,7 @@ fn convert_message(msg: &ResolvedMessage) -> MessageDefinition {
             .map(|f| convert_field(f, parent_pkg))
             .collect(),
         constants: msg.parsed.constants.iter().map(convert_constant).collect(),
+        type_description: None,
     }
 }
 
@@ -240,6 +310,181 @@ mod tests {
         TypeHash,
     };
     use std::path::PathBuf;
+
+    #[test]
+    fn action_schema_uses_resolved_nested_message_identity() {
+        use crate::{
+            parser::{action::parse_action, msg::parse_msg_string},
+            resolver::Resolver,
+        };
+
+        let nested = parse_msg_string(
+            "float32 error\n",
+            "test_pkg",
+            Path::new("test_pkg/msg/TrackingFeedback.msg"),
+        )
+        .unwrap();
+        let action = parse_action(
+            "uint32 target\n---\nbool success\n---\nTrackingFeedback tracking_feedback\ntest_pkg/TrackingFeedback[3] recent_feedback\n",
+            "FollowPath",
+            "test_pkg",
+            Path::new("test_pkg/action/FollowPath.action"),
+        )
+        .unwrap();
+        let mut resolver = Resolver::new(true);
+        let messages = resolver.resolve_messages(vec![nested]).unwrap();
+        let action = resolver.resolve_action(action).unwrap();
+        let original_feedback_hash = action.feedback.as_ref().unwrap().type_hash.to_rihs_string();
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("manifest.json");
+        export_json(&messages, &[], &[action], &path).unwrap();
+        let manifest: CodegenManifest =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        for payload in std::iter::once(&manifest.actions[0].goal)
+            .chain(manifest.actions[0].result.iter())
+            .chain(manifest.actions[0].feedback.iter())
+        {
+            let description: crate::hashing::TypeDescriptionMsg =
+                serde_json::from_value(payload.type_description.clone().unwrap()).unwrap();
+            assert_eq!(
+                crate::hashing::calculate_hash(&description).to_rihs_string(),
+                payload.type_hash
+            );
+        }
+        let feedback = manifest.actions[0].feedback.as_ref().unwrap();
+        assert_eq!(feedback.type_hash, original_feedback_hash);
+        let description = feedback.type_description.as_ref().unwrap();
+        assert_eq!(
+            description["type_description"]["type_name"],
+            "test_pkg/msg/FollowPathFeedback"
+        );
+        for field in description["type_description"]["fields"]
+            .as_array()
+            .unwrap()
+        {
+            assert_eq!(
+                field["type"]["nested_type_name"],
+                "test_pkg/msg/TrackingFeedback"
+            );
+        }
+        assert_eq!(
+            description["type_description"]["fields"][1]["type"]["capacity"],
+            3
+        );
+        assert_eq!(
+            description["referenced_type_descriptions"],
+            serde_json::json!([
+                manifest.messages[0].type_description.as_ref().unwrap()["type_description"]
+            ])
+        );
+    }
+
+    #[test]
+    fn service_payload_schema_hashes_match_resolved_hashes() {
+        use crate::{parser::srv::parse_srv_string, resolver::Resolver};
+
+        let service = parse_srv_string(
+            "bool data\n---\nbool success\nstring message\n",
+            "std_srvs",
+            Path::new("std_srvs/srv/SetBool.srv"),
+        )
+        .unwrap();
+        let service = Resolver::new(true).resolve_service(service).unwrap();
+        let original_hashes = [
+            service.request.type_hash.to_rihs_string(),
+            service.response.type_hash.to_rihs_string(),
+        ];
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("manifest.json");
+        export_json(&[], &[service], &[], &path).unwrap();
+        let manifest: CodegenManifest =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        for (payload, original_hash) in [
+            &manifest.services[0].request,
+            &manifest.services[0].response,
+        ]
+        .into_iter()
+        .zip(original_hashes)
+        {
+            let description: crate::hashing::TypeDescriptionMsg =
+                serde_json::from_value(payload.type_description.clone().unwrap()).unwrap();
+            assert_eq!(payload.type_hash, original_hash);
+            assert_eq!(
+                crate::hashing::calculate_hash(&description).to_rihs_string(),
+                original_hash
+            );
+            assert_eq!(
+                description.type_description.type_name,
+                format!("std_srvs/msg/{}", payload.name)
+            );
+        }
+    }
+
+    #[test]
+    fn exported_descriptions_preserve_nested_string_bounds() {
+        fn message(name: &str, fields: Vec<Field>) -> ResolvedMessage {
+            ResolvedMessage {
+                parsed: ParsedMessage {
+                    package: "test_pkg".into(),
+                    name: name.into(),
+                    source: String::new(),
+                    path: PathBuf::from(format!("msg/{name}.msg")),
+                    fields,
+                    constants: vec![],
+                },
+                type_hash: TypeHash::zero(),
+                definition: String::new(),
+            }
+        }
+        let child = message(
+            "Child",
+            vec![Field {
+                name: "text".into(),
+                field_type: FieldType {
+                    base_type: "string".into(),
+                    package: None,
+                    array: ArrayType::Single,
+                    string_bound: Some(12),
+                },
+                default: None,
+            }],
+        );
+        let parent = message(
+            "Parent",
+            vec![Field {
+                name: "children".into(),
+                field_type: FieldType {
+                    base_type: "Child".into(),
+                    package: Some("test_pkg".into()),
+                    array: ArrayType::Bounded(3),
+                    string_bound: None,
+                },
+                default: None,
+            }],
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("manifest.json");
+        export_json(&[parent, child], &[], &[], &path).unwrap();
+        let manifest: CodegenManifest =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let description = manifest.messages[0].type_description.as_ref().unwrap();
+        assert_eq!(
+            description["type_description"]["fields"][0]["type"]["capacity"],
+            3
+        );
+        assert_eq!(
+            description["referenced_type_descriptions"][0]["type_name"],
+            "test_pkg/msg/Child"
+        );
+        assert_eq!(
+            description["referenced_type_descriptions"][0]["fields"][0]["type"]["type_id"],
+            21
+        );
+        assert_eq!(
+            description["referenced_type_descriptions"][0]["fields"][0]["type"]["string_capacity"],
+            12
+        );
+    }
 
     #[test]
     fn test_json_export_basic_message() {
