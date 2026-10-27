@@ -72,20 +72,11 @@
 
 #define hiroz_STRING_ARRAY 9
 
-/**
- * Opaque action client handle for FFI
- */
 typedef struct hiroz_action_client_t hiroz_action_client_t;
 
-/**
- * Opaque action server handle for FFI
- */
-typedef struct hiroz_action_server_t hiroz_action_server_t;
+typedef struct hiroz_CActionRequest hiroz_CActionRequest;
 
-/**
- * Opaque goal handle for FFI (client-side)
- */
-typedef struct hiroz_goal_handle_t hiroz_goal_handle_t;
+typedef struct hiroz_action_server_t hiroz_action_server_t;
 
 /**
  * An independent in-flight query. Destroying it cancels the transport query.
@@ -167,24 +158,65 @@ typedef struct hiroz_node_t {
 } hiroz_node_t;
 
 /**
- * Callback type for goal acceptance.
- * Returns 1 for accept, 0 for reject.
+ * C-compatible QoS profile for FFI
  */
-typedef int32_t (*hiroz_ActionGoalCallback)(uintptr_t user_data,
-                                            const uint8_t *goal_data,
-                                            uintptr_t goal_len);
+typedef struct hiroz_qos_profile_t {
+  /**
+   * 0 = Reliable (default), 1 = BestEffort
+   */
+  int32_t reliability;
+  /**
+   * 0 = Volatile (default), 1 = TransientLocal
+   */
+  int32_t durability;
+  /**
+   * 0 = KeepLast (default), 1 = KeepAll
+   */
+  int32_t history;
+  /**
+   * Depth for KeepLast (default: 10, ignored for KeepAll)
+   */
+  int32_t history_depth;
+  uint64_t deadline_sec;
+  uint64_t deadline_nsec;
+  uint64_t lifespan_sec;
+  uint64_t lifespan_nsec;
+  /**
+   * 0 = Automatic (default), 1 = ManualByNode, 2 = ManualByTopic
+   */
+  int32_t liveliness;
+  uint64_t liveliness_lease_sec;
+  uint64_t liveliness_lease_nsec;
+} hiroz_qos_profile_t;
+
+typedef struct hiroz_CActionQos {
+  struct hiroz_qos_profile_t goal;
+  struct hiroz_qos_profile_t result;
+  struct hiroz_qos_profile_t cancel;
+  struct hiroz_qos_profile_t feedback;
+  struct hiroz_qos_profile_t status;
+} hiroz_CActionQos;
 
 /**
- * Callback type for goal execution.
- * Must write result bytes and return 0 on success.
- * The goal_id (16 bytes) identifies this specific goal for feedback publishing.
+ * kind=0 is a complete FeedbackMessage, kind=1 a complete GoalStatusArray.
  */
-typedef int32_t (*hiroz_ActionExecuteCallback)(uintptr_t user_data,
-                                               const uint8_t *goal_id,
-                                               const uint8_t *goal_data,
-                                               uintptr_t goal_len,
-                                               uint8_t **result_data,
-                                               uintptr_t *result_len);
+typedef void (*hiroz_ActionEventCallback)(uintptr_t, int32_t, const uint8_t*, uintptr_t);
+
+/**
+ * Called once after all native references to the foreign event data are released.
+ */
+typedef void (*hiroz_ActionEventDropCallback)(uintptr_t);
+
+typedef int32_t (*hiroz_ActionGoalCallback)(uintptr_t, const uint8_t*, const uint8_t*, uintptr_t);
+
+typedef int32_t (*hiroz_ActionExecuteCallback)(uintptr_t,
+                                               const uint8_t*,
+                                               const uint8_t*,
+                                               uintptr_t,
+                                               uint8_t**,
+                                               uintptr_t*);
+
+typedef int32_t (*hiroz_ActionCancelCallback)(uintptr_t, const uint8_t*);
 
 /**
  * Opaque context handle for FFI
@@ -287,38 +319,6 @@ typedef struct hiroz_publisher_t {
 } hiroz_publisher_t;
 
 /**
- * C-compatible QoS profile for FFI
- */
-typedef struct hiroz_qos_profile_t {
-  /**
-   * 0 = Reliable (default), 1 = BestEffort
-   */
-  int32_t reliability;
-  /**
-   * 0 = Volatile (default), 1 = TransientLocal
-   */
-  int32_t durability;
-  /**
-   * 0 = KeepLast (default), 1 = KeepAll
-   */
-  int32_t history;
-  /**
-   * Depth for KeepLast (default: 10, ignored for KeepAll)
-   */
-  int32_t history_depth;
-  uint64_t deadline_sec;
-  uint64_t deadline_nsec;
-  uint64_t lifespan_sec;
-  uint64_t lifespan_nsec;
-  /**
-   * 0 = Automatic (default), 1 = ManualByNode, 2 = ManualByTopic
-   */
-  int32_t liveliness;
-  uint64_t liveliness_lease_sec;
-  uint64_t liveliness_lease_nsec;
-} hiroz_qos_profile_t;
-
-/**
  * Opaque service client handle for FFI
  */
 typedef struct hiroz_service_client_t {
@@ -365,114 +365,122 @@ typedef void (*hiroz_SubscriberDropCallback)(uintptr_t user_data);
 extern "C" {
 #endif // __cplusplus
 
-/**
- * Create an action client
- */
-struct hiroz_action_client_t *hiroz_action_client_create(struct hiroz_node_t *node,
-                                                         const char *action_name,
-                                                         const char *action_type_name,
-                                                         const char *goal_type_name,
-                                                         const char *goal_type_hash,
-                                                         const char *result_type_name,
-                                                         const char *result_type_hash,
-                                                         const char *feedback_type_name,
-                                                         const char *feedback_type_hash);
-
-/**
- * Send a goal to an action server.
- * On success, writes the goal_id (16 bytes) and creates a goal handle.
- */
-int32_t hiroz_action_client_send_goal(struct hiroz_action_client_t *client_handle,
-                                      const uint8_t *goal_data,
-                                      uintptr_t goal_len,
-                                      uint8_t (*goal_id)[16],
-                                      struct hiroz_goal_handle_t **handle);
-
-/**
- * Get result for a goal
- */
-int32_t hiroz_action_client_get_result(struct hiroz_goal_handle_t *goal_handle,
-                                       uint8_t **result_data,
-                                       uintptr_t *result_len);
-
-/**
- * Cancel a goal
- */
-int32_t hiroz_action_client_cancel_goal(struct hiroz_goal_handle_t *goal_handle);
-
-/**
- * Destroy an action client
- */
-int32_t hiroz_action_client_destroy(struct hiroz_action_client_t *client);
-
 extern void free(void *ptr);
 
 /**
- * Create an action server.
- * Spawns a background thread that polls for goals, calls the goal callback,
- * and if accepted, calls the execute callback.
+ * Legacy constructor: foreign callback data remains caller-owned. Destroy waits
+ * for active events, so an event callback must not destroy its own client. Use
+ * `hiroz_action_client_create_owned` for callback-safe, deferred data release.
  */
-struct hiroz_action_server_t *hiroz_action_server_create(struct hiroz_node_t *node,
-                                                         const char *action_name,
-                                                         const char *action_type_name,
-                                                         const char *goal_type_name,
-                                                         const char *goal_type_hash,
-                                                         const char *result_type_name,
-                                                         const char *result_type_hash,
-                                                         const char *feedback_type_name,
-                                                         const char *feedback_type_hash,
-                                                         hiroz_ActionGoalCallback goal_callback,
-                                                         hiroz_ActionExecuteCallback execute_callback,
-                                                         uintptr_t user_data);
+struct hiroz_action_client_t *hiroz_action_client_create_with_options(struct hiroz_node_t *node,
+                                                                      const char *name,
+                                                                      const char *action_type,
+                                                                      const char *goal_hash,
+                                                                      const char *result_hash,
+                                                                      const char *cancel_hash,
+                                                                      const char *feedback_hash,
+                                                                      const char *status_hash,
+                                                                      const struct hiroz_CActionQos *qos,
+                                                                      hiroz_ActionEventCallback callback,
+                                                                      uintptr_t user_data);
 
 /**
- * Publish feedback for a goal
+ * Create a client taking ownership of its foreign event callback data.
+ * `drop_callback` runs exactly once, including on construction failure, after
+ * every in-progress delivery and native transport/request clone has released
+ * the data. Destroy disables new delivery without waiting for active callbacks,
+ * so a callback may destroy its own client. Do not release user_data separately.
  */
-int32_t hiroz_action_server_publish_feedback(struct hiroz_action_server_t *server_handle,
-                                             const uint8_t (*goal_id)[16],
-                                             const uint8_t *feedback_data,
-                                             uintptr_t feedback_len);
+struct hiroz_action_client_t *hiroz_action_client_create_owned(struct hiroz_node_t *node,
+                                                               const char *name,
+                                                               const char *action_type,
+                                                               const char *goal_hash,
+                                                               const char *result_hash,
+                                                               const char *cancel_hash,
+                                                               const char *feedback_hash,
+                                                               const char *status_hash,
+                                                               const struct hiroz_CActionQos *qos,
+                                                               hiroz_ActionEventCallback callback,
+                                                               uintptr_t user_data,
+                                                               hiroz_ActionEventDropCallback drop_callback);
 
 /**
- * Mark a goal as succeeded
+ * Start a request without retaining foreign memory. kind: 0=SendGoal, 1=GetResult, 2=CancelGoal.
  */
-int32_t hiroz_action_server_succeed(struct hiroz_action_server_t *server_handle,
-                                    const uint8_t (*goal_id)[16],
-                                    const uint8_t *result_data,
-                                    uintptr_t result_len);
+struct hiroz_CActionRequest *hiroz_action_request_create(struct hiroz_action_client_t *client,
+                                                         int32_t kind,
+                                                         const uint8_t *bytes,
+                                                         uintptr_t len,
+                                                         uint64_t timeout_ms);
 
 /**
- * Mark a goal as aborted
+ * Returns 1 while pending, 0 with owned response bytes, or a negative error code.
  */
-int32_t hiroz_action_server_abort(struct hiroz_action_server_t *server_handle,
-                                  const uint8_t (*goal_id)[16],
-                                  const uint8_t *result_data,
-                                  uintptr_t result_len);
+int32_t hiroz_action_request_poll(struct hiroz_CActionRequest *request,
+                                  uint8_t **data,
+                                  uintptr_t *len);
+
+void hiroz_action_request_destroy(struct hiroz_CActionRequest *request);
+
+bool hiroz_action_client_ready(struct hiroz_action_client_t *client);
 
 /**
- * Mark a goal as canceled
+ * Disable event delivery and destroy the client handle. Owned clients release
+ * foreign data through their drop callback after outstanding references drain.
+ * Legacy clients wait for callbacks here and must not call this from an event.
  */
-int32_t hiroz_action_server_canceled(struct hiroz_action_server_t *server_handle,
-                                     const uint8_t (*goal_id)[16],
-                                     const uint8_t *result_data,
-                                     uintptr_t result_len);
+int32_t hiroz_action_client_destroy(struct hiroz_action_client_t *client);
+
+struct hiroz_action_server_t *hiroz_action_server_create_with_options(struct hiroz_node_t *node,
+                                                                      const char *name,
+                                                                      const char *action_type,
+                                                                      const char *goal_hash,
+                                                                      const char *result_hash,
+                                                                      const char *cancel_hash,
+                                                                      const char *feedback_hash,
+                                                                      const char *status_hash,
+                                                                      const struct hiroz_CActionQos *qos,
+                                                                      hiroz_ActionGoalCallback goal_callback,
+                                                                      hiroz_ActionExecuteCallback execute_callback,
+                                                                      hiroz_ActionCancelCallback cancel_callback,
+                                                                      uintptr_t user_data,
+                                                                      const uint8_t *default_result,
+                                                                      uintptr_t default_result_len,
+                                                                      uint64_t result_timeout_ms,
+                                                                      uint64_t goal_timeout_ms);
+
+int32_t hiroz_action_server_goal_status(struct hiroz_action_server_t *server, const uint8_t *id);
+
+int32_t hiroz_action_server_execute(struct hiroz_action_server_t *server, const uint8_t *id);
 
 /**
- * Check whether a cancel has been requested for the given goal.
- * Returns 1 if cancel was requested, 0 otherwise.
+ * Publish a fully encoded FeedbackMessage supplied by the binding.
  */
-int32_t hiroz_action_server_is_cancel_requested(struct hiroz_action_server_t *server_handle,
-                                                const uint8_t (*goal_id)[16]);
+int32_t hiroz_action_server_publish_feedback_message(struct hiroz_action_server_t *server,
+                                                     const uint8_t *bytes,
+                                                     uintptr_t len);
+
+int32_t hiroz_action_server_finish(struct hiroz_action_server_t *server,
+                                   const uint8_t *id,
+                                   const uint8_t *bytes,
+                                   uintptr_t len);
 
 /**
- * Destroy an action server
+ * Read acceptance metadata without exposing a borrowed goal record.
  */
+bool hiroz_action_server_goal_info(struct hiroz_action_server_t *server,
+                                   const uint8_t *id,
+                                   int32_t *sec,
+                                   uint32_t *nanosec);
+
+bool hiroz_action_server_feedback_ready(struct hiroz_action_server_t *server);
+
+/**
+ * Stop accepting requests without waiting for callbacks. Safe from a callback.
+ */
+void hiroz_action_server_shutdown(struct hiroz_action_server_t *server);
+
 int32_t hiroz_action_server_destroy(struct hiroz_action_server_t *server);
-
-/**
- * Destroy a goal handle
- */
-int32_t hiroz_goal_handle_destroy(struct hiroz_goal_handle_t *handle);
 
 /**
  * Create a new hiroz context with default config (convenience)

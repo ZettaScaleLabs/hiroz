@@ -987,113 +987,130 @@ impl ZNode {
         })
     }
 
-    /// Create a raw action client for FFI (no type safety).
-    /// Creates 3 service clients (SendGoal, GetResult, CancelGoal) + 1 feedback subscriber.
+    /// Create the five endpoints of a raw action client with independent QoS.
     #[cfg(feature = "ffi")]
     #[allow(clippy::too_many_arguments)]
-    pub fn create_raw_action_client(
+    pub fn create_raw_action_client<F>(
         &self,
-        action_name: &str,
+        name: &str,
         action_type: &str,
-        _goal_type: &str,
         goal_hash: &str,
-        _result_type: &str,
         result_hash: &str,
-        _feedback_type: &str,
+        cancel_hash: &str,
         feedback_hash: &str,
-    ) -> Result<crate::ffi::action::RawActionClient> {
-        let send_goal_service = format!("{}/_action/send_goal", action_name);
-        let get_result_service = format!("{}/_action/get_result", action_name);
-        let cancel_goal_service = format!("{}/_action/cancel_goal", action_name);
-        let feedback_topic = format!("{}/_action/feedback", action_name);
-
-        // Compute DDS-style type names required by rmw_zenoh_cpp's graph discovery.
-        // action_type is e.g. "example_interfaces/action/Fibonacci" → package="example_interfaces", name="Fibonacci"
+        status_hash: &str,
+        qos: Option<&crate::ffi::action::CActionQos>,
+        callback: F,
+    ) -> Result<crate::ffi::action::RawActionClient>
+    where
+        F: Fn(i32, &[u8]) + Send + Sync + 'static,
+    {
+        use crate::ffi::qos::CQosProfile;
         let (pkg, aname) = split_action_type(action_type);
-        let action_ns = format!("{pkg}::action");
-        let send_goal_type = dds_from_namespace(&action_ns, &format!("{aname}_SendGoal"));
-        let get_result_type = dds_from_namespace(&action_ns, &format!("{aname}_GetResult"));
-        let cancel_goal_type = dds_from_namespace("action_msgs::srv", "CancelGoal");
-        let feedback_type_dds =
-            dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
-
-        let send_goal_client =
-            self.create_raw_service_client(&send_goal_service, &send_goal_type, goal_hash)?;
-        let get_result_client =
-            self.create_raw_service_client(&get_result_service, &get_result_type, result_hash)?;
-        let cancel_goal_client =
-            self.create_raw_service_client(&cancel_goal_service, &cancel_goal_type, CANCEL_GOAL_TYPE_HASH)?;
-
-        // Feedback subscriber (no-op callback for now; Go handles via polling or separate mechanism).
-        // Its callback reads nothing, so it stays out of the buffer group.
-        let feedback_sub = self.create_raw_subscriber_with_group(
-            &feedback_topic,
-            &feedback_type_dds,
-            feedback_hash,
-            |_| {},
-            None,
-            crate::BufferGroup::Off,
-        )?;
-
+        let ns = format!("{pkg}::action");
+        let goal_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.goal) });
+        let result_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.result) });
+        let cancel_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.cancel) });
+        let feedback_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.feedback) });
+        let status_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.status) });
+        let callback = std::sync::Arc::new(callback);
+        let feedback_callback = callback.clone();
         Ok(crate::ffi::action::RawActionClient {
-            send_goal_client,
-            get_result_client,
-            cancel_goal_client,
-            _feedback_sub: feedback_sub,
+            send_goal_client: self.create_raw_service_client_with_qos(
+                &format!("{name}/_action/send_goal"),
+                &dds_from_namespace(&ns, &format!("{aname}_SendGoal")),
+                goal_hash,
+                goal_qos,
+            )?,
+            get_result_client: self.create_raw_service_client_with_qos(
+                &format!("{name}/_action/get_result"),
+                &dds_from_namespace(&ns, &format!("{aname}_GetResult")),
+                result_hash,
+                result_qos,
+            )?,
+            cancel_goal_client: self.create_raw_service_client_with_qos(
+                &format!("{name}/_action/cancel_goal"),
+                &dds_from_namespace("action_msgs::srv", "CancelGoal"),
+                cancel_hash,
+                cancel_qos,
+            )?,
+            _feedback_sub: self.create_raw_subscriber_impl(
+                &format!("{name}/_action/feedback"),
+                &dds_from_namespace(&ns, &format!("{aname}_FeedbackMessage")),
+                feedback_hash,
+                move |sample| feedback_callback(0, &sample.payload().to_bytes()),
+                feedback_qos,
+                zenoh::sample::Locality::Any,
+                crate::BufferGroup::Auto,
+                true,
+            )?,
+            _status_sub: self.create_raw_subscriber_impl(
+                &format!("{name}/_action/status"),
+                &dds_from_namespace("action_msgs::msg", "GoalStatusArray"),
+                status_hash,
+                move |sample| callback(1, &sample.payload().to_bytes()),
+                status_qos,
+                zenoh::sample::Locality::Any,
+                crate::BufferGroup::Off,
+                true,
+            )?,
         })
     }
 
-    /// Create a raw action server for FFI (no type safety).
-    /// Creates 3 service servers (SendGoal, GetResult, CancelGoal) + 2 publishers (Feedback, Status).
+    /// Create the five endpoints of a raw action server with independent QoS.
     #[cfg(feature = "ffi")]
     #[allow(clippy::too_many_arguments)]
     pub fn create_raw_action_server(
         &self,
-        action_name: &str,
+        name: &str,
         action_type: &str,
-        _goal_type: &str,
         goal_hash: &str,
-        _result_type: &str,
         result_hash: &str,
-        _feedback_type: &str,
+        cancel_hash: &str,
         feedback_hash: &str,
+        status_hash: &str,
+        qos: Option<&crate::ffi::action::CActionQos>,
     ) -> Result<crate::ffi::action::RawActionServer> {
-        let send_goal_service = format!("{}/_action/send_goal", action_name);
-        let get_result_service = format!("{}/_action/get_result", action_name);
-        let cancel_goal_service = format!("{}/_action/cancel_goal", action_name);
-        let feedback_topic = format!("{}/_action/feedback", action_name);
-        let status_topic = format!("{}/_action/status", action_name);
-
-        // Compute DDS-style type names required by rmw_zenoh_cpp's graph discovery.
-        // action_type is e.g. "example_interfaces/action/Fibonacci" → package="example_interfaces", name="Fibonacci"
+        use crate::ffi::qos::CQosProfile;
         let (pkg, aname) = split_action_type(action_type);
-        let action_ns = format!("{pkg}::action");
-        let send_goal_type = dds_from_namespace(&action_ns, &format!("{aname}_SendGoal"));
-        let get_result_type = dds_from_namespace(&action_ns, &format!("{aname}_GetResult"));
-        let cancel_goal_type = dds_from_namespace("action_msgs::srv", "CancelGoal");
-        let feedback_type_dds =
-            dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
-        let status_type_dds = dds_from_namespace("action_msgs::msg", "GoalStatusArray");
-
-        let send_goal_server =
-            self.create_raw_service_server(&send_goal_service, &send_goal_type, goal_hash)?;
-        let get_result_server =
-            self.create_raw_service_server(&get_result_service, &get_result_type, result_hash)?;
-        let cancel_goal_server =
-            self.create_raw_service_server(&cancel_goal_service, &cancel_goal_type, CANCEL_GOAL_TYPE_HASH)?;
-
-        let feedback_pub =
-            self.create_raw_publisher(&feedback_topic, &feedback_type_dds, feedback_hash)?;
-        let status_pub = self.create_raw_publisher(&status_topic, &status_type_dds, "")?;
-
+        let ns = format!("{pkg}::action");
+        let goal_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.goal) });
+        let result_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.result) });
+        let cancel_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.cancel) });
+        let feedback_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.feedback) });
+        let status_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.status) });
         Ok(crate::ffi::action::RawActionServer {
-            send_goal_server,
-            get_result_server,
-            cancel_goal_server,
-            feedback_pub,
-            _status_pub: status_pub,
-            pending_results: std::collections::HashMap::new(),
-            pending_result_queries: std::collections::HashMap::new(),
+            send_goal_server: self.create_raw_service_server_with_qos(
+                &format!("{name}/_action/send_goal"),
+                &dds_from_namespace(&ns, &format!("{aname}_SendGoal")),
+                goal_hash,
+                goal_qos,
+            )?,
+            get_result_server: self.create_raw_service_server_with_qos(
+                &format!("{name}/_action/get_result"),
+                &dds_from_namespace(&ns, &format!("{aname}_GetResult")),
+                result_hash,
+                result_qos,
+            )?,
+            cancel_goal_server: self.create_raw_service_server_with_qos(
+                &format!("{name}/_action/cancel_goal"),
+                &dds_from_namespace("action_msgs::srv", "CancelGoal"),
+                cancel_hash,
+                cancel_qos,
+            )?,
+            feedback_pub: self.create_raw_publisher_with_qos(
+                &format!("{name}/_action/feedback"),
+                &dds_from_namespace(&ns, &format!("{aname}_FeedbackMessage")),
+                feedback_hash,
+                feedback_qos,
+            )?,
+            status_pub: self.create_raw_publisher_with_qos(
+                &format!("{name}/_action/status"),
+                &dds_from_namespace("action_msgs::msg", "GoalStatusArray"),
+                status_hash,
+                status_qos,
+            )?,
+            goals: std::collections::HashMap::new(),
         })
     }
 
@@ -1546,9 +1563,6 @@ impl ZNode {
 
 /// ROS 2 Humble/Jazzy RIHS01 type hash for `action_msgs/srv/CancelGoal`.
 /// Must match rmw_zenoh keyexpr hashing or cancel requests never reach the server.
-#[cfg(feature = "ffi")]
-const CANCEL_GOAL_TYPE_HASH: &str =
-    "RIHS01_573d8b0a534451d7bc2ac8c5ffde8ac14b8593b7001175d0cd6516dcbeb8689a";
 
 /// Parse an action type string like `"example_interfaces/action/Fibonacci"` into
 /// `(package, action_name)` — i.e., `("example_interfaces", "Fibonacci")`.

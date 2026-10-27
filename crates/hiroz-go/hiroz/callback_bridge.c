@@ -17,6 +17,9 @@ hiroz_MessageCallback getSubscriberCallback() {
 	return (hiroz_MessageCallback)goSubscriberCallback;
 }
 
+hiroz_ActionCancelCallback getActionCancelCallback() { return (hiroz_ActionCancelCallback)goActionCancelCallback; }
+hiroz_ActionEventCallback getActionEventCallback() { return (hiroz_ActionEventCallback)goActionEventCallback; }
+hiroz_ActionEventDropCallback getActionEventDropCallback() { return (hiroz_ActionEventDropCallback)goActionEventDropCallback; }
 hiroz_SubscriberDropCallback getSubscriberDropCallback() {
     return (hiroz_SubscriberDropCallback)goSubscriberDropCallback;
 }

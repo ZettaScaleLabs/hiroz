@@ -228,7 +228,11 @@ impl<'a, A: ZAction> Builder for ZActionClientBuilder<'a, A> {
                     tracing::trace!("Routing feedback to goal {:?}", msg.goal_id);
                     let _ = channels.feedback_tx.send(msg.feedback);
                 } else {
-                    tracing::warn!("No active goal found for feedback {:?}", msg.goal_id);
+                    // All clients share the action feedback topic. Another
+                    // client's goal (or a just-completed local goal) is normal
+                    // filtering, not a transport fault. Avoid synchronous warn
+                    // output on the receive callback for every foreign sample.
+                    tracing::trace!("Ignoring feedback for unowned goal {:?}", msg.goal_id);
                 }
             })?;
         tracing::debug!("Feedback subscriber created successfully");
@@ -420,22 +424,21 @@ impl<A: ZAction> ZActionClient<A> {
                 status_tx,
             },
         );
+        // Own the registration before the first await so cancellation of
+        // send_goal also removes its channels. Transfer ownership to the
+        // accepted handle; dropping that handle or its result future cleans up.
+        let registration = GoalRegistration {
+            id: goal_id,
+            board: self.goal_board.clone(),
+        };
 
         // 3. Send goal request via service client
         let request = SendGoalRequest { goal_id, goal };
         tracing::debug!("Sending goal request for goal_id: {:?}", goal_id);
-        let response = match self.goal_client.call(&request).await {
-            Ok(response) => response,
-            Err(error) => {
-                self.goal_board.active_goals.remove(&goal_id);
-                return Err(error);
-            }
-        };
+        let response = self.goal_client.call(&request).await?;
 
         // 5. Check if accepted
         if !response.accepted {
-            // Cleanup on rejection
-            self.goal_board.active_goals.remove(&goal_id);
             return Err(zenoh::Error::from("Goal rejected".to_string()));
         }
 
@@ -464,12 +467,14 @@ impl<A: ZAction> ZActionClient<A> {
             client: Arc::new(self.clone()),
             feedback_rx: Some(feedback_rx),
             status_rx: Some(status_rx),
+            _registration: registration,
             _state: PhantomData,
         })
     }
 
     pub async fn cancel_goal(&self, goal_id: GoalId) -> Result<CancelGoalServiceResponse> {
-        let goal_info = GoalInfo::new(goal_id);
+        // A nonzero stamp would additionally cancel every goal accepted before it.
+        let goal_info = GoalInfo { goal_id, stamp: Time::zero() };
         let request = CancelGoalServiceRequest { goal_info };
 
         self.cancel_client.call(&request).await
@@ -527,6 +532,19 @@ struct GoalChannels<A: ZAction> {
     status_tx: watch::Sender<GoalStatus>,
 }
 
+/// Registration ownership survives moves into an accepted handle or a result
+/// future. Cleanup must not depend on an async operation reaching its last line.
+struct GoalRegistration<A: ZAction> {
+    id: GoalId,
+    board: Arc<GoalBoard<A>>,
+}
+
+impl<A: ZAction> Drop for GoalRegistration<A> {
+    fn drop(&mut self) {
+        self.board.active_goals.remove(&self.id);
+    }
+}
+
 /// Handle for monitoring and controlling an active goal.
 ///
 /// A `GoalHandle` is returned when a goal is successfully sent to an action server.
@@ -536,6 +554,9 @@ struct GoalChannels<A: ZAction> {
 /// The handle uses a type-state pattern to ensure goals cannot be misused:
 /// - `GoalHandle<A, goal_state::Active>` - Can be monitored, cancelled, or consumed for result
 /// - `GoalHandle<A, goal_state::Terminated>` - Read-only access after completion
+///
+/// Dropping the handle releases local feedback and status tracking. It does not
+/// cancel the remote goal; request cancellation explicitly when needed.
 ///
 /// # Examples
 ///
@@ -562,6 +583,8 @@ pub struct GoalHandle<A: ZAction, State = goal_state::Active> {
     feedback_rx: Option<mpsc::UnboundedReceiver<A::Feedback>>,
     /// Receiver for status updates.
     status_rx: Option<watch::Receiver<GoalStatus>>,
+    /// Remove local tracking even if the handle's result future is canceled.
+    _registration: GoalRegistration<A>,
     /// Type-state marker
     _state: PhantomData<State>,
 }
@@ -619,16 +642,11 @@ impl<A: ZAction> GoalHandle<A, goal_state::Active> {
         // Fetch result. The server's get_result handler will either:
         // - Return immediately if the goal is already terminated
         // - Block until termination otherwise
-        let res = self.client.get_result(self.id).await;
-
-        // Cleanup Board (Crucial for Memory Safety)
-        self.client.goal_board.active_goals.remove(&self.id);
-
-        res
+        self.client.get_result(self.id).await
     }
 
     /// Consumes the Active handle and waits for the result, failing if it does
-    /// not arrive before `timeout` elapses.
+    /// not complete within `timeout`, including caller scheduling delays.
     ///
     /// This is the bounded counterpart to [`result`](Self::result). On timeout
     /// it returns a structured [`crate::error::Error::Timeout`], detectable via
@@ -642,14 +660,12 @@ impl<A: ZAction> GoalHandle<A, goal_state::Active> {
     ///
     /// The result of the action once it completes, or a timeout error.
     pub async fn result_with_timeout(self, timeout: std::time::Duration) -> Result<A::Result> {
-        let res = match tokio::time::timeout(timeout, self.client.get_result(self.id)).await {
-            Ok(res) => res,
-            Err(_) => Err(crate::error::Error::timeout(timeout)),
-        };
-
-        // Cleanup Board (Crucial for Memory Safety)
-        self.client.goal_board.active_goals.remove(&self.id);
-
-        res
+        let request = GetResultRequest { goal_id: self.id };
+        let response: GetResultResponse<A> = self
+            .client
+            .result_client
+            .call_with_timeout(&request, timeout)
+            .await?;
+        Ok(response.result)
     }
 }
