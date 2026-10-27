@@ -1,8 +1,8 @@
 #![cfg(feature = "ffi")]
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use hiroz::ffi::subscriber::{hiroz_subscriber_create_owned, hiroz_subscriber_destroy};
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 
 extern "C" fn receive(_: usize, _: *const u8, _: usize) {}
 
@@ -32,10 +32,10 @@ fn owned_callback_is_released_when_creation_fails() {
 
 #[test]
 fn owned_callback_is_released_after_subscriber_destroy() {
-    use hiroz::ffi::context::{
-        CContextConfig, hiroz_context_create_with_config, hiroz_context_destroy,
+    use hiroz::ffi::{
+        context::{CContextConfig, hiroz_context_create_with_config, hiroz_context_destroy},
+        node::{hiroz_node_create, hiroz_node_destroy},
     };
-    use hiroz::ffi::node::{hiroz_node_create, hiroz_node_destroy};
     let config = CContextConfig {
         domain_id: 0,
         config_file: std::ptr::null(),

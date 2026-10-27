@@ -1,6 +1,8 @@
 //! Endpoint ownership must outlast its creating node/context and end on Drop.
 //! The opposite Zenoh endpoints below deliberately own only WeakSession, so they
 //! cannot accidentally keep the Hiroz endpoint's session alive for this test.
+use std::time::Duration;
+
 use hiroz::{
     Builder,
     context::ZContextBuilder,
@@ -11,7 +13,6 @@ use hiroz_msgs::{
     example_interfaces::{AddTwoIntsRequest, AddTwoIntsResponse, srv::AddTwoInts},
     std_msgs::String as RosString,
 };
-use std::time::Duration;
 use zenoh::Wait;
 
 fn context() -> hiroz::context::ZContext {
@@ -268,9 +269,11 @@ async fn typed_service_client_survives_parents_until_endpoint_drop() {
 
 #[cfg(feature = "ffi")]
 mod raw {
-    use super::*;
-    use hiroz::ros_msg::MessageTypeInfo;
     use std::sync::mpsc;
+
+    use hiroz::ros_msg::MessageTypeInfo;
+
+    use super::*;
 
     #[test]
     fn raw_publisher_survives_parents_until_endpoint_drop() {
@@ -370,5 +373,4 @@ mod raw {
             );
         }
     }
-
 }
