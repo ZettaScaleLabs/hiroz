@@ -142,6 +142,7 @@ fn field_type_to_description(field_type: &FieldType) -> Result<FieldTypeDescript
         FieldType::Int16 => Ok(FieldTypeDescription::primitive(TypeId::INT16)),
         FieldType::Int32 => Ok(FieldTypeDescription::primitive(TypeId::INT32)),
         FieldType::Int64 => Ok(FieldTypeDescription::primitive(TypeId::INT64)),
+        FieldType::Byte => Ok(FieldTypeDescription::primitive(TypeId::BYTE)),
         FieldType::Uint8 => Ok(FieldTypeDescription::primitive(TypeId::UINT8)),
         FieldType::Uint16 => Ok(FieldTypeDescription::primitive(TypeId::UINT16)),
         FieldType::Uint32 => Ok(FieldTypeDescription::primitive(TypeId::UINT32)),
@@ -218,6 +219,7 @@ fn get_base_type_id(field_type: &FieldType) -> Result<u8, DynamicError> {
         FieldType::Int16 => Ok(TypeId::INT16),
         FieldType::Int32 => Ok(TypeId::INT32),
         FieldType::Int64 => Ok(TypeId::INT64),
+        FieldType::Byte => Ok(TypeId::BYTE),
         FieldType::Uint8 => Ok(TypeId::UINT8),
         FieldType::Uint16 => Ok(TypeId::UINT16),
         FieldType::Uint32 => Ok(TypeId::UINT32),
@@ -353,6 +355,7 @@ fn field_type_description_to_type(
         TypeId::INT16 => FieldType::Int16,
         TypeId::INT32 => FieldType::Int32,
         TypeId::INT64 => FieldType::Int64,
+        TypeId::BYTE => FieldType::Byte,
         TypeId::UINT8 => FieldType::Uint8,
         TypeId::UINT16 => FieldType::Uint16,
         TypeId::UINT32 => FieldType::Uint32,
@@ -566,11 +569,12 @@ mod tests {
             .field("float32_val", FieldType::Float32)
             .field("float64_val", FieldType::Float64)
             .field("string_val", FieldType::String)
+            .field("byte_val", FieldType::Byte)
             .build()
             .unwrap();
 
         let td = schema.to_type_description().unwrap();
-        assert_eq!(td.fields.len(), 12);
+        assert_eq!(td.fields.len(), 13);
 
         // Verify type IDs
         assert_eq!(td.fields[0].field_type.type_id, TypeId::BOOL);
@@ -585,6 +589,7 @@ mod tests {
         assert_eq!(td.fields[9].field_type.type_id, TypeId::FLOAT32);
         assert_eq!(td.fields[10].field_type.type_id, TypeId::FLOAT64);
         assert_eq!(td.fields[11].field_type.type_id, TypeId::STRING);
+        assert_eq!(td.fields[12].field_type.type_id, TypeId::BYTE);
     }
 
     #[test]
@@ -745,7 +750,7 @@ mod tests {
             )
             .field(
                 "bounded",
-                FieldType::BoundedSequence(Box::new(FieldType::Uint8), 100),
+                FieldType::BoundedSequence(Box::new(FieldType::Byte), 100),
             )
             .build()
             .unwrap();
@@ -771,7 +776,7 @@ mod tests {
         }
 
         if let FieldType::BoundedSequence(inner, cap) = &restored.fields[2].field_type {
-            assert!(matches!(inner.as_ref(), FieldType::Uint8));
+            assert!(matches!(inner.as_ref(), FieldType::Byte));
             assert_eq!(*cap, 100);
         } else {
             panic!("Expected BoundedSequence type");
