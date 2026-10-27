@@ -1,0 +1,135 @@
+name: Go API validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/hiroz*/**'
+      - 'crates/rmw-zenoh-rs/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'scripts/check-go-api.sh'
+      - 'docs/bindings/go-*.md'
+      - '.github/workflows/go-api.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/hiroz*/**'
+      - 'crates/rmw-zenoh-rs/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'scripts/check-go-api.sh'
+      - 'docs/bindings/go-*.md'
+      - '.github/workflows/go-api.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go-api:
+    name: Native and Go API tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_BUILD_JOBS: '2'
+      CGO_ENABLED: '1'
+      RUST_BACKTRACE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare disk and temporary directories
+        run: |
+          # Hosted-runner Android/.NET installations are unused by this job.
+          # Leave room for native test artifacts and the static-library snapshot.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet
+          mkdir -p "$RUNNER_TEMP/hiroz-target" "$RUNNER_TEMP/hiroz-tmp" "$RUNNER_TEMP/go-build"
+          {
+            echo "CARGO_TARGET_DIR=$RUNNER_TEMP/hiroz-target"
+            echo "TMPDIR=$RUNNER_TEMP/hiroz-tmp"
+            echo "GOTMPDIR=$RUNNER_TEMP/hiroz-tmp"
+            echo "GOCACHE=$RUNNER_TEMP/go-build"
+          } >> "$GITHUB_ENV"
+          df -h "$RUNNER_TEMP"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: crates/hiroz-go/go.mod
+          cache-dependency-path: |
+            crates/hiroz-go/go.mod
+            crates/hiroz-codegen-go/go.mod
+            crates/hiroz-go/examples/production_service/go.mod
+            crates/hiroz-go/examples/production_service/go.sum
+
+      - name: Cache downloaded Rust dependencies
+        uses: actions/cache@v4
+        with:
+          # Do not cache target: native static libraries and test variants are large.
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-${{ runner.arch }}-go-api-cargo-v1-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-go-api-cargo-v1-
+
+      - name: Install C header generator
+        run: |
+          CARGO_TARGET_DIR="$RUNNER_TEMP/cbindgen-target" cargo install cbindgen --version 0.29.4 --locked
+          rm -rf "$RUNNER_TEMP/cbindgen-target"
+
+      - name: Run native unit tests
+        # FFI integration targets are exercised by the script; enabling ffi for
+        # --lib also links exported callbacks from the dev-dependency graph twice.
+        run: cargo test --locked -p hiroz --lib
+
+      - name: Build malformed service-envelope fixture
+        run: |
+          cargo test --locked -p hiroz --features ffi \
+            --test ffi_service_malformed_query --no-run --message-format=json \
+            > "$RUNNER_TEMP/hiroz-service-fixture.jsonl"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          records = Path(os.environ["RUNNER_TEMP"], "hiroz-service-fixture.jsonl")
+          executables = set()
+          for line in records.read_text().splitlines():
+              record = json.loads(line)
+              if (record.get("reason") == "compiler-artifact"
+                      and record.get("target", {}).get("name") == "ffi_service_malformed_query"
+                      and record.get("executable")):
+                  executables.add(record["executable"])
+          if len(executables) != 1:
+              raise SystemExit(f"Expected one malformed-query fixture, found {executables}")
+          executable = executables.pop()
+          if not os.access(executable, os.X_OK):
+              raise SystemExit(f"Fixture is not executable: {executable}")
+          # Make the opt-in transport regression mandatory in the script's Go suite.
+          with open(os.environ["GITHUB_ENV"], "a") as environment:
+              environment.write(f"HIROZ_SERVICE_MALFORMED_FIXTURE={executable}\n")
+          PY
+
+      - name: Check generated and public Go APIs
+        run: ./scripts/check-go-api.sh
+
+      - name: Verify the committed C header
+        run: |
+          cbindgen --config crates/hiroz/cbindgen.toml crates/hiroz \
+            --output "$RUNNER_TEMP/hiroz_ffi.h"
+          cmp crates/hiroz-go/hiroz/hiroz_ffi.h "$RUNNER_TEMP/hiroz_ffi.h"
+          git diff --exit-code -- crates/hiroz-go/hiroz/hiroz_ffi.h
