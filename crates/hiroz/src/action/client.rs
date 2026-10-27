@@ -474,7 +474,10 @@ impl<A: ZAction> ZActionClient<A> {
 
     pub async fn cancel_goal(&self, goal_id: GoalId) -> Result<CancelGoalServiceResponse> {
         // A nonzero stamp would additionally cancel every goal accepted before it.
-        let goal_info = GoalInfo { goal_id, stamp: Time::zero() };
+        let goal_info = GoalInfo {
+            goal_id,
+            stamp: Time::zero(),
+        };
         let request = CancelGoalServiceRequest { goal_info };
 
         self.cancel_client.call(&request).await

@@ -1,6 +1,8 @@
 //! Endpoint ownership must outlast its creating node/context and end on Drop.
 //! The opposite Zenoh endpoints below deliberately own only WeakSession, so they
 //! cannot accidentally keep the Hiroz endpoint's session alive for this test.
+use std::time::Duration;
+
 use hiroz::{
     Builder,
     context::ZContextBuilder,
@@ -11,7 +13,6 @@ use hiroz_msgs::{
     example_interfaces::{AddTwoIntsRequest, AddTwoIntsResponse, srv::AddTwoInts},
     std_msgs::String as RosString,
 };
-use std::time::Duration;
 use zenoh::Wait;
 
 #[cfg(feature = "ffi")]
@@ -271,9 +272,11 @@ async fn typed_service_client_survives_parents_until_endpoint_drop() {
 
 #[cfg(feature = "ffi")]
 mod raw {
-    use super::*;
-    use hiroz::ros_msg::MessageTypeInfo;
     use std::sync::mpsc;
+
+    use hiroz::ros_msg::MessageTypeInfo;
+
+    use super::*;
 
     #[test]
     fn raw_publisher_survives_parents_until_endpoint_drop() {
@@ -376,8 +379,9 @@ mod raw {
 
     #[test]
     fn queued_ffi_service_survives_parents_until_endpoint_drop() {
-        use hiroz::ffi::{context::*, node::*, serialize::hiroz_free_bytes, service::*};
         use std::{ffi::CString, ptr};
+
+        use hiroz::ffi::{context::*, node::*, serialize::hiroz_free_bytes, service::*};
         let router = common::TestRouter::new();
         let endpoint = CString::new(router.endpoint()).unwrap();
         let endpoints = [endpoint.as_ptr()];

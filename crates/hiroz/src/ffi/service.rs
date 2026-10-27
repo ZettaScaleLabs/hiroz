@@ -1,16 +1,24 @@
-use super::node::{CNode, get_node_ref};
-use super::qos::CQosProfile;
-use super::{ErrorCode, cstr_to_str};
-use std::collections::HashMap;
-use std::ffi::c_char;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-use zenoh::Wait;
-use zenoh::query::Query;
+use std::{
+    collections::HashMap,
+    ffi::c_char,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
-use crate::attachment::{Attachment, GidArray};
-use crate::queue::BoundedQueue;
+use zenoh::{Wait, query::Query};
+
+use super::{
+    ErrorCode, cstr_to_str,
+    node::{CNode, get_node_ref},
+    qos::CQosProfile,
+};
+use crate::{
+    attachment::{Attachment, GidArray},
+    queue::BoundedQueue,
+};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct QueryKey {
@@ -144,8 +152,9 @@ impl RawServiceClient {
     /// Block until at least one matching service server is visible in the graph,
     /// or `timeout` elapses. Wakes immediately when a graph change is signaled.
     pub fn wait_for_service(&self, timeout: Duration) -> bool {
-        use crate::entity::EndpointKind;
         use std::time::Instant;
+
+        use crate::entity::EndpointKind;
 
         let deadline = Instant::now().checked_add(timeout);
         let (mu, cvar) = &*self.graph.change_signal;

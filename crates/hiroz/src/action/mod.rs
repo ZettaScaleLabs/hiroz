@@ -1,8 +1,9 @@
-use crate::msg::ZMessage;
+use std::{fmt, time::SystemTime};
+
 use hiroz_cdr::{CdrBuffer, CdrDeserialize, CdrReader, CdrSerialize, CdrSerializedSize, CdrWriter};
 use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::time::SystemTime;
+
+use crate::msg::ZMessage;
 
 pub mod client;
 pub mod driver;

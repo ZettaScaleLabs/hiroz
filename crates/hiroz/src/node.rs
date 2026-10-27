@@ -1,12 +1,11 @@
 use std::{sync::Arc, time::Duration};
 
-use tracing::{debug, info, warn};
-use zenoh::{Result, Session, Wait, liveliness::LivelinessToken};
-
 // Only the FFI action paths below mangle a type name. This import therefore
 // carries the same gate as the code that uses it.
 #[cfg(feature = "ffi")]
 use hiroz_schema::type_name::dds_from_namespace;
+use tracing::{debug, info, warn};
+use zenoh::{Result, Session, Wait, liveliness::LivelinessToken};
 
 #[cfg(feature = "ffi")]
 use crate::ffi::publisher::RawPublisher;
@@ -464,7 +463,8 @@ impl ZNode {
         let mut sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
         // The rule of `create_sub`. A cache does not call `create_sub`, because that also registers
         // the type-description service.
-        sub_builder.has_buffer_fields = T::message_schema().map(|schema| schema.has_buffer_fields());
+        sub_builder.has_buffer_fields =
+            T::message_schema().map(|schema| schema.has_buffer_fields());
         ZCacheBuilder::new(sub_builder, capacity)
     }
 
@@ -632,7 +632,12 @@ impl ZNode {
             .declare_token((*lv_ke).clone())
             .wait()?;
 
-        Ok(RawPublisher::new(publisher, gid, lv_token, self.session.clone()))
+        Ok(RawPublisher::new(
+            publisher,
+            gid,
+            lv_token,
+            self.session.clone(),
+        ))
     }
 
     /// Create a raw subscriber for FFI (no type safety)
@@ -745,12 +750,13 @@ impl ZNode {
     where
         F: Fn(zenoh::sample::Sample) + Send + Sync + 'static,
     {
+        use zenoh_ext::AdvancedSubscriberBuilderExt;
+
         use crate::{
             entity::{EndpointEntity, EndpointKind},
             pubsub::{SubscriberTransport, apply_transient_local_sub},
             topic_name,
         };
-        use zenoh_ext::AdvancedSubscriberBuilderExt;
 
         let qualified_topic =
             topic_name::qualify_topic_name(topic, &self.entity.namespace, &self.entity.name)
@@ -862,9 +868,12 @@ impl ZNode {
         type_hash: &str,
         qos: Option<crate::qos::QosProfile>,
     ) -> Result<crate::ffi::service::RawServiceClient> {
-        use crate::entity::{EndpointEntity, EndpointKind};
-        use crate::topic_name;
         use std::sync::atomic::AtomicUsize;
+
+        use crate::{
+            entity::{EndpointEntity, EndpointKind},
+            topic_name,
+        };
 
         let qualified_service =
             topic_name::qualify_service_name(service, &self.entity.namespace, &self.entity.name)
@@ -927,9 +936,11 @@ impl ZNode {
         type_hash: &str,
         qos: Option<crate::qos::QosProfile>,
     ) -> Result<crate::ffi::service::RawServiceServer> {
-        use crate::common::DataHandler;
-        use crate::entity::{EndpointEntity, EndpointKind};
-        use crate::topic_name;
+        use crate::{
+            common::DataHandler,
+            entity::{EndpointEntity, EndpointKind},
+            topic_name,
+        };
 
         let qualified_service =
             topic_name::qualify_service_name(service, &self.entity.namespace, &self.entity.name)

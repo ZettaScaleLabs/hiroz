@@ -373,7 +373,10 @@ async fn completed_query_without_response_preserves_no_reply_error() {
             drop(query); // Sends QueryFinal without a response.
         })
         .unwrap();
-    let client = node.create_client::<AddTwoInts>("no_reply").build().unwrap();
+    let client = node
+        .create_client::<AddTwoInts>("no_reply")
+        .build()
+        .unwrap();
     let error = client
         .call_with_timeout(&AddTwoIntsRequest { a: 1, b: 2 }, Duration::from_secs(2))
         .await

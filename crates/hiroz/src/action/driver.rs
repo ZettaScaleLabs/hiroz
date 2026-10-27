@@ -318,10 +318,7 @@ async fn handle_result_request<A: ZAction>(
             }
         }
         ResultState::NotFound => {
-            tracing::warn!(
-                "Goal {:?} not found; replying Unknown",
-                request.goal_id
-            );
+            tracing::warn!("Goal {:?} not found; replying Unknown", request.goal_id);
             (A::Result::default(), super::GoalStatus::Unknown)
         }
     };

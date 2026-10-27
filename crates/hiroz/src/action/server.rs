@@ -1030,34 +1030,35 @@ impl<A: ZAction> Drop for GoalCleanup<A> {
 
         self.server.cancel_dispatcher().deregister(self.goal_id);
 
-        let aborted = self.server.goal_manager().modify(|manager| {
-            match manager.goals.get(&self.goal_id) {
-                Some(
-                    ServerGoalState::Accepted { .. }
-                    | ServerGoalState::Executing { .. }
-                    | ServerGoalState::Canceling { .. },
-                ) => {
-                    let now = Instant::now();
-                    let expires_at = Some(now + manager.result_timeout);
-                    manager.goals.insert(
-                        self.goal_id,
-                        ServerGoalState::Terminated {
-                            result: A::Result::default(),
-                            status: GoalStatus::Aborted,
-                            timestamp: now,
-                            expires_at,
-                        },
-                    );
+        let aborted =
+            self.server
+                .goal_manager()
+                .modify(|manager| match manager.goals.get(&self.goal_id) {
                     Some(
-                        manager
-                            .result_futures
-                            .remove(&self.goal_id)
-                            .unwrap_or_default(),
-                    )
-                }
-                _ => None,
-            }
-        });
+                        ServerGoalState::Accepted { .. }
+                        | ServerGoalState::Executing { .. }
+                        | ServerGoalState::Canceling { .. },
+                    ) => {
+                        let now = Instant::now();
+                        let expires_at = Some(now + manager.result_timeout);
+                        manager.goals.insert(
+                            self.goal_id,
+                            ServerGoalState::Terminated {
+                                result: A::Result::default(),
+                                status: GoalStatus::Aborted,
+                                timestamp: now,
+                                expires_at,
+                            },
+                        );
+                        Some(
+                            manager
+                                .result_futures
+                                .remove(&self.goal_id)
+                                .unwrap_or_default(),
+                        )
+                    }
+                    _ => None,
+                });
 
         if let Some(waiters) = aborted {
             tracing::warn!(
@@ -1185,27 +1186,28 @@ impl<A: ZAction> GoalHandle<A, Accepted> {
     /// This updates the server state to executing and publishes a status update.
     pub fn execute(mut self) -> GoalHandle<A, Executing> {
         // Reuse cancel_flag from Accepted (or Canceling if cancel already raced in).
-        let (cancel_flag, expires_at) = self.server.goal_manager().modify(|manager| {
-            match manager.goals.remove(&self.info.goal_id) {
-                Some(ServerGoalState::Accepted {
-                    cancel_flag,
-                    expires_at,
-                    ..
-                })
-                | Some(ServerGoalState::Canceling {
-                    cancel_flag,
-                    expires_at,
-                    ..
-                }) => (cancel_flag, expires_at),
-                other => {
-                    if let Some(state) = other {
-                        manager.goals.insert(self.info.goal_id, state);
-                    }
-                    (
-                        Arc::new(AtomicBool::new(false)),
-                        manager.goal_timeout.map(|timeout| Instant::now() + timeout),
-                    )
+        let (cancel_flag, expires_at) = self.server.goal_manager().modify(|manager| match manager
+            .goals
+            .remove(&self.info.goal_id)
+        {
+            Some(ServerGoalState::Accepted {
+                cancel_flag,
+                expires_at,
+                ..
+            })
+            | Some(ServerGoalState::Canceling {
+                cancel_flag,
+                expires_at,
+                ..
+            }) => (cancel_flag, expires_at),
+            other => {
+                if let Some(state) = other {
+                    manager.goals.insert(self.info.goal_id, state);
                 }
+                (
+                    Arc::new(AtomicBool::new(false)),
+                    manager.goal_timeout.map(|timeout| Instant::now() + timeout),
+                )
             }
         });
 

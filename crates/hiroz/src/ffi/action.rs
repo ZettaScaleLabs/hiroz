@@ -1,24 +1,37 @@
 //! Action protocol transport and goal lifecycle used by foreign-language bindings.
 //! Result envelopes are encoded by the binding's offset-aware message codec. Rust
 //! never guesses the alignment of an opaque action result.
-use super::node::{CNode, get_node_ref};
-use super::qos::CQosProfile;
-use super::service::{QueryKey, RawServiceClient, RawServiceServer};
-use super::{ErrorCode, cstr_to_str};
-use crate::action::messages::{
-    CancelGoalServiceRequest, CancelGoalServiceResponse, GoalStatusInfo, SendGoalResponse,
-    StatusMessage,
+use std::{
+    collections::HashMap,
+    ffi::c_char,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc,
+    },
+    time::{Duration, Instant},
 };
-use crate::action::{GoalId, GoalInfo, GoalStatus, Time};
-use crate::attachment::Attachment;
-use crate::ffi::{publisher::RawPublisher, subscriber::RawSubscriber};
-use crate::msg::ZMessage;
-use std::collections::HashMap;
-use std::ffi::c_char;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
-use std::time::{Duration, Instant};
+
 use zenoh::Wait;
+
+use super::{
+    ErrorCode, cstr_to_str,
+    node::{CNode, get_node_ref},
+    qos::CQosProfile,
+    service::{QueryKey, RawServiceClient, RawServiceServer},
+};
+use crate::{
+    action::{
+        GoalId, GoalInfo, GoalStatus, Time,
+        messages::{
+            CancelGoalServiceRequest, CancelGoalServiceResponse, GoalStatusInfo, SendGoalResponse,
+            StatusMessage,
+        },
+    },
+    attachment::Attachment,
+    ffi::{publisher::RawPublisher, subscriber::RawSubscriber},
+    msg::ZMessage,
+};
 
 pub type ActionGoalCallback = extern "C" fn(usize, *const u8, *const u8, usize) -> i32;
 pub type ActionExecuteCallback =

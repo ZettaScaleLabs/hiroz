@@ -1,5 +1,4 @@
-use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 
 use hiroz::{Builder, Result, context::ZContextBuilder, define_action};
 use serde::{Deserialize, Serialize};

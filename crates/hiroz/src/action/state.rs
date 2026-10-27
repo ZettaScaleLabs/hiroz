@@ -3,10 +3,11 @@
 //! This module provides a `SafeGoalManager` that enforces synchronous-only
 //! access to goal state, preventing accidental lock-across-await bugs.
 
-use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, atomic::AtomicBool},
+    time::{Duration, Instant},
+};
 
 use super::{GoalId, GoalStatus, ZAction};
 
