@@ -2,6 +2,7 @@
 
 pub mod action;
 pub mod context;
+pub mod dynamic;
 pub mod graph;
 pub mod node;
 pub mod publisher;
@@ -9,6 +10,7 @@ pub mod qos;
 pub mod serialize;
 pub mod service;
 pub mod subscriber;
+pub mod topic;
 
 use std::ffi::{CStr, c_char};
 

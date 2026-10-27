@@ -45,6 +45,79 @@ mod tests {
 
         assert_eq!(key_expr_origin_zid(&key_expr), Some(zid));
     }
+
+    /// Exercise the production parsing/removal path without visiting dead names.
+    /// Long-lived graphs must reclaim both weak entries and their index buckets.
+    #[test]
+    fn indexes_are_reclaimed_after_unique_name_churn() {
+        use crate::entity::{NodeEntity, TypeInfo};
+
+        let repetitions = 10_000;
+        for unique_names in [false, true] {
+            let format = hiroz_protocol::KeyExprFormat::default();
+            let mut data =
+                GraphData::new_with_parser(Arc::new(move |key| format.parse_liveliness(key)));
+            for iteration in 0..repetitions {
+                let name_index = if unique_names { iteration } else { 0 };
+                let node = NodeEntity::new(
+                    229,
+                    "1234567890abcdef1234567890abcdef".parse().unwrap(),
+                    iteration,
+                    format!("round_client_{name_index}"),
+                    "/nuc_retention".into(),
+                    "/".into(),
+                );
+                let mut keys = vec![crate::entity::node_to_liveliness_ke(&node).unwrap()];
+                for (id, kind, topic) in [
+                    (
+                        1,
+                        EndpointKind::Service,
+                        format!("/nuc_retention/{}/get_type_description", node.name),
+                    ),
+                    (2, EndpointKind::Publisher, format!("/topic_{name_index}")),
+                    (
+                        3,
+                        EndpointKind::Service,
+                        format!("/action_{name_index}/_action/send_goal"),
+                    ),
+                ] {
+                    let endpoint = EndpointEntity {
+                        node: Some(node.clone()),
+                        id: iteration * 4 + id,
+                        kind,
+                        topic,
+                        type_info: Some(TypeInfo::new(
+                            "test/msg/Description",
+                            crate::entity::TypeHash::zero(),
+                        )),
+                        qos: hiroz_protocol::qos::QosProfile::default(),
+                    };
+                    keys.push(crate::entity::endpoint_to_liveliness_ke(&endpoint).unwrap());
+                }
+                for key in &keys {
+                    data.insert(key.clone());
+                }
+                data.parse();
+                assert_eq!(data.parsed.len(), keys.len());
+                // A caller may retain graph snapshots after DELETE. Retained Arcs
+                // must not keep removed endpoints in the graph's weak indexes.
+                let snapshots: Vec<_> = data.parsed.values().cloned().collect();
+                for key in &keys {
+                    data.remove(key);
+                }
+                assert!(data.cached.is_empty());
+                assert!(data.parsed.is_empty());
+                assert!(data.by_node.is_empty(), "node bucket survived deletion");
+                assert!(
+                    data.by_service.is_empty(),
+                    "service bucket survived deletion"
+                );
+                assert!(data.by_topic.is_empty(), "topic bucket survived deletion");
+                assert!(data.by_action.is_empty(), "action bucket survived deletion");
+                drop(snapshots);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -146,14 +219,9 @@ impl GraphData {
             was_parsed.is_some()
         );
 
-        if was_parsed.is_some() {
-            tracing::debug!("remove: Removed from parsed");
+        if let Some(entity) = was_parsed.as_ref() {
+            self.unindex(entity);
         }
-
-        // Note: We don't eagerly remove from by_topic/by_service/by_node maps here.
-        // The weak references will naturally fail to upgrade when entities are dropped,
-        // and the retain() calls in visit_by_* functions will clean them up lazily.
-        // This matches rmw_zenoh_cpp's approach.
 
         match (was_cached, was_parsed) {
             // Both should not be present at the same time
@@ -170,6 +238,48 @@ impl GraphData {
             }
             // Expected cases: either in cached (not yet parsed) or in parsed
             _ => {}
+        }
+    }
+
+    fn unindex(&mut self, entity: &Arc<Entity>) {
+        fn remove<K: std::hash::Hash + Eq>(
+            index: &mut HashMap<K, Slab<Weak<Entity>>>,
+            key: &K,
+            entity: &Arc<Entity>,
+        ) {
+            let removed = Arc::downgrade(entity);
+            let empty = index.get_mut(key).is_some_and(|entries| {
+                // A graph snapshot may retain a strong Arc after DELETE. Remove
+                // the indexed identity explicitly, independently of that Arc's
+                // lifetime, and release historical name buckets when empty.
+                entries.retain(|_, weak| !weak.ptr_eq(&removed) && weak.strong_count() > 0);
+                entries.is_empty()
+            });
+            if empty {
+                index.remove(key);
+            }
+        }
+
+        match entity.as_ref() {
+            Entity::Node(node) => remove(&mut self.by_node, &crate::entity::node_key(node), entity),
+            Entity::Endpoint(endpoint) => {
+                match endpoint.kind {
+                    EndpointKind::Publisher | EndpointKind::Subscription => {
+                        remove(&mut self.by_topic, &endpoint.topic, entity);
+                    }
+                    EndpointKind::Service | EndpointKind::Client => {
+                        remove(&mut self.by_service, &endpoint.topic, entity);
+                    }
+                }
+                if is_action_server_sub_endpoint(endpoint.kind, &endpoint.topic)
+                    && let Some(action) = action_name_from_topic(&endpoint.topic)
+                {
+                    remove(&mut self.by_action, &action.to_string(), entity);
+                }
+                if let Some(node) = endpoint.node.as_ref() {
+                    remove(&mut self.by_node, &crate::entity::node_key(node), entity);
+                }
+            }
         }
     }
 
@@ -467,7 +577,19 @@ impl Graph {
     where
         F: Fn(&Self) -> bool,
     {
-        let deadline = tokio::time::Instant::now() + timeout;
+        self.wait_until_deadline(tokio::time::Instant::now().checked_add(timeout), predicate)
+            .await
+    }
+
+    /// Wait under an existing budget; an unrepresentable deadline is unbounded.
+    pub(crate) async fn wait_until_deadline<F>(
+        &self,
+        deadline: Option<tokio::time::Instant>,
+        predicate: F,
+    ) -> bool
+    where
+        F: Fn(&Self) -> bool,
+    {
         loop {
             let notified = self.change_notify.notified();
             tokio::pin!(notified);
@@ -476,12 +598,15 @@ impl Graph {
                 return true;
             }
 
-            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-            if remaining.is_zero() {
+            let Some(deadline) = deadline else {
+                notified.await;
+                continue;
+            };
+            if tokio::time::Instant::now() >= deadline {
                 return false;
             }
 
-            if tokio::time::timeout(remaining, &mut notified)
+            if tokio::time::timeout_at(deadline, &mut notified)
                 .await
                 .is_err()
             {
@@ -774,8 +899,13 @@ impl Graph {
         // Create LivelinessKE from entity
         let ke = crate::entity::entity_to_liveliness_ke(&entity)?;
 
-        // Check if entity already exists (to avoid triggering duplicate graph change events)
-        let already_exists = data.parsed.contains_key(&ke);
+        // A local announcement and its liveliness echo can race. Index each
+        // identity once; replacing its Arc would leave duplicate weak entries
+        // while callers retain snapshots of the old Arc.
+        data.cached.remove(&ke);
+        if data.parsed.contains_key(&ke) {
+            return Ok(());
+        }
 
         // Create Arc for the entity and weak reference
         let arc = Arc::new(entity.clone());
@@ -861,12 +991,8 @@ impl Graph {
         // Release lock before triggering events
         drop(data);
 
-        // Only trigger graph change event if this is a new entity
-        // (to avoid double-counting when liveliness already triggered it)
-        if !already_exists {
-            self.event_manager
-                .trigger_graph_change(&entity, true, self.zid);
-        }
+        self.event_manager
+            .trigger_graph_change(&entity, true, self.zid);
 
         Ok(())
     }
@@ -878,59 +1004,8 @@ impl Graph {
         // Create LivelinessKE from entity
         let ke = crate::entity::entity_to_liveliness_ke(entity)?;
 
-        // Remove from both cached and parsed
-        data.cached.remove(&ke);
-        data.parsed.remove(&ke);
-
-        // Also remove from the index slabs (by_topic, by_service, by_node)
-        // The slabs use Weak pointers which will fail to upgrade after we remove from parsed
-        // But we need to explicitly remove them to prevent parse() from re-adding the entity
-        match entity {
-            Entity::Node(node_entity) => {
-                if let Some(slab) = data.by_node.get_mut(&crate::entity::node_key(node_entity)) {
-                    slab.retain(|_, weak| {
-                        weak.upgrade().is_some_and(|arc| {
-                            crate::entity::entity_to_liveliness_ke(&arc).ok().as_ref() != Some(&ke)
-                        })
-                    });
-                }
-            }
-            Entity::Endpoint(endpoint_entity) => {
-                // Remove from by_topic or by_service depending on kind
-                if matches!(
-                    endpoint_entity.kind,
-                    EndpointKind::Publisher | EndpointKind::Subscription
-                ) && let Some(slab) = data.by_topic.get_mut(&endpoint_entity.topic)
-                {
-                    slab.retain(|_, weak| {
-                        weak.upgrade().is_some_and(|arc| {
-                            crate::entity::entity_to_liveliness_ke(&arc).ok().as_ref() != Some(&ke)
-                        })
-                    });
-                }
-                if matches!(
-                    endpoint_entity.kind,
-                    EndpointKind::Service | EndpointKind::Client
-                ) && let Some(slab) = data.by_service.get_mut(&endpoint_entity.topic)
-                {
-                    slab.retain(|_, weak| {
-                        weak.upgrade().is_some_and(|arc| {
-                            crate::entity::entity_to_liveliness_ke(&arc).ok().as_ref() != Some(&ke)
-                        })
-                    });
-                }
-                // Also remove from by_node (endpoints are indexed by their node)
-                if let Some(node) = endpoint_entity.node.as_ref()
-                    && let Some(slab) = data.by_node.get_mut(&crate::entity::node_key(node))
-                {
-                    slab.retain(|_, weak| {
-                        weak.upgrade().is_some_and(|arc| {
-                            crate::entity::entity_to_liveliness_ke(&arc).ok().as_ref() != Some(&ke)
-                        })
-                    });
-                }
-            }
-        }
+        // Use the same identity-based cleanup as a remote liveliness DELETE.
+        data.remove(&ke);
 
         // Release lock before triggering events
         drop(data);
@@ -943,13 +1018,13 @@ impl Graph {
         Ok(())
     }
 
-    pub(crate) async fn wait_for_publisher(
+    pub(crate) async fn wait_for_publisher_until(
         &self,
         topic: impl AsRef<str>,
-        timeout: Duration,
+        deadline: Option<tokio::time::Instant>,
     ) -> bool {
         let topic = topic.as_ref().to_string();
-        self.wait_until(timeout, move |g| {
+        self.wait_until_deadline(deadline, move |g| {
             g.count(EndpointKind::Publisher, &topic) > 0
         })
         .await
