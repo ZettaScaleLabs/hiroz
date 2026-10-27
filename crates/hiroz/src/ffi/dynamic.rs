@@ -1,13 +1,17 @@
 //! Runtime schema registration/discovery and CDR codecs.
-use super::node::{CNode, get_node_ref};
-use super::topic::json_string;
-use super::{ErrorCode, cstr_to_str};
+use std::{ffi::c_char, sync::Arc, time::Duration};
+
+use serde_json::{Value, json};
+
+use super::{
+    ErrorCode, cstr_to_str,
+    node::{CNode, get_node_ref},
+    topic::json_string,
+};
 use crate::dynamic::{
     DynamicMessage, DynamicValue, FieldType, MessageSchema, MessageSchemaTypeDescription,
     type_description_msg_to_schema,
 };
-use serde_json::{Value, json};
-use std::{ffi::c_char, sync::Arc, time::Duration};
 
 fn schema(text: &str) -> Result<Arc<MessageSchema>, String> {
     let description: hiroz_schema::TypeDescriptionMsg =

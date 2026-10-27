@@ -9,11 +9,12 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ServiceTypeInfo;
-use crate::ZBuf;
-use crate::dynamic::{FieldType, MessageSchema, TypeDescriptionService};
-use crate::entity::{TypeHash, TypeInfo};
-use crate::msg::{SerdeCdrSerdes, ZMessage, ZService};
+use crate::{
+    ServiceTypeInfo, ZBuf,
+    dynamic::{FieldType, MessageSchema, TypeDescriptionService},
+    entity::{TypeHash, TypeInfo},
+    msg::{SerdeCdrSerdes, ZMessage, ZService},
+};
 
 // ============================================================================
 // Parameter type constants (from ParameterType.msg)

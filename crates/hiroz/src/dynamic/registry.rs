@@ -3,8 +3,10 @@
 //! Provides a global cache of message schemas with lazy initialization
 //! and pre-registration of bundled schemas.
 
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock, RwLock},
+};
 
 #[cfg(feature = "dynamic-schema-loader")]
 use super::error::DynamicError;

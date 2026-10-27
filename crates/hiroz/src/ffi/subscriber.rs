@@ -1,12 +1,17 @@
-use super::node::{CNode, get_node_ref};
-use super::qos::CQosProfile;
-use super::{ErrorCode, cstr_to_str};
-use crate::pubsub::SubscriberTransport;
-use std::ffi::c_char;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+use std::{
+    ffi::c_char,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
 };
+
+use super::{
+    ErrorCode, cstr_to_str,
+    node::{CNode, get_node_ref},
+    qos::CQosProfile,
+};
+use crate::pubsub::SubscriberTransport;
 
 /// Callback type for receiving messages
 pub type MessageCallback = extern "C" fn(user_data: usize, data: *const u8, len: usize);

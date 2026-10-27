@@ -9,13 +9,14 @@ use byteorder::ByteOrder;
 use hiroz_cdr::{BigEndian, CdrReader, CdrWriter, LittleEndian};
 use zenoh_buffers::ZBuf;
 
-use crate::dynamic::error::DynamicError;
-use crate::dynamic::limits::{MAX_DYNAMIC_ALLOCATION_BYTES, MAX_DYNAMIC_DEPTH, validate_schema};
-use crate::dynamic::message::DynamicMessage;
-use crate::dynamic::schema::{FieldType, MessageSchema};
-use crate::dynamic::value::DynamicValue;
-
 use super::CDR_HEADER_LE;
+use crate::dynamic::{
+    error::DynamicError,
+    limits::{MAX_DYNAMIC_ALLOCATION_BYTES, MAX_DYNAMIC_DEPTH, validate_schema},
+    message::DynamicMessage,
+    schema::{FieldType, MessageSchema},
+    value::DynamicValue,
+};
 
 /// Serialize a dynamic message to CDR bytes.
 pub fn serialize_cdr(msg: &DynamicMessage) -> Result<Vec<u8>, DynamicError> {
@@ -223,10 +224,10 @@ fn deserialize_value<BO: ByteOrder>(
             // Borrow the payload first: even an invalid length prefix cannot
             // cause an allocation before the payload and schema bounds checks.
             let text = reader.read_str().map_err(map_cdr_err)?;
-            if let FieldType::BoundedString(max) = field_type {
-                if text.len() > *max {
-                    return Err(decode_error("bounded string too long"));
-                }
+            if let FieldType::BoundedString(max) = field_type
+                && text.len() > *max
+            {
+                return Err(decode_error("bounded string too long"));
             }
             charge(budget, text.len())?;
             let mut value = String::new();
@@ -240,10 +241,10 @@ fn deserialize_value<BO: ByteOrder>(
         FieldType::Array(inner, len) => deserialize_array(inner, *len, reader, budget, depth),
         FieldType::Sequence(inner) | FieldType::BoundedSequence(inner, _) => {
             let len = reader.read_sequence_length().map_err(map_cdr_err)?;
-            if let FieldType::BoundedSequence(_, max) = field_type {
-                if len > *max {
-                    return Err(decode_error("bounded sequence too long"));
-                }
+            if let FieldType::BoundedSequence(_, max) = field_type
+                && len > *max
+            {
+                return Err(decode_error("bounded sequence too long"));
             }
             if matches!(**inner, FieldType::Byte | FieldType::Uint8) {
                 let bytes = reader.read_bytes(len).map_err(map_cdr_err)?;

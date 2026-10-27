@@ -5,8 +5,7 @@
 
 use std::sync::Arc;
 
-use super::error::DynamicError;
-use super::value::DynamicValue;
+use super::{error::DynamicError, value::DynamicValue};
 
 /// ROS 2 field types for dynamic messages.
 ///

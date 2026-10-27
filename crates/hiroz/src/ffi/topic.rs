@@ -1,13 +1,20 @@
 //! Topic options, serialized samples, and graph inspection for language bindings.
-use super::context::{CContext, get_context_ref};
-use super::node::{CNode, get_node_ref};
-use super::publisher::CPublisher;
-use super::qos::CQosProfile;
-use super::{ErrorCode, cstr_to_str};
-use crate::entity::{EndpointEntity, EndpointKind, Entity};
+use std::{
+    ffi::{CString, c_char},
+    sync::Arc,
+};
+
 use serde_json::{Value, json};
-use std::ffi::{CString, c_char};
-use std::sync::Arc;
+
+use super::{
+    ErrorCode,
+    context::{CContext, get_context_ref},
+    cstr_to_str,
+    node::{CNode, get_node_ref},
+    publisher::CPublisher,
+    qos::CQosProfile,
+};
+use crate::entity::{EndpointEntity, EndpointKind, Entity};
 
 pub(crate) fn endpoint_json(ep: &EndpointEntity) -> Value {
     use hiroz_protocol::qos::{QosHistory, QosReliability};

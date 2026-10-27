@@ -4,17 +4,19 @@ use std::{future::Future, sync::Arc, time::Duration};
 
 use tracing::{debug, warn};
 
-use crate::{Builder, node::ZNode};
-
 #[cfg(test)]
 use super::discovery::collect_topic_schema_candidates_from_endpoints;
-use super::{discovery::TopicSchemaCandidate, error::DynamicError, schema::MessageSchema};
-
-use super::type_description::type_description_msg_to_schema;
-use super::type_description_service::{
-    GetTypeDescription, GetTypeDescriptionRequest, GetTypeDescriptionResponse,
-    wire_to_schema_type_description,
+use super::{
+    discovery::TopicSchemaCandidate,
+    error::DynamicError,
+    schema::MessageSchema,
+    type_description::type_description_msg_to_schema,
+    type_description_service::{
+        GetTypeDescription, GetTypeDescriptionRequest, GetTypeDescriptionResponse,
+        wire_to_schema_type_description,
+    },
 };
+use crate::{Builder, node::ZNode};
 
 // Zenoh 1.9's forced declare_keyexpr can return another thread's scope while
 // its LocalResource is still declared=false, before DeclareKeyExpr is sent.
@@ -145,11 +147,13 @@ pub fn schema_from_type_description_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dynamic::schema::FieldType;
-    use crate::dynamic::type_description_service::{
-        WireTypeDescription, schema_to_wire_type_description,
+    use crate::{
+        dynamic::{
+            schema::FieldType,
+            type_description_service::{WireTypeDescription, schema_to_wire_type_description},
+        },
+        entity::{EndpointEntity, EndpointKind, Entity, NodeEntity, TypeHash, TypeInfo},
     };
-    use crate::entity::{EndpointEntity, EndpointKind, Entity, NodeEntity, TypeHash, TypeInfo};
 
     fn publisher_entity(node_name: Option<&str>, type_name: Option<&str>) -> Arc<Entity> {
         let node = node_name.map(|name| {

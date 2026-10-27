@@ -1,7 +1,7 @@
-use hiroz_schema::type_name::dds_from_namespace;
 use std::collections::HashSet;
 
 use anyhow::Result;
+use hiroz_schema::type_name::dds_from_namespace;
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 

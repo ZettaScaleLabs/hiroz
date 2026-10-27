@@ -1,8 +1,8 @@
 #![cfg(feature = "ffi")]
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use hiroz::ffi::subscriber::{hiroz_subscriber_create_owned, hiroz_subscriber_destroy};
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 
 extern "C" fn receive(_: usize, _: *const u8, _: usize) {}
 
@@ -32,10 +32,10 @@ fn owned_callback_is_released_when_creation_fails() {
 
 #[test]
 fn owned_callback_is_released_after_subscriber_destroy() {
-    use hiroz::ffi::context::{
-        CContextConfig, hiroz_context_create_with_config, hiroz_context_destroy,
+    use hiroz::ffi::{
+        context::{CContextConfig, hiroz_context_create_with_config, hiroz_context_destroy},
+        node::{hiroz_node_create, hiroz_node_destroy},
     };
-    use hiroz::ffi::node::{hiroz_node_create, hiroz_node_destroy};
     let config = CContextConfig {
         domain_id: 0,
         config_file: std::ptr::null(),
@@ -159,12 +159,13 @@ extern "C" fn history_dropped(data: usize) {
 }
 
 fn historical_self_close_child(samples: bool) {
-    use hiroz::ffi::{
-        context::*, node::*, qos::CQosProfile, topic::hiroz_subscriber_create_samples,
-    };
     use std::{
         sync::Arc,
         time::{Duration, Instant},
+    };
+
+    use hiroz::ffi::{
+        context::*, node::*, qos::CQosProfile, topic::hiroz_subscriber_create_samples,
     };
     use zenoh::Wait;
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

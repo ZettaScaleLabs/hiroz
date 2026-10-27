@@ -3,8 +3,7 @@
 //! This module provides the `DynamicValue` enum for representing any ROS 2
 //! value at runtime, along with conversion traits.
 
-use super::message::DynamicMessage;
-use super::schema::FieldType;
+use super::{message::DynamicMessage, schema::FieldType};
 
 /// Runtime representation of any ROS 2 value.
 #[derive(Clone, Debug, PartialEq)]
