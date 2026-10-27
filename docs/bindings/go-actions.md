@@ -127,6 +127,23 @@ The Rust action transport never guesses padding in an opaque result. The Go path
 encodes/decodes envelopes through the generated offset-aware codec before crossing
 the FFI boundary.
 
+## Reproduce atomic goal execution
+
+A result request must continue to find an accepted goal while the server starts
+execution. The native regression holds cancellation registration at its mutex,
+issues a real result request during that interval, then releases execution and
+completes the goal with an abort or cancellation result:
+
+```bash
+cargo test --locked -p hiroz --lib action::server::transition_tests
+```
+
+Before the fix, execution removed the goal before registration and a concurrent
+request returned UNKNOWN with an empty result. The fixed transition preserves
+continuous visibility, cancellation state and the original expiration time. The
+request waits for the terminal status and receives the exact result payload. The
+test uses an isolated local session and requires neither ROS nor a router.
+
 ## Reproduce deadline and transport regressions
 
 Run the existing Rust action suite with its default parallel runner and the FFI
