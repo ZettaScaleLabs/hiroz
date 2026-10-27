@@ -134,6 +134,7 @@ pub struct CActionClient {
 }
 
 pub struct CActionRequest {
+    deadline: Option<Instant>,
     canceled: Arc<AtomicBool>,
     receiver: mpsc::Receiver<Result<Vec<u8>, crate::error::Error>>,
     worker: Option<std::thread::JoinHandle<()>>,
@@ -363,6 +364,9 @@ pub unsafe extern "C" fn hiroz_action_request_create(
         return std::ptr::null_mut();
     }
     unsafe {
+        // Include worker scheduling and foreign polling in the same deadline.
+        let timeout = Duration::from_millis(timeout_ms);
+        let deadline = Instant::now().checked_add(timeout);
         let inner = (*client).inner.clone();
         let bytes = std::slice::from_raw_parts(bytes, len).to_vec();
         let canceled = Arc::new(AtomicBool::new(false));
@@ -374,13 +378,18 @@ pub unsafe extern "C" fn hiroz_action_request_create(
                 1 => &inner.get_result_client,
                 _ => &inner.cancel_goal_client,
             };
-            let _ = tx.send(service.call_raw_with_cancel(
-                &bytes,
-                Duration::from_millis(timeout_ms),
-                &flag,
-            ));
+            let remaining = deadline
+                .map(|end| end.saturating_duration_since(Instant::now()))
+                .unwrap_or(timeout);
+            let result = if remaining.is_zero() {
+                Err(crate::error::Error::Timeout(timeout))
+            } else {
+                service.call_raw_with_cancel(&bytes, remaining, &flag)
+            };
+            let _ = tx.send(result);
         });
         Box::into_raw(Box::new(CActionRequest {
+            deadline,
             canceled,
             receiver,
             worker: Some(worker),
@@ -389,6 +398,8 @@ pub unsafe extern "C" fn hiroz_action_request_create(
 }
 
 /// Returns 1 while pending, 0 with owned response bytes, or a negative error code.
+/// The request's absolute timeout includes worker scheduling and polling gaps.
+/// Once expired, even an already-buffered response returns `ServiceTimeout`.
 ///
 /// # Safety
 /// `request` must be null or a live handle returned by
@@ -409,7 +420,12 @@ pub unsafe extern "C" fn hiroz_action_request_poll(
         return ErrorCode::NullPointer as i32;
     }
     unsafe {
-        match (*request).receiver.try_recv() {
+        let request = &*request;
+        if request.deadline.is_some_and(|end| Instant::now() >= end) {
+            request.canceled.store(true, Ordering::Release);
+            return ErrorCode::ServiceTimeout as i32;
+        }
+        match request.receiver.try_recv() {
             Ok(Ok(bytes)) => {
                 let bytes = bytes.into_boxed_slice();
                 *len = bytes.len();

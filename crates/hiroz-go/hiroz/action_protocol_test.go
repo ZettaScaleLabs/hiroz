@@ -110,7 +110,7 @@ func TestActionResultEnvelopeUsesAbsoluteOffsets(t *testing.T) {
 
 func actionTestNode(t *testing.T) *Node {
 	t.Helper()
-	ctx, err := NewContext().WithMode(ModePeer).DisableMulticastScouting().WithJSON(`{"listen/endpoints": [], "scouting/gossip/enabled": false}`).Build()
+	ctx, err := NewContext().WithMode(ModePeer).DisableMulticastScouting().WithJSON(`{"connect/endpoints":[],"listen/endpoints": [], "scouting/gossip/enabled": false}`).Build()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +467,7 @@ func TestActionLiveServerCloseFromCallback(t *testing.T) {
 }
 
 func TestActionServerCallbackOutlivesParentsAndClosesSafely(t *testing.T) {
-	parent, err := NewContext().DisableMulticastScouting().WithJSON(`{"listen/endpoints":[],"scouting/gossip/enabled":false,"scouting/delay":0}`).Build()
+	parent, err := NewContext().DisableMulticastScouting().WithJSON(`{"connect/endpoints":[],"listen/endpoints":[],"scouting/gossip/enabled":false,"scouting/delay":0}`).Build()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,7 +538,7 @@ func TestActionServerCallbackOutlivesParentsAndClosesSafely(t *testing.T) {
 	}
 	// Match the generated-suite failure: the next context starts while the
 	// preceding action server is still draining asynchronous callback teardown.
-	next, err := NewContext().DisableMulticastScouting().WithJSON(`{"listen/endpoints":[],"scouting/gossip/enabled":false,"scouting/delay":0}`).Build()
+	next, err := NewContext().DisableMulticastScouting().WithJSON(`{"connect/endpoints":[],"listen/endpoints":[],"scouting/gossip/enabled":false,"scouting/delay":0}`).Build()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -706,5 +706,25 @@ func TestActionLiveStatusWithoutResultRequests(t *testing.T) {
 	}
 	if first.Status() != GoalStatusAborted || second.Status() != GoalStatusSucceeded {
 		t.Fatalf("terminal status topic failed: %v/%v", first.Status(), second.Status())
+	}
+}
+
+func TestActionCanceledFeedbackWaitPreservesBufferedSample(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	payload, err := (&actionFixture{Code: 42}).SerializeCDR()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both a queued sample and Done are ready. A select alone may choose the
+	// sample and incorrectly report success for an already canceled caller.
+	for i := 0; i < 32; i++ {
+		feedback := make(chan []byte, 1)
+		feedback <- payload
+		goal := &GoalHandle{feedback: feedback}
+		err := ReceiveTypedFeedback(ctx, goal, &actionFixture{})
+		if !errors.Is(err, context.Canceled) || len(feedback) != 1 {
+			t.Fatalf("canceled feedback wait: error=%v buffered=%d", err, len(feedback))
+		}
 	}
 }

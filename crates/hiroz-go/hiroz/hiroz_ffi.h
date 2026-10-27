@@ -474,6 +474,8 @@ struct hiroz_CActionRequest *hiroz_action_request_create(struct hiroz_action_cli
 
 /**
  * Returns 1 while pending, 0 with owned response bytes, or a negative error code.
+ * The request's absolute timeout includes worker scheduling and polling gaps.
+ * Once expired, even an already-buffered response returns `ServiceTimeout`.
  *
  * # Safety
  * `request` must be null or a live handle returned by

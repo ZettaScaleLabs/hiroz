@@ -46,7 +46,9 @@ that finish before the acceptance response arrives.
 wait receives the result; an unknown or expired goal returns promptly with UNKNOWN
 and an error. `WithResultTimeout` configures a result request lifetime. Its zero
 default uses the context deadline, or a 100-year transport lifetime when no deadline
-is present. Cancellation of a context, goal handle or client closes the actual
+is present. Request deadlines include native worker scheduling and time between
+polls: an expired request cannot succeed by consuming an older buffered response.
+Cancellation of a context, goal handle or client closes the actual
 local transport request and drains its worker; it does not cancel remote execution.
 
 `CancelWithContext` returns a structured `CancelResponse`, containing the ROS return
@@ -124,3 +126,44 @@ are not silently reused with incompatible signatures.
 The Rust action transport never guesses padding in an opaque result. The Go path
 encodes/decodes envelopes through the generated offset-aware codec before crossing
 the FFI boundary.
+
+## Reproduce deadline and transport regressions
+
+Run the existing Rust action suite with its default parallel runner and the FFI
+request deadline regression:
+
+```bash
+cargo test --locked -p hiroz --features ffi \
+  --test action --test action_client_lifetime --test ffi_action_lifetime
+```
+
+The action fixtures explicitly clear default router connections. The deadline
+regression queues a real response, suspends the foreign poller beyond its timeout,
+and requires a timeout for send-goal, get-result and cancel-goal. Before the fix,
+all three incorrectly returned success. The buffered-feedback regression similarly
+requires an already-canceled caller to leave its queued sample unread.
+
+Build a matching native library and run the Go tests. A fresh library path also
+prevents Go's build cache from reusing an executable linked to an older static
+library after native code changes:
+
+```bash
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}"
+cargo build --locked -p hiroz --features ffi
+native_dir=$(mktemp -d)
+trap 'rm -rf "$native_dir"' EXIT
+cp "$CARGO_TARGET_DIR/debug/libhiroz.a" "$native_dir/"
+export CGO_LDFLAGS="-L$native_dir ${CGO_LDFLAGS:-}"
+(cd crates/hiroz-go && go test -race -count=1 -timeout=5m ./hiroz -run Action)
+(cd crates/hiroz-go && go test -race -count=10 -timeout=5m ./hiroz \
+  -run '^TestActionTransportConcurrentLifecycle$')
+```
+
+The transport regression creates its own local session, direct TCP peers and
+loopback router with separate client sessions. These three cases run in parallel;
+each keeps successful results pending for at least 12 seconds while exercising
+feedback, concurrent goals and result waiters, selected cancellation, a short
+local wait timeout, repeated retained-result retrieval and bounded shutdown.
+No installed ROS router, ROS messages, NUC or Balena deployment is required.
+This checks transport behavior with Go endpoints; ROS wire interoperability
+still requires the separate interop suite.

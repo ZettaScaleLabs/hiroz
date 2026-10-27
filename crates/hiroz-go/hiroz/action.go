@@ -379,11 +379,24 @@ func (b *ActionClientBuilder) Build(action Action) (*ActionClient, error) {
 	runtime.SetFinalizer(c, (*ActionClient).Close)
 	return c, nil
 }
+
+// Native replies can race the Go timer callback that closes ctx.Done(). Check
+// the absolute context deadline as well as Err before accepting a reply.
+func actionContextError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
 func (c *ActionClient) request(ctx context.Context, goalClosed <-chan struct{}, kind int, bytes []byte, timeout time.Duration) ([]byte, error) {
 	if ctx == nil {
 		return nil, errors.New("nil context")
 	}
-	if err := ctx.Err(); err != nil {
+	if err := actionContextError(ctx); err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
@@ -392,7 +405,7 @@ func (c *ActionClient) request(ctx context.Context, goalClosed <-chan struct{}, 
 		c.mu.Unlock()
 		return nil, errors.New("action client is closed")
 	}
-	if err := ctx.Err(); err != nil {
+	if err := actionContextError(ctx); err != nil {
 		c.mu.Unlock()
 		return nil, err
 	}
@@ -437,17 +450,29 @@ func (c *ActionClient) request(ctx context.Context, goalClosed <-chan struct{}, 
 		if rc == 0 {
 			bytes := C.GoBytes(unsafe.Pointer(data), C.int(size))
 			C.hiroz_free_bytes(data, size)
+			// Cancellation can race with a buffered native response. Recheck
+			// after polling so it cannot be turned into a successful request.
+			if err := actionContextError(ctx); err != nil {
+				return nil, err
+			}
+			select {
+			case <-c.done:
+				return nil, errors.New("action client is closed")
+			case <-goalClosed:
+				return nil, errors.New("goal handle is closed")
+			default:
+			}
 			return bytes, nil
 		}
 		if rc != 1 {
-			if err := ctx.Err(); err != nil {
+			if err := actionContextError(ctx); err != nil {
 				return nil, err
 			}
 			return nil, newHirozError(ErrorCode(rc), "action request failed")
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, actionContextError(ctx)
 		case <-c.done:
 			return nil, errors.New("action client is closed")
 		case <-goalClosed:
