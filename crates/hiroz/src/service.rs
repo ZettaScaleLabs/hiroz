@@ -61,6 +61,10 @@ pub struct ZClient<T: ZService> {
     lv_token: LivelinessToken,
     topic: String,
     clock: crate::time::ZClock,
+    #[cfg(test)]
+    callback_lifetimes: Mutex<Vec<std::sync::Weak<()>>>,
+    #[cfg(test)]
+    callback_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(feature = "rmw")]
     completed_tx: flume::Sender<Sample>,
     #[cfg(feature = "rmw")]
@@ -69,6 +73,24 @@ pub struct ZClient<T: ZService> {
     // Querier/token cleanup must finish before the session runtime closes.
     // Fields drop in declaration order; this guard must remain last.
     _session: Arc<Session>,
+}
+
+/// The transport query belongs to the call future, not its reusable querier.
+/// Cancel before releasing the call's state, including when an outer timeout
+/// drops an unlimited-duration action result request.
+struct ServiceCallCancellation(zenoh::cancellation::CancellationToken);
+
+impl Drop for ServiceCallCancellation {
+    fn drop(&mut self) {
+        // Zenoh's async cancellation removes registered queries before its
+        // first await; only already-running callback clones can remain after
+        // that poll. Those callbacks own their Arc/oneshot state and can finish
+        // safely without this future or its runtime. Do not use cancel().wait():
+        // its blocking adapter panics on Tokio's current-thread runtime.
+        let mut cancellation = std::future::IntoFuture::into_future(self.0.cancel());
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        let _ = cancellation.as_mut().poll(&mut context);
+    }
 }
 
 impl<T: ZService> std::fmt::Debug for ZClient<T> {
@@ -137,6 +159,10 @@ where
                 .expect("local endpoint always has node identity"),
             topic: self.entity.topic.clone(),
             clock: self.clock,
+            #[cfg(test)]
+            callback_lifetimes: Mutex::default(),
+            #[cfg(test)]
+            callback_hook: Mutex::default(),
             #[cfg(feature = "rmw")]
             completed_tx,
             #[cfg(feature = "rmw")]
@@ -151,6 +177,28 @@ impl<T> ZClient<T>
 where
     T: ZService,
 {
+    // A graph/liveliness announcement is independent of the queryable route.
+    // Wait before dispatching a single request. The caller's outer timeout
+    // covers both route discovery and response receipt.
+    pub(crate) async fn wait_for_queryable(&self) -> Result<()> {
+        let ready = Arc::new(tokio::sync::Notify::new());
+        let notify = ready.clone();
+        let _listener = self
+            .inner
+            .matching_listener()
+            .callback(move |status| {
+                if status.matching() {
+                    notify.notify_one();
+                }
+            })
+            .await?;
+        // Construction emits true when already matched. Latch that positive
+        // event: Zenoh coalesces later false/true transitions, so consuming it
+        // and then checking a transient false snapshot can lose the only wakeup.
+        ready.notified().await;
+        Ok(())
+    }
+
     fn new_attachment(&self) -> Attachment {
         Attachment::with_clock(
             self.sn.fetch_add(1, Ordering::AcqRel) as _,
@@ -160,15 +208,35 @@ where
     }
 
     async fn call_sample(&self, payload: impl Into<bytes::ZBytes>) -> Result<Sample> {
+        self.wait_for_queryable().await?;
+        let cancellation = ServiceCallCancellation(Default::default());
         let attachment = self.new_attachment();
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
         let response_tx = Arc::new(Mutex::new(Some(response_tx)));
+        #[cfg(test)]
+        let callback_lifetime = {
+            let lifetime = Arc::new(());
+            self.callback_lifetimes
+                .lock()
+                .unwrap()
+                .push(Arc::downgrade(&lifetime));
+            lifetime
+        };
+        #[cfg(test)]
+        let callback_hook = self.callback_hook.lock().unwrap().clone();
 
         self.inner
             .get()
             .payload(payload)
             .attachment(attachment)
+            .cancellation_token(cancellation.0.clone())
             .callback(move |reply| {
+                #[cfg(test)]
+                let _callback_lifetime = &callback_lifetime;
+                #[cfg(test)]
+                if let Some(hook) = &callback_hook {
+                    hook();
+                }
                 let reply = reply.into_result();
                 let sender = response_tx
                     .lock()
@@ -211,7 +279,10 @@ where
         Ok(msg)
     }
 
-    /// Call the service and fail if no reply arrives before `timeout` elapses.
+    /// Call the service within one timeout budget, including route readiness,
+    /// response processing and caller scheduling. A queued response cannot turn
+    /// an expired call into success when the caller resumes after its deadline.
+    /// A zero budget expires without dispatching a request.
     ///
     /// As with [`call`](Self::call), the first response or explicit server error
     /// determines the outcome. A timeout does not prove that the request was not
@@ -227,16 +298,28 @@ where
         for<'a> <T::Response as ZMessage>::Serdes:
             ZDeserializer<Output = T::Response, Input<'a> = &'a [u8]>,
     {
-        // On timeout the call future is dropped. The Zenoh querier callback is still
-        // running briefly; it will hit the `None` sender branch and log a warning.
-        // This is expected and harmless.
-        //
+        // Dropping the call future cancels its query while preserving the
+        // reusable client's other pending calls. Any forwarding callback already
+        // executing owns its state and can finish independently of the caller.
         // The error carries a structured [`crate::error::Error::Timeout`] so callers
         // (and language bindings) can detect the timeout via
         // [`crate::error::is_timeout`] instead of sniffing the message string.
-        tokio::time::timeout(timeout, self.call(msg))
+        if timeout.is_zero() {
+            return Err(crate::error::Error::timeout(timeout));
+        }
+        // Match Tokio's overflow handling: an unrepresentable deadline keeps
+        // the timeout wrapper's effectively unlimited duration semantics.
+        let deadline = tokio::time::Instant::now().checked_add(timeout);
+        let response = tokio::time::timeout(timeout, self.call(msg))
             .await
-            .map_err(|_| crate::error::Error::timeout(timeout))?
+            .map_err(|_| crate::error::Error::timeout(timeout))??;
+        // Tokio polls the operation before its timer. Under scheduler pressure
+        // both can be ready, so enforce the original budget before accepting
+        // success; do not reset it after waiting for route readiness.
+        if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+            return Err(crate::error::Error::timeout(timeout));
+        }
+        Ok(response)
     }
 }
 
@@ -741,6 +824,340 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::{
+        Builder,
+        context::{ZContext, ZContextBuilder},
+        node::ZNode,
+        parameter::wire_types::{GetParametersRequest, GetParametersResponse, GetParametersSrv},
+    };
+    use std::{
+        future::Future,
+        pin::Pin,
+        sync::{Arc, Condvar, Mutex},
+        time::Duration,
+    };
+
+    fn native_call_fixture() -> (
+        ZContext,
+        ZNode,
+        super::ZServer<GetParametersSrv>,
+        super::ZClient<GetParametersSrv>,
+    ) {
+        let context = ZContextBuilder::default()
+            .disable_multicast_scouting()
+            .with_json("listen/endpoints", Vec::<String>::new())
+            .with_json("scouting/gossip/enabled", false)
+            .build()
+            .unwrap();
+        let node = context
+            .create_node("native_call_cancellation")
+            .without_parameters()
+            .build()
+            .unwrap();
+        let server = node
+            .create_service_impl::<GetParametersSrv>(
+                "/native_call_cancellation",
+                Some(<GetParametersSrv as crate::ServiceTypeInfo>::service_type_info()),
+            )
+            .build()
+            .unwrap();
+        let client = node
+            .create_client::<GetParametersSrv>("/native_call_cancellation")
+            .with_querier_timeout(Duration::from_millis(u64::MAX))
+            .build()
+            .unwrap();
+        (context, node, server, client)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn canceled_native_calls_release_actual_transport_callbacks() {
+        let (_context, _node, mut server, client) = native_call_fixture();
+        exercise_native_call_cancellation(&mut server, &client).await;
+    }
+
+    #[test]
+    fn current_thread_calls_release_callbacks_before_runtime_shutdown() {
+        let (_context, _node, mut server, client) = native_call_fixture();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(exercise_native_call_cancellation(&mut server, &client));
+        drop(runtime);
+        assert!(
+            client
+                .callback_lifetimes
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|callback| callback.upgrade().is_none())
+        );
+    }
+
+    #[test]
+    fn expired_native_call_rejects_queued_response_after_polling_gap() {
+        let (_context, _node, mut server, client) = native_call_fixture();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let message = GetParametersRequest { names: Vec::new() };
+            // Warm the actual route before exercising the short deadline.
+            let (response, reply) = tokio::join!(
+                client.call_with_timeout(&message, Duration::from_secs(1)),
+                async {
+                    server
+                        .async_take_request()
+                        .await
+                        .unwrap()
+                        .reply_blocking(&GetParametersResponse { values: Vec::new() })
+                }
+            );
+            reply.unwrap();
+            response.unwrap();
+
+            let budget = Duration::from_millis(20);
+            let started = std::time::Instant::now();
+            let mut call = Box::pin(client.call_with_timeout(&message, budget));
+            std::future::poll_fn(|cx| {
+                assert!(call.as_mut().poll(cx).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+            let request = tokio::time::timeout(Duration::from_secs(1), server.async_take_request())
+                .await
+                .unwrap()
+                .unwrap();
+            let callback = client
+                .callback_lifetimes
+                .lock()
+                .unwrap()
+                .last()
+                .unwrap()
+                .clone();
+            assert!(callback.upgrade().is_some());
+
+            // The caller is deliberately not polled while its deadline and
+            // then the server's 100ms delay elapse. The real transport callback
+            // must finish before resuming it: both result and timer are ready.
+            std::thread::sleep(Duration::from_millis(100));
+            std::thread::spawn(move || {
+                request.reply_blocking(&GetParametersResponse { values: Vec::new() })
+            })
+            .join()
+            .unwrap()
+            .unwrap();
+            let delivery_deadline = std::time::Instant::now() + Duration::from_secs(1);
+            while callback.upgrade().is_some() && std::time::Instant::now() < delivery_deadline {
+                std::thread::yield_now();
+            }
+            assert!(
+                callback.upgrade().is_none(),
+                "real response callback did not finish"
+            );
+            let result = call.await;
+            eprintln!(
+                "service result after unpolled {:.3}ms (budget 20ms): {result:?}",
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+            let error = result.expect_err("expired call accepted a queued late response");
+            assert!(
+                crate::error::is_timeout(error.as_ref()),
+                "wrong error: {error}"
+            );
+            assert!(
+                server.try_take_request().unwrap().is_none(),
+                "request was retried"
+            );
+
+            // Timing out one call does not poison its reusable client.
+            let (response, reply) = tokio::join!(
+                client.call_with_timeout(&message, Duration::from_secs(1)),
+                async {
+                    server
+                        .async_take_request()
+                        .await
+                        .unwrap()
+                        .reply_blocking(&GetParametersResponse { values: Vec::new() })
+                }
+            );
+            reply.unwrap();
+            assert!(response.unwrap().values.is_empty());
+        });
+    }
+
+    #[test]
+    fn native_call_timeout_zero_and_unrepresentable_deadline() {
+        let (_context, _node, mut server, client) = native_call_fixture();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let message = GetParametersRequest { names: Vec::new() };
+            let error = client
+                .call_with_timeout(&message, Duration::ZERO)
+                .await
+                .unwrap_err();
+            assert!(crate::error::is_timeout(error.as_ref()));
+            assert!(
+                client.callback_lifetimes.lock().unwrap().is_empty(),
+                "zero budget dispatched a query"
+            );
+            assert!(server.try_take_request().unwrap().is_none());
+
+            let (response, reply) =
+                tokio::join!(client.call_with_timeout(&message, Duration::MAX), async {
+                    server
+                        .async_take_request()
+                        .await
+                        .unwrap()
+                        .reply_blocking(&GetParametersResponse { values: Vec::new() })
+                });
+            reply.unwrap();
+            assert!(response.unwrap().values.is_empty());
+        });
+    }
+
+    async fn exercise_native_call_cancellation(
+        server: &mut super::ZServer<GetParametersSrv>,
+        client: &super::ZClient<GetParametersSrv>,
+    ) {
+        let message = GetParametersRequest { names: Vec::new() };
+
+        for timeout in [false, true] {
+            let mut call: Pin<Box<dyn Future<Output = zenoh::Result<GetParametersResponse>>>> =
+                if timeout {
+                    Box::pin(client.call_with_timeout(&message, Duration::from_millis(100)))
+                } else {
+                    Box::pin(client.call(&message))
+                };
+            let held_request = tokio::time::timeout(Duration::from_secs(1), async {
+                tokio::select! {
+                    result = &mut call => panic!("call completed before response: {result:?}"),
+                    request = server.async_take_request() => request.unwrap(),
+                }
+            })
+            .await
+            .unwrap();
+            // This observer belongs to the actual callback stored by Zenoh,
+            // not to the future's receiver or the server's pending request.
+            let callback = client
+                .callback_lifetimes
+                .lock()
+                .unwrap()
+                .last()
+                .unwrap()
+                .clone();
+            assert!(
+                callback.upgrade().is_some(),
+                "query callback was not retained while pending"
+            );
+            if timeout {
+                let error = call.await.unwrap_err();
+                assert!(crate::error::is_timeout(error.as_ref()));
+            } else {
+                drop(call);
+            }
+            assert!(
+                callback.upgrade().is_none(),
+                "canceled future left its actual transport query callback alive"
+            );
+            drop(held_request);
+        }
+
+        let (response, reply) = tokio::join!(
+            client.call_with_timeout(&message, Duration::from_secs(1)),
+            async {
+                let request = server.async_take_request().await.unwrap();
+                request.reply_blocking(&GetParametersResponse { values: Vec::new() })
+            }
+        );
+        reply.unwrap();
+        assert!(response.unwrap().values.is_empty());
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if client
+                    .callback_lifetimes
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|callback| callback.upgrade().is_none())
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("completed forwarding callback retained its state");
+    }
+
+    #[test]
+    fn active_callback_can_finish_after_current_thread_caller_runtime_is_gone() {
+        let (_context, _node, mut server, client) = native_call_fixture();
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let callback_release = release.clone();
+        *client.callback_hook.lock().unwrap() = Some(Arc::new(move || {
+            entered_tx.send(()).unwrap();
+            let (lock, changed) = &*callback_release;
+            let (released, _) = changed
+                .wait_timeout_while(lock.lock().unwrap(), Duration::from_secs(5), |released| {
+                    !*released
+                })
+                .unwrap();
+            assert!(
+                *released,
+                "fixture did not release the active transport callback"
+            );
+        }));
+        // Even an assertion failure must release the callback before endpoint
+        // teardown joins its transport thread.
+        struct ReleaseOnDrop(Arc<(Mutex<bool>, Condvar)>);
+        impl Drop for ReleaseOnDrop {
+            fn drop(&mut self) {
+                *self.0.0.lock().unwrap() = true;
+                self.0.1.notify_all();
+            }
+        }
+        let release_on_drop = ReleaseOnDrop(release);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (reply, callback) = runtime.block_on(async {
+            let message = GetParametersRequest { names: Vec::new() };
+            let mut call = Box::pin(client.call(&message));
+            let request = tokio::time::timeout(Duration::from_secs(1), async {
+                tokio::select! {
+                    result = &mut call => panic!("call completed before the server replied: {result:?}"),
+                    request = server.async_take_request() => request.unwrap(),
+                }
+            }).await.unwrap();
+            let callback = client.callback_lifetimes.lock().unwrap().last().unwrap().clone();
+            let reply = std::thread::spawn(move || request.reply_blocking(&GetParametersResponse { values: Vec::new() }));
+            entered_rx.recv_timeout(Duration::from_secs(1)).expect("transport callback did not start");
+            drop(call);
+            assert!(callback.upgrade().is_some(), "active callback must own its captured state");
+            (reply, callback)
+        });
+        // No cleanup task may depend on this runtime surviving cancellation.
+        drop(runtime);
+        assert!(callback.upgrade().is_some());
+        drop(release_on_drop);
+        reply.join().unwrap().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while callback.upgrade().is_some() && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert!(
+            callback.upgrade().is_none(),
+            "transport retained the completed callback after caller runtime shutdown"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // Topic name qualification for service names
     // Service names follow the same rules as topic names

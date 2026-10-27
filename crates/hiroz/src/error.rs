@@ -30,6 +30,10 @@ pub enum Error {
     #[error("operation timed out after {0:?}")]
     Timeout(Duration),
 
+    /// The caller canceled an operation before it completed.
+    #[error("operation canceled")]
+    Canceled,
+
     /// A service query completed without any server reply.
     ///
     /// This does not prove that no server received or acted on the request.

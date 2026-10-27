@@ -330,7 +330,7 @@ fn test_try_take_request_non_blocking() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn no_server_query_has_no_reply() {
+async fn absent_service_waits_for_route_until_deadline() {
     let ctx = ZContextBuilder::default()
         .disable_multicast_scouting()
         .with_json("connect/endpoints", json!([]))
@@ -350,8 +350,37 @@ async fn no_server_query_has_no_reply() {
         )
         .await;
     let error = result.expect_err("expected error when no server is present");
-    assert!(hiroz::error::is_no_service_reply(&*error));
-    assert!(!hiroz::error::is_timeout(&*error));
+    // This fork waits for a queryable route before dispatch, under the caller's
+    // original deadline. No completed query exists to classify as NoServiceReply.
+    assert!(hiroz::error::is_timeout(&*error));
+    assert!(!hiroz::error::is_no_service_reply(&*error));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn completed_query_without_response_preserves_no_reply_error() {
+    let ctx = ZContextBuilder::default()
+        .disable_multicast_scouting()
+        .with_json("connect/endpoints", json!([]))
+        .build()
+        .unwrap();
+    let node = ctx.create_node("no_reply_node").build().unwrap();
+    let requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = requests.clone();
+    let _server = node
+        .create_service::<AddTwoInts>("no_reply")
+        .build_with_callback(move |query| {
+            seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            drop(query); // Sends QueryFinal without a response.
+        })
+        .unwrap();
+    let client = node.create_client::<AddTwoInts>("no_reply").build().unwrap();
+    let error = client
+        .call_with_timeout(&AddTwoIntsRequest { a: 1, b: 2 }, Duration::from_secs(2))
+        .await
+        .expect_err("a completed query without a response must fail");
+    assert!(hiroz::error::is_no_service_reply(&*error), "{error}");
+    assert!(!hiroz::error::is_timeout(&*error), "{error}");
+    assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

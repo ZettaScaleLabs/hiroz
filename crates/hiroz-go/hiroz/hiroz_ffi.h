@@ -88,6 +88,17 @@ typedef struct hiroz_action_server_t hiroz_action_server_t;
 typedef struct hiroz_goal_handle_t hiroz_goal_handle_t;
 
 /**
+ * An independent in-flight query. Destroying it cancels the transport query.
+ * The creating client may be destroyed once this handle has been returned.
+ */
+typedef struct hiroz_service_call_t hiroz_service_call_t;
+
+/**
+ * A request owns its query independently of the server that received it.
+ */
+typedef struct hiroz_service_request_t hiroz_service_request_t;
+
+/**
  * Opaque service server handle for FFI
  */
 typedef struct hiroz_service_server_t hiroz_service_server_t;
@@ -324,6 +335,14 @@ typedef int32_t (*hiroz_ServiceCallback)(uintptr_t user_data,
                                          uintptr_t request_len,
                                          uint8_t **response_data,
                                          uintptr_t *response_len);
+
+/**
+ * Correlation information attached to a service request.
+ */
+typedef struct hiroz_service_request_id_t {
+  int64_t sequence_number;
+  uint8_t writer_gid[16];
+} hiroz_service_request_id_t;
 
 /**
  * Callback type for receiving messages
@@ -664,6 +683,17 @@ struct hiroz_service_client_t *hiroz_service_client_create(struct hiroz_node_t *
                                                            const char *resp_type_hash);
 
 /**
+ * Create a service client with endpoint QoS. Null qos uses the defaults.
+ */
+struct hiroz_service_client_t *hiroz_service_client_create_with_qos(struct hiroz_node_t *node,
+                                                                    const char *service_name,
+                                                                    const char *req_type_name,
+                                                                    const char *req_type_hash,
+                                                                    const char *resp_type_name,
+                                                                    const char *resp_type_hash,
+                                                                    const struct hiroz_qos_profile_t *qos);
+
+/**
  * Call a service (synchronous with timeout).
  * Response bytes are allocated via Rust and must be freed with hiroz_free_bytes.
  */
@@ -704,9 +734,78 @@ struct hiroz_service_server_t *hiroz_service_server_create(struct hiroz_node_t *
                                                            uintptr_t user_data);
 
 /**
+ * Create a callback service server with endpoint QoS.
+ */
+struct hiroz_service_server_t *hiroz_service_server_create_with_qos(struct hiroz_node_t *node,
+                                                                    const char *service_name,
+                                                                    const char *req_type_name,
+                                                                    const char *req_type_hash,
+                                                                    const char *resp_type_name,
+                                                                    const char *resp_type_hash,
+                                                                    hiroz_ServiceCallback callback,
+                                                                    uintptr_t user_data,
+                                                                    const struct hiroz_qos_profile_t *qos);
+
+/**
  * Destroy a service server
  */
 int32_t hiroz_service_server_destroy(struct hiroz_service_server_t *server);
+
+/**
+ * Start a service request without blocking for a response.
+ * Caller owns out_call and must destroy it, including after a successful poll.
+ */
+int32_t hiroz_service_client_start_call(struct hiroz_service_client_t *client,
+                                        const uint8_t *data,
+                                        uintptr_t len,
+                                        uint64_t timeout_ms,
+                                        struct hiroz_service_call_t **out_call);
+
+/**
+ * Poll an independent request. Returns 1 while pending, 0 with result, or a negative error.
+ * Result bytes are owned by the caller and freed with hiroz_free_bytes.
+ */
+int32_t hiroz_service_call_poll(struct hiroz_service_call_t *call,
+                                uint64_t wait_ms,
+                                uint8_t **data,
+                                uintptr_t *len);
+
+/**
+ * Cancel and release a pending/completed request. Never call concurrently with poll.
+ */
+int32_t hiroz_service_call_destroy(struct hiroz_service_call_t *call);
+
+/**
+ * Create a queued service server, for deferred replies and application worker pools.
+ */
+struct hiroz_service_server_t *hiroz_service_server_create_queued(struct hiroz_node_t *node,
+                                                                  const char *service,
+                                                                  const char *type_name,
+                                                                  const char *type_hash,
+                                                                  const struct hiroz_qos_profile_t *qos);
+
+/**
+ * Take one queued request. Returns 1 if no request arrives within wait_ms.
+ * The request and its copied bytes are independently caller-owned.
+ */
+int32_t hiroz_service_server_take_request(struct hiroz_service_server_t *server,
+                                          uint64_t wait_ms,
+                                          struct hiroz_service_request_t **request,
+                                          uint8_t **data,
+                                          uintptr_t *len,
+                                          struct hiroz_service_request_id_t *id);
+
+/**
+ * Reply to a deferred request. Caller must still destroy the request handle.
+ */
+int32_t hiroz_service_request_reply(struct hiroz_service_request_t *request,
+                                    const uint8_t *data,
+                                    uintptr_t len);
+
+/**
+ * Release an answered or abandoned deferred request.
+ */
+int32_t hiroz_service_request_destroy(struct hiroz_service_request_t *request);
 
 /**
  * Create a subscriber with callback (default QoS)

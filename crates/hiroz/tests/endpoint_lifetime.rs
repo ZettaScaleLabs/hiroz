@@ -14,6 +14,9 @@ use hiroz_msgs::{
 use std::time::Duration;
 use zenoh::Wait;
 
+#[cfg(feature = "ffi")]
+mod common;
+
 fn context() -> hiroz::context::ZContext {
     ZContextBuilder::default()
         .disable_multicast_scouting()
@@ -371,4 +374,96 @@ mod raw {
         }
     }
 
+    #[test]
+    fn queued_ffi_service_survives_parents_until_endpoint_drop() {
+        use hiroz::ffi::{context::*, node::*, serialize::hiroz_free_bytes, service::*};
+        use std::{ffi::CString, ptr};
+        let router = common::TestRouter::new();
+        let endpoint = CString::new(router.endpoint()).unwrap();
+        let endpoints = [endpoint.as_ptr()];
+        let config = CContextConfig {
+            domain_id: 0,
+            config_file: ptr::null(),
+            connect_endpoints: endpoints.as_ptr(),
+            connect_endpoints_count: 1,
+            mode: c"client".as_ptr(),
+            disable_multicast_scouting: true,
+            connect_to_local_zenohd: false,
+            json_config: c"{\"scouting/gossip/enabled\":false}".as_ptr(),
+            remap_rules: ptr::null(),
+            remap_rules_count: 0,
+            enable_logging: false,
+            namespace: ptr::null(),
+        };
+        const HASH: &std::ffi::CStr =
+            c"RIHS01_0000000000000000000000000000000000000000000000000000000000000000";
+        unsafe {
+            let server_context = hiroz_context_create_with_config(&config);
+            assert!(!server_context.is_null());
+            let server_node =
+                hiroz_node_create(server_context, c"ffi_server_owner".as_ptr(), ptr::null());
+            assert!(!server_node.is_null());
+            let server = hiroz_service_server_create_queued(
+                server_node,
+                c"/owned_service".as_ptr(),
+                c"test::srv::dds_::Lifetime_".as_ptr(),
+                HASH.as_ptr(),
+                ptr::null(),
+            );
+            assert!(!server.is_null());
+            let client_context = hiroz_context_create_with_config(&config);
+            assert!(!client_context.is_null());
+            let client_node =
+                hiroz_node_create(client_context, c"ffi_client_peer".as_ptr(), ptr::null());
+            assert!(!client_node.is_null());
+            let client = hiroz_service_client_create(
+                client_node,
+                c"/owned_service".as_ptr(),
+                c"test::srv::dds_::Lifetime_".as_ptr(),
+                HASH.as_ptr(),
+                c"test::srv::dds_::Lifetime_".as_ptr(),
+                HASH.as_ptr(),
+            );
+            assert!(!client.is_null());
+            assert_eq!(hiroz_service_client_wait_for_service(client, 2000), 0);
+            assert_eq!(hiroz_node_destroy(server_node), 0);
+            assert_eq!(hiroz_context_destroy(server_context), 0);
+
+            let mut call = ptr::null_mut();
+            assert_eq!(
+                hiroz_service_client_start_call(client, b"request".as_ptr(), 7, 2000, &mut call),
+                0
+            );
+            let mut request = ptr::null_mut();
+            let mut data = ptr::null_mut();
+            let mut len = 0;
+            let mut id = std::mem::zeroed();
+            let taken = hiroz_service_server_take_request(
+                server,
+                1000,
+                &mut request,
+                &mut data,
+                &mut len,
+                &mut id,
+            );
+            if taken == 0 {
+                assert_eq!(std::slice::from_raw_parts(data, len), b"request");
+                hiroz_free_bytes(data, len);
+                assert_eq!(
+                    hiroz_service_request_reply(request, b"response".as_ptr(), 8),
+                    0
+                );
+                hiroz_service_request_destroy(request);
+                assert_eq!(hiroz_service_call_poll(call, 1000, &mut data, &mut len), 0);
+                assert_eq!(std::slice::from_raw_parts(data, len), b"response");
+                hiroz_free_bytes(data, len);
+            }
+            hiroz_service_call_destroy(call);
+            hiroz_service_server_destroy(server);
+            hiroz_service_client_destroy(client);
+            hiroz_node_destroy(client_node);
+            hiroz_context_destroy(client_context);
+            assert_eq!(taken, 0, "live FFI service lost its parent session");
+        }
+    }
 }

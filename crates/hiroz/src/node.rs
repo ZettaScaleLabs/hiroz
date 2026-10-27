@@ -850,6 +850,18 @@ impl ZNode {
         type_name: &str,
         type_hash: &str,
     ) -> Result<crate::ffi::service::RawServiceClient> {
+        self.create_raw_service_client_with_qos(service, type_name, type_hash, None)
+    }
+
+    /// Create a raw service client with explicit endpoint QoS.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_service_client_with_qos(
+        &self,
+        service: &str,
+        type_name: &str,
+        type_hash: &str,
+        qos: Option<crate::qos::QosProfile>,
+    ) -> Result<crate::ffi::service::RawServiceClient> {
         use crate::entity::{EndpointEntity, EndpointKind};
         use crate::topic_name;
         use std::sync::atomic::AtomicUsize;
@@ -867,19 +879,11 @@ impl ZNode {
                 name: type_name.to_string(),
                 hash: TypeHash::from_rihs_string(type_hash).unwrap_or(TypeHash::zero()),
             }),
-            qos: Default::default(),
+            qos: qos.map(|q| q.to_protocol_qos()).unwrap_or_default(),
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
         let key_expr: zenoh::key_expr::KeyExpr<'static> = (*topic_ke).clone();
-
-        let inner = self
-            .session
-            .declare_querier(key_expr.clone())
-            .target(zenoh::query::QueryTarget::AllComplete)
-            .consolidation(zenoh::query::ConsolidationMode::None)
-            .timeout(std::time::Duration::from_secs(10))
-            .wait()?;
 
         // Declare liveliness token so rmw_zenoh_cpp service servers can observe this client.
         let lv_ke = self
@@ -895,7 +899,7 @@ impl ZNode {
             sn: AtomicUsize::new(1),
             gid: crate::entity::endpoint_gid(&entity)
                 .expect("service client always has node identity"),
-            inner,
+            session: self.session.clone(),
             _key_expr: key_expr,
             _lv_token: lv_token,
             qualified_service,
@@ -910,6 +914,18 @@ impl ZNode {
         service: &str,
         type_name: &str,
         type_hash: &str,
+    ) -> Result<crate::ffi::service::RawServiceServer> {
+        self.create_raw_service_server_with_qos(service, type_name, type_hash, None)
+    }
+
+    /// Create a queued raw service server with explicit endpoint QoS.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_service_server_with_qos(
+        &self,
+        service: &str,
+        type_name: &str,
+        type_hash: &str,
+        qos: Option<crate::qos::QosProfile>,
     ) -> Result<crate::ffi::service::RawServiceServer> {
         use crate::common::DataHandler;
         use crate::entity::{EndpointEntity, EndpointKind};
@@ -928,13 +944,17 @@ impl ZNode {
                 name: type_name.to_string(),
                 hash: TypeHash::from_rihs_string(type_hash).unwrap_or(TypeHash::zero()),
             }),
-            qos: Default::default(),
+            qos: qos.map(|q| q.to_protocol_qos()).unwrap_or_default(),
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
         let key_expr: zenoh::key_expr::KeyExpr<'static> = (*topic_ke).clone();
 
-        let queue = Arc::new(crate::queue::BoundedQueue::new(256));
+        let depth = match entity.qos.history {
+            hiroz_protocol::qos::QosHistory::KeepLast(depth) => depth.max(1),
+            hiroz_protocol::qos::QosHistory::KeepAll => usize::MAX,
+        };
+        let queue = Arc::new(crate::queue::BoundedQueue::new(depth));
         let queue_clone = queue.clone();
         let handler = DataHandler::Queue(queue_clone);
 
@@ -963,6 +983,7 @@ impl ZNode {
             _lv_token: lv_token,
             queue,
             map: std::collections::HashMap::new(),
+            _session: self.session.clone(),
         })
     }
 

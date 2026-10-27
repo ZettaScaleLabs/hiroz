@@ -32,6 +32,7 @@ pub enum ErrorCode {
     ActionResultFailed = -13,
     ActionFeedbackFailed = -14,
     DeserializationFailed = -15,
+    OperationCanceled = -18,
     Unknown = -100,
 }
 
