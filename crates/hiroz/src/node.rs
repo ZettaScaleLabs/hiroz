@@ -1572,9 +1572,6 @@ impl ZNode {
     }
 }
 
-/// ROS 2 Humble/Jazzy RIHS01 type hash for `action_msgs/srv/CancelGoal`.
-/// Must match rmw_zenoh keyexpr hashing or cancel requests never reach the server.
-
 /// Parse an action type string like `"example_interfaces/action/Fibonacci"` into
 /// `(package, action_name)` — i.e., `("example_interfaces", "Fibonacci")`.
 /// These are used to construct DDS-style type names for rmw_zenoh_cpp graph discovery.
