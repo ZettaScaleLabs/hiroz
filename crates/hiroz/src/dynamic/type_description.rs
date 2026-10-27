@@ -25,16 +25,17 @@
 //! println!("Type hash: {}", hash.to_rihs_string());
 //! ```
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use hiroz_schema::{
     FieldDescription, FieldTypeDescription, TypeDescription, TypeDescriptionMsg, TypeHash, TypeId,
     calculate_hash,
 };
 
-use super::error::DynamicError;
-use super::schema::{FieldSchema, FieldType, MessageSchema};
+use super::{
+    error::DynamicError,
+    schema::{FieldSchema, FieldType, MessageSchema},
+};
 
 /// Extension trait for MessageSchema to support TypeDescription conversion.
 pub trait MessageSchemaTypeDescription {

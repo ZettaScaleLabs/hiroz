@@ -121,10 +121,18 @@ fn legacy_go_component_names_are_canonicalized_only_for_schema_lookup() {
         "FibonacciFeedback",
     ] {
         let wire = format!("example_interfaces/{name}");
-        assert_eq!(ros_from_dds(&wire), format!("example_interfaces/msg/{name}"));
+        assert_eq!(
+            ros_from_dds(&wire),
+            format!("example_interfaces/msg/{name}")
+        );
         assert_eq!(ros_from_dds_strict(&wire), wire);
     }
-    for malformed in ["/Name", "package/", "package//Name", "package/msg/Name/extra"] {
+    for malformed in [
+        "/Name",
+        "package/",
+        "package//Name",
+        "package/msg/Name/extra",
+    ] {
         assert_eq!(ros_from_dds(malformed), malformed);
     }
 }

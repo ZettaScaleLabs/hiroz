@@ -2,10 +2,12 @@
 
 use std::sync::Arc;
 
-use crate::dynamic::message::DynamicMessage;
-use crate::dynamic::schema::{FieldType, MessageSchema};
-use crate::dynamic::serialization::{CDR_HEADER_BE, CDR_HEADER_LE, deserialize_cdr, serialize_cdr};
-use crate::dynamic::value::DynamicValue;
+use crate::dynamic::{
+    message::DynamicMessage,
+    schema::{FieldType, MessageSchema},
+    serialization::{CDR_HEADER_BE, CDR_HEADER_LE, deserialize_cdr, serialize_cdr},
+    value::DynamicValue,
+};
 
 fn create_point_schema() -> Arc<MessageSchema> {
     MessageSchema::builder("geometry_msgs/msg/Point")

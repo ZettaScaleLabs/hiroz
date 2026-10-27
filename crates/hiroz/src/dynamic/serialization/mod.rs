@@ -5,15 +5,12 @@
 
 mod cdr;
 
-pub use cdr::{deserialize_cdr, serialize_cdr, serialize_cdr_to_zbuf};
-
 use std::sync::Arc;
 
+pub use cdr::{deserialize_cdr, serialize_cdr, serialize_cdr_to_zbuf};
 use zenoh_buffers::ZBuf;
 
-use super::error::DynamicError;
-use super::message::DynamicMessage;
-use super::schema::MessageSchema;
+use super::{error::DynamicError, message::DynamicMessage, schema::MessageSchema};
 
 /// Supported serialization formats for dynamic messages.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

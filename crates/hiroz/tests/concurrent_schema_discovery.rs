@@ -13,6 +13,8 @@ use common::TestRouter;
 
 #[test]
 fn queued_schema_response_cannot_succeed_after_discovery_deadline() {
+    use std::{future::Future, task::Wake};
+
     use hiroz::{
         ServiceTypeInfo,
         dynamic::{
@@ -21,7 +23,6 @@ fn queued_schema_response_cannot_succeed_after_discovery_deadline() {
         },
         msg::ZMessage,
     };
-    use std::{future::Future, task::Wake};
     use zenoh::Wait;
 
     struct ReplyWake(std::sync::mpsc::Sender<()>);

@@ -1,26 +1,27 @@
-use parking_lot::Mutex;
-use serde::Serialize;
-use slab::Slab;
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Condvar, Mutex as StdMutex, Weak},
     time::{Duration, SystemTime},
 };
-use tokio::sync::Notify;
-use tracing::debug;
 
+use parking_lot::Mutex;
+use serde::Serialize;
+use slab::Slab;
+use tokio::sync::Notify;
+use tracing::{self, debug};
 #[cfg(test)]
-use crate::entity::ADMIN_SPACE;
-use crate::entity::{
-    ACTION_SERVER_SERVICE_SUFFIXES, ACTION_SERVER_TOPIC_SUFFIXES, EndpointEntity, EndpointKind,
-    Entity, LivelinessKE, NodeKey, Topic, action_name_from_topic,
-};
-use crate::event::GraphEventManager;
-use tracing;
+use zenoh::key_expr::KeyExpr;
 use zenoh::{Result, Session, Wait, pubsub::Subscriber, sample::SampleKind, session::ZenohId};
 
 #[cfg(test)]
-use zenoh::key_expr::KeyExpr;
+use crate::entity::ADMIN_SPACE;
+use crate::{
+    entity::{
+        ACTION_SERVER_SERVICE_SUFFIXES, ACTION_SERVER_TOPIC_SUFFIXES, EndpointEntity, EndpointKind,
+        Entity, LivelinessKE, NodeKey, Topic, action_name_from_topic,
+    },
+    event::GraphEventManager,
+};
 
 /// A serializable snapshot of the ROS graph state
 #[derive(Debug, Clone, Serialize)]

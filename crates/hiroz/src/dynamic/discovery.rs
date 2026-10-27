@@ -1,7 +1,6 @@
-use std::time::Duration;
-use std::{collections::BTreeSet, sync::Arc};
-use std::{future::Future, task::Poll};
+use std::{collections::BTreeSet, future::Future, sync::Arc, task::Poll, time::Duration};
 
+use super::type_info::{ros_type_name_from_dds, schema_type_info_with_hash};
 use crate::{
     dynamic::{DynamicError, MessageSchema},
     entity::{EndpointKind, Entity},
@@ -9,8 +8,6 @@ use crate::{
     node::ZNode,
     topic_name::qualify_topic_name,
 };
-
-use super::type_info::{ros_type_name_from_dds, schema_type_info_with_hash};
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredTopicSchema {

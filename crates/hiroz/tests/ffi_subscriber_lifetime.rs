@@ -159,12 +159,13 @@ extern "C" fn history_dropped(data: usize) {
 }
 
 fn historical_self_close_child(samples: bool) {
-    use hiroz::ffi::{
-        context::*, node::*, qos::CQosProfile, topic::hiroz_subscriber_create_samples,
-    };
     use std::{
         sync::Arc,
         time::{Duration, Instant},
+    };
+
+    use hiroz::ffi::{
+        context::*, node::*, qos::CQosProfile, topic::hiroz_subscriber_create_samples,
     };
     use zenoh::Wait;
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
