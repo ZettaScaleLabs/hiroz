@@ -458,7 +458,7 @@ async fn concurrent_topic_schema_discovery_through_router() {
             .unwrap();
         let node = Arc::new(
             context
-                .create_node(&format!("concurrent_schema_observer_{round}"))
+                .create_node(format!("concurrent_schema_observer_{round}"))
                 .without_parameters()
                 .build()
                 .unwrap(),

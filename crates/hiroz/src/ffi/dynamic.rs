@@ -211,10 +211,10 @@ fn value_from_json(t: &FieldType, v: &Value) -> Result<DynamicValue, String> {
         F::Float64 => D::Float64(v.as_f64().ok_or("expected number")?),
         F::String | F::BoundedString(_) => {
             let text = v.as_str().ok_or("expected string")?;
-            if let F::BoundedString(limit) = t {
-                if text.len() > *limit {
-                    return Err("bounded string too long".into());
-                }
+            if let F::BoundedString(limit) = t
+                && text.len() > *limit
+            {
+                return Err("bounded string too long".into());
             }
             D::String(text.to_owned())
         }
