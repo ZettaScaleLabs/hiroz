@@ -197,6 +197,8 @@ pub unsafe extern "C" fn hiroz_subscriber_create_owned(
     }
 }
 
+// Mirrors the C constructor, including its separate callback ownership hooks.
+#[allow(clippy::too_many_arguments)]
 unsafe fn create_subscriber_owned(
     node: *mut CNode,
     topic: *const c_char,
