@@ -118,6 +118,10 @@ nav:
       - Go:
           - Quick Start: bindings/go-quick-start.md
           - Bindings: bindings/go.md
+          - Topics and schemas: bindings/go-topics.md
+          - Services and deferred replies: bindings/go-services.md
+          - Actions and goal lifecycle: bindings/go-actions.md
+          - API validation: bindings/go-api-validation.md
           - Interop Tests: user-guide/go_interop_tests.md
   - Advanced Topics:
       - Shared Memory (SHM): experimental/shm.md
