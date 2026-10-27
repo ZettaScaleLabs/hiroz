@@ -11,6 +11,7 @@ use std::{
 
 use hiroz::{
     ffi::{
+        ErrorCode,
         action::{
             CActionClient, CActionQos, CActionRequest, CActionServer,
             hiroz_action_client_create_owned, hiroz_action_client_create_with_options,
@@ -29,7 +30,11 @@ use hiroz::{
         },
         qos::CQosProfile,
         serialize::hiroz_free_bytes,
-        service::{hiroz_service_server_create, hiroz_service_server_destroy},
+        service::{
+            hiroz_service_request_destroy, hiroz_service_request_reply,
+            hiroz_service_server_create, hiroz_service_server_create_queued,
+            hiroz_service_server_destroy, hiroz_service_server_take_request,
+        },
     },
     qos::QosDuration,
 };
@@ -172,7 +177,11 @@ impl Fixture {
             },
             disable_multicast_scouting: true,
             connect_to_local_zenohd: false,
-            json_config: c"{\"listen/endpoints\":[],\"scouting/gossip/enabled\":false}".as_ptr(),
+            json_config: if endpoint.is_some() {
+                c"{\"listen/endpoints\":[],\"scouting/gossip/enabled\":false}".as_ptr()
+            } else {
+                c"{\"connect/endpoints\":[],\"listen/endpoints\":[],\"scouting/gossip/enabled\":false,\"scouting/delay\":0}".as_ptr()
+            },
             remap_rules: std::ptr::null(),
             remap_rules_count: 0,
             enable_logging: false,
@@ -554,4 +563,75 @@ fn server_retains_session_until_endpoints_are_destroyed() {
             "server lost its session before its endpoints were destroyed",
         );
     }
+}
+
+// A queued successful reply must not revive a request after its absolute
+// deadline. Exercise the real transport and all three action service kinds.
+#[test]
+fn expired_action_requests_reject_replies_buffered_during_polling_gap() {
+    let fixture = Fixture::new(false);
+    let events = Arc::new(Events::default());
+    let client = fixture.client(&events, true);
+    assert!(!client.is_null());
+    let endpoints = [
+        (
+            c"/lifetime/_action/send_goal",
+            c"lifetime::action::dds_::Test_SendGoal_",
+        ),
+        (
+            c"/lifetime/_action/get_result",
+            c"lifetime::action::dds_::Test_GetResult_",
+        ),
+        (
+            c"/lifetime/_action/cancel_goal",
+            c"action_msgs::srv::dds_::CancelGoal_",
+        ),
+    ];
+    let mut outcomes = Vec::new();
+    unsafe {
+        for (kind, (name, message_type)) in endpoints.into_iter().enumerate() {
+            let server = hiroz_service_server_create_queued(
+                fixture.node,
+                name.as_ptr(),
+                message_type.as_ptr(),
+                HASH.as_ptr(),
+                std::ptr::null(),
+            );
+            assert!(!server.is_null());
+            let request = hiroz_action_request_create(client, kind as i32, [1].as_ptr(), 1, 1000);
+            assert!(!request.is_null());
+            let mut incoming = std::ptr::null_mut();
+            let mut data = std::ptr::null_mut();
+            let mut len = 0;
+            let mut id = std::mem::zeroed();
+            assert_eq!(
+                hiroz_service_server_take_request(
+                    server,
+                    500,
+                    &mut incoming,
+                    &mut data,
+                    &mut len,
+                    &mut id
+                ),
+                0
+            );
+            hiroz_free_bytes(data, len);
+            assert_eq!(hiroz_service_request_reply(incoming, [42].as_ptr(), 1), 0);
+            hiroz_service_request_destroy(incoming);
+            // The response is already delivered, but the foreign poller is
+            // suspended beyond the timeout, just like a busy Go scheduler.
+            std::thread::sleep(Duration::from_millis(1200));
+            data = std::ptr::null_mut();
+            len = 0;
+            let result = hiroz_action_request_poll(request, &mut data, &mut len);
+            if !data.is_null() {
+                hiroz_free_bytes(data, len);
+            }
+            hiroz_action_request_destroy(request);
+            hiroz_service_server_destroy(server);
+            outcomes.push(result);
+        }
+        hiroz_action_client_destroy(client);
+    }
+    assert_eq!(outcomes, vec![ErrorCode::ServiceTimeout as i32; 3]);
 }

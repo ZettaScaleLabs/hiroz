@@ -8,12 +8,21 @@ import (
 // ReceiveTypedFeedback receives and decodes the next feedback message into an
 // allocated destination. A separate destination per concurrent receiver is required.
 func ReceiveTypedFeedback(ctx context.Context, handle *GoalHandle, feedback Message) error {
+	if ctx == nil {
+		return errors.New("nil context")
+	}
+	if err := actionContextError(ctx); err != nil {
+		return err
+	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case bytes, ok := <-handle.Feedback():
 		if !ok {
 			return errors.New("goal handle is closed")
+		}
+		if err := actionContextError(ctx); err != nil {
+			return err
 		}
 		return feedback.DeserializeCDR(bytes)
 	}

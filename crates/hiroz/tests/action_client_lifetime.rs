@@ -43,6 +43,10 @@ fn setup(
     let context = ZContextBuilder::default()
         .with_mode("peer")
         .disable_multicast_scouting()
+        .with_json("connect/endpoints", Vec::<String>::new())
+        .with_json("listen/endpoints", Vec::<String>::new())
+        .with_json("scouting/gossip/enabled", false)
+        .with_json("scouting/delay", 0)
         .build()?;
     let node = context.create_node(name).build()?;
     let server = node.create_action_server::<Action>(name).build()?;

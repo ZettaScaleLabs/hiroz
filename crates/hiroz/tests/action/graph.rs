@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use hiroz::{Builder, Result, context::ZContextBuilder, define_action};
+use hiroz::{Builder, Result, define_action};
 use serde::{Deserialize, Serialize};
 
 // Define test action messages (similar to Fibonacci)
@@ -33,7 +33,7 @@ define_action! {
 // Helper function to create test setup
 #[allow(dead_code)]
 async fn setup_test_base() -> Result<(hiroz::node::ZNode,)> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_action_graph_node").build()?;
 
     // Wait for discovery
@@ -50,7 +50,7 @@ async fn setup_test_with_client_server() -> Result<(
     std::sync::Arc<hiroz::action::client::ZActionClient<TestAction>>,
     hiroz::action::server::ZActionServer<TestAction>,
 )> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
 
     let client_node = ctx.create_node("test_action_graph_client_node").build()?;
     let server_node = ctx.create_node("test_action_graph_server_node").build()?;
@@ -122,7 +122,7 @@ mod tests {
         // Use a standard message type
         use hiroz_msgs::std_msgs::String as StringMsg;
 
-        let ctx = ZContextBuilder::default().build()?;
+        let ctx = crate::action::context_builder().build()?;
         let node1 = ctx.create_node("node1").build()?;
         let node2 = ctx.create_node("node2").build()?;
 

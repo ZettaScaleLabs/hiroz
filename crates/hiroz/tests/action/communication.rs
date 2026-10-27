@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use hiroz::{Builder, Result, context::ZContextBuilder, define_action, msg::ZSerializer};
+use hiroz::{Builder, Result, define_action, msg::ZSerializer};
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
 use zenoh::Wait;
@@ -42,7 +42,7 @@ async fn setup_test() -> Result<(
     hiroz::action::client::ZActionClient<TestAction>,
     hiroz::action::server::ZActionServer<TestAction>,
 )> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_action_comm_node").build()?;
 
     let server = node

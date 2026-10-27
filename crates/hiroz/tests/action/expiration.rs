@@ -14,7 +14,6 @@ use std::{
 use hiroz::{
     Builder, Result,
     action::{state::*, *},
-    context::ZContextBuilder,
     define_action,
 };
 use serde::{Deserialize, Serialize};
@@ -48,7 +47,7 @@ define_action! {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_terminated_goal_expiration() -> Result<()> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_expiration_node").build()?;
 
     // Create a server with short result timeout (1 second)
@@ -98,7 +97,7 @@ async fn test_terminated_goal_expiration() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_executing_goal_expiration_with_timeout() -> Result<()> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_expiration_node2").build()?;
 
     // Create a server with short goal timeout (1 second)
@@ -145,7 +144,7 @@ async fn test_executing_goal_expiration_with_timeout() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_accepted_goal_expiration_with_timeout() -> Result<()> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_expiration_node3").build()?;
 
     // Create a server with short goal timeout (1 second)
@@ -193,7 +192,7 @@ async fn test_accepted_goal_expiration_with_timeout() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_no_expiration_without_timeout() -> Result<()> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_expiration_node4").build()?;
 
     // Create a server WITHOUT goal timeout
@@ -233,7 +232,7 @@ async fn test_no_expiration_without_timeout() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_multiple_goals_expiration() -> Result<()> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_expiration_node5").build()?;
 
     // Create a server with short timeouts
