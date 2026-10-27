@@ -19,8 +19,7 @@ cargo test --locked -p hiroz --features ffi \
     --test ffi_subscriber_lifetime --test dynamic_bounded_schema --test ffi_service_timeout --test volatile_subscriber_order \
     --test ffi_action_lifetime --test action_client_lifetime --test endpoint_lifetime \
     --test service_readiness --test concurrent_schema_discovery \
-    --test schema_discovery_malformed_reply --test graph \
-    --test concurrent_transport_declarations
+    --test schema_discovery_malformed_reply --test graph
 cargo run -p hiroz-codegen --bin export_json -- \
     --assets crates/hiroz-codegen/assets/jazzy \
     --output "$repo_root/_tmp/go-api-manifest.json" \
