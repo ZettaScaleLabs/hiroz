@@ -1185,37 +1185,35 @@ impl<A: ZAction> GoalHandle<A, Accepted> {
     ///
     /// This updates the server state to executing and publishes a status update.
     pub fn execute(mut self) -> GoalHandle<A, Executing> {
-        // Reuse cancel_flag from Accepted (or Canceling if cancel already raced in).
-        let (cancel_flag, expires_at) = self.server.goal_manager().modify(|manager| match manager
-            .goals
-            .remove(&self.info.goal_id)
-        {
-            Some(ServerGoalState::Accepted {
-                cancel_flag,
-                expires_at,
-                ..
-            })
-            | Some(ServerGoalState::Canceling {
-                cancel_flag,
-                expires_at,
-                ..
-            }) => (cancel_flag, expires_at),
-            other => {
-                if let Some(state) = other {
-                    manager.goals.insert(self.info.goal_id, state);
-                }
-                (
-                    Arc::new(AtomicBool::new(false)),
-                    manager.goal_timeout.map(|timeout| Instant::now() + timeout),
-                )
-            }
-        });
-
-        // Register with the cancel dispatcher to get a dedicated per-goal channel
+        // Register before changing the state, without holding the goal-manager lock.
+        // Result and cancel requests must still find the accepted goal while this waits.
         let cancel_rx = self.server.cancel_dispatcher().register(self.info.goal_id);
 
-        // If already cancel-requested while Accepted, stay in Canceling; otherwise Executing.
-        self.server.goal_manager().modify(|manager| {
+        let cancel_flag = self.server.goal_manager().modify(|manager| {
+            // Extract and replace under one lock so no request observes a missing goal.
+            let (cancel_flag, expires_at) = match manager.goals.remove(&self.info.goal_id) {
+                Some(ServerGoalState::Accepted {
+                    cancel_flag,
+                    expires_at,
+                    ..
+                })
+                | Some(ServerGoalState::Canceling {
+                    cancel_flag,
+                    expires_at,
+                    ..
+                }) => (cancel_flag, expires_at),
+                other => {
+                    if let Some(state) = other {
+                        manager.goals.insert(self.info.goal_id, state);
+                    }
+                    (
+                        Arc::new(AtomicBool::new(false)),
+                        manager.goal_timeout.map(|timeout| Instant::now() + timeout),
+                    )
+                }
+            };
+
+            // A cancel received while Accepted must survive the transition.
             if cancel_flag.load(Ordering::Relaxed) {
                 manager.goals.insert(
                     self.info.goal_id,
@@ -1235,6 +1233,7 @@ impl<A: ZAction> GoalHandle<A, Accepted> {
                     },
                 );
             }
+            cancel_flag
         });
 
         self.server.publish_status();
@@ -1429,5 +1428,198 @@ impl<A: ZAction> GoalHandle<A, Executing> {
 
         self.server.publish_status();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod transition_tests {
+    use std::{sync::mpsc, time::Duration};
+
+    use serde::{Deserialize, Serialize};
+
+    use super::*;
+    use crate::context::ZContextBuilder;
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct TransitionGoal {
+        value: i32,
+    }
+
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+    struct TransitionResult {
+        value: i32,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct TransitionFeedback;
+
+    struct TransitionAction;
+    crate::define_action! {
+        TransitionAction,
+        action_name: "execute_transition",
+        Goal: TransitionGoal,
+        Result: TransitionResult,
+        Feedback: TransitionFeedback,
+    }
+
+    async fn result_during_execute(
+        cancel_requested: bool,
+        cancel_during_register: bool,
+    ) -> Result<()> {
+        let context = ZContextBuilder::default()
+            .with_mode("peer")
+            .disable_multicast_scouting()
+            .with_json("connect/endpoints", Vec::<String>::new())
+            .with_json("listen/endpoints", Vec::<String>::new())
+            .with_json("scouting/gossip/enabled", false)
+            .with_json("scouting/delay", 0)
+            .build()?;
+        let node = context.create_node("execute_transition").build()?;
+        let server = node
+            .create_action_server::<TransitionAction>("/execute_transition")
+            .with_goal_timeout(Duration::from_secs(30))
+            .build()?;
+        let client = node
+            .create_action_client::<TransitionAction>("/execute_transition")
+            .build()?;
+        let results = node
+            .create_client::<ResultService<TransitionAction>>(
+                "/execute_transition/_action/get_result",
+            )
+            .build()?;
+        let (sent, accepted) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(client.send_goal(TransitionGoal { value: 42 }), async {
+                server.recv_goal().await.map(GoalHandle::accept)
+            })
+        })
+        .await
+        .expect("local goal acceptance");
+        let sent = sent?;
+        let accepted = accepted?;
+        let id = sent.id();
+        if cancel_requested {
+            assert!(server.request_cancel(id));
+        }
+
+        let original_expiry = server
+            .goal_manager()
+            .read(|manager| match manager.goals.get(&id) {
+                Some(
+                    ServerGoalState::Accepted { expires_at, .. }
+                    | ServerGoalState::Canceling { expires_at, .. },
+                ) => *expires_at,
+                _ => panic!("goal must be accepted before execution"),
+            });
+
+        // Park execute at dispatcher registration. Before the fix it has
+        // already removed the goal from the manager at this point, exposing
+        // an UNKNOWN result to a concurrent caller. Keep the lock on its own
+        // thread so no synchronous mutex guard is held across an await.
+        let (locked_tx, locked_rx) = mpsc::sync_channel(1);
+        let (release_tx, release_rx) = mpsc::sync_channel(1);
+        let locked_server = server.clone();
+        let locker = std::thread::spawn(move || {
+            let _guard = locked_server.cancel_dispatcher().routes.lock();
+            locked_tx.send(()).unwrap();
+            release_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        });
+        locked_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let (started_tx, started_rx) = mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            accepted.execute()
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        // Observe the old missing-state window if present. The corrected
+        // implementation leaves Accepted/Canceling visible while blocked.
+        let missing = tokio::time::timeout(Duration::from_millis(100), async {
+            loop {
+                if server
+                    .goal_manager()
+                    .read(|manager| !manager.goals.contains_key(&id))
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .is_ok();
+        let cancellation_accepted = !cancel_during_register || server.request_cancel(id);
+        let request = GetResultRequest { goal_id: id };
+        let result = results.call_with_timeout(&request, Duration::from_secs(2));
+        tokio::pin!(result);
+        let early = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                tokio::select! {
+                    response = &mut result => break Some(response),
+                    _ = tokio::task::yield_now() => {
+                        if server.goal_manager().read(|manager| {
+                            manager.result_futures.contains_key(&id)
+                        }) {
+                            break None;
+                        }
+                    }
+                }
+            }
+        })
+        .await;
+
+        // Always release and join the blocked threads before checking the
+        // response, including when the unfixed server answered UNKNOWN.
+        release_tx.send(()).unwrap();
+        locker.join().unwrap();
+        let executing = worker.join().unwrap();
+        let flag_preserved = executing.is_cancel_requested();
+        let expiry_preserved = server
+            .goal_manager()
+            .read(|manager| match manager.goals.get(&id) {
+                Some(
+                    ServerGoalState::Executing { expires_at, .. }
+                    | ServerGoalState::Canceling { expires_at, .. },
+                ) => *expires_at == original_expiry,
+                _ => false,
+            });
+        let expected_cancellation = cancel_requested || cancel_during_register;
+        let expected_status = if expected_cancellation {
+            executing.canceled(TransitionResult { value: 42 })?;
+            GoalStatus::Canceled
+        } else {
+            executing.abort(TransitionResult { value: 42 })?;
+            GoalStatus::Aborted
+        };
+        let response = match early.expect("result request must reach the server") {
+            Some(response) => response?,
+            None => result.await?,
+        };
+        assert_eq!(
+            (response.status, response.result.value),
+            (expected_status as i8, 42),
+            "GetResult observed a temporary missing goal during execute (missing={missing})"
+        );
+        assert!(!missing, "execute temporarily removed an accepted goal");
+        assert!(
+            cancellation_accepted,
+            "cancel lost during execute registration"
+        );
+        assert_eq!(flag_preserved, expected_cancellation);
+        assert!(expiry_preserved, "execute changed the original goal expiry");
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn accepted_goal_stays_visible_while_execute_registers() -> Result<()> {
+        result_during_execute(false, false).await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn accepted_cancel_stays_visible_while_execute_registers() -> Result<()> {
+        result_during_execute(true, false).await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cancel_during_execute_registration_is_preserved() -> Result<()> {
+        result_during_execute(false, true).await
     }
 }
