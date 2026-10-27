@@ -137,14 +137,16 @@ fn wait_until(mut predicate: impl FnMut() -> bool) {
     }
 }
 
+type PublicationThread = Arc<Mutex<Option<std::thread::JoinHandle<i32>>>>;
+
 struct Fixture {
     context: *mut CContext,
     node: *mut CNode,
     publisher: *mut CPublisher,
-    publications: Mutex<Vec<Arc<Mutex<Option<std::thread::JoinHandle<i32>>>>>>,
+    publications: Mutex<Vec<PublicationThread>>,
 }
 
-struct Publication(Arc<Mutex<Option<std::thread::JoinHandle<i32>>>>);
+struct Publication(PublicationThread);
 impl Publication {
     fn join(self) -> std::thread::Result<i32> {
         self.0.lock().unwrap().take().unwrap().join()
