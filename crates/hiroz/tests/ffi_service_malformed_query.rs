@@ -7,6 +7,7 @@
 #![cfg(feature = "ffi")]
 
 use std::time::Duration;
+
 use zenoh::Wait;
 
 #[test]
