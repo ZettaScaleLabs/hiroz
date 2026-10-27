@@ -33,6 +33,34 @@ cargo run -p hiroz-codegen --bin export_json -- \
         -prefix github.com/ZettaScaleLabs/hiroz/crates/hiroz-go
 )
 
+# Build the wire fixture here so the local command exercises the same malformed
+# service regression as CI instead of silently skipping it.
+cargo test --locked -p hiroz --features ffi \
+    --test ffi_service_malformed_query --no-run --message-format=json \
+    > "$repo_root/_tmp/go-api-service-fixture.jsonl"
+HIROZ_SERVICE_MALFORMED_FIXTURE=$(python3 - "$repo_root/_tmp/go-api-service-fixture.jsonl" <<'PYTHON'
+import json
+import os
+import sys
+
+executables = set()
+with open(sys.argv[1]) as records:
+    for line in records:
+        record = json.loads(line)
+        if (record.get("reason") == "compiler-artifact"
+                and record.get("target", {}).get("name") == "ffi_service_malformed_query"
+                and record.get("executable")):
+            executables.add(record["executable"])
+if len(executables) != 1:
+    raise SystemExit(f"Expected one malformed-query fixture, found {executables}")
+executable = executables.pop()
+if not os.access(executable, os.X_OK):
+    raise SystemExit(f"Fixture is not executable: {executable}")
+print(executable)
+PYTHON
+)
+export HIROZ_SERVICE_MALFORMED_FIXTURE
+
 export CGO_LDFLAGS="-L$native_test_lib ${CGO_LDFLAGS:-}"
 (
     cd crates/hiroz-go

@@ -44,7 +44,7 @@ jobs:
       CGO_ENABLED: '1'
       RUST_BACKTRACE: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           persist-credentials: false
 
@@ -63,10 +63,10 @@ jobs:
           df -h "$RUNNER_TEMP"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # stable
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
         with:
           go-version-file: crates/hiroz-go/go.mod
           cache-dependency-path: |
@@ -76,7 +76,7 @@ jobs:
             crates/hiroz-go/examples/production_service/go.sum
 
       - name: Cache downloaded Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           # Do not cache target: native static libraries and test variants are large.
           path: |
@@ -95,34 +95,6 @@ jobs:
         # FFI integration targets are exercised by the script; enabling ffi for
         # --lib also links exported callbacks from the dev-dependency graph twice.
         run: cargo test --locked -p hiroz --lib
-
-      - name: Build malformed service-envelope fixture
-        run: |
-          cargo test --locked -p hiroz --features ffi \
-            --test ffi_service_malformed_query --no-run --message-format=json \
-            > "$RUNNER_TEMP/hiroz-service-fixture.jsonl"
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          records = Path(os.environ["RUNNER_TEMP"], "hiroz-service-fixture.jsonl")
-          executables = set()
-          for line in records.read_text().splitlines():
-              record = json.loads(line)
-              if (record.get("reason") == "compiler-artifact"
-                      and record.get("target", {}).get("name") == "ffi_service_malformed_query"
-                      and record.get("executable")):
-                  executables.add(record["executable"])
-          if len(executables) != 1:
-              raise SystemExit(f"Expected one malformed-query fixture, found {executables}")
-          executable = executables.pop()
-          if not os.access(executable, os.X_OK):
-              raise SystemExit(f"Fixture is not executable: {executable}")
-          # Make the opt-in transport regression mandatory in the script's Go suite.
-          with open(os.environ["GITHUB_ENV"], "a") as environment:
-              environment.write(f"HIROZ_SERVICE_MALFORMED_FIXTURE={executable}\n")
-          PY
 
       - name: Check generated and public Go APIs
         run: ./scripts/check-go-api.sh
