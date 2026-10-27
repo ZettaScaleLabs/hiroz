@@ -101,6 +101,7 @@ impl RawSubscriber {
 
 /// Opaque subscriber handle for FFI
 pub struct CSubscriber {
+    #[allow(dead_code)] // Owns the native subscription until teardown.
     pub(crate) inner: Box<RawSubscriber>,
     pub(crate) callbacks: Arc<SubscriberCallbackLifetime>,
 }
