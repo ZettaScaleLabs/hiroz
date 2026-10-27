@@ -927,20 +927,25 @@ where
             group_sub = Some(gb.wait()?);
         }
         let h = shared.clone();
-        let mut sub_builder = self
+        let sub_builder = self
             .session
-            .declare_subscriber(key_expr.clone())
-            .callback(move |s: Sample| h(s))
-            .advanced();
-
-        // Apply locality restriction if specified
-        if let Some(locality) = self.locality {
-            sub_builder = sub_builder.allowed_origin(locality);
-            debug!("[SUB] Locality restriction: {:?}", locality);
-        }
-
-        let sub_builder = apply_transient_local_sub(sub_builder, &self.entity.qos);
-        let inner = sub_builder.wait()?;
+            .declare_subscriber(key_expr)
+            .callback(move |sample| h(sample));
+        let inner = if matches!(self.entity.qos.durability, QosDurability::TransientLocal) {
+            let mut advanced = sub_builder.advanced();
+            if let Some(locality) = self.locality {
+                advanced = advanced.allowed_origin(locality);
+            }
+            SubscriberTransport::TransientLocal(
+                apply_transient_local_sub(advanced, &self.entity.qos).wait()?,
+            )
+        } else {
+            let mut plain = sub_builder;
+            if let Some(locality) = self.locality {
+                plain = plain.allowed_origin(locality);
+            }
+            SubscriberTransport::Volatile(plain.wait()?)
+        };
 
         let token = crate::buffer_group::declare_token(
             &self.session,
