@@ -10,9 +10,9 @@ or timeout releases the underlying query. A response queued before a scheduler
 stall cannot succeed after the caller's deadline. Service clients and servers
 retain their native session until endpoint cleanup finishes.
 
-The workspace pins the reviewed Zenoh 1.9 transport corrections in
-`third_party/zenoh`. Rust applications built from a different workspace must also
-select that dependency override; workspace-built Go FFI libraries include it.
+These APIs use the Zenoh dependency selected by the consuming workspace. Build
+the Go package, C header, and native library from the same Hiroz revision; a
+passing local API regression does not qualify routed transport or endurance.
 
 ## Calling a service
 
