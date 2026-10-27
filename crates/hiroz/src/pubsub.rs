@@ -26,6 +26,17 @@ use zenoh_ext::{
     MissDetectionConfig, RecoveryConfig,
 };
 
+/// Own the subscription appropriate for the endpoint's durability.
+///
+/// AdvancedSubscriber deduplicates timestamped samples to merge live traffic
+/// with history. That filtering is incorrect for volatile traffic: concurrent
+/// publishers in one session share a timestamp ID and can arrive out of order.
+#[allow(dead_code)] // The variants own the subscriptions until the endpoint drops.
+pub enum SubscriberTransport {
+    Volatile(zenoh::pubsub::Subscriber<()>),
+    TransientLocal(AdvancedSubscriber<()>),
+}
+
 /// Sporadic heartbeat period for TransientLocal+Reliable publishers.
 /// Matches rmw_zenoh_cpp's `SAMPLE_MISS_DETECTION_HEARTBEAT_PERIOD`.
 const SAMPLE_MISS_HEARTBEAT_PERIOD: Duration = Duration::from_millis(500);
@@ -1057,7 +1068,7 @@ where
 pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     pub entity: EndpointEntity,
     pub queue: Option<Arc<BoundedQueue<Q>>>,
-    _inner: AdvancedSubscriber<()>,
+    _inner: SubscriberTransport,
     _lv_token: LivelinessToken,
     /// The group subscription of a joined subscriber, `None` otherwise.
     _group_sub: Option<zenoh::pubsub::Subscriber<()>>,

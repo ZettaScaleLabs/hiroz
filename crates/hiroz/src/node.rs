@@ -700,7 +700,7 @@ impl ZNode {
     {
         use crate::{
             entity::{EndpointEntity, EndpointKind},
-            pubsub::apply_transient_local_sub,
+            pubsub::{SubscriberTransport, apply_transient_local_sub},
             topic_name,
         };
         use zenoh_ext::AdvancedSubscriberBuilderExt;
@@ -751,9 +751,17 @@ impl ZNode {
         let builder = self
             .session
             .declare_subscriber(key_expr.clone())
-            .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()))
-            .advanced();
-        let subscriber = apply_transient_local_sub(builder, &entity.qos).wait()?;
+            .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()));
+        let subscriber = if matches!(
+            entity.qos.durability,
+            hiroz_protocol::qos::QosDurability::TransientLocal
+        ) {
+            SubscriberTransport::TransientLocal(
+                apply_transient_local_sub(builder.advanced(), &entity.qos).wait()?,
+            )
+        } else {
+            SubscriberTransport::Volatile(builder.wait()?)
+        };
         let token = if group_key.is_some() {
             Some(crate::buffer_group::declare_token(
                 &self.session,
