@@ -651,6 +651,14 @@ int32_t hiroz_publisher_destroy(struct hiroz_publisher_t *pub_handle);
  * Serialize a message to CDR format
  * Input: type_name (C string), raw message bytes from Go
  * Output: CDR serialized bytes via out_ptr/out_len
+ *
+ * # Safety
+ * Every non-null string pointer must address a NUL-terminated string. The input
+ * byte pointer must be readable for its supplied length, within one allocation,
+ * for this call. Non-null output pointers must be aligned, writable, disjoint
+ * storage. Inputs are borrowed only until return. On success, ownership of the
+ * output allocation transfers to the caller; free it exactly once with
+ * `hiroz_free_bytes` and the returned length. Outputs are unchanged on failure.
  */
 int32_t hiroz_serialize(const char *type_name,
                         const uint8_t *msg_data,
@@ -660,6 +668,14 @@ int32_t hiroz_serialize(const char *type_name,
 
 /**
  * Deserialize CDR bytes to raw format for Go
+ *
+ * # Safety
+ * Every non-null string pointer must address a NUL-terminated string. The input
+ * byte pointer must be readable for its supplied length, within one allocation,
+ * for this call. Non-null output pointers must be aligned, writable, disjoint
+ * storage. Inputs are borrowed only until return. On success, ownership of the
+ * output allocation transfers to the caller; free it exactly once with
+ * `hiroz_free_bytes` and the returned length. Outputs are unchanged on failure.
  */
 int32_t hiroz_deserialize(const char *type_name,
                           const uint8_t *cdr_data,
@@ -668,7 +684,14 @@ int32_t hiroz_deserialize(const char *type_name,
                           uintptr_t *out_len);
 
 /**
- * Free bytes allocated by serialize/deserialize
+ * Free bytes allocated by serialize/deserialize.
+ *
+ * # Safety
+ * A non-null pointer with a nonzero length must be an allocation returned by a
+ * Hiroz FFI function that documents `hiroz_free_bytes` as its deallocator. Pass
+ * the exact returned length, and call this only once after all readers have
+ * finished. No other operation may access the allocation during or after this
+ * call. A null pointer or zero length is a no-op.
  */
 void hiroz_free_bytes(uint8_t *ptr, uintptr_t len);
 
