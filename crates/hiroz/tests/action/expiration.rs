@@ -6,16 +6,19 @@
 //! 3. Expired goals are properly cleaned up
 //! 4. Status is updated when goals expire
 
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::time::{Duration, Instant};
-use tokio::time::sleep;
+use std::{
+    sync::{Arc, atomic::AtomicBool},
+    time::{Duration, Instant},
+};
 
-use hiroz::action::state::*;
-use hiroz::action::*;
-use hiroz::context::ZContextBuilder;
-use hiroz::{Builder, Result, define_action};
+use hiroz::{
+    Builder, Result,
+    action::{state::*, *},
+    context::ZContextBuilder,
+    define_action,
+};
 use serde::{Deserialize, Serialize};
+use tokio::time::sleep;
 
 // Simple test action type
 #[derive(Debug, Clone, Serialize, Deserialize)]

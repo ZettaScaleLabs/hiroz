@@ -1,6 +1,9 @@
 use std::{
     marker::PhantomData,
-    sync::{Arc, Mutex, atomic::AtomicUsize},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -10,10 +13,6 @@ use zenoh::{
     sample::Sample,
 };
 
-use std::sync::atomic::Ordering;
-
-use crate::topic_name;
-
 use crate::{
     Builder,
     attachment::{Attachment, GidArray},
@@ -22,6 +21,7 @@ use crate::{
     impl_with_type_info,
     msg::{ZDeserializer, ZMessage, ZService},
     queue::BoundedQueue,
+    topic_name,
 };
 
 #[derive(Debug)]
@@ -824,17 +824,18 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        Builder,
-        context::{ZContext, ZContextBuilder},
-        node::ZNode,
-        parameter::wire_types::{GetParametersRequest, GetParametersResponse, GetParametersSrv},
-    };
     use std::{
         future::Future,
         pin::Pin,
         sync::{Arc, Condvar, Mutex},
         time::Duration,
+    };
+
+    use crate::{
+        Builder,
+        context::{ZContext, ZContextBuilder},
+        node::ZNode,
+        parameter::wire_types::{GetParametersRequest, GetParametersResponse, GetParametersSrv},
     };
 
     fn native_call_fixture() -> (

@@ -99,8 +99,7 @@ fn test_cancel_goal_hash_matches_ros() {
     println!("cancel_goal_hash: {hash}");
     // From /opt/ros/lyrical/share/action_msgs/srv/CancelGoal.json
     assert_eq!(
-        hash,
-        "RIHS01_573d8b0a534451d7bc2ac8c5ffde8ac14b8593b7001175d0cd6516dcbeb8689a",
+        hash, "RIHS01_573d8b0a534451d7bc2ac8c5ffde8ac14b8593b7001175d0cd6516dcbeb8689a",
         "CancelGoal hash must match ROS action_msgs/srv/CancelGoal.json"
     );
 }

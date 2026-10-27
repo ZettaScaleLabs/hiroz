@@ -1,15 +1,17 @@
 //! Exercise transport-generated timeouts through the actual FFI call handle.
 #![cfg(feature = "ffi")]
 
-use hiroz::ffi::ErrorCode;
-use hiroz::ffi::context::{
-    CContextConfig, hiroz_context_create_with_config, hiroz_context_destroy,
+use std::{ptr, time::Duration};
+
+use hiroz::{
+    ffi::{
+        ErrorCode,
+        context::{CContextConfig, hiroz_context_create_with_config, hiroz_context_destroy},
+        node::{hiroz_node_create, hiroz_node_destroy},
+        service::*,
+    },
+    prelude::*,
 };
-use hiroz::ffi::node::{hiroz_node_create, hiroz_node_destroy};
-use hiroz::ffi::service::*;
-use hiroz::prelude::*;
-use std::ptr;
-use std::time::Duration;
 use zenoh::Wait;
 
 const HASH: &std::ffi::CStr =

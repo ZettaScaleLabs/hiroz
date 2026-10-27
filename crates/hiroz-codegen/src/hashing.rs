@@ -9,14 +9,13 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Result, bail};
-
-use crate::types::{ArrayType, FieldType, ParsedMessage};
-
 // Re-export types from hiroz-schema for backwards compatibility
 pub use hiroz_schema::{
     FieldDescription, FieldTypeDescription, TypeDescription, TypeDescriptionMsg, TypeHash, TypeId,
     calculate_hash, to_hash_version, to_ros2_json,
 };
+
+use crate::types::{ArrayType, FieldType, ParsedMessage};
 
 /// Calculate RIHS01 hash for a message
 pub fn calculate_type_hash(

@@ -1,11 +1,17 @@
-use super::node::{CNode, get_node_ref};
-use super::qos::CQosProfile;
-use super::{ErrorCode, cstr_to_str};
-use crate::attachment::{Attachment, GidArray};
-use std::ffi::c_char;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    ffi::c_char,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
 use zenoh::Wait;
 use zenoh_ext::AdvancedPublisher;
+
+use super::{
+    ErrorCode, cstr_to_str,
+    node::{CNode, get_node_ref},
+    qos::CQosProfile,
+};
+use crate::attachment::{Attachment, GidArray};
 
 /// Raw publisher for FFI (no type parameters)
 pub struct RawPublisher {
