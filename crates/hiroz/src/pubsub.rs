@@ -151,6 +151,9 @@ pub struct ZPub<T: ZMessage, S: ZSerializer> {
     encoding: Option<Arc<zenoh::bytes::Encoding>>,
     graph: Arc<Graph>,
     _phantom_data: PhantomData<(T, S)>,
+    // AdvancedPublisher may own a cache queryable. Finish all endpoint cleanup
+    // before the session runtime closes. This guard must remain the last field.
+    _session: Arc<Session>,
 }
 
 impl<T: ZMessage, S: ZSerializer> std::fmt::Debug for ZPub<T, S> {
@@ -403,6 +406,7 @@ where
             encoding,
             graph: self.graph,
             _phantom_data: Default::default(),
+            _session: self.session,
         })
     }
 }
@@ -967,6 +971,7 @@ where
             dyn_schema: self.dyn_schema,
             expected_encoding: self.expected_encoding,
             _phantom_data: Default::default(),
+            _session: self.session,
         })
     }
 
@@ -1085,6 +1090,9 @@ pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     /// Expected encoding for validation.
     pub expected_encoding: Option<crate::encoding::Encoding>,
     _phantom_data: PhantomData<(T, Q, S)>,
+    // The transport owns weak session references; keep it functional until Drop.
+    // Fields drop in declaration order; this guard must remain last.
+    _session: Arc<Session>,
 }
 
 impl<T: ZMessage, Q, S: ZDeserializer> std::fmt::Debug for ZSub<T, Q, S> {

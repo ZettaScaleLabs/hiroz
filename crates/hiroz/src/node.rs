@@ -632,7 +632,7 @@ impl ZNode {
             .declare_token((*lv_ke).clone())
             .wait()?;
 
-        Ok(RawPublisher::new(publisher, gid, lv_token))
+        Ok(RawPublisher::new(publisher, gid, lv_token, self.session.clone()))
     }
 
     /// Create a raw subscriber for FFI (no type safety)
@@ -652,10 +652,7 @@ impl ZNode {
         self.create_raw_subscriber_with_qos(topic, type_name, type_hash, callback, None)
     }
 
-    /// Create a raw subscriber for FFI with optional QoS
-    ///
-    /// It joins the CPU buffer group as `BufferGroup::Auto` does. Use
-    /// [`ZNode::create_raw_subscriber_with_group`] with `Off` to stay out.
+    /// Create a raw subscriber using the default buffer group policy.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_qos<F>(
         &self,
@@ -678,13 +675,8 @@ impl ZNode {
         )
     }
 
-    /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group`
-    /// asks for it.
-    ///
-    /// A raw subscriber has no message schema, so `Auto` and `Cpu` both join: two exact
-    /// subscriptions, the base key and `<key>/_buf_cpu`, then a token ending `backends:cpu:`. One
-    /// callback serves both keys. `Off`, a transient-local QoS and a custom key expression format
-    /// stay out: the base key only, and no token.
+    /// Create a raw subscriber with upstream's explicit CPU buffer group policy.
+    /// Unjoined raw subscriptions do not advertise a discovery token.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_group<F>(
         &self,
@@ -698,6 +690,61 @@ impl ZNode {
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
     {
+        self.create_raw_subscriber_impl(
+            topic,
+            type_name,
+            type_hash,
+            move |sample| callback(&sample.payload().to_bytes()),
+            qos,
+            zenoh::sample::Locality::Any,
+            group,
+            false,
+        )
+    }
+
+    /// Raw subscriber preserving the complete transport sample and graph identity.
+    /// Owned Go endpoints advertise discovery even when their QoS skips the CPU group.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_subscriber_with_options<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        locality: zenoh::sample::Locality,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(zenoh::sample::Sample) + Send + Sync + 'static,
+    {
+        self.create_raw_subscriber_impl(
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            qos,
+            locality,
+            crate::BufferGroup::Auto,
+            true,
+        )
+    }
+
+    #[cfg(feature = "ffi")]
+    #[allow(clippy::too_many_arguments)]
+    fn create_raw_subscriber_impl<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        locality: zenoh::sample::Locality,
+        group: crate::BufferGroup,
+        advertise_unjoined: bool,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(zenoh::sample::Sample) + Send + Sync + 'static,
+    {
         use crate::{
             entity::{EndpointEntity, EndpointKind},
             pubsub::{SubscriberTransport, apply_transient_local_sub},
@@ -710,6 +757,19 @@ impl ZNode {
                 .map_err(|e| zenoh::Error::from(format!("Failed to qualify topic: {}", e)))?;
 
         let protocol_qos = qos.map(|q| q.to_protocol_qos()).unwrap_or_default();
+        // Zenoh 1.9 applies allowed_origin to live samples, but history queries
+        // can return samples from excluded sessions. Reject this combination
+        // until the transport can enforce locality for both delivery paths.
+        if !matches!(locality, zenoh::sample::Locality::Any)
+            && matches!(
+                protocol_qos.durability,
+                hiroz_protocol::qos::QosDurability::TransientLocal
+            )
+        {
+            return Err(zenoh::Error::from(
+                "restricted locality is unsupported with transient-local history",
+            ));
+        }
 
         let entity = EndpointEntity {
             id: self.counter.increment(),
@@ -725,7 +785,6 @@ impl ZNode {
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
         let key_expr = (*topic_ke).clone();
-
         let group_key = crate::buffer_group::joined_group_key(
             group,
             None,
@@ -733,51 +792,54 @@ impl ZNode {
             &entity,
             key_expr.as_str(),
         );
-
-        // A joined subscriber declares two exact subscriptions, the base key and the group key,
-        // both before the token. One callback serves both.
         let shared = std::sync::Arc::new(callback);
-        let mut group_sub = None;
-        if let Some(group_key) = &group_key {
-            let h = shared.clone();
-            group_sub = Some(
+        let group_sub = if let Some(group_key) = &group_key {
+            let callback = shared.clone();
+            Some(
                 self.session
                     .declare_subscriber(zenoh::key_expr::KeyExpr::try_from(group_key.clone())?)
-                    .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()))
+                    .allowed_origin(locality)
+                    .callback(move |sample| callback(sample))
                     .wait()?,
-            );
-        }
-        let h = shared.clone();
-        let builder = self
+            )
+        } else {
+            None
+        };
+        let callback = shared;
+        let subscriber = self
             .session
-            .declare_subscriber(key_expr.clone())
-            .callback(move |sample: zenoh::sample::Sample| h(&sample.payload().to_bytes()));
+            .declare_subscriber(key_expr)
+            .callback(move |sample| callback(sample));
         let subscriber = if matches!(
             entity.qos.durability,
             hiroz_protocol::qos::QosDurability::TransientLocal
         ) {
             SubscriberTransport::TransientLocal(
-                apply_transient_local_sub(builder.advanced(), &entity.qos).wait()?,
+                apply_transient_local_sub(
+                    subscriber.advanced().allowed_origin(locality),
+                    &entity.qos,
+                )
+                .wait()?,
             )
         } else {
-            SubscriberTransport::Volatile(builder.wait()?)
+            SubscriberTransport::Volatile(subscriber.allowed_origin(locality).wait()?)
         };
-        let token = if group_key.is_some() {
+        let token = if group_key.is_some() || advertise_unjoined {
             Some(crate::buffer_group::declare_token(
                 &self.session,
                 &self.keyexpr_format,
                 &entity,
-                true,
+                group_key.is_some(),
             )?)
         } else {
             None
         };
-
-        Ok(crate::ffi::subscriber::RawSubscriber::new(
+        Ok(crate::ffi::subscriber::RawSubscriber {
             token,
-            subscriber,
-            group_sub,
-        ))
+            inner: subscriber,
+            group: group_sub,
+            _session: self.session.clone(),
+        })
     }
 
     /// Create a raw service client for FFI (no type safety)

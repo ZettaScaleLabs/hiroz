@@ -66,6 +66,9 @@ pub struct ZClient<T: ZService> {
     #[cfg(feature = "rmw")]
     completed_rx: flume::Receiver<Sample>,
     _phantom_data: PhantomData<T>,
+    // Querier/token cleanup must finish before the session runtime closes.
+    // Fields drop in declaration order; this guard must remain last.
+    _session: Arc<Session>,
 }
 
 impl<T: ZService> std::fmt::Debug for ZClient<T> {
@@ -139,6 +142,7 @@ where
             #[cfg(feature = "rmw")]
             completed_rx,
             _phantom_data: Default::default(),
+            _session: self.session,
         })
     }
 }
@@ -344,6 +348,9 @@ pub struct ZServer<T: ZService, Q = Query> {
     clock: crate::time::ZClock,
     pub(crate) queue: Option<Arc<BoundedQueue<Q>>>,
     _phantom_data: PhantomData<T>,
+    // Queryable cleanup must finish before the last session closes its runtime.
+    // Fields drop in declaration order; this guard must remain last.
+    _session: Arc<Session>,
 }
 
 impl<T: ZService, Q> std::fmt::Debug for ZServer<T, Q> {
@@ -445,6 +452,7 @@ where
             clock: self.clock,
             queue,
             _phantom_data: Default::default(),
+            _session: self.session,
         })
     }
 
