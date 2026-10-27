@@ -41,8 +41,9 @@ pub struct CContextConfig {
     /// SHM provider of this size, making the session SHM-capable so it can
     /// publish and receive payloads by shared-memory reference (zero-copy)
     /// instead of copying them over the transport. 0 disables SHM (default).
-    /// Mirrors `ZContextBuilder::with_shm_pool_size`. Added after all
-    /// pre-existing fields to preserve ABI compatibility.
+    /// Mirrors `ZContextBuilder::with_shm_pool_size`. This extends the C config
+    /// layout: callers must rebuild with the matching header and initialize this
+    /// field before passing the structure to the constructor.
     pub shm_pool_bytes: usize,
 }
 
