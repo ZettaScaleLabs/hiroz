@@ -1,10 +1,11 @@
 //! JSON export for external code generators (Go, Python, etc.)
 
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 #[cfg(test)]
 use std::path::PathBuf;
+
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 use crate::types::{
     ArrayType, Constant, DefaultValue, Field, FieldType, ResolvedAction, ResolvedMessage,
@@ -304,12 +305,13 @@ fn convert_action(action: &ResolvedAction) -> ActionDefinition {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use crate::types::{
         ArrayType, Constant, DefaultValue, Field, FieldType, ParsedMessage, ResolvedMessage,
         TypeHash,
     };
-    use std::path::PathBuf;
 
     #[test]
     fn action_schema_uses_resolved_nested_message_identity() {

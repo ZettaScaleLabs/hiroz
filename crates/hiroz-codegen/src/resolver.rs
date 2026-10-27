@@ -687,8 +687,9 @@ impl Resolver {
         self.collect_nested_deps(&feedback_desc, &mut deps);
 
         // Build TypeDescriptionMsg and calculate hash
-        use crate::hashing::{TypeDescriptionMsg, to_hash_version, to_ros2_json};
         use sha2::Digest;
+
+        use crate::hashing::{TypeDescriptionMsg, to_hash_version, to_ros2_json};
 
         // Sort dependencies alphabetically by type_name
         let mut referenced_vec: Vec<TypeDescription> = deps.into_values().collect();
@@ -788,11 +789,12 @@ impl Resolver {
     /// Calculate type hash for GoalStatusArray message (action_msgs/msg/GoalStatusArray)
     /// This is a standard ROS2 action protocol type shared by all actions
     fn calculate_status_hash(&self) -> Result<crate::types::TypeHash> {
+        use sha2::Digest;
+
         use crate::hashing::{
             FieldDescription, FieldTypeDescription, TypeDescription, TypeDescriptionMsg,
             to_hash_version, to_ros2_json,
         };
-        use sha2::Digest;
 
         // GoalStatusArray: status_list (GoalStatus[])
         let type_desc = TypeDescription {
