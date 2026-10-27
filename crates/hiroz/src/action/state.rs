@@ -79,6 +79,7 @@ pub struct GoalManagerInternal<A: ZAction> {
 pub enum ServerGoalState<A: ZAction> {
     Accepted {
         goal: A::Goal,
+        cancel_flag: Arc<AtomicBool>,
         timestamp: Instant,
         expires_at: Option<Instant>,
     },
@@ -89,6 +90,8 @@ pub enum ServerGoalState<A: ZAction> {
     },
     Canceling {
         goal: A::Goal,
+        cancel_flag: Arc<AtomicBool>,
+        expires_at: Option<Instant>,
     },
     Terminated {
         result: A::Result,
