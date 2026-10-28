@@ -1,8 +1,11 @@
-use super::node::{CNode, get_node_ref};
-use super::qos::CQosProfile;
-use super::{ErrorCode, cstr_to_str};
 use std::ffi::c_char;
-use zenoh_ext::AdvancedSubscriber;
+
+use super::{
+    ErrorCode, cstr_to_str,
+    node::{CNode, get_node_ref},
+    qos::CQosProfile,
+};
+use crate::pubsub::SubscriberTransport;
 
 /// Callback type for receiving messages
 pub type MessageCallback = extern "C" fn(user_data: usize, data: *const u8, len: usize);
@@ -13,7 +16,7 @@ pub type MessageCallback = extern "C" fn(user_data: usize, data: *const u8, len:
 pub struct RawSubscriber {
     /// Declared first, so it drops first: the token goes before the subscriptions it announces.
     token: Option<zenoh::liveliness::LivelinessToken>,
-    base: AdvancedSubscriber<()>,
+    base: SubscriberTransport,
     /// The exact subscription on the group key, when the subscriber joins.
     group: Option<zenoh::pubsub::Subscriber<()>>,
 }
@@ -21,7 +24,7 @@ pub struct RawSubscriber {
 impl RawSubscriber {
     pub(crate) fn new(
         token: Option<zenoh::liveliness::LivelinessToken>,
-        base: AdvancedSubscriber<()>,
+        base: SubscriberTransport,
         group: Option<zenoh::pubsub::Subscriber<()>>,
     ) -> Self {
         Self { token, base, group }
@@ -35,7 +38,10 @@ impl RawSubscriber {
         let Self { token, base, group } = self;
         [
             token.map_or(Ok(()), |t| t.undeclare().wait()),
-            base.undeclare().wait(),
+            match base {
+                SubscriberTransport::Volatile(sub) => sub.undeclare().wait(),
+                SubscriberTransport::TransientLocal(sub) => sub.undeclare().wait(),
+            },
             group.map_or(Ok(()), |g| g.undeclare().wait()),
         ]
         .into_iter()
