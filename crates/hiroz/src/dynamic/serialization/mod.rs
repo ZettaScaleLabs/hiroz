@@ -27,6 +27,9 @@ pub enum SerializationFormat {
 /// CDR encapsulation header for little-endian encoding.
 pub const CDR_HEADER_LE: [u8; 4] = [0x00, 0x01, 0x00, 0x00];
 
+/// CDR encapsulation header for big-endian encoding.
+pub const CDR_HEADER_BE: [u8; 4] = [0x00, 0x00, 0x00, 0x00];
+
 impl DynamicMessage {
     /// Serialize the message to bytes using the specified format.
     pub fn serialize(&self, format: SerializationFormat) -> Result<Vec<u8>, DynamicError> {
