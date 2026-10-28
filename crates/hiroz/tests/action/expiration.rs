@@ -64,6 +64,7 @@ async fn test_terminated_goal_expiration() -> Result<()> {
         manager.goals.insert(
             goal_id,
             ServerGoalState::Terminated {
+                info: GoalInfo::new(goal_id),
                 result: TestResult {
                     sequence: vec![0, 1, 1, 2, 3, 5],
                 },
@@ -114,6 +115,7 @@ async fn test_executing_goal_expiration_with_timeout() -> Result<()> {
         manager.goals.insert(
             goal_id,
             ServerGoalState::Executing {
+                info: GoalInfo::new(goal_id),
                 goal: TestGoal { order: 5 },
                 cancel_flag: Arc::new(AtomicBool::new(false)),
                 expires_at: Some(now + Duration::from_secs(1)),
@@ -161,6 +163,7 @@ async fn test_accepted_goal_expiration_with_timeout() -> Result<()> {
         manager.goals.insert(
             goal_id,
             ServerGoalState::Accepted {
+                info: GoalInfo::new(goal_id),
                 goal: TestGoal { order: 5 },
                 cancel_flag: Arc::new(AtomicBool::new(false)),
                 timestamp: now,
@@ -207,6 +210,7 @@ async fn test_no_expiration_without_timeout() -> Result<()> {
         manager.goals.insert(
             goal_id,
             ServerGoalState::Executing {
+                info: GoalInfo::new(goal_id),
                 goal: TestGoal { order: 5 },
                 cancel_flag: Arc::new(AtomicBool::new(false)),
                 expires_at: None, // No expiration
@@ -254,6 +258,7 @@ async fn test_multiple_goals_expiration() -> Result<()> {
         manager.goals.insert(
             goal_id1,
             ServerGoalState::Terminated {
+                info: GoalInfo::new(goal_id1),
                 result: TestResult {
                     sequence: vec![0, 1],
                 },
@@ -266,6 +271,7 @@ async fn test_multiple_goals_expiration() -> Result<()> {
         manager.goals.insert(
             goal_id2,
             ServerGoalState::Executing {
+                info: GoalInfo::new(goal_id2),
                 goal: TestGoal { order: 3 },
                 cancel_flag: Arc::new(AtomicBool::new(false)),
                 expires_at: Some(expires),
@@ -275,6 +281,7 @@ async fn test_multiple_goals_expiration() -> Result<()> {
         manager.goals.insert(
             goal_id3,
             ServerGoalState::Accepted {
+                info: GoalInfo::new(goal_id3),
                 goal: TestGoal { order: 2 },
                 cancel_flag: Arc::new(AtomicBool::new(false)),
                 timestamp: now,

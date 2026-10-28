@@ -15,6 +15,7 @@ mod action {
             .with_json("scouting/delay", 0)
     }
 
+    mod cancellation;
     mod client;
     mod communication;
     mod expiration;

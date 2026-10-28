@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{GoalId, GoalStatus, ZAction};
+use super::{GoalId, GoalInfo, GoalStatus, ZAction};
 
 /// Thread-safe goal state manager with compile-time deadlock prevention.
 ///
@@ -79,25 +79,41 @@ pub struct GoalManagerInternal<A: ZAction> {
 /// Server-side state for an action goal.
 pub enum ServerGoalState<A: ZAction> {
     Accepted {
+        info: GoalInfo,
         goal: A::Goal,
         cancel_flag: Arc<AtomicBool>,
         timestamp: Instant,
         expires_at: Option<Instant>,
     },
     Executing {
+        info: GoalInfo,
         goal: A::Goal,
         cancel_flag: Arc<AtomicBool>,
         expires_at: Option<Instant>,
     },
     Canceling {
+        info: GoalInfo,
         goal: A::Goal,
         cancel_flag: Arc<AtomicBool>,
         expires_at: Option<Instant>,
     },
     Terminated {
+        info: GoalInfo,
         result: A::Result,
         status: GoalStatus,
         timestamp: Instant,
         expires_at: Option<Instant>,
     },
+}
+
+impl<A: ZAction> ServerGoalState<A> {
+    /// Original acceptance metadata, retained through every state transition.
+    pub fn info(&self) -> &GoalInfo {
+        match self {
+            Self::Accepted { info, .. }
+            | Self::Executing { info, .. }
+            | Self::Canceling { info, .. }
+            | Self::Terminated { info, .. } => info,
+        }
+    }
 }
