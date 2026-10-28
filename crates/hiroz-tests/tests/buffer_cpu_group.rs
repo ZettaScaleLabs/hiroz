@@ -228,7 +228,7 @@ fn joined(session: &zenoh::Session, topic: &str) -> bool {
 // ---------------------------------------------------------------------------------------------
 
 /// An action whose messages have no schema: every type is a hand-written serde type.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Num {
     value: u32,
 }

@@ -118,7 +118,7 @@ Set the choice with `with_buffer_group` on a subscriber builder or a cache build
 | `BufferGroup::Cpu` | always, except in the cases below |
 | `BufferGroup::Off` | never |
 
-- The typed code generator maps ROS `byte`, `uint8` and `char` to one type. A typed subscriber therefore also joins for an unbounded `byte[]`. This costs one extra join and loses no data.
+- The typed code generator preserves ROS `byte` as an octet. An unbounded `byte[]` stays out of the CPU group; unbounded `uint8[]` and `char[]` join.
 - A subscriber with no message schema joins on every topic, not only on buffer topics. The feedback subscriber of an action client and the Python bindings have no message schema.
 - The Python `create_subscriber(..., buffer_group=...)` takes `'auto'`, `'cpu'` or `'off'`. `'auto'` and `'cpu'` do the same in Python. Any other string raises `ValueError`.
 - The status subscriber of an action client always stays out, because its message has no buffer. The feedback subscriber has no `Off` switch yet.

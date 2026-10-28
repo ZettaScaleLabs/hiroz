@@ -29,18 +29,40 @@ func NewClosure[T any](call func(T), drop func()) *Closure[T] {
 }
 
 // FifoChannel delivers messages to a buffered channel.
-// When the channel is full, Send blocks until space is available.
+// When the channel is full, Send blocks until space is available or the handler
+// is dropped. Dropping is idempotent and safe during concurrent sends.
 type FifoChannel[T any] struct {
-	channel chan T
+	channel   chan T
+	done      chan struct{}
+	mu        sync.RWMutex
+	closeOnce sync.Once
 }
 
 // ToCbDropHandler returns a callback that sends to the channel.
 func (f *FifoChannel[T]) ToCbDropHandler() (func(T), func(), <-chan T) {
 	callback := func(msg T) {
-		f.channel <- msg
+		f.mu.RLock()
+		defer f.mu.RUnlock()
+		// Check under the read lock before sending: after drop closes the
+		// channel, no new sender may enter the select below.
+		select {
+		case <-f.done:
+			return
+		default:
+		}
+		select {
+		case f.channel <- msg:
+		case <-f.done:
+		}
 	}
 	drop := func() {
-		close(f.channel)
+		f.closeOnce.Do(func() {
+			// Release blocked senders before taking the exclusive lock.
+			close(f.done)
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			close(f.channel)
+		})
 	}
 	return callback, drop, f.channel
 }
@@ -50,6 +72,7 @@ func (f *FifoChannel[T]) ToCbDropHandler() (func(T), func(), <-chan T) {
 func NewFifoChannel[T any](bufferSize int) *FifoChannel[T] {
 	return &FifoChannel[T]{
 		channel: make(chan T, bufferSize),
+		done:    make(chan struct{}),
 	}
 }
 
@@ -76,8 +99,13 @@ func (r *RingChannel[T]) ToCbDropHandler() (func(T), func(), <-chan T) {
 		select {
 		case r.channel <- msg:
 		default:
-			// Channel full — drop oldest message and retry
-			<-r.channel
+			// A consumer may drain the channel between the failed send and
+			// eviction. Never wait for an element in that race.
+			select {
+			case <-r.channel:
+			default:
+			}
+			// Other producers hold the same lock, so a slot is now available.
 			r.channel <- msg
 		}
 	}

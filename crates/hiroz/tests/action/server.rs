@@ -2,7 +2,6 @@ use std::num::NonZeroUsize;
 
 use hiroz::{
     Builder, Result,
-    context::ZContextBuilder,
     define_action,
     qos::{QosHistory, QosProfile, QosReliability},
 };
@@ -14,7 +13,7 @@ pub struct TestGoal {
     pub order: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TestResult {
     pub value: i32,
 }
@@ -45,7 +44,7 @@ mod tests {
         hiroz::action::client::ZActionClient<TestAction>,
         hiroz::action::server::ZActionServer<TestAction>,
     )> {
-        let ctx = ZContextBuilder::default().build()?;
+        let ctx = crate::action::context_builder().build()?;
         let node = ctx.create_node("test_action_server_node").build()?;
 
         let client = node
@@ -64,7 +63,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_action_server_init_fini() -> Result<()> {
-        let ctx = ZContextBuilder::default().build()?;
+        let ctx = crate::action::context_builder().build()?;
         let node = ctx.create_node("test_action_server_node").build()?;
 
         // Test successful initialization with valid arguments
@@ -246,7 +245,7 @@ mod tests {
     async fn test_action_server_goal_timeout_configuration() -> Result<()> {
         use std::time::Duration;
 
-        let ctx = ZContextBuilder::default().build()?;
+        let ctx = crate::action::context_builder().build()?;
         let node = ctx.create_node("test_timeout_node").build()?;
 
         // Create server with goal timeout
@@ -263,7 +262,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_action_server_qos_configuration() -> Result<()> {
-        let ctx = ZContextBuilder::default().build()?;
+        let ctx = crate::action::context_builder().build()?;
         let node = ctx.create_node("test_qos_node").build()?;
 
         // Create custom QoS profile
