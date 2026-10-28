@@ -185,8 +185,10 @@ func TestChannelPatternWithCleanup(t *testing.T) {
 	var cleanupCalled atomic.Bool
 
 	cleanup := func() {
-		close(ch)
 		cleanupCalled.Store(true)
+		// The receiver observes completion through the closed channel, so all
+		// cleanup bookkeeping must happen before that completion signal.
+		close(ch)
 	}
 
 	// Send some messages

@@ -93,6 +93,11 @@ typedef struct hiroz_goal_handle_t hiroz_goal_handle_t;
 typedef struct hiroz_service_server_t hiroz_service_server_t;
 
 /**
+ * Opaque subscriber handle for FFI
+ */
+typedef struct hiroz_subscriber_t hiroz_subscriber_t;
+
+/**
  * Represents a QoS duration in seconds and nanoseconds.
  *
  * This is distinct from [`std::time::Duration`] and is used exclusively for
@@ -110,13 +115,6 @@ typedef struct hiroz_RawPublisher hiroz_RawPublisher;
  * Raw service client for FFI (no type parameters)
  */
 typedef struct hiroz_RawServiceClient hiroz_RawServiceClient;
-
-/**
- * Raw subscriber wrapper that keeps the zenoh subscriptions and the liveliness token alive.
- *
- * Dropping it stops them all. [`RawSubscriber::undeclare`] does the same and returns the first error.
- */
-typedef struct hiroz_RawSubscriber hiroz_RawSubscriber;
 
 /**
  * A live hiroz context backed by an open Zenoh session.
@@ -328,16 +326,19 @@ typedef int32_t (*hiroz_ServiceCallback)(uintptr_t user_data,
                                          uintptr_t *response_len);
 
 /**
- * Opaque subscriber handle for FFI
- */
-typedef struct hiroz_subscriber_t {
-  struct hiroz_RawSubscriber *inner;
-} hiroz_subscriber_t;
-
-/**
  * Callback type for receiving messages
  */
 typedef void (*hiroz_MessageCallback)(uintptr_t user_data, const uint8_t *data, uintptr_t len);
+
+/**
+ * Called once after the subscriber's last callback reference is released.
+ */
+typedef void (*hiroz_SubscriberDropCallback)(uintptr_t user_data);
+
+/**
+ * CDR encapsulation header for little-endian encoding.
+ */
+#define hiroz_CDR_HEADER_LE { 0, 1, 0, 0, }
 
 
 
@@ -631,6 +632,14 @@ int32_t hiroz_publisher_destroy(struct hiroz_publisher_t *pub_handle);
  * Serialize a message to CDR format
  * Input: type_name (C string), raw message bytes from Go
  * Output: CDR serialized bytes via out_ptr/out_len
+ *
+ * # Safety
+ * Every non-null string pointer must address a NUL-terminated string. The input
+ * byte pointer must be readable for its supplied length, within one allocation,
+ * for this call. Non-null output pointers must be aligned, writable, disjoint
+ * storage. Inputs are borrowed only until return. On success, ownership of the
+ * output allocation transfers to the caller; free it exactly once with
+ * `hiroz_free_bytes` and the returned length. Outputs are unchanged on failure.
  */
 int32_t hiroz_serialize(const char *type_name,
                         const uint8_t *msg_data,
@@ -640,6 +649,14 @@ int32_t hiroz_serialize(const char *type_name,
 
 /**
  * Deserialize CDR bytes to raw format for Go
+ *
+ * # Safety
+ * Every non-null string pointer must address a NUL-terminated string. The input
+ * byte pointer must be readable for its supplied length, within one allocation,
+ * for this call. Non-null output pointers must be aligned, writable, disjoint
+ * storage. Inputs are borrowed only until return. On success, ownership of the
+ * output allocation transfers to the caller; free it exactly once with
+ * `hiroz_free_bytes` and the returned length. Outputs are unchanged on failure.
  */
 int32_t hiroz_deserialize(const char *type_name,
                           const uint8_t *cdr_data,
@@ -648,7 +665,14 @@ int32_t hiroz_deserialize(const char *type_name,
                           uintptr_t *out_len);
 
 /**
- * Free bytes allocated by serialize/deserialize
+ * Free bytes allocated by serialize/deserialize.
+ *
+ * # Safety
+ * A non-null pointer with a nonzero length must be an allocation returned by a
+ * Hiroz FFI function that documents `hiroz_free_bytes` as its deallocator. Pass
+ * the exact returned length, and call this only once after all readers have
+ * finished. No other operation may access the allocation during or after this
+ * call. A null pointer or zero length is a no-op.
  */
 void hiroz_free_bytes(uint8_t *ptr, uintptr_t len);
 
@@ -737,6 +761,27 @@ struct hiroz_subscriber_t *hiroz_subscriber_create_with_qos(struct hiroz_node_t 
                                                             hiroz_MessageCallback callback,
                                                             uintptr_t user_data,
                                                             const struct hiroz_qos_profile_t *qos);
+
+/**
+ * Create a subscriber, taking ownership of its foreign callback resources.
+ * `drop_callback` runs exactly once, including when creation fails. It runs only
+ * after every callback that was already in progress has returned. Destroying
+ * the subscriber disables new delivery but does not wait for a running callback,
+ * allowing a callback to destroy its own subscriber.
+ *
+ * # Safety
+ * Arguments have the same requirements as `hiroz_subscriber_create_with_qos`.
+ * `user_data` must remain valid until `drop_callback` is called, which may occur
+ * on any thread. The caller must not release it separately after calling this.
+ */
+struct hiroz_subscriber_t *hiroz_subscriber_create_owned(struct hiroz_node_t *node,
+                                                         const char *topic,
+                                                         const char *type_name,
+                                                         const char *type_hash,
+                                                         hiroz_MessageCallback callback,
+                                                         uintptr_t user_data,
+                                                         const struct hiroz_qos_profile_t *qos,
+                                                         hiroz_SubscriberDropCallback drop_callback);
 
 /**
  * Destroy a subscriber
