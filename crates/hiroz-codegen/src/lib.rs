@@ -536,8 +536,14 @@ impl MessageGenerator {
 /// `Cargo.toml`), so this path resolves correctly whether `hiroz-codegen` is
 /// consumed via a path/git dependency or from `crates.io`.
 pub fn bundled_assets_dir(is_humble: bool) -> PathBuf {
+    bundled_assets_dir_for(if is_humble { "humble" } else { "jazzy" })
+}
+
+/// Path to the bundled asset tree for a named ROS distro (e.g. `"humble"`,
+/// `"jazzy"`, `"lyrical"`). Resolves correctly whether `hiroz-codegen` is
+/// consumed via a path/git dependency or from `crates.io`.
+pub fn bundled_assets_dir_for(distro: &str) -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let distro = if is_humble { "humble" } else { "jazzy" };
     manifest_dir.join("assets").join(distro)
 }
 

@@ -18,13 +18,20 @@ type Publisher struct {
 	node      *Node
 	topic     string
 	closeOnce sync.Once
+	mu        sync.Mutex
+	closeErr  error
+	active    int
+	retired   *C.hiroz_publisher_t
 }
 
 // PublisherBuilder builds a Publisher
 type PublisherBuilder struct {
-	node  *Node
-	topic string
-	qos   *QosProfile
+	node                  *Node
+	topic                 string
+	qos                   *QosProfile
+	encoding              string
+	shmMode               int32
+	shmPool, shmThreshold uint64
 }
 
 // WithQoS sets the QoS profile for the publisher
@@ -35,6 +42,14 @@ func (b *PublisherBuilder) WithQoS(qos QosProfile) *PublisherBuilder {
 
 // Build creates the publisher for the given message type
 func (b *PublisherBuilder) Build(msg Message) (*Publisher, error) {
+	node, release, err := b.node.acquire()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	if msg == nil {
+		return nil, fmt.Errorf("message is nil")
+	}
 	topicC := C.CString(b.topic)
 	defer C.free(unsafe.Pointer(topicC))
 
@@ -44,13 +59,18 @@ func (b *PublisherBuilder) Build(msg Message) (*Publisher, error) {
 	typeHashC := C.CString(msg.TypeHash())
 	defer C.free(unsafe.Pointer(typeHashC))
 
-	var handle *C.hiroz_publisher_t
-	if b.qos != nil {
-		cQos := b.qos.toCQos()
-		handle = C.hiroz_publisher_create_with_qos(b.node.handle, topicC, typeNameC, typeHashC, &cQos)
-	} else {
-		handle = C.hiroz_publisher_create(b.node.handle, topicC, typeNameC, typeHashC)
+	if err := b.node.registerMessageSchema(msg); err != nil {
+		return nil, err
 	}
+	var qos *C.hiroz_qos_profile_t
+	if b.qos != nil {
+		value := b.qos.toCQos()
+		qos = &value
+	}
+	encoding := C.CString(b.encoding)
+	defer C.free(unsafe.Pointer(encoding))
+	options := C.hiroz_CPublisherOptions{encoding: encoding, shm_mode: C.int32_t(b.shmMode), shm_pool_bytes: C.uintptr_t(b.shmPool), shm_threshold: C.uintptr_t(b.shmThreshold)}
+	handle := C.hiroz_publisher_create_with_options(node, topicC, typeNameC, typeHashC, qos, &options)
 
 	if handle == nil {
 		return nil, fmt.Errorf("%w: publisher for %s", ErrBuildFailed, b.topic)
@@ -68,10 +88,6 @@ func (b *PublisherBuilder) Build(msg Message) (*Publisher, error) {
 
 // Publish publishes a message
 func (p *Publisher) Publish(msg Message) error {
-	if p.handle == nil {
-		return fmt.Errorf("publisher is closed")
-	}
-
 	data, err := msg.SerializeCDR()
 	if err != nil {
 		return fmt.Errorf("serialization failed: %w", err)
@@ -81,13 +97,19 @@ func (p *Publisher) Publish(msg Message) error {
 		return fmt.Errorf("empty message")
 	}
 
+	handle, release, err := p.acquire()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	// Pin the data to prevent GC relocation during the C call
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 	pinner.Pin(&data[0])
 
 	result := C.hiroz_publisher_publish(
-		p.handle,
+		handle,
 		(*C.uint8_t)(unsafe.Pointer(&data[0])),
 		C.size_t(len(data)),
 	)
@@ -101,18 +123,49 @@ func (p *Publisher) Publish(msg Message) error {
 	return nil
 }
 
-// Close destroys the publisher
+// acquire keeps the native handle alive for a synchronous operation. Local
+// publication can invoke a Go subscriber inline, including one that calls Close.
+// Reference counting permits that reentrant close without destroying the handle
+// underneath the active publish or blocking on the callback itself.
+func (p *Publisher) acquire() (*C.hiroz_publisher_t, func(), error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.handle == nil {
+		return nil, nil, fmt.Errorf("publisher is closed")
+	}
+	p.active++
+	return p.handle, func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		p.active--
+		p.destroyRetired()
+	}, nil
+}
+
+// destroyRetired is called with mu held after Close has disabled new operations.
+func (p *Publisher) destroyRetired() {
+	if p.active != 0 || p.retired == nil {
+		return
+	}
+	result := C.hiroz_publisher_destroy(p.retired)
+	p.retired = nil
+	if result != 0 {
+		p.closeErr = fmt.Errorf("publisher close failed (rc=%d): %w", result, ErrCloseFailed)
+	}
+}
+
+// Close prevents further publishing. If an operation is in progress, native
+// destruction is deferred until it finishes. Close is safe from a local
+// subscriber callback invoked by Publish.
 func (p *Publisher) Close() error {
-	var err error
 	p.closeOnce.Do(func() {
-		if p.handle == nil {
-			return
-		}
-		result := C.hiroz_publisher_destroy(p.handle)
-		p.handle = nil
-		if result != 0 {
-			err = fmt.Errorf("publisher close failed (rc=%d): %w", result, ErrCloseFailed)
-		}
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		p.retired, p.handle = p.handle, nil
+		p.destroyRetired()
+		runtime.SetFinalizer(p, nil)
 	})
-	return err
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.closeErr
 }

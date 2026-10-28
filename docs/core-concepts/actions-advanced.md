@@ -355,3 +355,34 @@ impl ZAction for CountAction {
 - **[hiroz Examples](https://github.com/ZettaScaleLabs/hiroz/tree/main/crates/hiroz/examples)** - Working action implementations
 - **[Services](./services.md)** - Simpler request-response pattern
 - **[Custom Messages](../user-guide/custom-messages.md)** - Defining custom action types with `.action` files
+
+## Reproducing cancellation and result races
+
+Native automatic handlers and manual goal polling use the same cancellation
+selection. A zero UUID and zero timestamp select all active goals; a nonzero
+timestamp selects goals accepted at or before that time. A nonzero UUID selects
+that goal as well. Single-goal client cancellation sends a zero timestamp so it
+cannot cancel unrelated earlier goals. Responses retain original acceptance times.
+
+A goal remains visible while it moves from Accepted to Executing. Concurrent
+result requests wait for its terminal result, and cancellation received during
+registration is preserved. The following tests use isolated local sessions and
+need neither ROS nor an external router:
+
+```bash
+cargo test --locked -p hiroz --lib action::server::transition_tests
+cargo test --locked -p hiroz --test action action::cancellation
+cargo test --locked -p hiroz --test action
+```
+
+The transition tests deliberately hold cancellation registration while a result
+request arrives. They require the final abort/cancellation payload instead of
+UNKNOWN. The cancellation tests cover all four UUID/timestamp selections on
+both automatic and manual servers, including goals accepted but not executing,
+repeated cancellation, and unknown/terminal UUIDs.
+
+Timestamp/all requests with no matching active goals return success with an empty
+list, matching [ROS rcl's cancellation selection](https://github.com/ros2/rcl/blob/rolling/rcl_action/src/rcl_action/action_server.c).
+UUID-only unknown and terminal goals return their distinct error codes. A successful
+cancellation response requests cooperative cancellation; it does not itself finish
+application work.

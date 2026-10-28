@@ -1,0 +1,29 @@
+# ROS interface type name, in PACKAGE/NAMESPACE/TYPENAME format.
+string type_name
+
+# REP-2011 RIHS hash string.
+string type_hash
+
+# Whether to return the original idl/msg/etc. source file(s) in the response.
+bool include_type_sources true
+---
+# True if the type description information is available and populated in the response.
+# If false, all other fields except `failure_reason` are considered undefined.
+bool successful
+# If `successful` is false, contains a reason for failure.
+# If `successful` is true, this is left empty.
+string failure_reason
+
+# The parsed type description which can be used programmatically.
+TypeDescription type_description
+
+# A list containing the interface definition source text of the requested type,
+# plus all types it recursively depends on.
+# Each source text is a copy of the original contents of the
+# .msg, .srv, .action, .idl, or other file if it exists, including comments and whitespace.
+# Sources can be matched with IndividualTypeDescriptions by their `type_name`.
+# The `encoding` field of each entry informs how to interpret its contents.
+TypeSource[] type_sources
+
+# Key-value pairs of extra information.
+KeyValue[] extra_information

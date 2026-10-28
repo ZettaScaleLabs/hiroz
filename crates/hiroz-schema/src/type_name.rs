@@ -116,6 +116,11 @@ pub fn ros_from_dds_strict(dds: &str) -> String {
 /// including a name that is not a ROS type. This behaviour is deliberate. This
 /// path has always done it, and its callers look a name up in the schema
 /// registry. There, a stray underscore decides a hit or a miss.
+///
+/// Legacy generated Go message components use `package/Name` on the wire.
+/// Schema lookup treats these two-part names as `package/msg/Name`. This is
+/// lookup normalization only: the strict RMW inverse and transport names stay
+/// unchanged.
 pub fn ros_from_dds(dds: &str) -> String {
     let strict = ros_from_dds_strict(dds);
     if strict != dds {
@@ -125,5 +130,13 @@ pub fn ros_from_dds(dds: &str) -> String {
     for kind in KINDS {
         out = out.replace(&format!("::{kind}::"), &format!("/{kind}/"));
     }
-    out.trim_end_matches('_').to_string()
+    let out = out.trim_end_matches('_');
+    if let Some((package, name)) = out.split_once('/')
+        && !package.is_empty()
+        && !name.is_empty()
+        && !name.contains('/')
+    {
+        return format!("{package}/msg/{name}");
+    }
+    out.to_string()
 }

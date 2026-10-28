@@ -362,6 +362,60 @@ pub extern "C" fn rmw_init(
     // Initialize Zenoh logging
     zenoh::init_log_from_env_or("error");
 
+    // Stop glibc returning the payload heap to the kernel between messages.
+    // See #349 for the mechanism and the measurements. At 1 MiB and 200 Hz
+    // this costs 33% of round-trip latency.
+    //
+    // This fix needs both calls together. `mallopt()` on either parameter
+    // disables glibc's automatic adjustment of both (see `mallopt(3)`).
+    // Pinning `M_TRIM_THRESHOLD` alone freezes `M_MMAP_THRESHOLD` at its 128
+    // KiB default. Every payload-sized buffer then routes through `mmap()`
+    // instead of the heap. That measures worse than doing nothing. Do not
+    // simplify this to one call.
+    //
+    // 64 MiB means something different for each parameter. glibc's own
+    // `M_MMAP_THRESHOLD` ceiling is about 32 MiB (`DEFAULT_MMAP_THRESHOLD_MAX`).
+    // Pinning it to 64 MiB is a deliberate override glibc would never reach
+    // on its own. `M_TRIM_THRESHOLD`'s dynamic ceiling is twice the mmap
+    // value, so 64 MiB is exactly its own maximum.
+    //
+    // This fix skips both calls when the operator has already set the glibc
+    // environment variables. An explicit deployment choice is never
+    // overridden.
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        const M_TRIM_THRESHOLD: core::ffi::c_int = -1;
+        const M_MMAP_THRESHOLD: core::ffi::c_int = -3;
+        unsafe extern "C" {
+            fn mallopt(param: core::ffi::c_int, value: core::ffi::c_int) -> core::ffi::c_int;
+        }
+        let operator_set = std::env::var_os("MALLOC_TRIM_THRESHOLD_").is_some()
+            || std::env::var_os("MALLOC_MMAP_THRESHOLD_").is_some();
+        if !operator_set {
+            // 64 MiB clears the measured 6-9 MB working-set swing with margin.
+            const THRESHOLD: core::ffi::c_int = 64 << 20;
+            let mmap_rc = unsafe { mallopt(M_MMAP_THRESHOLD, THRESHOLD) };
+            let trim_rc = unsafe { mallopt(M_TRIM_THRESHOLD, THRESHOLD) };
+            if mmap_rc == 0 || trim_rc == 0 {
+                // mallopt() returns 0 only for a handful of documented invalid
+                // (param, value) combinations; the cfg gate above and the
+                // fixed, valid THRESHOLD constant make this unlikely, but a
+                // silent failure here would look identical to the regression
+                // this call exists to prevent, so make it visible by default.
+                tracing::warn!(
+                    "glibc rejected the allocator threshold pin (mallopt rc: mmap={}, trim={}); \
+                     large 1 MiB-class messages may show the heap-trim latency regression this call exists to avoid",
+                    mmap_rc, trim_rc
+                );
+            } else {
+                tracing::debug!(
+                    "glibc thresholds pinned at {} MiB (mallopt rc: mmap={}, trim={})",
+                    THRESHOLD >> 20, mmap_rc, trim_rc
+                );
+            }
+        }
+    }
+
     // Log RMW initialization
     tracing::info!("rmw_zenoh_rs v{} initialized", env!("CARGO_PKG_VERSION"));
 

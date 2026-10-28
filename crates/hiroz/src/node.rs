@@ -1,12 +1,11 @@
 use std::{sync::Arc, time::Duration};
 
-use tracing::{debug, info, warn};
-use zenoh::{Result, Session, Wait, liveliness::LivelinessToken};
-
 // Only the FFI action paths below mangle a type name. This import therefore
 // carries the same gate as the code that uses it.
 #[cfg(feature = "ffi")]
 use hiroz_schema::type_name::dds_from_namespace;
+use tracing::{debug, info, warn};
+use zenoh::{Result, Session, Wait, liveliness::LivelinessToken};
 
 #[cfg(feature = "ffi")]
 use crate::ffi::publisher::RawPublisher;
@@ -384,10 +383,14 @@ impl ZNode {
         // consumer that answers GetTypeDescription for its subscribed type, as
         // ROS 2 nodes do. This is what lets `hu meter pub` resolve the schema
         // from a topic that only has a subscriber.
-        if let Some(schema) = T::message_schema() {
-            self.register_schema_with_type_description_service(&schema);
+        let schema = T::message_schema();
+        if let Some(schema) = &schema {
+            self.register_schema_with_type_description_service(schema);
         }
-        self.create_sub_impl(topic, Some(T::type_info()))
+        let mut builder = self.create_sub_impl(topic, Some(T::type_info()));
+        // `None` without a schema: such a subscriber cannot tell, so `Auto` joins it.
+        builder.has_buffer_fields = schema.map(|schema| schema.has_buffer_fields());
+        builder
     }
 
     #[doc(hidden)]
@@ -417,6 +420,8 @@ impl ZNode {
             dyn_schema: None,
             locality: None,
             expected_encoding: None,
+            buffer_group: Default::default(),
+            has_buffer_fields: None,
             _phantom_data: Default::default(),
         }
     }
@@ -455,7 +460,11 @@ impl ZNode {
             "[NOD] Creating cache: topic={}, capacity={}",
             topic, capacity
         );
-        let sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
+        let mut sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
+        // The rule of `create_sub`. A cache does not call `create_sub`, because that also registers
+        // the type-description service.
+        sub_builder.has_buffer_fields =
+            T::message_schema().map(|schema| schema.has_buffer_fields());
         ZCacheBuilder::new(sub_builder, capacity)
     }
 
@@ -576,6 +585,20 @@ impl ZNode {
         type_hash: &str,
         qos: Option<crate::qos::QosProfile>,
     ) -> Result<RawPublisher> {
+        self.create_raw_publisher_with_options(topic, type_name, type_hash, qos, None, None)
+    }
+
+    /// Raw publisher with transport encoding and per-publisher SHM override.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_publisher_with_options(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        qos: Option<crate::qos::QosProfile>,
+        encoding: Option<zenoh::bytes::Encoding>,
+        shm: Option<Option<Arc<crate::shm::ShmConfig>>>,
+    ) -> Result<RawPublisher> {
         use zenoh::qos::CongestionControl;
         use zenoh_ext::AdvancedPublisherBuilderExt;
 
@@ -609,7 +632,10 @@ impl ZNode {
         let publisher = self
             .session
             .declare_publisher((*topic_ke).clone())
-            .congestion_control(CongestionControl::Block)
+            .congestion_control(match entity.qos.reliability {
+                hiroz_protocol::qos::QosReliability::Reliable => CongestionControl::Block,
+                hiroz_protocol::qos::QosReliability::BestEffort => CongestionControl::Drop,
+            })
             .advanced();
         let publisher = apply_transient_local_pub(publisher, &entity.qos).wait()?;
 
@@ -623,11 +649,21 @@ impl ZNode {
             .declare_token((*lv_ke).clone())
             .wait()?;
 
-        Ok(RawPublisher::new(publisher, gid, lv_token))
+        Ok(RawPublisher::new(
+            publisher,
+            gid,
+            lv_token,
+            entity,
+            self.graph.clone(),
+            encoding,
+            shm.unwrap_or_else(|| self.shm_config.clone()),
+            self.session.clone(),
+        ))
     }
 
     /// Create a raw subscriber for FFI (no type safety)
-    /// Returns a RawSubscriber that must be kept alive as long as the subscription is active
+    /// Returns a RawSubscriber that must be kept alive as long as the subscription is active.
+    /// It joins the CPU buffer group, as [`ZNode::create_raw_subscriber_with_qos`] does.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber<F>(
         &self,
@@ -642,7 +678,7 @@ impl ZNode {
         self.create_raw_subscriber_with_qos(topic, type_name, type_hash, callback, None)
     }
 
-    /// Create a raw subscriber for FFI with optional QoS
+    /// Create a raw subscriber using the default buffer group policy.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_qos<F>(
         &self,
@@ -655,18 +691,112 @@ impl ZNode {
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
     {
+        self.create_raw_subscriber_with_group(
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            qos,
+            crate::BufferGroup::Auto,
+        )
+    }
+
+    /// Create a raw subscriber with upstream's explicit CPU buffer group policy.
+    /// Unjoined raw subscriptions do not advertise a discovery token.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_subscriber_with_group<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        group: crate::BufferGroup,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(&[u8]) + Send + Sync + 'static,
+    {
+        self.create_raw_subscriber_impl(
+            topic,
+            type_name,
+            type_hash,
+            move |sample| callback(&sample.payload().to_bytes()),
+            qos,
+            zenoh::sample::Locality::Any,
+            group,
+            false,
+        )
+    }
+
+    /// Raw subscriber preserving the complete transport sample and graph identity.
+    /// Owned Go endpoints advertise discovery even when their QoS skips the CPU group.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_subscriber_with_options<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        locality: zenoh::sample::Locality,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(zenoh::sample::Sample) + Send + Sync + 'static,
+    {
+        self.create_raw_subscriber_impl(
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            qos,
+            locality,
+            crate::BufferGroup::Auto,
+            true,
+        )
+    }
+
+    #[cfg(feature = "ffi")]
+    #[allow(clippy::too_many_arguments)]
+    fn create_raw_subscriber_impl<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        locality: zenoh::sample::Locality,
+        group: crate::BufferGroup,
+        advertise_unjoined: bool,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(zenoh::sample::Sample) + Send + Sync + 'static,
+    {
+        use zenoh_ext::AdvancedSubscriberBuilderExt;
+
         use crate::{
             entity::{EndpointEntity, EndpointKind},
-            pubsub::apply_transient_local_sub,
+            pubsub::{SubscriberTransport, apply_transient_local_sub},
             topic_name,
         };
-        use zenoh_ext::AdvancedSubscriberBuilderExt;
 
         let qualified_topic =
             topic_name::qualify_topic_name(topic, &self.entity.namespace, &self.entity.name)
                 .map_err(|e| zenoh::Error::from(format!("Failed to qualify topic: {}", e)))?;
 
         let protocol_qos = qos.map(|q| q.to_protocol_qos()).unwrap_or_default();
+        // Zenoh 1.9 applies allowed_origin to live samples, but history queries
+        // can return samples from excluded sessions. Reject this combination
+        // until the transport can enforce locality for both delivery paths.
+        if !matches!(locality, zenoh::sample::Locality::Any)
+            && matches!(
+                protocol_qos.durability,
+                hiroz_protocol::qos::QosDurability::TransientLocal
+            )
+        {
+            return Err(zenoh::Error::from(
+                "restricted locality is unsupported with transient-local history",
+            ));
+        }
 
         let entity = EndpointEntity {
             id: self.counter.increment(),
@@ -681,17 +811,64 @@ impl ZNode {
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
+        let key_expr = (*topic_ke).clone();
+        let group_key = crate::buffer_group::joined_group_key(
+            group,
+            None,
+            &self.keyexpr_format,
+            &entity,
+            key_expr.as_str(),
+        );
+        let shared = std::sync::Arc::new(callback);
+        let group_sub = if let Some(group_key) = &group_key {
+            let callback = shared.clone();
+            Some(
+                self.session
+                    .declare_subscriber(zenoh::key_expr::KeyExpr::try_from(group_key.clone())?)
+                    .allowed_origin(locality)
+                    .callback(move |sample| callback(sample))
+                    .wait()?,
+            )
+        } else {
+            None
+        };
+        let callback = shared;
         let subscriber = self
             .session
-            .declare_subscriber((*topic_ke).clone())
-            .callback(move |sample| {
-                let payload = sample.payload().to_bytes();
-                callback(&payload);
-            })
-            .advanced();
-        let subscriber = apply_transient_local_sub(subscriber, &entity.qos).wait()?;
-
-        Ok(crate::ffi::subscriber::RawSubscriber { inner: subscriber })
+            .declare_subscriber(key_expr)
+            .callback(move |sample| callback(sample));
+        let subscriber = if matches!(
+            entity.qos.durability,
+            hiroz_protocol::qos::QosDurability::TransientLocal
+        ) {
+            SubscriberTransport::TransientLocal(
+                apply_transient_local_sub(
+                    subscriber.advanced().allowed_origin(locality),
+                    &entity.qos,
+                )
+                .wait()?,
+            )
+        } else {
+            SubscriberTransport::Volatile(subscriber.allowed_origin(locality).wait()?)
+        };
+        let token = if group_key.is_some() || advertise_unjoined {
+            Some(crate::buffer_group::declare_token(
+                &self.session,
+                &self.keyexpr_format,
+                &entity,
+                group_key.is_some(),
+            )?)
+        } else {
+            None
+        };
+        Ok(crate::ffi::subscriber::RawSubscriber {
+            token,
+            inner: subscriber,
+            group: group_sub,
+            entity,
+            graph: self.graph.clone(),
+            _session: self.session.clone(),
+        })
     }
 
     /// Create a raw service client for FFI (no type safety)
@@ -702,9 +879,24 @@ impl ZNode {
         type_name: &str,
         type_hash: &str,
     ) -> Result<crate::ffi::service::RawServiceClient> {
-        use crate::entity::{EndpointEntity, EndpointKind};
-        use crate::topic_name;
+        self.create_raw_service_client_with_qos(service, type_name, type_hash, None)
+    }
+
+    /// Create a raw service client with explicit endpoint QoS.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_service_client_with_qos(
+        &self,
+        service: &str,
+        type_name: &str,
+        type_hash: &str,
+        qos: Option<crate::qos::QosProfile>,
+    ) -> Result<crate::ffi::service::RawServiceClient> {
         use std::sync::atomic::AtomicUsize;
+
+        use crate::{
+            entity::{EndpointEntity, EndpointKind},
+            topic_name,
+        };
 
         let qualified_service =
             topic_name::qualify_service_name(service, &self.entity.namespace, &self.entity.name)
@@ -719,19 +911,11 @@ impl ZNode {
                 name: type_name.to_string(),
                 hash: TypeHash::from_rihs_string(type_hash).unwrap_or(TypeHash::zero()),
             }),
-            qos: Default::default(),
+            qos: qos.map(|q| q.to_protocol_qos()).unwrap_or_default(),
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
         let key_expr: zenoh::key_expr::KeyExpr<'static> = (*topic_ke).clone();
-
-        let inner = self
-            .session
-            .declare_querier(key_expr.clone())
-            .target(zenoh::query::QueryTarget::AllComplete)
-            .consolidation(zenoh::query::ConsolidationMode::None)
-            .timeout(std::time::Duration::from_secs(10))
-            .wait()?;
 
         // Declare liveliness token so rmw_zenoh_cpp service servers can observe this client.
         let lv_ke = self
@@ -747,7 +931,7 @@ impl ZNode {
             sn: AtomicUsize::new(1),
             gid: crate::entity::endpoint_gid(&entity)
                 .expect("service client always has node identity"),
-            inner,
+            session: self.session.clone(),
             _key_expr: key_expr,
             _lv_token: lv_token,
             qualified_service,
@@ -763,9 +947,23 @@ impl ZNode {
         type_name: &str,
         type_hash: &str,
     ) -> Result<crate::ffi::service::RawServiceServer> {
-        use crate::common::DataHandler;
-        use crate::entity::{EndpointEntity, EndpointKind};
-        use crate::topic_name;
+        self.create_raw_service_server_with_qos(service, type_name, type_hash, None)
+    }
+
+    /// Create a queued raw service server with explicit endpoint QoS.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_service_server_with_qos(
+        &self,
+        service: &str,
+        type_name: &str,
+        type_hash: &str,
+        qos: Option<crate::qos::QosProfile>,
+    ) -> Result<crate::ffi::service::RawServiceServer> {
+        use crate::{
+            common::DataHandler,
+            entity::{EndpointEntity, EndpointKind},
+            topic_name,
+        };
 
         let qualified_service =
             topic_name::qualify_service_name(service, &self.entity.namespace, &self.entity.name)
@@ -780,13 +978,17 @@ impl ZNode {
                 name: type_name.to_string(),
                 hash: TypeHash::from_rihs_string(type_hash).unwrap_or(TypeHash::zero()),
             }),
-            qos: Default::default(),
+            qos: qos.map(|q| q.to_protocol_qos()).unwrap_or_default(),
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
         let key_expr: zenoh::key_expr::KeyExpr<'static> = (*topic_ke).clone();
 
-        let queue = Arc::new(crate::queue::BoundedQueue::new(256));
+        let depth = match entity.qos.history {
+            hiroz_protocol::qos::QosHistory::KeepLast(depth) => depth.max(1),
+            hiroz_protocol::qos::QosHistory::KeepAll => usize::MAX,
+        };
+        let queue = Arc::new(crate::queue::BoundedQueue::new(depth));
         let queue_clone = queue.clone();
         let handler = DataHandler::Queue(queue_clone);
 
@@ -815,109 +1017,134 @@ impl ZNode {
             _lv_token: lv_token,
             queue,
             map: std::collections::HashMap::new(),
+            _session: self.session.clone(),
         })
     }
 
-    /// Create a raw action client for FFI (no type safety).
-    /// Creates 3 service clients (SendGoal, GetResult, CancelGoal) + 1 feedback subscriber.
+    /// Create the five endpoints of a raw action client with independent QoS.
     #[cfg(feature = "ffi")]
     #[allow(clippy::too_many_arguments)]
-    pub fn create_raw_action_client(
+    pub fn create_raw_action_client<F>(
         &self,
-        action_name: &str,
+        name: &str,
         action_type: &str,
-        _goal_type: &str,
         goal_hash: &str,
-        _result_type: &str,
         result_hash: &str,
-        _feedback_type: &str,
+        cancel_hash: &str,
         feedback_hash: &str,
-    ) -> Result<crate::ffi::action::RawActionClient> {
-        let send_goal_service = format!("{}/_action/send_goal", action_name);
-        let get_result_service = format!("{}/_action/get_result", action_name);
-        let cancel_goal_service = format!("{}/_action/cancel_goal", action_name);
-        let feedback_topic = format!("{}/_action/feedback", action_name);
-
-        // Compute DDS-style type names required by rmw_zenoh_cpp's graph discovery.
-        // action_type is e.g. "example_interfaces/action/Fibonacci" → package="example_interfaces", name="Fibonacci"
+        status_hash: &str,
+        qos: Option<&crate::ffi::action::CActionQos>,
+        callback: F,
+    ) -> Result<crate::ffi::action::RawActionClient>
+    where
+        F: Fn(i32, &[u8]) + Send + Sync + 'static,
+    {
+        use crate::ffi::qos::CQosProfile;
         let (pkg, aname) = split_action_type(action_type);
-        let action_ns = format!("{pkg}::action");
-        let send_goal_type = dds_from_namespace(&action_ns, &format!("{aname}_SendGoal"));
-        let get_result_type = dds_from_namespace(&action_ns, &format!("{aname}_GetResult"));
-        let cancel_goal_type = dds_from_namespace("action_msgs::srv", "CancelGoal");
-        let feedback_type_dds =
-            dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
-
-        let send_goal_client =
-            self.create_raw_service_client(&send_goal_service, &send_goal_type, goal_hash)?;
-        let get_result_client =
-            self.create_raw_service_client(&get_result_service, &get_result_type, result_hash)?;
-        let cancel_goal_client =
-            self.create_raw_service_client(&cancel_goal_service, &cancel_goal_type, "")?;
-
-        // Feedback subscriber (no-op callback for now; Go handles via polling or separate mechanism)
-        let feedback_sub =
-            self.create_raw_subscriber(&feedback_topic, &feedback_type_dds, feedback_hash, |_| {})?;
-
+        let ns = format!("{pkg}::action");
+        let goal_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.goal) });
+        let result_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.result) });
+        let cancel_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.cancel) });
+        let feedback_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.feedback) });
+        let status_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.status) });
+        let callback = std::sync::Arc::new(callback);
+        let feedback_callback = callback.clone();
         Ok(crate::ffi::action::RawActionClient {
-            send_goal_client,
-            get_result_client,
-            cancel_goal_client,
-            _feedback_sub: feedback_sub,
+            send_goal_client: self.create_raw_service_client_with_qos(
+                &format!("{name}/_action/send_goal"),
+                &dds_from_namespace(&ns, &format!("{aname}_SendGoal")),
+                goal_hash,
+                goal_qos,
+            )?,
+            get_result_client: self.create_raw_service_client_with_qos(
+                &format!("{name}/_action/get_result"),
+                &dds_from_namespace(&ns, &format!("{aname}_GetResult")),
+                result_hash,
+                result_qos,
+            )?,
+            cancel_goal_client: self.create_raw_service_client_with_qos(
+                &format!("{name}/_action/cancel_goal"),
+                &dds_from_namespace("action_msgs::srv", "CancelGoal"),
+                cancel_hash,
+                cancel_qos,
+            )?,
+            _feedback_sub: self.create_raw_subscriber_impl(
+                &format!("{name}/_action/feedback"),
+                &dds_from_namespace(&ns, &format!("{aname}_FeedbackMessage")),
+                feedback_hash,
+                move |sample| feedback_callback(0, &sample.payload().to_bytes()),
+                feedback_qos,
+                zenoh::sample::Locality::Any,
+                crate::BufferGroup::Auto,
+                true,
+            )?,
+            _status_sub: self.create_raw_subscriber_impl(
+                &format!("{name}/_action/status"),
+                &dds_from_namespace("action_msgs::msg", "GoalStatusArray"),
+                status_hash,
+                move |sample| callback(1, &sample.payload().to_bytes()),
+                status_qos,
+                zenoh::sample::Locality::Any,
+                crate::BufferGroup::Off,
+                true,
+            )?,
         })
     }
 
-    /// Create a raw action server for FFI (no type safety).
-    /// Creates 3 service servers (SendGoal, GetResult, CancelGoal) + 2 publishers (Feedback, Status).
+    /// Create the five endpoints of a raw action server with independent QoS.
     #[cfg(feature = "ffi")]
     #[allow(clippy::too_many_arguments)]
     pub fn create_raw_action_server(
         &self,
-        action_name: &str,
+        name: &str,
         action_type: &str,
-        _goal_type: &str,
         goal_hash: &str,
-        _result_type: &str,
         result_hash: &str,
-        _feedback_type: &str,
+        cancel_hash: &str,
         feedback_hash: &str,
+        status_hash: &str,
+        qos: Option<&crate::ffi::action::CActionQos>,
     ) -> Result<crate::ffi::action::RawActionServer> {
-        let send_goal_service = format!("{}/_action/send_goal", action_name);
-        let get_result_service = format!("{}/_action/get_result", action_name);
-        let cancel_goal_service = format!("{}/_action/cancel_goal", action_name);
-        let feedback_topic = format!("{}/_action/feedback", action_name);
-        let status_topic = format!("{}/_action/status", action_name);
-
-        // Compute DDS-style type names required by rmw_zenoh_cpp's graph discovery.
-        // action_type is e.g. "example_interfaces/action/Fibonacci" → package="example_interfaces", name="Fibonacci"
+        use crate::ffi::qos::CQosProfile;
         let (pkg, aname) = split_action_type(action_type);
-        let action_ns = format!("{pkg}::action");
-        let send_goal_type = dds_from_namespace(&action_ns, &format!("{aname}_SendGoal"));
-        let get_result_type = dds_from_namespace(&action_ns, &format!("{aname}_GetResult"));
-        let cancel_goal_type = dds_from_namespace("action_msgs::srv", "CancelGoal");
-        let feedback_type_dds =
-            dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
-        let status_type_dds = dds_from_namespace("action_msgs::msg", "GoalStatusArray");
-
-        let send_goal_server =
-            self.create_raw_service_server(&send_goal_service, &send_goal_type, goal_hash)?;
-        let get_result_server =
-            self.create_raw_service_server(&get_result_service, &get_result_type, result_hash)?;
-        let cancel_goal_server =
-            self.create_raw_service_server(&cancel_goal_service, &cancel_goal_type, "")?;
-
-        let feedback_pub =
-            self.create_raw_publisher(&feedback_topic, &feedback_type_dds, feedback_hash)?;
-        let status_pub = self.create_raw_publisher(&status_topic, &status_type_dds, "")?;
-
+        let ns = format!("{pkg}::action");
+        let goal_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.goal) });
+        let result_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.result) });
+        let cancel_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.cancel) });
+        let feedback_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.feedback) });
+        let status_qos = qos.and_then(|q| unsafe { CQosProfile::to_qos_profile(&q.status) });
         Ok(crate::ffi::action::RawActionServer {
-            send_goal_server,
-            get_result_server,
-            cancel_goal_server,
-            feedback_pub,
-            _status_pub: status_pub,
-            pending_results: std::collections::HashMap::new(),
-            pending_result_queries: std::collections::HashMap::new(),
+            send_goal_server: self.create_raw_service_server_with_qos(
+                &format!("{name}/_action/send_goal"),
+                &dds_from_namespace(&ns, &format!("{aname}_SendGoal")),
+                goal_hash,
+                goal_qos,
+            )?,
+            get_result_server: self.create_raw_service_server_with_qos(
+                &format!("{name}/_action/get_result"),
+                &dds_from_namespace(&ns, &format!("{aname}_GetResult")),
+                result_hash,
+                result_qos,
+            )?,
+            cancel_goal_server: self.create_raw_service_server_with_qos(
+                &format!("{name}/_action/cancel_goal"),
+                &dds_from_namespace("action_msgs::srv", "CancelGoal"),
+                cancel_hash,
+                cancel_qos,
+            )?,
+            feedback_pub: self.create_raw_publisher_with_qos(
+                &format!("{name}/_action/feedback"),
+                &dds_from_namespace(&ns, &format!("{aname}_FeedbackMessage")),
+                feedback_hash,
+                feedback_qos,
+            )?,
+            status_pub: self.create_raw_publisher_with_qos(
+                &format!("{name}/_action/status"),
+                &dds_from_namespace("action_msgs::msg", "GoalStatusArray"),
+                status_hash,
+                status_qos,
+            )?,
+            goals: std::collections::HashMap::new(),
         })
     }
 
@@ -1163,8 +1390,8 @@ impl ZNode {
     /// * `request_type_name` / `response_type_name` — the `msg`-namespaced schema
     ///   names codegen registers, e.g. `example_interfaces/msg/AddTwoIntsRequest`
     ///   (not `/srv/`-namespaced).
-    /// * `timeout` — applied per phase (the graph wait, then each of the two
-    ///   `get_type_description` calls), so worst-case is `3 * timeout`.
+    /// * `timeout` — total budget shared by graph discovery, description-service
+    ///   route readiness, and both request/response schema queries.
     pub async fn discover_service_schema(
         &self,
         service_name: &str,
@@ -1172,6 +1399,7 @@ impl ZNode {
         response_type_name: &str,
         timeout: Duration,
     ) -> std::result::Result<(Arc<MessageSchema>, Arc<MessageSchema>), DynamicError> {
+        let deadline = tokio::time::Instant::now().checked_add(timeout);
         let qualified_service =
             crate::topic_name::qualify_service_name(service_name, self.namespace(), self.name())
                 .map_err(|error| {
@@ -1182,7 +1410,7 @@ impl ZNode {
         // wait (event-driven) for a service server that exposes a node identity —
         // we need a concrete node to query for the type description.
         self.graph
-            .wait_until(timeout, |g| {
+            .wait_until_deadline(deadline, |g| {
                 g.get_entities_by_service(EndpointKind::Service, &qualified_service)
                     .iter()
                     .any(|e| matches!(e.as_ref(), Entity::Endpoint(ep) if ep.node.is_some()))
@@ -1223,23 +1451,26 @@ impl ZNode {
             node_name: node.name.clone(),
             namespace: node.namespace.clone(),
             type_name: type_name.to_string(),
+            transport_type_name: type_name.to_string(),
             type_hash: String::new(),
         };
 
-        let (request_schema, _) = crate::dynamic::type_description_client::query_type_description(
-            self,
-            &candidate(request_type_name),
-            timeout,
-            false,
-        )
-        .await?;
-        let (response_schema, _) = crate::dynamic::type_description_client::query_type_description(
-            self,
-            &candidate(response_type_name),
-            timeout,
-            false,
-        )
-        .await?;
+        let request_candidate = candidate(request_type_name);
+        let response_candidate = candidate(response_type_name);
+        let ((request_schema, _), (response_schema, _)) = tokio::try_join!(
+            crate::dynamic::type_description_client::query_type_description(
+                self,
+                &request_candidate,
+                deadline,
+                false,
+            ),
+            crate::dynamic::type_description_client::query_type_description(
+                self,
+                &response_candidate,
+                deadline,
+                false,
+            ),
+        )?;
 
         Ok((request_schema, response_schema))
     }

@@ -104,7 +104,7 @@ codegen-bundled:
     cargo run -p hiroz-codegen --bin export_json -- \
         --assets crates/hiroz-codegen/assets/jazzy \
         --output _tmp/go-manifest.json \
-        --packages builtin_interfaces,service_msgs,std_msgs,example_interfaces
+        --packages builtin_interfaces,service_msgs,unique_identifier_msgs,action_msgs,std_msgs,geometry_msgs,example_interfaces
 
     # Step 2: Generate Go packages from the manifest
     cd "{{workspace_root}}/crates/hiroz-codegen-go"

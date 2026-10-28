@@ -5,8 +5,7 @@
 
 use std::sync::Arc;
 
-use super::error::DynamicError;
-use super::value::DynamicValue;
+use super::{error::DynamicError, value::DynamicValue};
 
 /// ROS 2 field types for dynamic messages.
 ///
@@ -19,6 +18,8 @@ pub enum FieldType {
     Int16,
     Int32,
     Int64,
+    /// ROS byte (octet): same CDR representation as uint8, distinct type identity.
+    Byte,
     Uint8,
     Uint16,
     Uint32,
@@ -46,7 +47,7 @@ impl FieldType {
     /// CDR size in bytes (None for variable-size types).
     pub fn fixed_size(&self) -> Option<usize> {
         match self {
-            FieldType::Bool | FieldType::Int8 | FieldType::Uint8 => Some(1),
+            FieldType::Bool | FieldType::Int8 | FieldType::Byte | FieldType::Uint8 => Some(1),
             FieldType::Int16 | FieldType::Uint16 => Some(2),
             FieldType::Int32 | FieldType::Uint32 | FieldType::Float32 => Some(4),
             FieldType::Int64 | FieldType::Uint64 | FieldType::Float64 => Some(8),
@@ -60,7 +61,7 @@ impl FieldType {
     /// CDR alignment requirement in bytes.
     pub fn alignment(&self) -> usize {
         match self {
-            FieldType::Bool | FieldType::Int8 | FieldType::Uint8 => 1,
+            FieldType::Bool | FieldType::Int8 | FieldType::Byte | FieldType::Uint8 => 1,
             FieldType::Int16 | FieldType::Uint16 => 2,
             FieldType::Int32 | FieldType::Uint32 | FieldType::Float32 => 4,
             FieldType::Int64 | FieldType::Uint64 | FieldType::Float64 => 8,
@@ -80,6 +81,7 @@ impl FieldType {
                 | FieldType::Int16
                 | FieldType::Int32
                 | FieldType::Int64
+                | FieldType::Byte
                 | FieldType::Uint8
                 | FieldType::Uint16
                 | FieldType::Uint32
@@ -99,6 +101,7 @@ impl FieldType {
                 | FieldType::Int16
                 | FieldType::Int32
                 | FieldType::Int64
+                | FieldType::Byte
                 | FieldType::Uint8
                 | FieldType::Uint16
                 | FieldType::Uint32
@@ -163,6 +166,30 @@ pub struct MessageSchema {
 }
 
 impl MessageSchema {
+    /// Whether the message has an unbounded `uint8[]` or `char[]` field, directly or in a nested
+    /// message. These are the fields that `rmw_zenoh_cpp` treats as buffers.
+    ///
+    /// The typed code generator maps ROS `byte`, `uint8` and `char` to `FieldType::Uint8`, so a
+    /// typed unbounded `byte[]` also counts. This over-approximation costs one extra join and loses
+    /// no data.
+    pub(crate) fn has_buffer_fields(&self) -> bool {
+        fn is_buffer_sequence(field_type: &FieldType) -> bool {
+            matches!(field_type, FieldType::Sequence(inner) if matches!(**inner, FieldType::Uint8))
+        }
+        fn nested_has_buffer(field_type: &FieldType) -> bool {
+            match field_type {
+                FieldType::Message(schema) => schema.has_buffer_fields(),
+                FieldType::Array(inner, _)
+                | FieldType::Sequence(inner)
+                | FieldType::BoundedSequence(inner, _) => nested_has_buffer(inner),
+                _ => false,
+            }
+        }
+        self.fields
+            .iter()
+            .any(|f| is_buffer_sequence(&f.field_type) || nested_has_buffer(&f.field_type))
+    }
+
     /// Get field by name.
     pub fn field(&self, name: &str) -> Option<&FieldSchema> {
         self.fields.iter().find(|f| f.name == name)
