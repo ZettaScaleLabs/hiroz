@@ -650,11 +650,20 @@ pub struct CServiceCall {
 
 impl CServiceCall {
     fn poll(&self, wait: Duration) -> Result<Option<Vec<u8>>, crate::error::Error> {
+        if self.deadline.is_some_and(|end| Instant::now() >= end) {
+            return Err(crate::error::Error::Timeout(self.timeout));
+        }
         let remaining = self
             .deadline
             .map(|end| end.saturating_duration_since(Instant::now()));
         let wait = remaining.map(|left| left.min(wait)).unwrap_or(wait);
-        match self.receiver.recv_timeout(wait) {
+        let response = self.receiver.recv_timeout(wait);
+        // A ready queue does not imply that the caller's deadline is still live.
+        // Include time spent descheduled before or during the receive.
+        if self.deadline.is_some_and(|end| Instant::now() >= end) {
+            return Err(crate::error::Error::Timeout(self.timeout));
+        }
+        match response {
             Ok(response) => response.map(Some),
             Err(flume::RecvTimeoutError::Disconnected) => {
                 Err(crate::error::Error::Timeout(self.timeout))

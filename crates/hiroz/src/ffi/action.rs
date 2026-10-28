@@ -840,10 +840,14 @@ pub unsafe extern "C" fn hiroz_action_server_create_with_options(
                                 canceling.push(goal.info.clone());
                             }
                         }
-                        let specific = request.goal_info.goal_id != GoalId::from_bytes([0; 16]);
+                        // rcl_action only reports unknown/terminal UUID errors
+                        // for UUID-only requests. Timestamp-bearing selections
+                        // may legitimately find no eligible goals.
+                        let uuid_only = request.goal_info.goal_id != GoalId::from_bytes([0; 16])
+                            && request.goal_info.stamp == Time::zero();
                         let return_code = if !canceling.is_empty() {
                             0
-                        } else if specific {
+                        } else if uuid_only {
                             match server.goals.get(request.goal_info.goal_id.as_bytes()) {
                                 None => 2,
                                 Some(goal) if goal.status.is_terminal() => 3,

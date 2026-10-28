@@ -728,3 +728,103 @@ func TestActionCanceledFeedbackWaitPreservesBufferedSample(t *testing.T) {
 		}
 	}
 }
+
+// The Go server must follow the same ROS UUID/time selection as native servers.
+// rcl_action treats an empty timestamp-bearing selection as a successful no-op;
+// unknown/terminal UUID errors apply only to a zero-timestamp UUID request.
+func TestActionLiveCancelTimestampSelectionAndEmptyMatches(t *testing.T) {
+	for mode, name := range []string{"all", "uuid", "cutoff", "uuid_plus_cutoff"} {
+		t.Run(name, func(t *testing.T) {
+			node := actionTestNode(t)
+			accepted := make(chan *ServerGoalHandle, 3)
+			server, err := node.CreateActionServer("timestamp_selection").BuildDeferred(
+				&fixtureAction{}, func([]byte) bool { return true },
+				func(h *ServerGoalHandle, _ []byte) { accepted <- h })
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Close()
+			client := actionTestClient(t, node, "timestamp_selection")
+			ctx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+			defer stop()
+			if err := client.WaitForServer(ctx); err != nil {
+				t.Fatal(err)
+			}
+			var goals []*GoalHandle
+			var handles []*ServerGoalHandle
+			for i := range 3 {
+				goal, err := client.SendGoalWithContext(ctx, &actionFixture{Code: uint16(i)})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer goal.Close()
+				goals = append(goals, goal)
+				select {
+				case handle := <-accepted:
+					if handle.GoalID() != goal.GoalID() {
+						t.Fatal("accepted wrong goal")
+					}
+					handles = append(handles, handle)
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+				if i > 0 && !goal.Info().Stamp.After(goals[i-1].Info().Stamp) {
+					t.Fatal("goal acceptance times must be ordered for cutoff regression")
+				}
+			}
+			var id GoalID
+			var cutoff time.Time
+			if mode%2 == 1 {
+				id = goals[2].GoalID()
+			}
+			if mode >= 2 {
+				cutoff = goals[0].Info().Stamp
+			}
+			want := map[GoalID]bool{}
+			for i, goal := range goals {
+				if mode == 0 || (mode%2 == 1 && i == 2) || (mode >= 2 && i == 0) {
+					want[goal.GoalID()] = true
+				}
+			}
+			response, err := client.CancelGoals(ctx, id, cutoff)
+			if err != nil || response.ReturnCode != CancelAccepted || len(response.GoalsCanceling) != len(want) {
+				t.Fatalf("selection: response=%+v err=%v want %d goals", response, err, len(want))
+			}
+			for _, info := range response.GoalsCanceling {
+				if !want[info.GoalID] {
+					t.Fatalf("canceled unrelated goal: %+v", info)
+				}
+				for _, goal := range goals {
+					if goal.GoalID() == info.GoalID && !goal.Info().Stamp.Equal(info.Stamp) {
+						t.Fatalf("changed acceptance time: got %v want %v", info.Stamp, goal.Info().Stamp)
+					}
+				}
+			}
+			for i, handle := range handles {
+				if handle.IsCancelRequested() != want[goals[i].GoalID()] {
+					t.Fatalf("wrong cancellation state for goal %d", i)
+				}
+			}
+			if handles[0].IsCancelRequested() {
+				err = handles[0].Canceled(&actionFixture{})
+			} else {
+				if err = handles[0].Execute(); err == nil {
+					err = handles[0].Succeed(&actionFixture{})
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The known UUID is now terminal; the other UUID is unknown. The
+			// nonzero cutoff predates every acceptance, so all three are empty
+			// timestamp selections rather than UUID-only errors.
+			before := goals[0].Info().Stamp.Add(-time.Nanosecond)
+			for _, id := range []GoalID{{}, {99}, goals[0].GoalID()} {
+				response, err := client.CancelGoals(ctx, id, before)
+				if err != nil || response.ReturnCode != CancelAccepted || len(response.GoalsCanceling) != 0 {
+					t.Fatalf("empty timestamp selection: response=%+v err=%v", response, err)
+				}
+			}
+		})
+	}
+}

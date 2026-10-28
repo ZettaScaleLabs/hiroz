@@ -57,7 +57,12 @@ and returns an error if the server rejected cancellation. `CancelAllGoals(ctx)`,
 `CancelGoalsBefore(ctx, timestamp)` and `CancelGoals(ctx, id, timestamp)` implement
 all ROS selection modes. A UUID-only cancellation always sends a zero timestamp,
 so it cannot select unrelated earlier goals. The native Rust client uses the same
-correct UUID-only policy.
+correct UUID-only policy. Native Rust servers, both automatic handlers and manual
+polling, use the same UUID/time selection rules and return the original acceptance
+timestamps. UUID-only requests distinguish unknown and retained terminal goals.
+Following [ROS rcl's cancellation processing](https://github.com/ros2/rcl/blob/rolling/rcl_action/src/rcl_action/action_server.c),
+an all-goal or timestamp-bearing request with no eligible goals returns success
+with an empty list. A policy rejecting every eligible goal returns REJECTED.
 
 ## Servers
 
@@ -184,3 +189,29 @@ local wait timeout, repeated retained-result retrieval and bounded shutdown.
 No installed ROS router, ROS messages, NUC or Balena deployment is required.
 This checks transport behavior with Go endpoints; ROS wire interoperability
 still requires the separate interop suite.
+
+## Reproduce native cancellation selection
+
+The native wire regression accepts three goals, then independently checks all four
+ROS cancellation selections: all goals, one UUID, acceptance-time cutoff, and the
+union of a UUID with a cutoff. It runs against automatic and manually polled Rust
+servers, checks an unrelated goal remains active, repeats each request, verifies
+original acceptance timestamps, and distinguishes unknown and terminal UUIDs:
+
+```bash
+cargo test --locked -p hiroz --test action action::cancellation
+```
+
+It uses real send-goal and cancel-goal service requests within an isolated local
+session. No ROS installation, router, or hardware is required. Before the fix,
+zero-UUID requests with a cutoff canceled later goals too; UUID-plus-cutoff requests
+missed earlier goals. The Go client APIs `CancelGoalsBefore` and `CancelGoals` use
+these same wire requests when communicating with native Rust servers.
+
+The Go-server counterpart also checks empty timestamp selections with zero,
+unknown and terminal UUIDs. After building the matching native library as above:
+
+```bash
+(cd crates/hiroz-go && go test -race -count=1 ./hiroz \
+  -run '^TestActionLiveCancelTimestampSelectionAndEmptyMatches$')
+```
