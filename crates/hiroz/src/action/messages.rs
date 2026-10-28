@@ -9,8 +9,9 @@ use super::{GoalId, GoalInfo, GoalStatus, ZAction};
 
 /// Request to cancel one or more goals.
 ///
-/// Used to request cancellation of specific goals or all goals.
-/// A zero UUID in `goal_info.goal_id` cancels all goals.
+/// With a zero timestamp, a zero UUID selects all active goals and a nonzero
+/// UUID selects that goal alone. A nonzero timestamp additionally selects goals
+/// accepted at or before that time, whether or not a UUID is supplied.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CancelGoalRequest {
     /// Information about the goal(s) to cancel.

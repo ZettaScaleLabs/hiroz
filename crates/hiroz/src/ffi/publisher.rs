@@ -1,11 +1,17 @@
-use super::node::{CNode, get_node_ref};
-use super::qos::CQosProfile;
-use super::{ErrorCode, cstr_to_str};
-use crate::attachment::{Attachment, GidArray};
-use std::ffi::c_char;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    ffi::c_char,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
 use zenoh::Wait;
 use zenoh_ext::AdvancedPublisher;
+
+use super::{
+    ErrorCode, cstr_to_str,
+    node::{CNode, get_node_ref},
+    qos::CQosProfile,
+};
+use crate::attachment::{Attachment, GidArray};
 
 /// Raw publisher for FFI (no type parameters)
 pub struct RawPublisher {
@@ -15,6 +21,9 @@ pub struct RawPublisher {
     /// Liveliness token — kept alive so that rmw_zenoh_cpp subscribers can
     /// discover this publisher via Zenoh liveliness.
     pub(crate) _lv_token: zenoh::liveliness::LivelinessToken,
+    // Drop the publisher/cache queryable and liveliness token before the runtime.
+    // Fields drop in declaration order; this guard must remain last.
+    _session: std::sync::Arc<zenoh::Session>,
 }
 
 impl RawPublisher {
@@ -22,12 +31,14 @@ impl RawPublisher {
         publisher: AdvancedPublisher<'static>,
         gid: GidArray,
         lv_token: zenoh::liveliness::LivelinessToken,
+        session: std::sync::Arc<zenoh::Session>,
     ) -> Self {
         Self {
             inner: publisher,
             sn: AtomicUsize::new(0),
             gid,
             _lv_token: lv_token,
+            _session: session,
         }
     }
 

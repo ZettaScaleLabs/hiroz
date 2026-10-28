@@ -1,5 +1,6 @@
 package hiroz
 
+import "sync"
 
 // TypedMessageHandler is a callback for strongly-typed messages
 type TypedMessageHandler[T Message] func(msg T)
@@ -14,26 +15,17 @@ type TypedMessageHandler[T Message] func(msg T)
 //	        log.Printf("Received: %s", msg.Data)
 //	    })
 func BuildWithTypedCallback[T Message](builder *SubscriberBuilder, handler TypedMessageHandler[T]) (*Subscriber, error) {
-	// Create a zero-value instance for type information
-	var msgTemplate T
-
-	// Wrap the typed handler with deserialization
-	rawHandler := func(data []byte) {
-		// Create a new instance of the message type
-		var msg T
-		if err := msg.DeserializeCDR(data); err != nil {
-			// Silently drop malformed messages
-			return
-		}
-		handler(msg)
+	rawHandler, template, err := typedMessageCallback(handler)
+	if err != nil {
+		return nil, err
 	}
-
-	return builder.BuildWithCallback(msgTemplate, rawHandler)
+	return builder.BuildWithCallback(template, rawHandler)
 }
 
 // SubscriberWithChannel creates a subscriber that delivers to a channel with automatic deserialization.
 // Returns the subscriber, a receive channel, and a cleanup function.
-// Call the cleanup function to close the channel when done.
+// Closing the subscriber also closes the channel. Cleanup may be called repeatedly
+// or concurrently with delivery; it unblocks pending sends.
 //
 // Example:
 //
@@ -46,47 +38,13 @@ func BuildWithTypedCallback[T Message](builder *SubscriberBuilder, handler Typed
 //	    log.Printf("Received: %s", msg.Data)
 //	}
 func SubscriberWithChannel[T Message](builder *SubscriberBuilder, bufferSize int) (*Subscriber, <-chan T, func(), error) {
-	var msgTemplate T
-
-	// Create output channel and a done channel used to signal teardown.
-	// The done channel eliminates the TOCTOU window that existed with the
-	// old atomic.Bool guard: between Load()→false and the channel send,
-	// cleanup() could close outCh causing a panic. The select below races
-	// the send against <-done so the callback exits cleanly after cleanup.
-	outCh := make(chan T, bufferSize)
-	done := make(chan struct{})
-
-	rawHandler := func(data []byte) {
-		var msg T
-		if err := msg.DeserializeCDR(data); err != nil {
-			return // drop malformed messages
-		}
-		select {
-		case outCh <- msg:
-		case <-done:
-		}
-	}
-
-	sub, err := builder.BuildWithCallback(msgTemplate, rawHandler)
-	if err != nil {
-		close(done)
-		close(outCh)
-		return nil, nil, nil, err
-	}
-
-	// cleanup closes done first (unblocks any in-flight send), then outCh
-	// (signals range-loop consumers that the stream is finished).
-	cleanup := func() {
-		close(done)
-		close(outCh)
-	}
-
-	return sub, outCh, cleanup, nil
+	return SubscriberWithHandler(builder, NewFifoChannel[T](bufferSize))
 }
 
 // SubscriberWithHandler integrates the Handler interface directly with the Subscriber.
 // Returns the subscriber, receive channel, and a cleanup function.
-// Call cleanup when done to close the handler.
+// Closing the subscriber also runs cleanup. Cleanup is idempotent. Custom handlers
+// must allow their drop function to run concurrently with callbacks.
 //
 // Example:
 //
@@ -100,26 +58,22 @@ func SubscriberWithChannel[T Message](builder *SubscriberBuilder, bufferSize int
 //	    log.Printf("Received: %s", msg.Data)
 //	}
 func SubscriberWithHandler[T Message](builder *SubscriberBuilder, handler Handler[T]) (*Subscriber, <-chan T, func(), error) {
-	var msgTemplate T
-
 	callback, drop, ch := handler.ToCbDropHandler()
-
-	// Wrap callback with deserialization
-	rawCallback := func(data []byte) {
-		var msg T
-		if err := msg.DeserializeCDR(data); err != nil {
-			return
-		}
-		callback(msg)
-	}
-
-	sub, err := builder.BuildWithCallback(msgTemplate, rawCallback)
-	if err != nil {
+	// Make cleanup idempotent even for a custom Handler.
+	cleanup := sync.OnceFunc(func() {
 		if drop != nil {
 			drop()
 		}
+	})
+	rawCallback, template, err := typedMessageCallback[T](callback)
+	if err != nil {
+		cleanup()
 		return nil, nil, nil, err
 	}
-
-	return sub, ch, drop, nil
+	sub, err := builder.buildWithCallback(template, rawCallback, cleanup)
+	if err != nil {
+		cleanup()
+		return nil, nil, nil, err
+	}
+	return sub, ch, cleanup, nil
 }

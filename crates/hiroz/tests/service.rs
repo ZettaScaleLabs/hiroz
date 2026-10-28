@@ -6,6 +6,7 @@ use hiroz::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use zenoh::Wait;
 
 // Simple test service request
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -329,7 +330,7 @@ fn test_try_take_request_non_blocking() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_call_with_timeout_expires() {
+async fn absent_service_waits_for_route_until_deadline() {
     let ctx = ZContextBuilder::default()
         .disable_multicast_scouting()
         .with_json("connect/endpoints", json!([]))
@@ -348,7 +349,110 @@ async fn test_call_with_timeout_expires() {
             Duration::from_millis(200),
         )
         .await;
-    assert!(result.is_err(), "expected error when no server is present");
+    let error = result.expect_err("expected error when no server is present");
+    // This fork waits for a queryable route before dispatch, under the caller's
+    // original deadline. No completed query exists to classify as NoServiceReply.
+    assert!(hiroz::error::is_timeout(&*error));
+    assert!(!hiroz::error::is_no_service_reply(&*error));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn completed_query_without_response_preserves_no_reply_error() {
+    let ctx = ZContextBuilder::default()
+        .disable_multicast_scouting()
+        .with_json("connect/endpoints", json!([]))
+        .build()
+        .unwrap();
+    let node = ctx.create_node("no_reply_node").build().unwrap();
+    let requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = requests.clone();
+    let _server = node
+        .create_service::<AddTwoInts>("no_reply")
+        .build_with_callback(move |query| {
+            seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            drop(query); // Sends QueryFinal without a response.
+        })
+        .unwrap();
+    let client = node
+        .create_client::<AddTwoInts>("no_reply")
+        .build()
+        .unwrap();
+    let error = client
+        .call_with_timeout(&AddTwoIntsRequest { a: 1, b: 2 }, Duration::from_secs(2))
+        .await
+        .expect_err("a completed query without a response must fail");
+    assert!(hiroz::error::is_no_service_reply(&*error), "{error}");
+    assert!(!hiroz::error::is_timeout(&*error), "{error}");
+    assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_service_refusal_preserves_the_reply_error() {
+    let ctx = ZContextBuilder::default()
+        .disable_multicast_scouting()
+        .with_json("connect/endpoints", json!([]))
+        .build()
+        .unwrap();
+    let node = ctx.create_node("refusal_node").build().unwrap();
+    let _server = node
+        .create_service::<AddTwoInts>("refusal")
+        .build_with_callback(|query| {
+            query
+                .reply_err("capacity exhausted")
+                .wait()
+                .expect("failed to send refusal");
+        })
+        .unwrap();
+    let client = node.create_client::<AddTwoInts>("refusal").build().unwrap();
+
+    let error = client
+        .call_with_timeout(&AddTwoIntsRequest { a: 1, b: 2 }, Duration::from_secs(2))
+        .await
+        .expect_err("refusal unexpectedly succeeded");
+
+    assert!(!hiroz::error::is_timeout(&*error));
+    let refusal = error
+        .downcast_ref::<zenoh::query::ReplyError>()
+        .expect("service refusal must retain Zenoh reply details");
+    assert_eq!(refusal.payload().to_bytes().as_ref(), b"capacity exhausted");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pending_service_request_reports_the_outer_deadline() {
+    let ctx = ZContextBuilder::default()
+        .disable_multicast_scouting()
+        .with_json("connect/endpoints", json!([]))
+        .build()
+        .unwrap();
+    let node = ctx.create_node("pending_service_node").build().unwrap();
+    let mut server = node
+        .create_service::<AddTwoInts>("pending_service")
+        .build()
+        .unwrap();
+    let client = node
+        .create_client::<AddTwoInts>("pending_service")
+        .build()
+        .unwrap();
+
+    let (received_tx, received_rx) = tokio::sync::oneshot::channel();
+    let pending = tokio::spawn(async move {
+        let request = server.async_take_request().await.unwrap();
+        received_tx.send(()).unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        drop(request);
+    });
+    let error = client
+        .call_with_timeout(&AddTwoIntsRequest { a: 1, b: 2 }, Duration::from_millis(50))
+        .await
+        .expect_err("pending request unexpectedly succeeded");
+
+    assert!(hiroz::error::is_timeout(&*error));
+    assert!(!hiroz::error::is_no_service_reply(&*error));
+    tokio::time::timeout(Duration::from_secs(1), received_rx)
+        .await
+        .expect("server did not receive the timed-out request")
+        .expect("request receiver closed before confirming receipt");
+    pending.abort();
 }
 
 #[test]
