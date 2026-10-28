@@ -401,36 +401,40 @@ func TestActionLiveResultBeyondOldTransportDeadline(t *testing.T) {
 }
 
 func TestActionLiveGoalTimeoutAndMetadata(t *testing.T) {
-	node := actionTestNode(t)
-	accepted := make(chan *ServerGoalHandle, 1)
-	ids := make(chan GoalID, 1)
-	server, err := node.CreateActionServer("goal_expiration").WithGoalTimeout(100*time.Millisecond).WithGoalCallback(func(id GoalID, _ []byte) bool { ids <- id; return true }).BuildDeferred(&fixtureAction{}, nil, func(h *ServerGoalHandle, _ []byte) { accepted <- h })
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer server.Close()
-	client := actionTestClient(t, node, "goal_expiration")
-	wait, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := server.WaitForFeedbackSubscriber(wait); err != nil {
-		t.Fatal(err)
-	}
-	goal, err := client.SendGoal(&actionFixture{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer goal.Close()
-	serverGoal := <-accepted
-	info, err := serverGoal.Info()
-	if err != nil || info.GoalID != goal.GoalID() || info.Stamp.IsZero() {
-		t.Fatalf("metadata=%+v %v", info, err)
-	}
-	if id := <-ids; id != goal.GoalID() {
-		t.Fatal("goal callback received wrong UUID")
-	}
-	status, _ := resultWithDeadline(t, goal)
-	if status != GoalStatusAborted {
-		t.Fatalf("goal expiration status=%v", status)
+	for _, timeout := range []time.Duration{100 * time.Millisecond, 500 * time.Microsecond, time.Nanosecond} {
+		t.Run(timeout.String(), func(t *testing.T) {
+			node := actionTestNode(t)
+			accepted := make(chan *ServerGoalHandle, 1)
+			ids := make(chan GoalID, 1)
+			server, err := node.CreateActionServer("goal_expiration").WithGoalTimeout(timeout).WithGoalCallback(func(id GoalID, _ []byte) bool { ids <- id; return true }).BuildDeferred(&fixtureAction{}, nil, func(h *ServerGoalHandle, _ []byte) { accepted <- h })
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Close()
+			client := actionTestClient(t, node, "goal_expiration")
+			wait, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if err := server.WaitForFeedbackSubscriber(wait); err != nil {
+				t.Fatal(err)
+			}
+			goal, err := client.SendGoal(&actionFixture{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer goal.Close()
+			serverGoal := <-accepted
+			info, err := serverGoal.Info()
+			if err != nil || info.GoalID != goal.GoalID() || info.Stamp.IsZero() {
+				t.Fatalf("metadata=%+v %v", info, err)
+			}
+			if id := <-ids; id != goal.GoalID() {
+				t.Fatal("goal callback received wrong UUID")
+			}
+			status, _ := resultWithDeadline(t, goal)
+			if status != GoalStatusAborted {
+				t.Fatalf("goal expiration status=%v", status)
+			}
+		})
 	}
 }
 

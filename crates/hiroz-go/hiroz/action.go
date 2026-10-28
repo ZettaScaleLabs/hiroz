@@ -305,12 +305,14 @@ func (b *ActionClientBuilder) WithResultTimeout(timeout time.Duration) *ActionCl
 }
 
 // WithResultTimeout controls how long completed results remain retrievable.
+// Positive durations are rounded up to whole milliseconds.
 func (b *ActionServerBuilder) WithResultTimeout(timeout time.Duration) *ActionServerBuilder {
 	b.resultTimeout = timeout
 	return b
 }
 
 // WithGoalTimeout aborts unfinished goals after the configured lifetime. Zero disables it.
+// Positive durations are rounded up to whole milliseconds.
 func (b *ActionServerBuilder) WithGoalTimeout(timeout time.Duration) *ActionServerBuilder {
 	b.goalTimeout = timeout
 	return b
@@ -887,7 +889,7 @@ func (b *ActionServerBuilder) build(action Action, goalCallback func([]byte) boo
 		qos = *b.qos
 	}
 	cqos := qos.toC()
-	handle := C.hiroz_action_server_create_with_options(node, strings[0], strings[1], strings[2], strings[3], strings[4], strings[5], strings[6], &cqos, C.getActionGoalCallback(), C.getActionExecuteCallback(), C.getActionCancelCallback(), C.uintptr_t(closure.selfHandle), (*C.uint8_t)(unsafe.Pointer(&defaultResult[0])), C.size_t(len(defaultResult)), C.uint64_t(b.resultTimeout/time.Millisecond), C.uint64_t(b.goalTimeout/time.Millisecond))
+	handle := C.hiroz_action_server_create_with_options(node, strings[0], strings[1], strings[2], strings[3], strings[4], strings[5], strings[6], &cqos, C.getActionGoalCallback(), C.getActionExecuteCallback(), C.getActionCancelCallback(), C.uintptr_t(closure.selfHandle), (*C.uint8_t)(unsafe.Pointer(&defaultResult[0])), C.size_t(len(defaultResult)), C.uint64_t(durationMillis(b.resultTimeout)), C.uint64_t(durationMillis(b.goalTimeout)))
 	if handle == nil {
 		cancel()
 		close(closure.ready)
