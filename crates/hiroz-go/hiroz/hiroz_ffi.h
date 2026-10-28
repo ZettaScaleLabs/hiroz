@@ -79,6 +79,11 @@ typedef struct hiroz_CActionRequest hiroz_CActionRequest;
 typedef struct hiroz_action_server_t hiroz_action_server_t;
 
 /**
+ * Opaque publisher handle for FFI
+ */
+typedef struct hiroz_publisher_t hiroz_publisher_t;
+
+/**
  * An independent in-flight query. Destroying it cancels the transport query.
  * The creating client may be destroyed once this handle has been returned.
  */
@@ -107,11 +112,6 @@ typedef struct hiroz_subscriber_t hiroz_subscriber_t;
  * Use [`QosDuration::INFINITE`] (the default) to disable a QoS time constraint.
  */
 typedef struct hiroz_QosDuration hiroz_QosDuration;
-
-/**
- * Raw publisher for FFI (no type parameters)
- */
-typedef struct hiroz_RawPublisher hiroz_RawPublisher;
 
 /**
  * Raw service client for FFI (no type parameters)
@@ -312,13 +312,6 @@ typedef struct hiroz_node_config_t {
 } hiroz_node_config_t;
 
 /**
- * Opaque publisher handle for FFI
- */
-typedef struct hiroz_publisher_t {
-  struct hiroz_RawPublisher *inner;
-} hiroz_publisher_t;
-
-/**
  * Opaque service client handle for FFI
  */
 typedef struct hiroz_service_client_t {
@@ -370,9 +363,35 @@ typedef void (*hiroz_MessageCallback)(uintptr_t user_data, const uint8_t *data, 
 typedef void (*hiroz_SubscriberDropCallback)(uintptr_t user_data);
 
 /**
+ * Publisher transport options. shm_mode: 0=inherit, 1=disabled, 2=private pool.
+ */
+typedef struct hiroz_CPublisherOptions {
+  const char *encoding;
+  int32_t shm_mode;
+  uintptr_t shm_pool_bytes;
+  uintptr_t shm_threshold;
+} hiroz_CPublisherOptions;
+
+/**
+ * Sample delivery includes the raw payload/attachment and JSON metadata. All
+ * pointers are borrowed until the callback returns; copy before retaining them.
+ */
+typedef void (*hiroz_SampleCallback)(uintptr_t,
+                                     const uint8_t*,
+                                     uintptr_t,
+                                     const uint8_t*,
+                                     uintptr_t,
+                                     const char*);
+
+/**
  * CDR encapsulation header for little-endian encoding.
  */
 #define hiroz_CDR_HEADER_LE { 0, 1, 0, 0, }
+
+/**
+ * CDR encapsulation header for big-endian encoding.
+ */
+#define hiroz_CDR_HEADER_BE { 0, 0, 0, 0, }
 
 
 
@@ -711,6 +730,58 @@ struct hiroz_context_t *hiroz_context_create_with_config(const struct hiroz_cont
  * `hiroz_context_create_with_config`, or null.
  */
 int32_t hiroz_context_destroy(struct hiroz_context_t *ctx);
+
+/**
+ * Validate a ROS TypeDescription and return normalized description and RIHS hash.
+ * # Safety
+ * description is a valid C string; free result with hiroz_json_destroy.
+ */
+char *hiroz_schema_validate(const char *description);
+
+/**
+ * Register a schema in the node's type description service and process registry.
+ * Returns an error if the node was built without that service.
+ * # Safety
+ * Node and description must be valid.
+ */
+int32_t hiroz_node_register_schema(struct hiroz_node_t *node, const char *description);
+
+/**
+ * Discover topic or service schemas. Empty request_type selects a topic;
+ * otherwise request_type and response_type are ROS schema names.
+ * Timeout covers the entire discovery, including all type description calls.
+ * # Safety
+ * Node and C strings must remain live. Free result with hiroz_json_destroy.
+ */
+char *hiroz_node_discover_schema(struct hiroz_node_t *node,
+                                 const char *name,
+                                 const char *request_type,
+                                 const char *response_type,
+                                 uint64_t timeout_ms);
+
+/**
+ * Encode a JSON message using the supplied ROS TypeDescription and native CDR codec.
+ * # Safety
+ * Strings/out pointers must be valid. Free bytes with hiroz_free_bytes.
+ */
+int32_t hiroz_dynamic_encode(const char *description,
+                             const char *values,
+                             uint8_t **out,
+                             uintptr_t *out_len);
+
+/**
+ * Decode CDR to a JSON object with exact integer numbers.
+ * # Safety
+ * Description and data must be valid; free result with hiroz_json_destroy.
+ */
+char *hiroz_dynamic_decode(const char *description, const uint8_t *data, uintptr_t len);
+
+/**
+ * Return whether schema service registration is available on a node.
+ * # Safety
+ * Node must be valid or null.
+ */
+bool hiroz_node_has_type_description_service(struct hiroz_node_t *node);
 
 /**
  * Get all topic names and types
@@ -1237,6 +1308,93 @@ struct hiroz_subscriber_t *hiroz_subscriber_create_owned(struct hiroz_node_t *no
  * `sub` must be a valid subscriber pointer or null.
  */
 int32_t hiroz_subscriber_destroy(struct hiroz_subscriber_t *sub);
+
+/**
+ * Free a JSON string returned by the topic, dynamic, or graph inspection API.
+ * # Safety
+ * `value` must be null or a string returned by one of those functions, once only.
+ */
+void hiroz_json_destroy(char *value);
+
+/**
+ * Inspect endpoints. Empty node name queries by fully qualified topic/service;
+ * nonempty node name queries by node (namespace `/` is normalized).
+ * # Safety
+ * All pointers must be live; name, node_name and namespace are C strings.
+ */
+char *hiroz_graph_endpoints_json(struct hiroz_context_t *ctx,
+                                 int32_t endpoint_kind,
+                                 const char *name,
+                                 const char *node_name,
+                                 const char *namespace_);
+
+/**
+ * Action and node discovery. kind: 0=all actions, 1=action clients by node,
+ * 2=action servers by node, 3=nodes including enclave.
+ * # Safety
+ * Pointers must remain valid for the call.
+ */
+char *hiroz_graph_details_json(struct hiroz_context_t *ctx,
+                               int32_t kind,
+                               const char *node_name,
+                               const char *namespace_);
+
+/**
+ * Create a publisher with transport options.
+ * # Safety
+ * Node and strings must be valid; qos and options may be null.
+ */
+struct hiroz_publisher_t *hiroz_publisher_create_with_options(struct hiroz_node_t *node,
+                                                              const char *topic,
+                                                              const char *type_name,
+                                                              const char *type_hash,
+                                                              const struct hiroz_qos_profile_t *qos,
+                                                              const struct hiroz_CPublisherOptions *options);
+
+/**
+ * Publish serialized data with optional attachment, encoding, and Zenoh timestamp.
+ * A null attachment generates normal ROS sequence/source identity metadata; a
+ * nonnull attachment (including an empty one) is preserved exactly.
+ * # Safety
+ * The publisher, strings, data and optional attachment must be live for the call.
+ */
+int32_t hiroz_publisher_publish_sample(struct hiroz_publisher_t *publisher,
+                                       const uint8_t *data,
+                                       uintptr_t len,
+                                       const uint8_t *attachment,
+                                       uintptr_t attachment_len,
+                                       const char *encoding,
+                                       const char *timestamp);
+
+/**
+ * Inspect publisher metadata and currently discovered subscriptions.
+ * # Safety
+ * Publisher must be live.
+ */
+char *hiroz_publisher_info_json(struct hiroz_publisher_t *publisher);
+
+/**
+ * Subscribe with sample metadata and locality (0=any, 1=session local, 2=remote).
+ * Foreign callback ownership is transferred even when creation fails.
+ * # Safety
+ * Node, strings and callbacks must be valid; qos may be null.
+ */
+struct hiroz_subscriber_t *hiroz_subscriber_create_samples(struct hiroz_node_t *node,
+                                                           const char *topic,
+                                                           const char *type_name,
+                                                           const char *type_hash,
+                                                           hiroz_SampleCallback callback,
+                                                           uintptr_t user_data,
+                                                           const struct hiroz_qos_profile_t *qos,
+                                                           int32_t locality,
+                                                           hiroz_SubscriberDropCallback drop_callback);
+
+/**
+ * Inspect subscriber metadata and currently discovered publishers.
+ * # Safety
+ * Subscriber must be live.
+ */
+char *hiroz_subscriber_info_json(struct hiroz_subscriber_t *subscriber);
 
 #ifdef __cplusplus
 }  // extern "C"

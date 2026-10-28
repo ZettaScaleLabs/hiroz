@@ -77,6 +77,8 @@ pub struct RawSubscriber {
     pub(crate) token: Option<zenoh::liveliness::LivelinessToken>,
     pub(crate) inner: SubscriberTransport,
     pub(crate) group: Option<zenoh::pubsub::Subscriber<()>>,
+    pub(crate) entity: crate::entity::EndpointEntity,
+    pub(crate) graph: Arc<crate::graph::Graph>,
     // Keep weak transport references usable until all endpoint fields drop.
     pub(crate) _session: Arc<zenoh::Session>,
 }
@@ -90,6 +92,8 @@ impl RawSubscriber {
             token,
             inner,
             group,
+            entity: _,
+            graph: _graph,
             _session,
         } = self;
         let token_result = token.map_or(Ok(()), |t| t.undeclare().wait());
@@ -106,7 +110,6 @@ impl RawSubscriber {
 
 /// Opaque subscriber handle for FFI
 pub struct CSubscriber {
-    #[allow(dead_code)] // Owns the native subscription until teardown.
     pub(crate) inner: Box<RawSubscriber>,
     pub(crate) callbacks: Arc<SubscriberCallbackLifetime>,
 }

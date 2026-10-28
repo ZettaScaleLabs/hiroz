@@ -26,9 +26,12 @@ type Publisher struct {
 
 // PublisherBuilder builds a Publisher
 type PublisherBuilder struct {
-	node  *Node
-	topic string
-	qos   *QosProfile
+	node                  *Node
+	topic                 string
+	qos                   *QosProfile
+	encoding              string
+	shmMode               int32
+	shmPool, shmThreshold uint64
 }
 
 // WithQoS sets the QoS profile for the publisher
@@ -44,6 +47,9 @@ func (b *PublisherBuilder) Build(msg Message) (*Publisher, error) {
 		return nil, err
 	}
 	defer release()
+	if msg == nil {
+		return nil, fmt.Errorf("message is nil")
+	}
 	topicC := C.CString(b.topic)
 	defer C.free(unsafe.Pointer(topicC))
 
@@ -53,13 +59,18 @@ func (b *PublisherBuilder) Build(msg Message) (*Publisher, error) {
 	typeHashC := C.CString(msg.TypeHash())
 	defer C.free(unsafe.Pointer(typeHashC))
 
-	var handle *C.hiroz_publisher_t
-	if b.qos != nil {
-		cQos := b.qos.toCQos()
-		handle = C.hiroz_publisher_create_with_qos(node, topicC, typeNameC, typeHashC, &cQos)
-	} else {
-		handle = C.hiroz_publisher_create(node, topicC, typeNameC, typeHashC)
+	if err := b.node.registerMessageSchema(msg); err != nil {
+		return nil, err
 	}
+	var qos *C.hiroz_qos_profile_t
+	if b.qos != nil {
+		value := b.qos.toCQos()
+		qos = &value
+	}
+	encoding := C.CString(b.encoding)
+	defer C.free(unsafe.Pointer(encoding))
+	options := C.hiroz_CPublisherOptions{encoding: encoding, shm_mode: C.int32_t(b.shmMode), shm_pool_bytes: C.uintptr_t(b.shmPool), shm_threshold: C.uintptr_t(b.shmThreshold)}
+	handle := C.hiroz_publisher_create_with_options(node, topicC, typeNameC, typeHashC, qos, &options)
 
 	if handle == nil {
 		return nil, fmt.Errorf("%w: publisher for %s", ErrBuildFailed, b.topic)

@@ -16,6 +16,10 @@ use crate::attachment::{Attachment, GidArray};
 /// Raw publisher for FFI (no type parameters)
 pub struct RawPublisher {
     pub inner: AdvancedPublisher<'static>,
+    pub(crate) entity: crate::entity::EndpointEntity,
+    pub(crate) graph: std::sync::Arc<crate::graph::Graph>,
+    pub(crate) encoding: Option<zenoh::bytes::Encoding>,
+    pub(crate) shm: Option<std::sync::Arc<crate::shm::ShmConfig>>,
     sn: AtomicUsize,
     gid: GidArray,
     /// Liveliness token — kept alive so that rmw_zenoh_cpp subscribers can
@@ -27,14 +31,24 @@ pub struct RawPublisher {
 }
 
 impl RawPublisher {
+    // Each argument is an independently owned resource retained by the handle.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         publisher: AdvancedPublisher<'static>,
         gid: GidArray,
         lv_token: zenoh::liveliness::LivelinessToken,
+        entity: crate::entity::EndpointEntity,
+        graph: std::sync::Arc<crate::graph::Graph>,
+        encoding: Option<zenoh::bytes::Encoding>,
+        shm: Option<std::sync::Arc<crate::shm::ShmConfig>>,
         session: std::sync::Arc<zenoh::Session>,
     ) -> Self {
         Self {
             inner: publisher,
+            entity,
+            graph,
+            encoding,
+            shm,
             sn: AtomicUsize::new(0),
             gid,
             _lv_token: lv_token,
@@ -42,23 +56,49 @@ impl RawPublisher {
         }
     }
 
-    fn new_attachment(&self) -> Attachment {
+    pub(crate) fn new_attachment(&self) -> Attachment {
         Attachment::new(self.sn.fetch_add(1, Ordering::AcqRel) as _, self.gid)
     }
 
     pub fn publish_bytes(&self, data: &[u8]) -> Result<(), zenoh::Error> {
-        self.inner
-            .put(data)
-            .attachment(self.new_attachment())
-            .wait()?;
-        Ok(())
+        self.publish_sample(data, None, None, None)
+    }
+
+    pub(crate) fn publish_sample(
+        &self,
+        data: &[u8],
+        attachment: Option<zenoh::bytes::ZBytes>,
+        encoding: Option<zenoh::bytes::Encoding>,
+        timestamp: Option<zenoh::time::Timestamp>,
+    ) -> zenoh::Result<()> {
+        let mut payload = zenoh::bytes::ZBytes::from(data.to_vec());
+        if let Some(config) = &self.shm
+            && !data.is_empty()
+            && data.len() >= config.threshold()
+        {
+            // Nonblocking allocation: exhausted pools fall back to ordinary memory.
+            if let Ok(mut buffer) = config.provider().alloc(data.len()).wait() {
+                buffer.copy_from_slice(data);
+                payload = buffer.into();
+            }
+        }
+        let mut put = self
+            .inner
+            .put(payload)
+            .attachment(attachment.unwrap_or_else(|| self.new_attachment().into()));
+        if let Some(encoding) = encoding.or_else(|| self.encoding.clone()) {
+            put = put.encoding(encoding);
+        }
+        if let Some(timestamp) = timestamp {
+            put = put.timestamp(timestamp);
+        }
+        put.wait()
     }
 }
 
 /// Opaque publisher handle for FFI
-#[repr(C)]
 pub struct CPublisher {
-    inner: Box<RawPublisher>,
+    pub(crate) inner: Box<RawPublisher>,
 }
 
 /// Create a publisher (default QoS)

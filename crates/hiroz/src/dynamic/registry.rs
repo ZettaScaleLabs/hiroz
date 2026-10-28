@@ -3,8 +3,10 @@
 //! Provides a global cache of message schemas with lazy initialization
 //! and pre-registration of bundled schemas.
 
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock, RwLock},
+};
 
 #[cfg(feature = "dynamic-schema-loader")]
 use super::error::DynamicError;
@@ -158,7 +160,8 @@ fn convert_base_type(
     // Check if it's a primitive type
     match base_type {
         "bool" => return Ok(FieldType::Bool),
-        "int8" | "byte" => return Ok(FieldType::Int8),
+        "byte" => return Ok(FieldType::Byte),
+        "int8" => return Ok(FieldType::Int8),
         "int16" => return Ok(FieldType::Int16),
         "int32" => return Ok(FieldType::Int32),
         "int64" => return Ok(FieldType::Int64),
