@@ -85,3 +85,19 @@ duration validation, and a reply received after eleven seconds. They use a
 local Zenoh session with multicast and listening endpoints disabled; no router
 or ROS installation is required. `go test -short` skips only the eleven-second
 regression test.
+
+## Reproduce a delayed foreign poller
+
+The native service-call handle must reject a successful response if the caller
+first polls it after its original deadline, even when the response was already
+buffered. This uses a real local request/reply and needs no ROS installation:
+
+```bash
+cargo test --locked -p hiroz --features ffi --test ffi_service_timeout \
+  successful_reply_buffered_before_poll_respects_deadline
+```
+
+The test queues a successful reply before the deadline, pauses polling, then
+requires `ServiceTimeout` with no returned buffer. Go also checks the absolute
+context deadline after native calls so delayed timer delivery cannot admit a late
+success. Cancellation stops the local wait, not work already running remotely.
