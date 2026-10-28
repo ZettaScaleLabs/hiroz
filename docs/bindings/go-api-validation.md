@@ -77,8 +77,20 @@ cargo test --locked -p hiroz --features ffi --test ffi_service_timeout --test se
 
 The tests distinguish a transport timeout from an application payload named
 `Timeout`, and check that readiness and response waits share one deadline. For the
+buffered-success regression, `successful_reply_buffered_before_poll_respects_deadline`,
+requires a timeout after a delayed foreign poller resumes. For the
 malformed-envelope callback test, use the fixture instructions above or the complete
 validation script; an unset fixture variable causes a skip, not a pass.
+
+### Atomic action transitions and cancellation selection
+
+```bash
+cargo test --locked -p hiroz --lib action::server::transition_tests
+```
+
+An accepted goal must remain visible during execution registration; result requests
+must wait for its real terminal result. See the [action guide](go-actions.md) for
+the native cancellation-selection regression and all four UUID/timestamp modes.
 
 ### Action cleanup and expired results
 
@@ -128,7 +140,8 @@ ROS interoperability and endurance results must be reported separately.
 The `Go API validation` workflow runs on Linux for relevant pull requests and
 pushes to `main`, and can be started manually. It uses Rust stable, matching the
 native-library workflow, and the Go version declared in `crates/hiroz-go/go.mod`.
-It runs native unit tests without FFI, then runs `scripts/check-go-api.sh`,
+It runs native unit tests without FFI, strict Clippy with FFI enabled,
+then runs `scripts/check-go-api.sh`,
 which builds the malformed-query fixture and enables it in the Go race suite.
 The workflow verifies the committed C header with
 cbindgen 0.29.4. ROS interop tests are compiled; running them still requires the

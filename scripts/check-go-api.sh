@@ -10,7 +10,7 @@ if [[ "$CARGO_TARGET_DIR" != /* ]]; then
 fi
 mkdir -p "$repo_root/_tmp"
 
-cargo build -p hiroz --features ffi
+cargo build --locked -p hiroz --features ffi
 # Keep a matching library while other worktrees use the same Cargo build cache.
 native_test_lib=$(mktemp -d "$CARGO_TARGET_DIR/go-api-check.XXXXXX")
 trap 'rm -rf "$native_test_lib"' EXIT
@@ -20,7 +20,7 @@ cargo test --locked -p hiroz --features ffi \
     --test ffi_action_lifetime --test action_client_lifetime --test endpoint_lifetime \
     --test service_readiness --test concurrent_schema_discovery \
     --test schema_discovery_malformed_reply --test graph
-cargo run -p hiroz-codegen --bin export_json -- \
+cargo run --locked -p hiroz-codegen --bin export_json -- \
     --assets crates/hiroz-codegen/assets/jazzy \
     --output "$repo_root/_tmp/go-api-manifest.json" \
     --packages builtin_interfaces,service_msgs,unique_identifier_msgs,action_msgs,std_msgs,geometry_msgs,example_interfaces
@@ -64,7 +64,7 @@ export HIROZ_SERVICE_MALFORMED_FIXTURE
 export CGO_LDFLAGS="-L$native_test_lib ${CGO_LDFLAGS:-}"
 (
     cd crates/hiroz-go
-    go test -race -tags generated_api ./... ./testdata
+    go test -race -count=1 -tags generated_api ./... ./testdata
     go vet -tags generated_api ./... ./testdata
     # Compile ROS interop tests without requiring a running router or ROS install.
     go test -c -tags integration -o "$repo_root/_tmp/go-interop.test" ./interop_tests
