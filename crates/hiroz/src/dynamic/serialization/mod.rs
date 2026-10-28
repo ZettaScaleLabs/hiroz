@@ -5,15 +5,12 @@
 
 mod cdr;
 
-pub use cdr::{deserialize_cdr, serialize_cdr, serialize_cdr_to_zbuf};
-
 use std::sync::Arc;
 
+pub use cdr::{deserialize_cdr, serialize_cdr, serialize_cdr_to_zbuf};
 use zenoh_buffers::ZBuf;
 
-use super::error::DynamicError;
-use super::message::DynamicMessage;
-use super::schema::MessageSchema;
+use super::{error::DynamicError, message::DynamicMessage, schema::MessageSchema};
 
 /// Supported serialization formats for dynamic messages.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -26,6 +23,9 @@ pub enum SerializationFormat {
 
 /// CDR encapsulation header for little-endian encoding.
 pub const CDR_HEADER_LE: [u8; 4] = [0x00, 0x01, 0x00, 0x00];
+
+/// CDR encapsulation header for big-endian encoding.
+pub const CDR_HEADER_BE: [u8; 4] = [0x00, 0x00, 0x00, 0x00];
 
 impl DynamicMessage {
     /// Serialize the message to bytes using the specified format.
