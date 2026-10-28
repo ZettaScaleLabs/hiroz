@@ -123,13 +123,11 @@ func (b *ContextBuilder) WithLogging() *ContextBuilder {
 	return b
 }
 
-// WithShmPool attaches a shared-memory provider of the given size (bytes),
-// making the session SHM-capable so payloads can be published and received by
-// shared-memory reference (zero-copy) instead of being copied over the
-// transport. A non-zero pool is required for SHM transport to negotiate —
-// enabling SHM via config alone is not sufficient. Pass 0 (the default) to
-// disable. A receiver needs only a small pool (it maps the publisher's
-// segments); a publisher needs a pool large enough for its in-flight payloads.
+// WithShmPool attaches a native shared-memory provider of the given size and
+// enables transport SHM through the native context builder. Peer support and
+// transport configuration determine negotiated delivery. Pass 0 (the default)
+// to omit the provider. Size a publisher's pool for its in-flight payloads.
+// Go callbacks still receive copies in Go-owned memory.
 func (b *ContextBuilder) WithShmPool(bytes uint64) *ContextBuilder {
 	b.shmPoolBytes = bytes
 	b.hasAdvancedConfig = true

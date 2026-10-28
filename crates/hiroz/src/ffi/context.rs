@@ -35,7 +35,7 @@ pub struct CContextConfig {
     /// Whether to enable logging
     pub enable_logging: bool,
     /// Default namespace inherited by nodes created from this context (nullable).
-    /// Added after all pre-existing fields to preserve ABI compatibility.
+    /// Callers must use the matching configuration layout and native library.
     pub namespace: *const c_char,
     /// Shared-memory pool size in bytes. When non-zero, the context attaches an
     /// SHM provider of this size, making the session SHM-capable so it can

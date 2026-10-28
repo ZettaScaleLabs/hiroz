@@ -273,7 +273,7 @@ typedef struct hiroz_context_config_t {
   bool enable_logging;
   /**
    * Default namespace inherited by nodes created from this context (nullable).
-   * Added after all pre-existing fields to preserve ABI compatibility.
+   * Callers must use the matching configuration layout and native library.
    */
   const char *namespace_;
   /**
