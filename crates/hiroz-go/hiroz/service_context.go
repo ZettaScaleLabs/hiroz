@@ -18,6 +18,18 @@ const ErrorCodeOperationCanceled ErrorCode = -18
 
 type serviceOperation struct{ cancel context.CancelFunc }
 
+// A context's timer can be delayed while native code or the Go scheduler is busy.
+// Check its absolute deadline as well as its cancellation signal at API boundaries.
+func serviceContextError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
 // WithQoS sets the service client's endpoint QoS.
 func (b *ServiceClientBuilder) WithQoS(qos QosProfile) *ServiceClientBuilder { b.qos = &qos; return b }
 
@@ -46,7 +58,7 @@ func (c *ServiceClient) CallWithTimeout(request Message, timeout time.Duration) 
 // CallWithContext sends a message with a cancelable deadline. Canceling the wait
 // cancels the transport query; it does not undo work already started by the server.
 func (c *ServiceClient) CallWithContext(ctx context.Context, request Message) ([]byte, error) {
-	if err := ctx.Err(); err != nil {
+	if err := serviceContextError(ctx); err != nil {
 		return nil, err
 	}
 	data, err := request.SerializeCDR()
@@ -87,7 +99,7 @@ func durationMillis(d time.Duration) uint64 {
 // deadline, no application timeout is imposed. Cancellation is checked at most
 // every 20ms and releases the underlying Zenoh query.
 func (c *ServiceClient) CallRawWithContext(parent context.Context, request []byte) ([]byte, error) {
-	if err := parent.Err(); err != nil {
+	if err := serviceContextError(parent); err != nil {
 		return nil, err
 	}
 	if len(request) == 0 {
@@ -97,7 +109,7 @@ func (c *ServiceClient) CallRawWithContext(parent context.Context, request []byt
 	defer cancel()
 	op := &serviceOperation{cancel: cancel}
 	c.mu.Lock()
-	if err := ctx.Err(); err != nil {
+	if err := serviceContextError(ctx); err != nil {
 		c.mu.Unlock()
 		return nil, err
 	}
@@ -128,7 +140,7 @@ func (c *ServiceClient) CallRawWithContext(parent context.Context, request []byt
 	}
 	defer C.hiroz_service_call_destroy(call)
 	for {
-		if err := ctx.Err(); err != nil {
+		if err := serviceContextError(ctx); err != nil {
 			return nil, err
 		}
 		var data *C.uint8_t
@@ -138,14 +150,14 @@ func (c *ServiceClient) CallRawWithContext(parent context.Context, request []byt
 			continue
 		}
 		if rc != 0 {
-			if err := ctx.Err(); err != nil {
+			if err := serviceContextError(ctx); err != nil {
 				return nil, err
 			}
 			return nil, newHirozError(ErrorCode(rc), "service call failed")
 		}
 		result := C.GoBytes(unsafe.Pointer(data), C.int(size))
 		C.hiroz_free_bytes(data, size)
-		if err := ctx.Err(); err != nil {
+		if err := serviceContextError(ctx); err != nil {
 			return nil, err
 		}
 		return result, nil
@@ -169,7 +181,7 @@ func (c *ServiceClient) checkService(wait time.Duration) error {
 // WaitForServiceWithContext waits for discovery or cancellation, without fixed sleeps.
 func (c *ServiceClient) WaitForServiceWithContext(ctx context.Context) error {
 	for {
-		if err := ctx.Err(); err != nil {
+		if err := serviceContextError(ctx); err != nil {
 			return err
 		}
 		wait := 20 * time.Millisecond
@@ -182,6 +194,9 @@ func (c *ServiceClient) WaitForServiceWithContext(ctx context.Context) error {
 			}
 		}
 		err := c.checkService(wait)
+		if contextErr := serviceContextError(ctx); contextErr != nil {
+			return contextErr
+		}
 		if err == nil {
 			return nil
 		}
