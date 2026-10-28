@@ -198,37 +198,7 @@ async fn handle_cancel_request<A: ZAction>(
 
     let server = ZActionServer::from_inner(Arc::clone(inner));
 
-    // Zero UUID = cancel all (ROS 2 / `ros2 action cancel` convention).
-    // Specific UUID = cancel that executing/canceling goal only.
-    // `request_cancel` also transitions Executing → Canceling for status.
-    let goals_canceling = if !request.goal_info.goal_id.is_valid() {
-        let ids: Vec<super::GoalId> = inner
-            .goal_manager
-            .read(|manager| manager.goals.keys().copied().collect());
-        let mut out = Vec::new();
-        for goal_id in ids {
-            if server.request_cancel(goal_id) {
-                out.push(GoalInfo::new(goal_id));
-            }
-        }
-        out
-    } else if server.request_cancel(request.goal_info.goal_id) {
-        vec![request.goal_info.clone()]
-    } else {
-        vec![]
-    };
-
-    tracing::info!(
-        count = goals_canceling.len(),
-        specific = request.goal_info.goal_id.is_valid(),
-        "action cancel request processed"
-    );
-
-    // ERROR_NONE (0) if at least one goal is canceling; ERROR_REJECTED (1) otherwise.
-    let response = CancelGoalServiceResponse {
-        return_code: if goals_canceling.is_empty() { 1 } else { 0 },
-        goals_canceling,
-    };
+    let response = server.cancel_goals(&request.goal_info);
 
     let response_bytes = <CancelGoalServiceResponse as ZMessage>::serialize(&response);
     let attachment: Attachment = query.attachment().unwrap().try_into().unwrap();
@@ -318,10 +288,7 @@ async fn handle_result_request<A: ZAction>(
             }
         }
         ResultState::NotFound => {
-            tracing::warn!(
-                "Goal {:?} not found; replying Unknown",
-                request.goal_id
-            );
+            tracing::warn!("Goal {:?} not found; replying Unknown", request.goal_id);
             (A::Result::default(), super::GoalStatus::Unknown)
         }
     };

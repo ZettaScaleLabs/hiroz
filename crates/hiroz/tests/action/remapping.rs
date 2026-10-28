@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use hiroz::{Builder, Result, context::ZContextBuilder, define_action};
+use hiroz::{Builder, Result, define_action};
 use serde::{Deserialize, Serialize};
 
 // Define test action messages (similar to Fibonacci)
@@ -33,7 +33,7 @@ define_action! {
 // Helper function to create test setup
 #[allow(dead_code)]
 async fn setup_test_base() -> Result<(hiroz::node::ZNode,)> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_action_remapping_node").build()?;
 
     // Wait for discovery
@@ -51,7 +51,7 @@ async fn setup_test_with_client_server(
     std::sync::Arc<hiroz::action::client::ZActionClient<TestAction>>,
     hiroz::action::server::ZActionServer<TestAction>,
 )> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
 
     let client_node = ctx
         .create_node("test_action_remapping_client_node")
@@ -150,7 +150,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_action_name_remapping_with_rules() -> Result<()> {
         // Test action name remapping with remapping rules
-        let ctx = ZContextBuilder::default()
+        let ctx = crate::action::context_builder()
             .with_remap_rule("original_action:=remapped_action")?
             .build()?;
 
@@ -193,7 +193,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_action_name_remapping_multiple_rules() -> Result<()> {
         // Test multiple remapping rules
-        let ctx = ZContextBuilder::default()
+        let ctx = crate::action::context_builder()
             .with_remap_rule("action1:=remapped_action1")?
             .with_remap_rule("action2:=remapped_action2")?
             .build()?;
@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn test_context_with_remap_rules() -> Result<()> {
         // Test that context builder accepts remap rules
-        let ctx = ZContextBuilder::default()
+        let ctx = crate::action::context_builder()
             .with_remap_rule("test_action:=remapped_action")?
             .build()?;
 
