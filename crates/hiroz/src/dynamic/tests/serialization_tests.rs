@@ -240,7 +240,7 @@ fn test_cdr_roundtrip_all_primitives() {
 #[test]
 fn test_cdr_byte_array_optimization() {
     let schema = MessageSchema::builder("test_msgs/msg/ByteArray")
-        .field("data", FieldType::Sequence(Box::new(FieldType::Uint8)))
+        .field("data", FieldType::Sequence(Box::new(FieldType::Byte)))
         .build()
         .unwrap();
 
