@@ -96,6 +96,9 @@ jobs:
         # --lib also links exported callbacks from the dev-dependency graph twice.
         run: cargo test --locked -p hiroz --lib
 
+      - name: Lint native FFI and integration targets
+        run: cargo clippy --locked -p hiroz --features ffi --all-targets -- -D warnings
+
       - name: Check generated and public Go APIs
         run: ./scripts/check-go-api.sh
 

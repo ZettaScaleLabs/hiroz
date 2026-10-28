@@ -54,12 +54,12 @@ else
     run_check "Tests (cargo test)" "cargo test --lib --tests"
 fi
 
-# 5. Documentation tests (if mdbook is available)
-if command -v mdbook &> /dev/null; then
-    run_check "Documentation tests (mdbook)" "mdbook test book -L ./target/debug/deps"
+# 5. Build the documentation with the same strict mode as the docs workflow.
+if command -v mkdocs &> /dev/null; then
+    run_check "Documentation build (MkDocs)" "mkdocs build --strict"
 else
-    echo -e "${YELLOW}⚠${NC} Skipping mdbook tests (mdbook not installed)"
-    echo "   Install with: cargo install mdbook"
+    echo -e "${YELLOW}⚠${NC} Skipping MkDocs build (mkdocs not installed)"
+    echo "   Install with: python3 -m pip install mkdocs-material"
     echo ""
 fi
 
@@ -91,6 +91,8 @@ else
 fi
 
 # 10. Rustdoc link check
+# Invoked indirectly through run_check and eval below.
+# shellcheck disable=SC2329
 check_rustdoc_links() {
     local warnings
     warnings=$(cargo doc --no-deps -p hiroz --quiet 2>&1 | grep -E "unresolved link|broken_intra_doc_links" || true)
