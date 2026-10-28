@@ -153,3 +153,15 @@ Native topic endpoints retain the session through their own teardown. This does
 not change `Node.Close` stopping its owned Go receivers, or explicit Rust context
 shutdown invalidating every endpoint. Raw Rust `RawPublisher::new` callers must
 now supply the owning `Arc<Session>` as its final argument.
+
+## Shared-memory context provider
+
+`ContextBuilder.WithShmPool(bytes)` attaches a native shared-memory provider to
+the session; zero leaves it disabled. A publisher can inherit this provider or
+select its own pool with `WithSharedMemory(poolBytes, threshold)`. Peer support
+and Zenoh transport configuration still determine negotiated delivery.
+
+The C configuration structure includes `shm_pool_bytes`. Rebuild C/Go callers
+against the matching header and native library, and initialize the field; an old
+shorter structure is not ABI-compatible. Go callbacks receive copied, Go-owned
+bytes, so this option does not provide a zero-copy Go slice contract.
