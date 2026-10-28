@@ -35,8 +35,16 @@ pub struct CContextConfig {
     /// Whether to enable logging
     pub enable_logging: bool,
     /// Default namespace inherited by nodes created from this context (nullable).
-    /// Added after all pre-existing fields to preserve ABI compatibility.
+    /// Callers must use the matching configuration layout and native library.
     pub namespace: *const c_char,
+    /// Shared-memory pool size in bytes. When non-zero, the context attaches an
+    /// SHM provider of this size, making the session SHM-capable so it can
+    /// publish and receive payloads by shared-memory reference (zero-copy)
+    /// instead of copying them over the transport. 0 disables SHM (default).
+    /// Mirrors `ZContextBuilder::with_shm_pool_size`. This extends the C config
+    /// layout: callers must rebuild with the matching header and initialize this
+    /// field before passing the structure to the constructor.
+    pub shm_pool_bytes: usize,
 }
 
 /// Create a new hiroz context with default config (convenience)
@@ -84,6 +92,20 @@ pub unsafe extern "C" fn hiroz_context_create_with_config(
         if let Some(Ok(namespace)) = (!cfg.namespace.is_null()).then(|| cstr_to_str(cfg.namespace))
         {
             builder = builder.with_namespace(namespace);
+        }
+
+        // Shared memory: attach an SHM provider of the requested size so the
+        // session is SHM-capable (zero-copy publish/receive). A non-zero pool is
+        // required for SHM transport to negotiate — enabling it via config alone
+        // is not sufficient.
+        if cfg.shm_pool_bytes > 0 {
+            match builder.with_shm_pool_size(cfg.shm_pool_bytes) {
+                Ok(b) => builder = b,
+                Err(e) => {
+                    tracing::warn!("hiroz: Failed to configure SHM pool: {}", e);
+                    return std::ptr::null_mut();
+                }
+            }
         }
 
         // Config file

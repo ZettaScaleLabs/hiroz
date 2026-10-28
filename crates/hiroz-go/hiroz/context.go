@@ -31,6 +31,10 @@ const (
 type Context struct {
 	handle    *C.hiroz_context_t
 	closeOnce sync.Once
+	mu        sync.Mutex
+	active    int
+	retired   *C.hiroz_context_t
+	closeErr  error
 }
 
 // ContextBuilder builds a Context
@@ -44,6 +48,7 @@ type ContextBuilder struct {
 	jsonConfig           string
 	remapRules           []string
 	enableLogging        bool
+	shmPoolBytes         uint64
 	hasAdvancedConfig    bool
 }
 
@@ -118,6 +123,17 @@ func (b *ContextBuilder) WithLogging() *ContextBuilder {
 	return b
 }
 
+// WithShmPool attaches a native shared-memory provider of the given size and
+// enables transport SHM through the native context builder. Peer support and
+// transport configuration determine negotiated delivery. Pass 0 (the default)
+// to omit the provider. Size a publisher's pool for its in-flight payloads.
+// Go callbacks still receive copies in Go-owned memory.
+func (b *ContextBuilder) WithShmPool(bytes uint64) *ContextBuilder {
+	b.shmPoolBytes = bytes
+	b.hasAdvancedConfig = true
+	return b
+}
+
 // Build creates the context
 func (b *ContextBuilder) Build() (*Context, error) {
 	var handle *C.hiroz_context_t
@@ -135,6 +151,7 @@ func (b *ContextBuilder) Build() (*Context, error) {
 		cfg.disable_multicast_scouting = C.bool(b.disableMulticast)
 		cfg.connect_to_local_zenohd = C.bool(b.connectToLocalZenohd)
 		cfg.enable_logging = C.bool(b.enableLogging)
+		cfg.shm_pool_bytes = C.uintptr_t(b.shmPoolBytes)
 
 		// Config file
 		if b.configFile != "" {
@@ -203,18 +220,38 @@ func (c *Context) CreateNode(name string) *NodeBuilder {
 	}
 }
 
-// Close shuts down the context
+// acquire retains the native context while an operation runs. Close prevents new
+// operations and defers native destruction until active calls have returned.
+func (c *Context) acquire() (*C.hiroz_context_t, func(), error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.handle == nil {
+		return nil, nil, fmt.Errorf("context is closed")
+	}
+	c.active++
+	return c.handle, func() { c.mu.Lock(); defer c.mu.Unlock(); c.active--; c.destroyRetired() }, nil
+}
+func (c *Context) destroyRetired() {
+	if c.active != 0 || c.retired == nil {
+		return
+	}
+	rc := C.hiroz_context_destroy(c.retired)
+	c.retired = nil
+	if rc != 0 {
+		c.closeErr = fmt.Errorf("context shutdown failed with code %d", rc)
+	}
+}
+
+// Close shuts down the context once active operations finish.
 func (c *Context) Close() error {
-	var err error
 	c.closeOnce.Do(func() {
-		if c.handle == nil {
-			return
-		}
-		result := C.hiroz_context_destroy(c.handle)
-		c.handle = nil
-		if result != 0 {
-			err = fmt.Errorf("context shutdown failed with code %d", result)
-		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.retired, c.handle = c.handle, nil
+		c.destroyRetired()
+		runtime.SetFinalizer(c, nil)
 	})
-	return err
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closeErr
 }

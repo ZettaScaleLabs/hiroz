@@ -6,7 +6,6 @@ package hiroz
 */
 import "C"
 import (
-	"fmt"
 	"unsafe"
 )
 
@@ -30,14 +29,16 @@ type ServiceInfo struct {
 
 // GetTopicNamesAndTypes returns all topics visible in the ROS graph
 func (c *Context) GetTopicNamesAndTypes() ([]TopicInfo, error) {
-	if c.handle == nil {
-		return nil, fmt.Errorf("context is closed")
+	handle, release, err := c.acquire()
+	if err != nil {
+		return nil, err
 	}
+	defer release()
 
 	var cTopics *C.hiroz_topic_info_t
 	var count C.uintptr_t
 
-	result := C.hiroz_graph_get_topic_names_and_types(c.handle, &cTopics, &count)
+	result := C.hiroz_graph_get_topic_names_and_types(handle, &cTopics, &count)
 	if result != 0 {
 		return nil, newHirozError(ErrorCode(result), "failed to get topic names and types")
 	}
@@ -62,14 +63,16 @@ func (c *Context) GetTopicNamesAndTypes() ([]TopicInfo, error) {
 
 // GetNodeNames returns all nodes visible in the ROS graph
 func (c *Context) GetNodeNames() ([]NodeInfo, error) {
-	if c.handle == nil {
-		return nil, fmt.Errorf("context is closed")
+	handle, release, err := c.acquire()
+	if err != nil {
+		return nil, err
 	}
+	defer release()
 
 	var cNodes *C.hiroz_node_info_t
 	var count C.uintptr_t
 
-	result := C.hiroz_graph_get_node_names(c.handle, &cNodes, &count)
+	result := C.hiroz_graph_get_node_names(handle, &cNodes, &count)
 	if result != 0 {
 		return nil, newHirozError(ErrorCode(result), "failed to get node names")
 	}
@@ -94,14 +97,16 @@ func (c *Context) GetNodeNames() ([]NodeInfo, error) {
 
 // GetServiceNamesAndTypes returns all services visible in the ROS graph
 func (c *Context) GetServiceNamesAndTypes() ([]ServiceInfo, error) {
-	if c.handle == nil {
-		return nil, fmt.Errorf("context is closed")
+	handle, release, err := c.acquire()
+	if err != nil {
+		return nil, err
 	}
+	defer release()
 
 	var cServices *C.hiroz_service_info_t
 	var count C.uintptr_t
 
-	result := C.hiroz_graph_get_service_names_and_types(c.handle, &cServices, &count)
+	result := C.hiroz_graph_get_service_names_and_types(handle, &cServices, &count)
 	if result != 0 {
 		return nil, newHirozError(ErrorCode(result), "failed to get service names and types")
 	}
@@ -126,9 +131,11 @@ func (c *Context) GetServiceNamesAndTypes() ([]ServiceInfo, error) {
 
 // NodeExists checks if a node with the given name and namespace exists in the graph
 func (c *Context) NodeExists(name, namespace string) (bool, error) {
-	if c.handle == nil {
-		return false, fmt.Errorf("context is closed")
+	handle, release, err := c.acquire()
+	if err != nil {
+		return false, err
 	}
+	defer release()
 
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
@@ -136,7 +143,7 @@ func (c *Context) NodeExists(name, namespace string) (bool, error) {
 	cNamespace := C.CString(namespace)
 	defer C.free(unsafe.Pointer(cNamespace))
 
-	result := C.hiroz_graph_node_exists(c.handle, cName, cNamespace)
+	result := C.hiroz_graph_node_exists(handle, cName, cNamespace)
 	if result < 0 {
 		return false, newHirozError(ErrorCode(result), "failed to check node existence")
 	}

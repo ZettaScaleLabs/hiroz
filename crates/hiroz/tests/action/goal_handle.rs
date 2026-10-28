@@ -1,4 +1,4 @@
-use hiroz::{Builder, Result, context::ZContextBuilder, define_action};
+use hiroz::{Builder, Result, define_action};
 use serde::{Deserialize, Serialize};
 
 // Define test action messages (similar to Fibonacci)
@@ -7,7 +7,7 @@ pub struct TestGoal {
     pub order: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TestResult {
     pub value: i32,
 }
@@ -34,7 +34,7 @@ async fn setup_test() -> Result<(
     hiroz::action::client::ZActionClient<TestAction>,
     hiroz::action::server::ZActionServer<TestAction>,
 )> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_goal_handle_node").build()?;
 
     let client = node

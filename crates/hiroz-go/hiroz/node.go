@@ -17,6 +17,10 @@ type Node struct {
 	handle    *C.hiroz_node_t
 	ctx       *Context
 	closeOnce sync.Once
+	mu        sync.Mutex
+	active    int
+	retired   *C.hiroz_node_t
+	closeErr  error
 	// ownedSubs keeps callback-based subscribers alive for the node's lifetime.
 	// Matches rmw_zenoh_cpp's NodeData::subs_ ownership pattern: the node is the
 	// source of truth for subscription lifetime, not the caller's variable.
@@ -47,6 +51,11 @@ func (b *NodeBuilder) WithTypeDescriptionService() *NodeBuilder {
 
 // Build creates the node
 func (b *NodeBuilder) Build() (*Node, error) {
+	ctx, release, err := b.ctx.acquire()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	var handle *C.hiroz_node_t
 
 	if b.enableTypeDescriptionService {
@@ -64,7 +73,7 @@ func (b *NodeBuilder) Build() (*Node, error) {
 			cfg.namespace_ = cNamespace
 		}
 
-		handle = C.hiroz_node_create_with_config(b.ctx.handle, &cfg)
+		handle = C.hiroz_node_create_with_config(ctx, &cfg)
 	} else {
 		// Simple path
 		cName := C.CString(b.name)
@@ -76,7 +85,7 @@ func (b *NodeBuilder) Build() (*Node, error) {
 			defer C.free(unsafe.Pointer(cNamespace))
 		}
 
-		handle = C.hiroz_node_create(b.ctx.handle, cName, cNamespace)
+		handle = C.hiroz_node_create(ctx, cName, cNamespace)
 	}
 
 	if handle == nil {
@@ -136,30 +145,61 @@ func (n *Node) CreateSubscriber(topic string) *SubscriberBuilder {
 	}
 }
 
-// Close destroys the node.
-// Owned callback subscribers are closed first so their Zenoh subscriptions
-// are undeclared before the node handle is destroyed, preventing callbacks
-// from firing on the Zenoh/CGo thread after Close returns.
+// acquire retains the native node for an operation without holding a lock over
+// callbacks. This also permits Close from transient-local replay during Build.
+func (n *Node) acquire() (*C.hiroz_node_t, func(), error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.handle == nil {
+		return nil, nil, fmt.Errorf("node is closed")
+	}
+	n.active++
+	return n.handle, func() { n.mu.Lock(); defer n.mu.Unlock(); n.active--; n.destroyRetired() }, nil
+}
+func (n *Node) destroyRetired() {
+	if n.active != 0 || n.retired == nil {
+		return
+	}
+	rc := C.hiroz_node_destroy(n.retired)
+	n.retired = nil
+	if rc != 0 {
+		n.closeErr = fmt.Errorf("node close failed (rc=%d): %w", rc, ErrCloseFailed)
+	}
+}
+
+// ownSubscriber registers a completed build atomically against Node.Close.
+func (n *Node) ownSubscriber(sub *Subscriber) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.handle == nil {
+		return fmt.Errorf("node closed during subscriber construction")
+	}
+	n.subsMu.Lock()
+	n.ownedSubs = append(n.ownedSubs, sub)
+	n.subsMu.Unlock()
+	return nil
+}
+
+// Close stops owned subscriptions and prevents new operations. Native destruction
+// is deferred until active calls finish; in-flight callbacks may finish later.
 func (n *Node) Close() error {
-	var err error
 	n.closeOnce.Do(func() {
-		if n.handle == nil {
-			return
-		}
-		// Drain owned subscribers before destroying the node handle.
+		n.mu.Lock()
+		n.retired, n.handle = n.handle, nil
+		n.mu.Unlock()
 		n.subsMu.Lock()
 		subs := n.ownedSubs
 		n.ownedSubs = nil
 		n.subsMu.Unlock()
 		for _, sub := range subs {
-			sub.Close()
+			_ = sub.Close()
 		}
-
-		result := C.hiroz_node_destroy(n.handle)
-		n.handle = nil
-		if result != 0 {
-			err = fmt.Errorf("node close failed (rc=%d): %w", result, ErrCloseFailed)
-		}
+		n.mu.Lock()
+		n.destroyRetired()
+		n.mu.Unlock()
+		runtime.SetFinalizer(n, nil)
 	})
-	return err
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.closeErr
 }

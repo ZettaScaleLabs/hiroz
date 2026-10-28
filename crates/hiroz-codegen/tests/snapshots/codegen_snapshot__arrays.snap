@@ -77,7 +77,7 @@ impl ::hiroz::MessageTypeInfo for Arrays {
                         .field(
                             "byte_values",
                             ::hiroz::dynamic::FieldType::Array(
-                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint8),
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Byte),
                                 3usize,
                             ),
                         )
@@ -215,7 +215,7 @@ impl ::hiroz::MessageTypeInfo for Arrays {
                         .field(
                             "byte_values_default",
                             ::hiroz::dynamic::FieldType::Array(
-                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Uint8),
+                                ::std::boxed::Box::new(::hiroz::dynamic::FieldType::Byte),
                                 3usize,
                             ),
                         )
