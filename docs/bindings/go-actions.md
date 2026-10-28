@@ -86,6 +86,8 @@ schedule work. Call `Execute` when starting, then `Succeed`, `Abort` or `Cancele
 when finished. The accepted callback itself does not automatically complete the
 goal. `WithGoalTimeout` optionally aborts unfinished goals after a lifetime;
 `WithResultTimeout` controls completed result retention (15 minutes by default).
+Positive server timeouts are rounded up to whole milliseconds. A zero goal
+timeout disables expiration; a zero result timeout permits immediate cleanup.
 `WaitForFeedbackSubscriber(ctx)` waits for a feedback transport match.
 
 `Close` prevents new operations, cancels the server context and initiates
