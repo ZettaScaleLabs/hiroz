@@ -33,7 +33,11 @@ def run-tests [] {
     #
     # None were in `default-members`, so none ran here before `--workspace`.
     run-cmd "cargo nextest run --no-fail-fast --workspace --exclude hiroz-tests --exclude rmw-zenoh-rs -E 'not binary(shm_size_estimation)'"
-    run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy"
+    run-cmd "cargo nextest run --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy,raw-sub-tests -E 'not binary(buffer_cpu_group_raw)'"
+    # The raw suite compiles to nothing without `raw-sub-tests`, and a run that finds no test passes. `--no-tests=fail` fails it. The suite is Linux-only.
+    if $nu.os-info.name == "linux" {
+        run-cmd "cargo nextest run --no-tests=fail --no-fail-fast -p hiroz-tests --features ros-msgs,jazzy,raw-sub-tests -E 'binary(buffer_cpu_group_raw)'"
+    }
 }
 
 def check-bundled-msgs [] {
@@ -89,7 +93,8 @@ def clippy-tests [] {
     log-step "Clippy (hiroz-tests, interop features)"
     # Every test-gating feature must be listed or its file is never linted;
     # hu-meter-tests / hu-monitor-tests gate the plugin suites (~2.3k lines).
-    run-cmd "cargo clippy -p hiroz-tests --all-targets --features ros-interop,hu-meter-tests,hu-monitor-tests,jazzy -- -D warnings"
+    # raw-sub-tests enables the `ffi` feature of hiroz, whose unsafe functions fail `missing_safety_doc`, so lint only this crate: `--no-deps`.
+    run-cmd "cargo clippy -p hiroz-tests --no-deps --all-targets --features ros-interop,hu-meter-tests,hu-monitor-tests,raw-sub-tests,jazzy -- -D warnings"
 }
 
 def check-rustdoc-links [] {

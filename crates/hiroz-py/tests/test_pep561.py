@@ -110,3 +110,25 @@ def test_qos_constants_are_qos_profile_instances():
 def test_native_submodule_accessible():
     """hiroz_py._native must be importable as a submodule."""
     from hiroz_py import _native  # noqa: F401
+
+
+def test_stub_declares_buffer_group_default_auto():
+    """ZNode.create_subscriber in the stub must take buffer_group, defaulting to "auto"."""
+    spec = importlib.util.find_spec("hiroz_py")
+    assert spec is not None
+    stub = Path(spec.submodule_search_locations[0]) / "__init__.pyi"
+    tree = ast.parse(stub.read_text())
+    znode = next(
+        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "ZNode"
+    )
+    fn = next(
+        n
+        for n in znode.body
+        if isinstance(n, ast.FunctionDef) and n.name == "create_subscriber"
+    )
+    names = [a.arg for a in fn.args.args]
+    assert "buffer_group" in names, "the stub lacks buffer_group"
+    default = fn.args.defaults[
+        names.index("buffer_group") - (len(names) - len(fn.args.defaults))
+    ]
+    assert isinstance(default, ast.Constant) and default.value == "auto"

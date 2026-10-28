@@ -121,7 +121,7 @@ jobs:
 
       - name: Install Nushell
         run: |
-          NU_VERSION=0.102.0
+          NU_VERSION=0.116.1
           ARCH=$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')
           NU_TARBALL="nu-${NU_VERSION}-${ARCH}-unknown-linux-gnu"
           # Download to a file. Do not pipe into tar.
@@ -161,6 +161,23 @@ jobs:
             ros-${{ matrix.distro }}-sensor-msgs \
             ros-${{ matrix.distro }}-nav-msgs \
             protobuf-compiler
+
+          # #303's fix named one drifted package: rclcpp. The drift then moved
+          # to a different one. example_interfaces (rebuilt for a new field
+          # on service_msgs/ServiceEventInfo) failed the same way against the
+          # image's stale service_msgs. Naming service_msgs alone only moved
+          # the failure one level further down the same interfaces: first to
+          # builtin_interfaces, then to unique_identifier_msgs.
+          #
+          # Naming interface packages one at a time chases a moving target.
+          # Upgrade every already-installed package instead, so every
+          # transitively pulled interface package matches the repository, not
+          # only the one that happens to have failed most recently.
+          #
+          # Confirmed in a stock container with no hiroz process:
+          # `add_two_ints_client` aborts with a symbol-lookup error before
+          # this step, and prints `Result of add_two_ints: 5` after it.
+          scripts/ci/apt-retry.sh apt-get upgrade -y
 
       # An interop run tests hiroz against a specific set of ROS binaries.
       # Nothing recorded which ones.
@@ -228,6 +245,7 @@ jobs:
         with:
           # -v2 discards entries saved while the shared cache above was in use.
           shared-key: ${{ matrix.distro }}-interop-v2
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff  # v2
@@ -236,6 +254,9 @@ jobs:
 
       - name: Run interop tests
         shell: bash
+        env:
+          # Only the lyrical image has a buffer-aware rmw_zenoh_cpp: a skipped buffer test fails there.
+          HIROZ_REQUIRE_BUFFER_RMW: ${{ matrix.distro == 'lyrical' && '1' || '' }}
         run: |
           source /opt/ros/${{ matrix.distro }}/setup.bash
           export RMW_IMPLEMENTATION=rmw_zenoh_cpp
@@ -243,10 +264,10 @@ jobs:
           FEATURES="${{ matrix.hiroz_feature }}"
           if [ "$FEATURES" = "humble" ]; then
             cargo nextest run -p hiroz-tests --profile interop \
-              --no-default-features --features ros-interop,humble
+              --no-default-features --features ros-interop,humble,raw-sub-tests
           else
             cargo nextest run -p hiroz-tests --profile interop \
-              --features "ros-interop,$FEATURES"
+              --features "ros-interop,raw-sub-tests,$FEATURES"
             # dynamic_subscriber tests are all #[ignore]'d in CI (ros2 topic
             # pub isn't graph-visible under CI's rmw_zenoh_cpp — see
             # headless_test.rs). --no-tests=warn keeps that from failing the job.

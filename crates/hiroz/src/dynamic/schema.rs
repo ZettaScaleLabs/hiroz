@@ -163,6 +163,30 @@ pub struct MessageSchema {
 }
 
 impl MessageSchema {
+    /// Whether the message has an unbounded `uint8[]` or `char[]` field, directly or in a nested
+    /// message. These are the fields that `rmw_zenoh_cpp` treats as buffers.
+    ///
+    /// The typed code generator maps ROS `byte`, `uint8` and `char` to `FieldType::Uint8`, so a
+    /// typed unbounded `byte[]` also counts. This over-approximation costs one extra join and loses
+    /// no data.
+    pub(crate) fn has_buffer_fields(&self) -> bool {
+        fn is_buffer_sequence(field_type: &FieldType) -> bool {
+            matches!(field_type, FieldType::Sequence(inner) if matches!(**inner, FieldType::Uint8))
+        }
+        fn nested_has_buffer(field_type: &FieldType) -> bool {
+            match field_type {
+                FieldType::Message(schema) => schema.has_buffer_fields(),
+                FieldType::Array(inner, _)
+                | FieldType::Sequence(inner)
+                | FieldType::BoundedSequence(inner, _) => nested_has_buffer(inner),
+                _ => false,
+            }
+        }
+        self.fields
+            .iter()
+            .any(|f| is_buffer_sequence(&f.field_type) || nested_has_buffer(&f.field_type))
+    }
+
     /// Get field by name.
     pub fn field(&self, name: &str) -> Option<&FieldSchema> {
         self.fields.iter().find(|f| f.name == name)

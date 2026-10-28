@@ -4,7 +4,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 use tracing::{debug, trace, warn};
 use zenoh::liveliness::LivelinessToken;
-use zenoh::{Result, Session, Wait, sample::Sample};
+use zenoh::{Result, Session, Wait, key_expr::KeyExpr, sample::Sample};
 
 use crate::Builder;
 use crate::attachment::{Attachment, GidArray};
@@ -632,6 +632,13 @@ impl ZPub<crate::dynamic::DynamicMessage, crate::dynamic::DynamicSerdeCdrSerdes>
     }
 }
 
+/// The subscriptions of a raw-callback subscriber: one on the topic key, and one on the group key
+/// when the subscriber joins the group. Dropping the value undeclares both.
+pub(crate) struct RawSubscriptions {
+    _base: zenoh::pubsub::Subscriber<()>,
+    _group: Option<zenoh::pubsub::Subscriber<()>>,
+}
+
 pub struct ZSubBuilder<T, S = SerdeCdrSerdes<T>> {
     pub(crate) entity: EndpointEntity,
     pub(crate) session: Arc<Session>,
@@ -642,6 +649,11 @@ pub struct ZSubBuilder<T, S = SerdeCdrSerdes<T>> {
     /// Expected encoding for received messages.
     /// If set, the subscriber will validate that received samples match this encoding.
     pub(crate) expected_encoding: Option<crate::encoding::Encoding>,
+    pub(crate) buffer_group: crate::BufferGroup,
+    /// Whether the message definition has a field that makes a subscriber join the buffer group,
+    /// `None` without a definition. See [`BufferGroup::Auto`](crate::BufferGroup::Auto) for the
+    /// fields.
+    pub(crate) has_buffer_fields: Option<bool>,
     pub(crate) _phantom_data: PhantomData<(T, S)>,
 }
 
@@ -663,8 +675,18 @@ where
             dyn_schema: self.dyn_schema,
             locality: self.locality,
             expected_encoding: self.expected_encoding,
+            buffer_group: self.buffer_group,
+            has_buffer_fields: self.has_buffer_fields,
             _phantom_data: PhantomData,
         }
+    }
+
+    /// Choose whether this subscriber joins rmw_zenoh's CPU buffer group. The default is
+    /// [`BufferGroup::Auto`](crate::BufferGroup::Auto). See [`BufferGroup`](crate::BufferGroup) for
+    /// the join rule, the cases that never join, and the router access-control rule.
+    pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
+        self.buffer_group = group;
+        self
     }
 
     /// Set the locality restriction for this subscription.
@@ -734,12 +756,14 @@ where
             self.entity.type_info = Some(crate::dynamic::schema_type_info(&schema));
         }
 
+        self.has_buffer_fields = Some(schema.has_buffer_fields());
         self.dyn_schema = Some(schema);
         self
     }
 
-    /// Build a raw Zenoh subscriber with a sample-level callback, returning
-    /// the subscriber and liveliness token.
+    /// Build a raw Zenoh subscriber with a sample-level callback. It returns the
+    /// [`RawSubscriptions`], whose group subscription is absent when the subscriber does not join,
+    /// and the liveliness token.
     ///
     /// This is the canonical subscriber setup path used by [`ZCache`] so that
     /// topic qualification, key-expression construction, and liveliness-token
@@ -749,10 +773,7 @@ where
     pub(crate) fn build_raw_subscriber<F>(
         mut self,
         callback: F,
-    ) -> Result<(
-        zenoh::pubsub::Subscriber<()>,
-        zenoh::liveliness::LivelinessToken,
-    )>
+    ) -> Result<(RawSubscriptions, zenoh::liveliness::LivelinessToken)>
     where
         F: Fn(Sample) + Send + Sync + 'static,
     {
@@ -772,22 +793,51 @@ where
         let key_expr = (*topic_ke).clone();
         debug!("[CACHE] Key expression: {}", key_expr);
 
+        let group_key = self.joined_group_key(key_expr.as_str());
+        // Both subscriptions come before the token, so a publisher that reads the token finds a
+        // subscription. The callback is `Fn`, so the two subscriptions share one `Arc` of it.
+        let shared = Arc::new(callback);
+        let mut group_sub = None;
+        if let Some(group_key) = &group_key {
+            let h = shared.clone();
+            group_sub = Some(
+                self.session
+                    .declare_subscriber(KeyExpr::try_from(group_key.clone())?)
+                    .callback(move |s: Sample| h(s))
+                    .wait()?,
+            );
+        }
+        let h = shared.clone();
         let sub = self
             .session
-            .declare_subscriber(key_expr)
-            .callback(callback)
+            .declare_subscriber(key_expr.clone())
+            .callback(move |s: Sample| h(s))
             .wait()?;
 
-        let lv_ke = self
-            .keyexpr_format
-            .liveliness_key_expr(&self.entity, &self.session.zid())?;
-        let lv_token = self
-            .session
-            .liveliness()
-            .declare_token((*lv_ke).clone())
-            .wait()?;
+        let token = crate::buffer_group::declare_token(
+            &self.session,
+            &self.keyexpr_format,
+            &self.entity,
+            group_key.is_some(),
+        )?;
 
-        Ok((sub, lv_token))
+        Ok((
+            RawSubscriptions {
+                _base: sub,
+                _group: group_sub,
+            },
+            token,
+        ))
+    }
+
+    fn joined_group_key(&self, base: &str) -> Option<String> {
+        crate::buffer_group::joined_group_key(
+            self.buffer_group,
+            self.has_buffer_fields,
+            &self.keyexpr_format,
+            &self.entity,
+            base,
+        )
     }
 
     /// Internal method that all build variants use.
@@ -850,10 +900,26 @@ where
         };
 
         // Build an AdvancedSubscriber and configure based on durability
+        let group_key = self.joined_group_key(key_expr.as_str());
+        // Both subscriptions come before the token and share one `Arc` of the handler.
+        let shared = Arc::new(validated_handler);
+        let mut group_sub = None;
+        if let Some(group_key) = &group_key {
+            let h = shared.clone();
+            let mut gb = self
+                .session
+                .declare_subscriber(KeyExpr::try_from(group_key.clone())?)
+                .callback(move |s: Sample| h(s));
+            if let Some(locality) = self.locality {
+                gb = gb.allowed_origin(locality);
+            }
+            group_sub = Some(gb.wait()?);
+        }
+        let h = shared.clone();
         let mut sub_builder = self
             .session
-            .declare_subscriber(key_expr)
-            .callback(validated_handler)
+            .declare_subscriber(key_expr.clone())
+            .callback(move |s: Sample| h(s))
             .advanced();
 
         // Apply locality restriction if specified
@@ -865,21 +931,20 @@ where
         let sub_builder = apply_transient_local_sub(sub_builder, &self.entity.qos);
         let inner = sub_builder.wait()?;
 
-        let lv_ke = self
-            .keyexpr_format
-            .liveliness_key_expr(&self.entity, &self.session.zid())?;
-        let lv_token = self
-            .session
-            .liveliness()
-            .declare_token((*lv_ke).clone())
-            .wait()?;
+        let token = crate::buffer_group::declare_token(
+            &self.session,
+            &self.keyexpr_format,
+            &self.entity,
+            group_key.is_some(),
+        )?;
 
         debug!("[SUB] Subscriber ready: topic={}", self.entity.topic);
 
         Ok(ZSub {
             entity: self.entity,
             _inner: inner,
-            _lv_token: lv_token,
+            _lv_token: token,
+            _group_sub: group_sub,
             queue,
             events_mgr,
             graph: self.graph,
@@ -994,6 +1059,8 @@ pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     pub queue: Option<Arc<BoundedQueue<Q>>>,
     _inner: AdvancedSubscriber<()>,
     _lv_token: LivelinessToken,
+    /// The group subscription of a joined subscriber, `None` otherwise.
+    _group_sub: Option<zenoh::pubsub::Subscriber<()>>,
     events_mgr: Arc<Mutex<EventsManager>>,
     graph: Arc<Graph>,
     /// Schema for dynamic message deserialization.

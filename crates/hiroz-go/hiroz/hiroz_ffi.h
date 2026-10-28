@@ -112,7 +112,9 @@ typedef struct hiroz_RawPublisher hiroz_RawPublisher;
 typedef struct hiroz_RawServiceClient hiroz_RawServiceClient;
 
 /**
- * Raw subscriber wrapper that keeps the zenoh subscriber alive
+ * Raw subscriber wrapper that keeps the zenoh subscriptions and the liveliness token alive.
+ *
+ * Dropping it stops them all. [`RawSubscriber::undeclare`] does the same and returns the first error.
  */
 typedef struct hiroz_RawSubscriber hiroz_RawSubscriber;
 

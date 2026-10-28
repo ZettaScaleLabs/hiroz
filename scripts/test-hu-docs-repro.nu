@@ -129,10 +129,10 @@ def extract-file [file: string] {
     mut out = []
     mut in_fence = false
     mut fence_is_shell = false
-    mut pending = null          # `# repro:` directive awaiting its command
-    mut pending_expect = null   # `# repro-expect:` regex awaiting its command
-    mut fence_default = null    # `<!-- repro: -->` covering the whole fence
-    mut next_fence_default = null
+    mut pending: any = null          # `# repro:` directive awaiting its command
+    mut pending_expect: any = null   # `# repro-expect:` regex awaiting its command
+    mut fence_default: any = null    # `<!-- repro: -->` covering the whole fence
+    mut next_fence_default: any = null
     mut fence_env = []          # `export K=V` seen earlier in this fence
     mut cont = ""               # accumulator for `\`-continued lines
     mut cont_line = 0
