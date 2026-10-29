@@ -28,16 +28,27 @@ func BuildTypedActionServer[Goal, Result Message](
 	goalCallback func(Goal) bool,
 	executeCallback func(h *ServerGoalHandle, goal Goal) (Result, error),
 ) (*ActionServer, error) {
-	rawGoalCallback := func(goalBytes []byte) bool {
-		var goal Goal
+	rawGoalCallback := typedGoalCallback(goalCallback)
+	rawExecuteCallback := typedExecuteCallback(executeCallback)
+
+	return builder.Build(action, rawGoalCallback, rawExecuteCallback)
+}
+
+// typedGoalCallback adapts a typed goal callback to the raw byte form.
+func typedGoalCallback[Goal Message](goalCallback func(Goal) bool) func([]byte) bool {
+	return func(goalBytes []byte) bool {
+		goal := newMessage[Goal]()
 		if err := goal.DeserializeCDR(goalBytes); err != nil {
 			return false
 		}
 		return goalCallback(goal)
 	}
+}
 
-	rawExecuteCallback := func(h *ServerGoalHandle, goalBytes []byte) ([]byte, error) {
-		var goal Goal
+// typedExecuteCallback adapts a typed execute callback to the raw byte form.
+func typedExecuteCallback[Goal, Result Message](executeCallback func(h *ServerGoalHandle, goal Goal) (Result, error)) func(*ServerGoalHandle, []byte) ([]byte, error) {
+	return func(h *ServerGoalHandle, goalBytes []byte) ([]byte, error) {
+		goal := newMessage[Goal]()
 		if err := goal.DeserializeCDR(goalBytes); err != nil {
 			return nil, fmt.Errorf("failed to deserialize goal: %w", err)
 		}
@@ -47,8 +58,6 @@ func BuildTypedActionServer[Goal, Result Message](
 		}
 		return result.SerializeCDR()
 	}
-
-	return builder.Build(action, rawGoalCallback, rawExecuteCallback)
 }
 
 // GetTypedResult waits for the goal result and deserializes it into the provided result template.
