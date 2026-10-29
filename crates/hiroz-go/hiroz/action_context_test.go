@@ -263,8 +263,8 @@ func TestSendGoalContextEndedDuringSerializeSendsNothing(t *testing.T) {
 	if h != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled and no handle, got h=%v err=%v", h, err)
 	}
+	_ = c.Close() // waits for any worker that started, so sends is final
 	if sends != 0 {
 		t.Errorf("the goal was sent %d times after ctx ended, want 0", sends)
 	}
-	_ = c.Close()
 }
