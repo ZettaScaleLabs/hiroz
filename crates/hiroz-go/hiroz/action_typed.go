@@ -34,23 +34,6 @@ func BuildTypedActionServer[Goal, Result Message](
 	return builder.Build(action, rawGoalCallback, rawExecuteCallback)
 }
 
-// GetTypedResult waits for the goal result and deserializes it into the provided result template.
-//
-// Example:
-//
-//	result := &example_interfaces.FibonacciResult{}
-//	err := hiroz.GetTypedResult(handle, result)
-func GetTypedResult[Result Message](handle *GoalHandle, result Result) error {
-	resultBytes, err := handle.GetResult()
-	if err != nil {
-		return err
-	}
-	if err := result.DeserializeCDR(resultBytes); err != nil {
-		return newHirozError(ErrorCodeDeserializationFailed, fmt.Sprintf("failed to deserialize result: %v", err))
-	}
-	return nil
-}
-
 // typedGoalCallback adapts a typed goal callback to the raw byte form.
 func typedGoalCallback[Goal Message](goalCallback func(Goal) bool) func([]byte) bool {
 	return func(goalBytes []byte) bool {
@@ -75,4 +58,21 @@ func typedExecuteCallback[Goal, Result Message](executeCallback func(h *ServerGo
 		}
 		return result.SerializeCDR()
 	}
+}
+
+// GetTypedResult waits for the goal result and deserializes it into the provided result template.
+//
+// Example:
+//
+//	result := &example_interfaces.FibonacciResult{}
+//	err := hiroz.GetTypedResult(handle, result)
+func GetTypedResult[Result Message](handle *GoalHandle, result Result) error {
+	resultBytes, err := handle.GetResult()
+	if err != nil {
+		return err
+	}
+	if err := result.DeserializeCDR(resultBytes); err != nil {
+		return newHirozError(ErrorCodeDeserializationFailed, fmt.Sprintf("failed to deserialize result: %v", err))
+	}
+	return nil
 }
