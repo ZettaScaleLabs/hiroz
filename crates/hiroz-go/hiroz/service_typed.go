@@ -44,7 +44,9 @@ func CallTypedWithTimeout[Resp Message](client *ServiceClient, request Message, 
 }
 
 // CallTypedContext makes a typed service call that ends when ctx ends.
-// A context deadline sets the timeout of the call. Without a deadline the call uses
+// A context deadline sets the timeout of the call, up to 10 seconds. The service client
+// behind it ends every query after 10 seconds, so a later deadline does not extend the call:
+// it returns ErrTimeout after about 10 seconds. Without a deadline the call uses
 // DefaultServiceTimeout. When ctx ends first, the error wraps ctx.Err()
 // (context.Canceled or context.DeadlineExceeded) and does not match ErrTimeout.
 // A call timeout that ends after the context deadline has passed also returns
