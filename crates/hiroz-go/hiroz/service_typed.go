@@ -59,7 +59,13 @@ func BuildTypedServiceServer[Req, Resp Message](
 	svc Service,
 	callback func(Req) (Resp, error),
 ) (*ServiceServer, error) {
-	rawCallback := func(reqBytes []byte) ([]byte, error) {
+	rawCallback := typedServiceCallback(callback)
+	return builder.Build(svc, rawCallback)
+}
+
+// typedServiceCallback adapts a typed service callback to the raw byte form.
+func typedServiceCallback[Req, Resp Message](callback func(Req) (Resp, error)) func([]byte) ([]byte, error) {
+	return func(reqBytes []byte) ([]byte, error) {
 		var req Req
 		if err := req.DeserializeCDR(reqBytes); err != nil {
 			return nil, fmt.Errorf("failed to deserialize request: %w", err)
@@ -70,5 +76,4 @@ func BuildTypedServiceServer[Req, Resp Message](
 		}
 		return resp.SerializeCDR()
 	}
-	return builder.Build(svc, rawCallback)
 }
