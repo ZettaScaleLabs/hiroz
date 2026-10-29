@@ -187,7 +187,9 @@ func (c *ServiceClient) invoke(h *cServiceClient, requestBytes []byte, timeoutMs
 }
 
 // callRawContext makes a service call that ends when ctx ends.
-// A context with a deadline sets the timeout of the call. Without a deadline the call uses
+// A context with a deadline sets the timeout of the call, up to 10 seconds. The service
+// client behind it ends every query after 10 seconds, so a later deadline does not extend
+// the call: it returns ErrTimeout after about 10 seconds. Without a deadline the call uses
 // DefaultServiceTimeout. When ctx ends first, the error wraps ctx.Err(), never ErrTimeout.
 // The C call itself runs until its timeout, and Close waits for it.
 func (c *ServiceClient) callRawContext(ctx context.Context, requestBytes []byte) ([]byte, error) {
