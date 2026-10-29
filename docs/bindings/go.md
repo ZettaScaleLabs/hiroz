@@ -291,7 +291,7 @@ sub, err := hiroz.BuildWithTypedCallback(
 )
 ```
 
-`BufferGroupCpu` and `BufferGroupAuto` join in the same way, because a Go subscriber has no message definition. A transient-local QoS stays out whatever the value is. A build with a value other than these three returns an error and creates no subscriber. Go has no setting for the node default, so every subscriber starts at `BufferGroupAuto`.
+`BufferGroupCpu` and `BufferGroupAuto` join in the same way, because a Go subscriber has no message definition. A transient-local QoS stays out whatever the value is. A subscriber that stays out declares no liveliness token, so ROS tools do not list it. A build with a value other than these three returns an error and creates no subscriber. Go has no setting for the node default, so every subscriber starts at `BufferGroupAuto`.
 
 C callers get the same default from `hiroz_subscriber_create` and `hiroz_subscriber_create_with_qos`. `hiroz_subscriber_create_with_group` takes `group` set to `0` (stay out), `1` or `2` (join). Any other value returns null.
 
