@@ -97,8 +97,9 @@ pub struct ZNodeBuilder {
 impl ZNodeBuilder {
     /// Set the defaults for every subscriber that this node creates, cache and raw subscribers
     /// included. A setting on a subscriber builder replaces the default for that subscriber. A
-    /// subscriber that the node creates for itself, such as the status subscriber of an action
-    /// client, keeps the choice that the node makes for it.
+    /// subscriber that the node creates for itself keeps the choice that the node makes for it:
+    /// the status subscriber of an action client always stays out, and the feedback subscriber of
+    /// a typed action client follows the default.
     ///
     /// See [`SubscriberOptions`](crate::SubscriberOptions) for the options.
     pub fn with_subscriber_options(mut self, options: crate::SubscriberOptions) -> Self {
@@ -734,7 +735,7 @@ impl ZNode {
     ///
     /// Only `BufferGroup::Auto` reads the flag. `Auto` with `None` or `Some(true)` joins, as
     /// [`ZNode::create_raw_subscriber_with_group`] does. `Auto` with `Some(false)` stays out: it
-    /// declares the base key only and no token. `Cpu` joins and `Off` stays out whatever the flag
+    /// declares the base key only and no token, so ROS tools do not list it. `Cpu` joins and `Off` stays out whatever the flag
     /// says. A transient-local QoS or a custom key expression format stays out under every
     /// setting.
     ///
