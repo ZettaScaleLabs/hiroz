@@ -66,7 +66,7 @@ func BuildTypedServiceServer[Req, Resp Message](
 // typedServiceCallback adapts a typed service callback to the raw byte form.
 func typedServiceCallback[Req, Resp Message](callback func(Req) (Resp, error)) func([]byte) ([]byte, error) {
 	return func(reqBytes []byte) ([]byte, error) {
-		var req Req
+		req := newMessage[Req]()
 		if err := req.DeserializeCDR(reqBytes); err != nil {
 			return nil, fmt.Errorf("failed to deserialize request: %w", err)
 		}

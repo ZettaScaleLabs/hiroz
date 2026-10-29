@@ -54,7 +54,7 @@ func GetTypedResult[Result Message](handle *GoalHandle, result Result) error {
 // typedGoalCallback adapts a typed goal callback to the raw byte form.
 func typedGoalCallback[Goal Message](goalCallback func(Goal) bool) func([]byte) bool {
 	return func(goalBytes []byte) bool {
-		var goal Goal
+		goal := newMessage[Goal]()
 		if err := goal.DeserializeCDR(goalBytes); err != nil {
 			return false
 		}
@@ -65,7 +65,7 @@ func typedGoalCallback[Goal Message](goalCallback func(Goal) bool) func([]byte) 
 // typedExecuteCallback adapts a typed execute callback to the raw byte form.
 func typedExecuteCallback[Goal, Result Message](executeCallback func(h *ServerGoalHandle, goal Goal) (Result, error)) func(*ServerGoalHandle, []byte) ([]byte, error) {
 	return func(h *ServerGoalHandle, goalBytes []byte) ([]byte, error) {
-		var goal Goal
+		goal := newMessage[Goal]()
 		if err := goal.DeserializeCDR(goalBytes); err != nil {
 			return nil, fmt.Errorf("failed to deserialize goal: %w", err)
 		}
