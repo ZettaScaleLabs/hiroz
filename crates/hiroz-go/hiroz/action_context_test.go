@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestSendGoalContextAlreadyCancelled(t *testing.T) {
@@ -217,6 +218,53 @@ func TestSendGoalContextOwnsSerialisedBytes(t *testing.T) {
 	close(release)
 	if got := <-sent; len(got) != 2 || got[0] != 1 || got[1] != 2 {
 		t.Errorf("the C layer sent %v, want the goal as it was at the call: [1 2]", got)
+	}
+	_ = c.Close()
+}
+
+// hookGoal runs hook inside SerializeCDR, as user code does.
+type hookGoal struct{ hook func() }
+
+func (g *hookGoal) TypeName() string { return "x" }
+func (g *hookGoal) TypeHash() string { return "y" }
+func (g *hookGoal) SerializeCDR() ([]byte, error) {
+	g.hook()
+	return []byte{1}, nil
+}
+func (g *hookGoal) DeserializeCDR([]byte) error { return nil }
+
+// A panic in the caller's SerializeCDR must not leave the call registered. Otherwise
+// ActionClient.Close waits for it for ever.
+func TestSendGoalContextPanicInSerializeReleasesClient(t *testing.T) {
+	c := openTestActionClient()
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = c.SendGoalContext(context.Background(), &hookGoal{hook: func() { panic("bad goal") }})
+	}()
+	closed := make(chan struct{})
+	go func() { _ = c.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close is blocked: the panicking call is still registered")
+	}
+}
+
+// If ctx ends while the goal is serialised, nothing is sent.
+func TestSendGoalContextEndedDuringSerializeSendsNothing(t *testing.T) {
+	c := openTestActionClient()
+	sends := 0
+	stubSendGoal(t, func(_ *ActionClient, _ []byte) (*GoalHandle, error) {
+		sends++
+		return nil, errors.New("stub")
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	h, err := c.SendGoalContext(ctx, &hookGoal{hook: cancel})
+	if h != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled and no handle, got h=%v err=%v", h, err)
+	}
+	if sends != 0 {
+		t.Errorf("the goal was sent %d times after ctx ended, want 0", sends)
 	}
 	_ = c.Close()
 }
