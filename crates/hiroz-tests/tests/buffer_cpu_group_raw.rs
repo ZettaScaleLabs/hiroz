@@ -30,7 +30,10 @@ use common::{
 use hiroz::{
     BufferGroup, Builder,
     context::{ZContext, ZContextBuilder},
-    ffi::subscriber::RawSubscriber,
+    dynamic::{FieldType, MessageSchema},
+    ffi::subscriber::{
+        BUFFER_FIELDS_ABSENT, BUFFER_FIELDS_PRESENT, BUFFER_FIELDS_UNKNOWN, RawSubscriber,
+    },
     node::ZNode,
     qos::{QosDurability, QosProfile},
 };
@@ -1091,4 +1094,285 @@ fn c_abi_create_and_destroy_cycles_leave_no_token_and_no_callback() {
         c_destroy(sub);
         assert_torn_down(&name, &raw, TOPIC, tally);
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// A caller that knows whether the message type has a buffer field
+// ---------------------------------------------------------------------------------------------
+
+/// A raw subscriber on `topic` (no leading slash) built with the buffer-field entry point, and its
+/// call count.
+fn subscribe_with_flag(
+    node: &ZNode,
+    topic: &str,
+    group: BufferGroup,
+    has_buffer_fields: Option<bool>,
+) -> (Arc<Tally>, RawSubscriber) {
+    let (count, callback) = counter();
+    let sub = node
+        .create_raw_subscriber_with_buffer_fields(
+            &format!("/{topic}"),
+            TYPE_NAME,
+            TYPE_HASH,
+            callback,
+            None,
+            group,
+            has_buffer_fields,
+        )
+        .expect("raw subscriber with a buffer-field flag");
+    (count, sub)
+}
+
+/// `assert_stays_out`, after the control has proved that puts on the group key route: the control
+/// is delivered on both keys. Without that, "a put on the group key never reaches the subject"
+/// also holds when puts on the group key do not route at all.
+fn assert_stays_out_with_control(
+    name: &str,
+    raw: &zenoh::Session,
+    control_topic: &str,
+    control: &Tally,
+    subject_topic: &str,
+    subject: &Tally,
+) {
+    assert_joins(name, raw, control_topic, "the control");
+    assert_delivers_on_both_keys(name, raw, control_topic, control, "the control callback");
+    assert_stays_out(name, raw, control_topic, subject_topic, subject);
+}
+
+/// `Auto` with `Some(false)` stays out and declares no token. A `Cpu` control and an `Auto` with
+/// `Some(true)` twin join and are delivered on both keys, so the subject differs from the twin by
+/// the flag alone.
+#[test]
+fn raw_buffer_fields_absent_with_auto_stays_out() {
+    const NAME: &str = "raw_buffer_fields_absent_with_auto_stays_out";
+    let f = Fixture::new("raw_flag_absent");
+    let (control, _c) =
+        subscribe_with_flag(&f.node, "raw_flag_absent_control", BufferGroup::Cpu, None);
+    let (twin, _t) = subscribe_with_flag(
+        &f.node,
+        "raw_flag_absent_twin",
+        BufferGroup::Auto,
+        Some(true),
+    );
+    let (subject, _s) = subscribe_with_flag(
+        &f.node,
+        "raw_flag_absent_subject",
+        BufferGroup::Auto,
+        Some(false),
+    );
+    assert_joins(NAME, &f.raw, "raw_flag_absent_twin", "the Some(true) twin");
+    assert_delivers_on_both_keys(
+        NAME,
+        &f.raw,
+        "raw_flag_absent_twin",
+        &twin,
+        "the twin callback",
+    );
+    assert_stays_out_with_control(
+        NAME,
+        &f.raw,
+        "raw_flag_absent_control",
+        &control,
+        "raw_flag_absent_subject",
+        &subject,
+    );
+    // A raw subscriber that stays out declares no token at all.
+    let tokens = tokens_of(&f.raw, "raw_flag_absent_subject");
+    assert!(
+        tokens.is_empty(),
+        "{NAME}: the subject declared a token: {tokens:?}"
+    );
+}
+
+/// `Cpu` joins whatever the flag says.
+#[test]
+fn raw_buffer_fields_do_not_override_cpu() {
+    const NAME: &str = "raw_buffer_fields_do_not_override_cpu";
+    let f = Fixture::new("raw_flag_cpu");
+    let (count, _s) = subscribe_with_flag(&f.node, "raw_flag_cpu", BufferGroup::Cpu, Some(false));
+    assert_joins(
+        NAME,
+        &f.raw,
+        "raw_flag_cpu",
+        "the Cpu subscriber with Some(false)",
+    );
+    assert_delivers_on_both_keys(NAME, &f.raw, "raw_flag_cpu", &count, "the callback");
+}
+
+/// `Off` stays out whatever the flag says.
+#[test]
+fn raw_buffer_fields_do_not_override_off() {
+    const NAME: &str = "raw_buffer_fields_do_not_override_off";
+    let f = Fixture::new("raw_flag_off");
+    let (control, _c) =
+        subscribe_with_flag(&f.node, "raw_flag_off_control", BufferGroup::Cpu, None);
+    let (subject, _s) = subscribe_with_flag(
+        &f.node,
+        "raw_flag_off_subject",
+        BufferGroup::Off,
+        Some(true),
+    );
+    assert_stays_out_with_control(
+        NAME,
+        &f.raw,
+        "raw_flag_off_control",
+        &control,
+        "raw_flag_off_subject",
+        &subject,
+    );
+}
+
+/// A one-field message schema.
+fn one_field(field_type: FieldType) -> Arc<MessageSchema> {
+    MessageSchema::builder("pkg/msg/M")
+        .field("f", field_type)
+        .build()
+        .unwrap()
+}
+
+/// The flag of a schema decides the join. The expectations are literals: a `uint8[]` message
+/// joins and a `float64[]` message stays out.
+#[test]
+fn raw_flag_from_a_schema_decides_the_join() {
+    const NAME: &str = "raw_flag_from_a_schema_decides_the_join";
+    let bytes = one_field(FieldType::Sequence(Box::new(FieldType::Uint8)));
+    let floats = one_field(FieldType::Sequence(Box::new(FieldType::Float64)));
+    assert!(
+        bytes.has_buffer_fields(),
+        "{NAME}: a uint8[] schema has a buffer field"
+    );
+    assert!(
+        !floats.has_buffer_fields(),
+        "{NAME}: a float64[] schema has none"
+    );
+    let f = Fixture::new("raw_schema");
+    let (bytes_count, _b) = subscribe_with_flag(
+        &f.node,
+        "raw_schema_bytes",
+        BufferGroup::Auto,
+        Some(bytes.has_buffer_fields()),
+    );
+    let (floats_count, _fl) = subscribe_with_flag(
+        &f.node,
+        "raw_schema_floats",
+        BufferGroup::Auto,
+        Some(floats.has_buffer_fields()),
+    );
+    assert_stays_out_with_control(
+        NAME,
+        &f.raw,
+        "raw_schema_bytes",
+        &bytes_count,
+        "raw_schema_floats",
+        &floats_count,
+    );
+}
+
+impl CFixture {
+    /// `hiroz_subscriber_create_with_buffer_fields` on `/topic` with the default QoS. Null on
+    /// failure.
+    fn with_buffer_fields(
+        &self,
+        topic: &str,
+        user_data: usize,
+        buffer_fields: i32,
+    ) -> *mut hiroz::ffi::subscriber::CSubscriber {
+        use std::ffi::CString;
+        let topic = CString::new(format!("/{topic}")).unwrap();
+        let type_name = CString::new(TYPE_NAME).unwrap();
+        let type_hash = CString::new(TYPE_HASH).unwrap();
+        unsafe {
+            hiroz::ffi::subscriber::hiroz_subscriber_create_with_buffer_fields(
+                self.node,
+                topic.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                c_count,
+                user_data,
+                std::ptr::null(),
+                buffer_fields,
+            )
+        }
+    }
+}
+
+/// Through the C entry, `UNKNOWN` and `PRESENT` join and `ABSENT` stays out. The first two are
+/// delivered on both keys before the `ABSENT` subscriber is judged.
+#[test]
+fn c_abi_buffer_fields_value_decides_the_join() {
+    const NAME: &str = "c_abi_buffer_fields_value_decides_the_join";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_flag");
+    let (unknown_tally, unknown_data) = c_tally();
+    let (present_tally, present_data) = c_tally();
+    let (absent_tally, absent_data) = c_tally();
+    let unknown = c.with_buffer_fields("c_flag_unknown", unknown_data, BUFFER_FIELDS_UNKNOWN);
+    let present = c.with_buffer_fields("c_flag_present", present_data, BUFFER_FIELDS_PRESENT);
+    let absent = c.with_buffer_fields("c_flag_absent", absent_data, BUFFER_FIELDS_ABSENT);
+    assert!(
+        !unknown.is_null() && !present.is_null() && !absent.is_null(),
+        "{NAME}: a creator returned null"
+    );
+
+    assert_joins(NAME, &raw, "c_flag_unknown", "the UNKNOWN subscriber");
+    assert_delivers_on_both_keys(
+        NAME,
+        &raw,
+        "c_flag_unknown",
+        unknown_tally,
+        "the UNKNOWN callback",
+    );
+    assert_stays_out_with_control(
+        NAME,
+        &raw,
+        "c_flag_present",
+        present_tally,
+        "c_flag_absent",
+        absent_tally,
+    );
+
+    for sub in [absent, present, unknown] {
+        c_destroy(sub);
+    }
+}
+
+/// A value other than the three constants returns null and declares nothing. A valid value on the
+/// same node returns a handle and declares a token, so the null answers the value and not a
+/// broken setup.
+#[test]
+fn c_abi_rejects_an_unknown_buffer_fields_value() {
+    const NAME: &str = "c_abi_rejects_an_unknown_buffer_fields_value";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_flag_bad");
+    let (_tally, data) = c_tally();
+
+    let control = c.with_buffer_fields("c_flag_bad_control", data, BUFFER_FIELDS_PRESENT);
+    assert!(
+        !control.is_null(),
+        "{NAME}: a valid value returned null, so a null below proves nothing"
+    );
+    assert_joins(NAME, &raw, "c_flag_bad_control", "the valid control");
+
+    let bad = [-2, 3, i32::MIN, i32::MAX];
+    for (i, value) in bad.into_iter().enumerate() {
+        let sub = c.with_buffer_fields(&format!("c_flag_bad_{i}"), data, value);
+        let accepted = !sub.is_null();
+        if accepted {
+            c_destroy(sub);
+        }
+        assert!(!accepted, "{NAME}: the value {value} was accepted");
+    }
+    // Let a token that a rejected call wrongly declared become visible.
+    std::thread::sleep(QUIET);
+    for i in 0..bad.len() {
+        let left = tokens_of(&raw, &format!("c_flag_bad_{i}"));
+        assert!(
+            left.is_empty(),
+            "{NAME}: a rejected value left tokens behind: {left:?}"
+        );
+    }
+
+    c_destroy(control);
 }
