@@ -767,8 +767,10 @@ struct hiroz_subscriber_t *hiroz_subscriber_create_with_qos(struct hiroz_node_t 
  * join it as `hiroz_subscriber_create_with_qos` does. A subscriber has no message
  * definition here, so `1` and `2` join the same way. A subscriber that joins announces
  * `backends:cpu:` and receives from both the base key and the group key. Any other value is an
- * error: the function returns null and logs a warning. A QoS that rmw_zenoh does not serve on
- * the group key (transient-local) stays out whatever `group` says.
+ * error: the function returns null, with a warning in the log when logging is on. A QoS that
+ * rmw_zenoh does not serve on the group key (transient-local) stays out whatever `group` says.
+ * A subscriber that stays out declares no liveliness token, so ROS tools do not list it and a
+ * publisher does not learn that it exists.
  *
  * # Safety
  * `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
@@ -793,7 +795,7 @@ struct hiroz_subscriber_t *hiroz_subscriber_create_with_group(struct hiroz_node_
  * The subscriber uses the node default for the buffer group, as
  * `hiroz_subscriber_create_with_qos` does, and a C node has the default `Auto`. Under `Auto`,
  * `UNKNOWN` and `PRESENT` join the CPU buffer group. `ABSENT` stays out: it declares the base
- * key only and no liveliness token. Pass `ABSENT` only when the type has no unbounded `uint8[]`
+ * key only and no liveliness token, so ROS tools do not list it. Pass `ABSENT` only when the type has no unbounded `uint8[]`
  * or `char[]` field, directly or nested. On a buffer topic the subscriber then receives
  * nothing, without an error, and no token form fixes that on a released `rmw_zenoh_cpp`.
  *
