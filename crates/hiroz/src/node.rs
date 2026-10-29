@@ -97,8 +97,9 @@ pub struct ZNodeBuilder {
 impl ZNodeBuilder {
     /// Set the defaults for every subscriber that this node creates, cache and raw subscribers
     /// included. A setting on a subscriber builder replaces the default for that subscriber. A
-    /// subscriber that the node creates for itself, such as the status subscriber of an action
-    /// client, keeps the choice that the node makes for it.
+    /// subscriber that the node creates for itself keeps the choice that the node makes for it:
+    /// the status subscriber of an action client always stays out, and the feedback subscriber of
+    /// a typed action client follows the default.
     ///
     /// See [`SubscriberOptions`](crate::SubscriberOptions) for the options.
     pub fn with_subscriber_options(mut self, options: crate::SubscriberOptions) -> Self {

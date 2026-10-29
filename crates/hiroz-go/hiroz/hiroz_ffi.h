@@ -752,8 +752,10 @@ struct hiroz_subscriber_t *hiroz_subscriber_create_with_qos(struct hiroz_node_t 
  * join it as `hiroz_subscriber_create_with_qos` does. A subscriber has no message
  * definition here, so `1` and `2` join the same way. A subscriber that joins announces
  * `backends:cpu:` and receives from both the base key and the group key. Any other value is an
- * error: the function returns null and logs a warning. A QoS that rmw_zenoh does not serve on
- * the group key (transient-local) stays out whatever `group` says.
+ * error: the function returns null, with a warning in the log when logging is on. A QoS that
+ * rmw_zenoh does not serve on the group key (transient-local) stays out whatever `group` says.
+ * A subscriber that stays out declares no liveliness token, so ROS tools do not list it and a
+ * publisher does not learn that it exists.
  *
  * # Safety
  * `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
