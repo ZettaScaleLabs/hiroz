@@ -770,6 +770,16 @@ fn python_attribute_names(raw: &str) -> BTreeSet<String> {
         from = start + "#[py".len();
         for (offset, _) in marked[start..end].match_indices("name") {
             let at = start + offset;
+            // A rename is an argument of the attribute itself, at depth 1. A parameter called `name`
+            // inside `signature = (...)` is at depth 2 and renames nothing.
+            let depth = marked[start..at].chars().fold(0i32, |d, c| match c {
+                '(' => d + 1,
+                ')' => d - 1,
+                _ => d,
+            });
+            if depth != 1 {
+                continue;
+            }
             let boundary = !marked[..at].chars().next_back().is_some_and(is_ident);
             let rest = marked[at + "name".len()..end].trim_start();
             let Some(rest) = rest.strip_prefix('=') else {
@@ -794,10 +804,10 @@ fn python_attribute_names(raw: &str) -> BTreeSet<String> {
 /// - Items: the name after `fn`, `struct`, `enum`, `union` or `trait`; after `type` when `=`, `<`, `;` or `:` follows; after `const` or `static` when `:` follows.
 /// - A parameter: `name:` at the top level of the parentheses that follow `fn <ident>`.
 /// - A field: `name:` at the top level of the braces of a `struct` or `union`.
-/// - A PyO3 parameter: `name =` inside the parentheses of `signature = (...)` in a `#[pyo3(...)]` attribute.
+/// - A PyO3 parameter, when `pyo3` is true (the Python binding): `name =` inside the parentheses of `signature = (...)` in a `#[pyo3(...)]` attribute.
 ///
 /// A struct literal, a `let` binding, a closure parameter, a format argument and a function pointer type define nothing.
-fn rust_definitions(tokens: &[String]) -> BTreeSet<String> {
+fn rust_definitions(tokens: &[String], pyo3: bool) -> BTreeSet<String> {
     let t = |i: usize| tokens.get(i).map_or("", String::as_str);
     let is_ident = |s: &str| s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_');
     // `name :` that is not `name ::`, after one of the `before` tokens.
@@ -870,7 +880,7 @@ fn rust_definitions(tokens: &[String]) -> BTreeSet<String> {
                     names.insert(name.to_string());
                 }
             }
-            "#" if t(i + 1) == "[" && t(i + 2) == "pyo3" => {
+            "#" if pyo3 && t(i + 1) == "[" && t(i + 2) == "pyo3" => {
                 let mut depth = 0;
                 for k in i + 1..tokens.len() {
                     match t(k) {
@@ -951,7 +961,7 @@ fn check_binding_symbols(rows: &[Value], sources: &BTreeMap<&str, String>) -> Ve
                 Lang::Rust
             };
             let clean = blank_source(raw, lang, false);
-            let mut rust_names = rust_definitions(&tokens(&clean));
+            let mut rust_names = rust_definitions(&tokens(&clean), binding == "python");
             if binding == "python" {
                 rust_names.extend(python_attribute_names(raw));
             }
@@ -1364,6 +1374,22 @@ fn a_name_that_is_not_a_parameter_or_field_fails() {
 }
 
 #[test]
+fn a_pyo3_signature_parameter_defines_a_python_name_only() {
+    let source = "#[pyo3(signature = (a, Ghost=None))]\nfn f() {}";
+    assert!(ghost_defined("python", source), "rejected: {source}");
+    assert!(!ghost_defined("c", source), "accepted for C: {source}");
+}
+
+#[test]
+fn a_string_default_of_a_parameter_called_name_is_not_a_rename() {
+    let source = "#[pyo3(signature = (name = \"Ghost\"))]\nfn f() {}";
+    assert!(!ghost_defined("python", source), "accepted: {source}");
+    // Positive control: a real rename at the top level of the attribute is accepted.
+    let rename = "#[pyo3(name = \"Ghost\", signature = (name = \"x\"))]\nfn f() {}";
+    assert!(ghost_defined("python", rename), "rejected: {rename}");
+}
+
+#[test]
 fn a_parameter_or_field_definition_passes() {
     // Positive controls for the rule above.
     for source in [
@@ -1372,7 +1398,6 @@ fn a_parameter_or_field_definition_passes() {
         "pub extern \"C\" fn f(a: *const u8, Ghost: usize) -> i32 { 0 }",
         "struct S { a: u8, pub Ghost: u8 }",
         "struct S<T> where T: Copy { #[x] pub(crate) Ghost: T }",
-        "#[pyo3(signature = (a, Ghost=None))]\nfn f() {}",
         "const Ghost: u8 = 1;",
         "static mut Ghost: u8 = 1;",
         "type Ghost = u8;",
