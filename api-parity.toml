@@ -119,8 +119,8 @@ entity = "context"
 option = "router endpoint"
 rust = { status = "present", symbol = "ZContextBuilder::with_router_endpoint" }
 python = { status = "present", symbol = "ZContextBuilder.with_router_endpoint" }
-c = { status = "absent", reason = "The C configuration struct can connect to the local router only, through the connect_to_local_zenohd flag. It cannot name an endpoint." }
-go = { status = "absent", reason = "The Go context builder can connect to the local router only, through ConnectToLocalZenohd. It cannot name an endpoint." }
+c = { status = "absent", reason = "The C configuration struct has no single router endpoint field. It names endpoints through connect_endpoints, which has its own row." }
+go = { status = "absent", reason = "The Go context builder has no WithRouterEndpoint method. It names endpoints through WithConnectEndpoints, which has its own row." }
 
 [[row]]
 id = "context.remap_rule"
