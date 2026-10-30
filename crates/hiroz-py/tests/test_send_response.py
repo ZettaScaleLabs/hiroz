@@ -32,5 +32,6 @@ def test_gid_of_wrong_length_raises_value_error(server, length):
 
 
 def test_non_integer_sn_raises_type_error(server):
+    # A positive control: the code before the fix raised `TypeError` here too.
     with pytest.raises(TypeError):
         server.send_response(response(), {"sn": "one", "gid": GID})
