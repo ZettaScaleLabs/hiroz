@@ -524,9 +524,15 @@ fn scan_builders() -> BTreeSet<String> {
     for file in &files {
         let content = fs::read_to_string(file)
             .unwrap_or_else(|e| panic!("cannot read {}: {e}", file.display()));
-        scan_source(&content, &mut found);
+        scan_rust_file(&content, &mut found);
     }
     found
+}
+
+/// Scans one Rust file. Comments and string literals become blanks first, so that a
+/// declaration inside one is not read as code and a `}` inside a raw string does not end an `impl` block.
+fn scan_rust_file(content: &str, found: &mut BTreeSet<String>) {
+    scan_source(&blank_source(content, Lang::Rust, false), found);
 }
 
 /// Returns each way in which the scanned builder methods and the Rust cells of the rows disagree.
@@ -859,7 +865,9 @@ fn rust_definitions(tokens: &[String]) -> BTreeSet<String> {
                     match t(k) {
                         "(" | "[" => depth += 1,
                         ")" | "]" => depth -= 1,
-                        _ if depth >= 3
+                        // Depth 3 is the parameter list of `signature = (...)`. A deeper `name =` is
+                        // an argument of a call in a default, such as `format!("{x}", x = 1)`.
+                        _ if depth == 3
                             && is_ident(t(k))
                             && t(k + 1) == "="
                             && t(k + 2) != "="
@@ -1369,4 +1377,52 @@ fn multibyte_text_before_a_rename_keeps_offsets_stable() {
         let source = format!("{prefix}#[pyo3(name = \"Ghost\")]\nfn ghost() {{}}");
         assert!(ghost_defined("python", &source), "rejected: {source}");
     }
+}
+
+#[test]
+fn builder_scan_ignores_comments_and_strings() {
+    let source = r##"
+impl ZRealBuilder {
+    pub fn with_real(self) {}
+}
+
+/*
+impl ZCommentBuilder {
+    pub fn with_comment(self) {}
+}
+*/
+
+const TEXT: &str = r#"
+impl ZStringBuilder {
+    pub fn with_string(self) {}
+}
+"#;
+
+impl ZAfterBuilder {
+    pub fn with_after(self) {}
+}
+"##;
+    let mut found = BTreeSet::new();
+    scan_rust_file(source, &mut found);
+    let expected: BTreeSet<String> = ["ZRealBuilder::with_real", "ZAfterBuilder::with_after"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(found, expected);
+}
+
+#[test]
+fn builder_scan_keeps_methods_after_a_raw_string_with_a_closing_brace() {
+    // The `}` at column zero inside the raw string used to clear the owner.
+    let source = "impl ZABuilder {\n    const T: &str = r#\"\n}\n\"#;\n    pub fn with_after_string(self) {}\n}\n";
+    let mut found = BTreeSet::new();
+    scan_rust_file(source, &mut found);
+    assert!(found.contains("ZABuilder::with_after_string"), "{found:?}");
+}
+
+#[test]
+fn a_format_argument_in_a_python_default_is_not_a_definition() {
+    // A negative control for the positive one above: `Ghost` is a named argument of `format!`.
+    let source = "#[pyo3(signature = (a = format!(\"{Ghost}\", Ghost = 1)))]\nfn f() {}";
+    assert!(!ghost_defined("python", source), "accepted: {source}");
 }
