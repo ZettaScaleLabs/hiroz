@@ -36,9 +36,11 @@ func TestFinishSendGoalEndedContextClosesHandle(t *testing.T) {
 	if got != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled and no handle, got h=%v err=%v", got, err)
 	}
-	// Close ran: the close-once guard is spent, so a second Close is a no-op that returns nil.
-	if err := h.Close(); err != nil {
-		t.Fatalf("second Close: %v", err)
+	// Close ran: it spent the close-once guard, so this Do does not run its function.
+	spent := true
+	h.closeOnce.Do(func() { spent = false })
+	if !spent {
+		t.Fatal("the handle was not closed")
 	}
 }
 
@@ -47,5 +49,11 @@ func TestFinishSendGoalLiveContextKeepsHandle(t *testing.T) {
 	got, err := finishSendGoal(context.Background(), h, nil)
 	if got != h || err != nil {
 		t.Fatalf("want the handle, got h=%v err=%v", got, err)
+	}
+	// A positive control for the close check above: the guard is unspent here.
+	unspent := false
+	h.closeOnce.Do(func() { unspent = true })
+	if !unspent {
+		t.Fatal("a live context closed the handle")
 	}
 }
