@@ -94,12 +94,14 @@ fn check_cell(row_id: &str, binding: &str, cell: Option<&Value>, errors: &mut Ve
     let symbol = non_empty_str(table, "symbol");
     let reason = non_empty_str(table, "reason");
     let release = non_empty_str(table, "release");
+    // A field that a status forbids is forbidden whatever its value: `symbol = 123` and `reason = ""` count.
+    let has = |key: &str| table.contains_key(key);
     match status {
         "present" => {
             if symbol.is_none() {
                 errors.push(format!("{at}: a present cell needs a symbol"));
             }
-            if reason.is_some() || release.is_some() {
+            if has("reason") || has("release") {
                 errors.push(format!("{at}: a present cell has no reason or release"));
             }
         }
@@ -107,7 +109,7 @@ fn check_cell(row_id: &str, binding: &str, cell: Option<&Value>, errors: &mut Ve
             if reason.is_none() {
                 errors.push(format!("{at}: an absent cell needs a reason"));
             }
-            if symbol.is_some() || release.is_some() {
+            if has("symbol") || has("release") {
                 errors.push(format!("{at}: an absent cell has no symbol or release"));
             }
         }
@@ -124,7 +126,7 @@ fn check_cell(row_id: &str, binding: &str, cell: Option<&Value>, errors: &mut Ve
                 }
                 Some(_) => {}
             }
-            if symbol.is_some() {
+            if has("symbol") {
                 errors.push(format!("{at}: a planned cell has no symbol"));
             }
         }
@@ -1498,4 +1500,35 @@ fn a_symbol_without_an_identifier_fails() {
     let errors = check_binding_symbols(&rows, &sources);
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(errors[0].contains("names no identifier"), "{errors:?}");
+}
+
+#[test]
+fn a_forbidden_field_is_rejected_whatever_its_value() {
+    // Each value is blank or not a string, so a check on a non-empty string would miss it.
+    let cases = [
+        (
+            r#"python = { status = "absent", reason = "No such option." }"#,
+            r#"python = { status = "absent", reason = "No such option.", symbol = 123 }"#,
+            "an absent cell has no symbol or release",
+        ),
+        (
+            r#"python = { status = "absent", reason = "No such option." }"#,
+            r#"python = { status = "absent", reason = "No such option.", release = [] }"#,
+            "an absent cell has no symbol or release",
+        ),
+        (
+            r#"go = { status = "present", symbol = "PublisherBuilder.WithQoS" }"#,
+            r#"go = { status = "present", symbol = "PublisherBuilder.WithQoS", reason = "" }"#,
+            "a present cell has no reason or release",
+        ),
+        (
+            r#"c = { status = "planned", reason = "Not written yet.", release = "0.2.2" }"#,
+            r#"c = { status = "planned", reason = "Not written yet.", release = "0.2.2", symbol = "" }"#,
+            "a planned cell has no symbol",
+        ),
+    ];
+    for (from, to, expected) in cases {
+        assert!(VALID_ROW.contains(from), "the base row lost `{from}`");
+        assert_rejected(&VALID_ROW.replace(from, to), expected);
+    }
 }
