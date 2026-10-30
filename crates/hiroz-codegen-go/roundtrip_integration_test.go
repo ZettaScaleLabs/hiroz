@@ -32,6 +32,91 @@ import (
 	"testing"
 )
 
+type crossFailure int
+
+const (
+	crossOther crossFailure = iota
+	// The toolchain has no such GOOS/GOARCH pair (for example darwin/386).
+	crossUnsupportedPair
+	// The binary was built but the host cannot execute it.
+	crossExecFormat
+)
+
+// classifyCrossFailure sorts the output of a failed cross-arch `go test`.
+// Only these two precise messages count as an environment limit. Any other
+// failure stays a failure.
+func classifyCrossFailure(output string) crossFailure {
+	switch {
+	case strings.Contains(output, "unsupported GOOS/GOARCH pair"):
+		return crossUnsupportedPair
+	case strings.Contains(output, "exec format error"):
+		return crossExecFormat
+	}
+	return crossOther
+}
+
+// targetListed reports whether goos/goarch appears in `go tool dist list`
+// output (one "os/arch" pair per line).
+func targetListed(distList, goos, goarch string) bool {
+	want := goos + "/" + goarch
+	for _, line := range strings.Split(distList, "\n") {
+		if strings.TrimSpace(line) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// targetBuildable asks the toolchain whether the host GOOS with goarch is a
+// supported target. When the toolchain cannot answer, it returns true so the
+// probe runs and fails loudly instead of skipping silently.
+func targetBuildable(goBin, goarch string) (bool, string) {
+	goosOut, err := exec.Command(goBin, "env", "GOOS").Output()
+	if err != nil {
+		return true, ""
+	}
+	goos := strings.TrimSpace(string(goosOut))
+	list, err := exec.Command(goBin, "tool", "dist", "list").Output()
+	if err != nil {
+		return true, ""
+	}
+	if !targetListed(string(list), goos, goarch) {
+		return false, goos + "/" + goarch + " is absent from `go tool dist list`"
+	}
+	return true, ""
+}
+
+func TestCrossFailureClassification(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		out  string
+		want crossFailure
+	}{
+		{"unsupported", "go: unsupported GOOS/GOARCH pair darwin/386", crossUnsupportedPair},
+		{"exec", "fork/exec x.test: exec format error", crossExecFormat},
+		{"compile", "./x.go:3:1: syntax error", crossOther},
+		{"empty", "", crossOther},
+	} {
+		if got := classifyCrossFailure(c.out); got != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
+		}
+	}
+	list := "darwin/amd64\ndarwin/arm64\nlinux/386\nlinux/amd64\n"
+	for _, c := range []struct {
+		goos, arch string
+		want       bool
+	}{
+		{"linux", "386", true},
+		{"darwin", "386", false},
+		{"darwin", "arm64", true},
+		{"linux", "38", false},
+	} {
+		if got := targetListed(list, c.goos, c.arch); got != c.want {
+			t.Errorf("%s/%s: got %v, want %v", c.goos, c.arch, got, c.want)
+		}
+	}
+}
+
 func TestRoundtripExecutesGeneratedGo(t *testing.T) {
 	// Skip cleanly when `go` is unavailable on the test host (e.g. running
 	// `go test` from a stripped CI image). We still want the assertion
@@ -180,3 +265,249 @@ func TestRoundtripValuesMatch(t *testing.T) {
 	}
 }
 `
+
+// hostileCase is one decode probe run in its own `go test` subprocess. A
+// subprocess per case matters: a Go out-of-memory abort kills the whole
+// process and cannot be recovered, so one shared process would hide every case
+// after the first abort.
+type hostileCase struct {
+	name   string
+	goarch string // empty: the host architecture
+}
+
+// hostileProbeSource holds the probe tests of the hostile-length round trip.
+// Each probe feeds a hand-built CDR body to one generated decoder.
+//
+// Most probes use `hostileLen`: the encapsulation header `00 01 00 00`, then a
+// 4-byte sequence length of 0xFFFFFFFF, then nothing. `TestHostileBigElements`
+// builds its own body, with a count of 65536 and 65536 bytes after it.
+const hostileProbeSource = `package main_test
+
+import (
+	"runtime"
+	"testing"
+
+	"roundtripprobe/test_msgs"
+)
+
+var hostileLen = []byte{0x00, 0x01, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff}
+
+// allocated runs f and returns the bytes the Go allocator handed out during it.
+// A reservation counts even when the OS has not touched its pages, so the
+// measure does not depend on overcommit settings.
+func allocated(f func()) uint64 {
+	var a, b runtime.MemStats
+	runtime.ReadMemStats(&a)
+	f()
+	runtime.ReadMemStats(&b)
+	return b.TotalAlloc - a.TotalAlloc
+}
+
+// rejects decodes raw and requires an error, a small allocation and no panic.
+func rejects(t *testing.T, raw []byte, decode func([]byte) error) {
+	t.Helper()
+	var err error
+	n := allocated(func() { err = decode(raw) })
+	if err == nil {
+		t.Errorf("hostile length decoded without an error")
+	}
+	if n > 1<<20 {
+		t.Errorf("hostile length reserved %d bytes before it failed", n)
+	}
+}
+
+func TestHostileStringArray(t *testing.T) {
+	var m test_msgs.StrArr
+	rejects(t, hostileLen, m.DeserializeCDR)
+}
+
+func TestHostilePrimitiveArray(t *testing.T) {
+	var m test_msgs.PrimArr
+	rejects(t, hostileLen, m.DeserializeCDR)
+}
+
+func TestHostileCustomArray(t *testing.T) {
+	var m test_msgs.CustomArr
+	rejects(t, hostileLen, m.DeserializeCDR)
+}
+
+// A length one above the bytes left is rejected; a length equal to the bytes
+// left decodes. The pair pins the boundary from both sides.
+func TestPrimitiveBoundary(t *testing.T) {
+	var ok test_msgs.BytesArr
+	if err := ok.DeserializeCDR([]byte{0x00, 0x01, 0x00, 0x00, 3, 0, 0, 0, 7, 8, 9}); err != nil {
+		t.Fatalf("length equal to the bytes left was rejected: %v", err)
+	}
+	if len(ok.V) != 3 || ok.V[0] != 7 || ok.V[2] != 9 {
+		t.Fatalf("decoded %v, want [7 8 9]", ok.V)
+	}
+	var over test_msgs.BytesArr
+	if err := over.DeserializeCDR([]byte{0x00, 0x01, 0x00, 0x00, 4, 0, 0, 0, 7, 8, 9}); err == nil {
+		t.Fatalf("length one above the bytes left decoded without an error")
+	}
+}
+
+// An element that holds a 64 KiB fixed array takes at least 65536 bytes. A
+// count of 65536 with 65536 bytes left passes a bound on the element count, yet
+// reserving that many elements would take 4 GiB. The decoder must reserve by
+// the bytes the elements need and fail without a large allocation.
+func TestHostileBigElements(t *testing.T) {
+	raw := make([]byte, 4+4+65536)
+	raw[1] = 0x01
+	raw[4+2] = 0x01 // count 65536, little endian
+	var m test_msgs.BigArr
+	rejects(t, raw, m.DeserializeCDR)
+}
+
+// An element that holds a 1 GiB fixed array is a 1 GiB Go array. A count of one with
+// no bytes after it must fail before that array is allocated.
+func TestHostileHugeElement(t *testing.T) {
+	raw := []byte{0x00, 0x01, 0x00, 0x00, 1, 0, 0, 0}
+	var m test_msgs.HugeArr
+	rejects(t, raw, m.DeserializeCDR)
+}
+
+// The boundary of a sequence of nested messages: a count whose elements fit the
+// bytes left decodes, and one more element is rejected.
+func TestCustomBoundary(t *testing.T) {
+	var ok test_msgs.CustomArr
+	if err := ok.DeserializeCDR([]byte{0x00, 0x01, 0x00, 0x00, 2, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0}); err != nil {
+		t.Fatalf("two elements in eight bytes were rejected: %v", err)
+	}
+	if len(ok.V) != 2 || ok.V[0].X != 1 || ok.V[1].X != 2 {
+		t.Fatalf("decoded %v, want x=1 and x=2", ok.V)
+	}
+	var over test_msgs.CustomArr
+	if err := over.DeserializeCDR([]byte{0x00, 0x01, 0x00, 0x00, 3, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0}); err == nil {
+		t.Fatalf("three elements in eight bytes decoded without an error")
+	}
+}
+
+// An element of a message with no fields takes zero bytes, so a valid
+// sequence of them is longer than the bytes left. The bound must not reject it.
+func TestSequenceOfEmptyMessagesDecodes(t *testing.T) {
+	var m test_msgs.EmptyArr
+	if err := m.DeserializeCDR([]byte{0x00, 0x01, 0x00, 0x00, 0xe8, 0x03, 0, 0}); err != nil {
+		t.Fatalf("a valid sequence of 1000 empty messages was rejected: %v", err)
+	}
+	if len(m.V) != 1000 {
+		t.Fatalf("decoded %d elements, want 1000", len(m.V))
+	}
+}
+`
+
+func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
+	// A skip is not a pass: the reason names the missing tool.
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("go binary not found on PATH; skipping hostile sequence length test: %v", err)
+	}
+
+	u8 := FieldType{Kind: "UInt8"}
+	seq := func(name string, ft FieldType) []FieldDefinition {
+		return []FieldDefinition{{Name: "v", FieldType: ft, IsArray: true, ArrayKind: "unbounded"}}
+	}
+	str := func(s string) *string { return &s }
+	custom := func(name string) FieldType {
+		return FieldType{Kind: "Custom", Package: str("test_msgs"), Name: str(name)}
+	}
+	// Time and Duration arrays have no runtime probe: the generated code for such
+	// a field does not compile (the slice element type falls back to interface{}).
+	// Their bound is checked as text in TestGenerateUnpackBoundsArrayLength.
+	bigN := uint(65536)
+	bigFixed := []FieldDefinition{{Name: "b", FieldType: u8, IsArray: true, ArrayKind: "fixed", ArraySize: &bigN}}
+	hugeN := uint(1 << 30)
+	hugeFixed := []FieldDefinition{{Name: "b", FieldType: u8, IsArray: true, ArrayKind: "fixed", ArraySize: &hugeN}}
+	msgs := []MessageDefinition{
+		{Package: "test_msgs", Name: "Empty", FullName: "test_msgs/Empty"},
+		{Package: "test_msgs", Name: "One", FullName: "test_msgs/One", Fields: []FieldDefinition{
+			{Name: "x", FieldType: FieldType{Kind: "Int32"}},
+		}},
+		{Package: "test_msgs", Name: "StrArr", FullName: "test_msgs/StrArr", Fields: seq("v", FieldType{Kind: "String"})},
+		{Package: "test_msgs", Name: "PrimArr", FullName: "test_msgs/PrimArr", Fields: seq("v", FieldType{Kind: "Float64"})},
+		{Package: "test_msgs", Name: "BytesArr", FullName: "test_msgs/BytesArr", Fields: seq("v", u8)},
+		{Package: "test_msgs", Name: "CustomArr", FullName: "test_msgs/CustomArr", Fields: seq("v", custom("One"))},
+		{Package: "test_msgs", Name: "EmptyArr", FullName: "test_msgs/EmptyArr", Fields: seq("v", custom("Empty"))},
+		{Package: "test_msgs", Name: "Big", FullName: "test_msgs/Big", Fields: bigFixed},
+		{Package: "test_msgs", Name: "BigArr", FullName: "test_msgs/BigArr", Fields: seq("v", custom("Big"))},
+		{Package: "test_msgs", Name: "Huge", FullName: "test_msgs/Huge", Fields: hugeFixed},
+		{Package: "test_msgs", Name: "HugeArr", FullName: "test_msgs/HugeArr", Fields: seq("v", custom("Huge"))},
+	}
+	registerKnown(t, msgs)
+
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module roundtripprobe\n\ngo 1.23\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	for _, m := range msgs {
+		code, err := GenerateGoMessage(m, "roundtripprobe")
+		if err != nil {
+			t.Fatalf("GenerateGoMessage(%s) failed: %v", m.Name, err)
+		}
+		dir := filepath.Join(tmp, m.Package)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, strings.ToLower(m.Name)+".go"), code, 0o644); err != nil {
+			t.Fatalf("write %s: %v", m.Name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "probe_test.go"), []byte(hostileProbeSource), 0o644); err != nil {
+		t.Fatalf("write probe_test.go: %v", err)
+	}
+
+	cases := []hostileCase{
+		{name: "TestHostileStringArray"},
+		{name: "TestHostilePrimitiveArray"},
+		{name: "TestHostileCustomArray"},
+		{name: "TestPrimitiveBoundary"},
+		{name: "TestSequenceOfEmptyMessagesDecodes"},
+		{name: "TestHostileBigElements"},
+		{name: "TestHostileHugeElement"},
+		{name: "TestCustomBoundary"},
+		// On a 32-bit target int(uint32) of 0xFFFFFFFF is negative.
+		{name: "TestHostilePrimitiveArray", goarch: "386"},
+		{name: "TestHostileStringArray", goarch: "386"},
+	}
+	for _, c := range cases {
+		label := c.name
+		if c.goarch != "" {
+			label += "/" + c.goarch
+		}
+		t.Run(label, func(t *testing.T) {
+			if c.goarch != "" {
+				if ok, why := targetBuildable(goBin, c.goarch); !ok {
+					t.Skipf("GOARCH=%s is not a buildable target on this host: %s", c.goarch, why)
+				}
+			}
+			cmd := exec.Command(goBin, "test", "-count=1", "-run", "^"+c.name+"$", "-v", ".")
+			cmd.Dir = tmp
+			cmd.Env = append(os.Environ(),
+				"GOFLAGS=-mod=mod",
+				"GOMODCACHE="+filepath.Join(tmp, ".gomodcache"),
+				"GOCACHE="+filepath.Join(tmp, ".gocache"),
+			)
+			if c.goarch != "" {
+				cmd.Env = append(cmd.Env, "GOARCH="+c.goarch, "CGO_ENABLED=0")
+			}
+			out, err := cmd.CombinedOutput()
+			text := string(out)
+			if err != nil {
+				switch classifyCrossFailure(text) {
+				case crossUnsupportedPair:
+					if c.goarch != "" {
+						t.Skipf("GOARCH=%s: Go reports an unsupported GOOS/GOARCH pair on this host", c.goarch)
+					}
+				case crossExecFormat:
+					if c.goarch != "" {
+						t.Skipf("host cannot run GOARCH=%s binaries: UNKNOWN, not a pass", c.goarch)
+					}
+				}
+				t.Fatalf("probe %s failed: %v\n----- combined output -----\n%s", label, err, strings.TrimSpace(text))
+			}
+			if !strings.Contains(text, "--- PASS: "+c.name) {
+				t.Fatalf("probe %s printed no PASS line:\n%s", label, text)
+			}
+		})
+	}
+}

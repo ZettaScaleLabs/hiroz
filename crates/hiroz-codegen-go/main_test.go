@@ -482,3 +482,121 @@ func TestGenerateUnpackField(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateUnpackBoundsArrayLength(t *testing.T) {
+	// A weak check by design: it reads the generated text, so it is not the main
+	// test. The runtime test is TestRoundtripRejectsHostileSequenceLength.
+	str := func(s string) *string { return &s }
+	cases := []struct {
+		name string
+		ft   FieldType
+	}{
+		{"string", FieldType{Kind: "String"}},
+		{"primitive", FieldType{Kind: "Float64"}},
+		{"time", FieldType{Kind: "Time"}},
+		{"custom", FieldType{Kind: "Custom", Package: str("test_msgs"), Name: str("Other")}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			msg := MessageDefinition{
+				Package: "test_msgs", Name: "Arr", FullName: "test_msgs/Arr",
+				Fields: []FieldDefinition{{Name: "v", FieldType: c.ft, IsArray: true, ArrayKind: "unbounded"}},
+			}
+			code, err := GenerateGoMessage(msg, "test")
+			if err != nil {
+				t.Fatalf("GenerateGoMessage failed: %v", err)
+			}
+			src := string(code)
+			read := strings.Index(src, "arrLen := int(")
+			mk := strings.Index(src, "m.V = make([]")
+			if read < 0 || mk < read {
+				t.Fatalf("cannot find the length read (%d) before the make (%d)", read, mk)
+			}
+			// Between the length read and the make, the source must compare the
+			// length with the bytes left and reject a negative length.
+			between := src[read:mk]
+			if !strings.Contains(between, "len(data)") || !strings.Contains(between, "arrLen < 0") {
+				t.Errorf("no length bound between the length read and the make:\n%s", between)
+			}
+		})
+	}
+}
+
+// registerKnown tells the generator which messages exist, so that a nested
+// message has a known minimum size.
+func registerKnown(t *testing.T, msgs []MessageDefinition) {
+	t.Helper()
+	registerMessages(msgs)
+	t.Cleanup(func() { registerMessages(nil) })
+}
+
+func TestCustomSequenceReservationIsByteAware(t *testing.T) {
+	str := func(s string) *string { return &s }
+	n := uint(65536)
+	u8 := FieldType{Kind: "UInt8"}
+	big := MessageDefinition{Package: "test_msgs", Name: "Big", FullName: "test_msgs/Big", Fields: []FieldDefinition{
+		{Name: "b", FieldType: u8, IsArray: true, ArrayKind: "fixed", ArraySize: &n},
+	}}
+	arr := MessageDefinition{Package: "test_msgs", Name: "BigArr", FullName: "test_msgs/BigArr", Fields: []FieldDefinition{
+		{Name: "v", FieldType: FieldType{Kind: "Custom", Package: str("test_msgs"), Name: str("Big")}, IsArray: true, ArrayKind: "unbounded"},
+	}}
+	registerKnown(t, []MessageDefinition{big, arr})
+	code, err := GenerateGoMessage(arr, "test")
+	if err != nil {
+		t.Fatalf("GenerateGoMessage failed: %v", err)
+	}
+	// gofmt decides the spacing, so compare with the spaces removed.
+	want := "ifbound:=(len(data)-offset)/65536;capHint>bound{capHint=bound}"
+	if !strings.Contains(strings.Join(strings.Fields(string(code)), ""), want) {
+		t.Errorf("the reservation is not bounded by the encoded element size, want %q in:\n%s", want, code)
+	}
+}
+
+func TestMinCDRSize(t *testing.T) {
+	str := func(s string) *string { return &s }
+	n := func(v uint) *uint { return &v }
+	custom := func(name string) FieldType {
+		return FieldType{Kind: "Custom", Package: str("test_msgs"), Name: str(name)}
+	}
+	fixed := func(kind string, size uint) FieldDefinition {
+		return FieldDefinition{Name: "f", FieldType: FieldType{Kind: kind}, IsArray: true, ArrayKind: "fixed", ArraySize: n(size)}
+	}
+	scalar := func(ft FieldType) FieldDefinition { return FieldDefinition{Name: "f", FieldType: ft} }
+	seq := func(ft FieldType) FieldDefinition {
+		return FieldDefinition{Name: "f", FieldType: ft, IsArray: true, ArrayKind: "unbounded"}
+	}
+	registerKnown(t, []MessageDefinition{
+		{Package: "test_msgs", Name: "Pair", Fields: []FieldDefinition{scalar(FieldType{Kind: "Int32"}), scalar(FieldType{Kind: "Int64"})}},
+		{Package: "test_msgs", Name: "Outer", Fields: []FieldDefinition{scalar(custom("Pair")), scalar(FieldType{Kind: "UInt8"})}},
+		{Package: "test_msgs", Name: "Empty"},
+		{Package: "test_msgs", Name: "SelfA", Fields: []FieldDefinition{scalar(custom("SelfB")), scalar(FieldType{Kind: "Int32"})}},
+		{Package: "test_msgs", Name: "SelfB", Fields: []FieldDefinition{scalar(custom("SelfA")), scalar(FieldType{Kind: "Int16"})}},
+	})
+	cases := []struct {
+		name   string
+		fields []FieldDefinition
+		want   int64
+	}{
+		{"no fields", nil, 0},
+		{"bool int16 float64", []FieldDefinition{scalar(FieldType{Kind: "Bool"}), scalar(FieldType{Kind: "Int16"}), scalar(FieldType{Kind: "Float64"})}, 11},
+		{"fixed uint8 array", []FieldDefinition{fixed("UInt8", 65536)}, 65536},
+		{"fixed int32 array", []FieldDefinition{fixed("Int32", 3)}, 12},
+		{"string", []FieldDefinition{scalar(FieldType{Kind: "String"})}, 4},
+		{"time and duration", []FieldDefinition{scalar(FieldType{Kind: "Time"}), scalar(FieldType{Kind: "Duration"})}, 16},
+		{"unbounded sequence of float64", []FieldDefinition{seq(FieldType{Kind: "Float64"})}, 4},
+		{"sequence of strings", []FieldDefinition{seq(FieldType{Kind: "String"})}, 4},
+		{"sequence of nested", []FieldDefinition{seq(custom("Pair"))}, 4},
+		{"nested", []FieldDefinition{scalar(custom("Outer"))}, 13},
+		{"nested empty", []FieldDefinition{scalar(custom("Empty"))}, 0},
+		{"nested unknown", []FieldDefinition{scalar(custom("Missing"))}, 0},
+		{"cycle counts the cycle as zero", []FieldDefinition{scalar(custom("SelfA"))}, 6},
+		{"huge fixed array is capped", []FieldDefinition{fixed("UInt64", 1<<32-1)}, maxMinSize},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := minCDRSize(c.fields); got != c.want {
+				t.Errorf("minCDRSize = %d, want %d", got, c.want)
+			}
+		})
+	}
+}
