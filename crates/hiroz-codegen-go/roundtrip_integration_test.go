@@ -278,8 +278,9 @@ type hostileCase struct {
 // hostileProbeSource holds the probe tests of the hostile-length round trip.
 // Each probe feeds a hand-built CDR body to one generated decoder.
 //
-// The bytes of every hostile body are `00 01 00 00` (encapsulation header),
-// then a 4-byte sequence length of 0xFFFFFFFF, then nothing.
+// Most probes use `hostileLen`: the encapsulation header `00 01 00 00`, then a
+// 4-byte sequence length of 0xFFFFFFFF, then nothing. `TestHostileBigElements`
+// builds its own body, with a count of 65536 and 65536 bytes after it.
 const hostileProbeSource = `package main_test
 
 import (
