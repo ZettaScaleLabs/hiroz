@@ -1,8 +1,10 @@
 //! The versioned C QoS struct `hiroz_qos_profile_v2_t`, and the `_with_qos_v2` creators.
 //!
-//! Every test calls the exported C functions the way a C caller does. Each test reads the QoS back
-//! from the liveliness token of the entity, because that is where a peer reads it. A plain Zenoh
-//! session plays the peer. No test needs a ROS installation.
+//! Most tests call the exported C functions the way a C caller does. They read the QoS back from
+//! the liveliness token of the entity, because that is where a peer reads it. A plain Zenoh
+//! session plays the peer. Two tests create no entity: `c_abi_qos_v2_init_writes_size_and_defaults`
+//! checks the initialiser, and `c_abi_action_qos_values_are_distinct` checks the expected values
+//! of the other tests. No test needs a ROS installation.
 //!
 //! The suite needs hiroz's `ffi` feature, so it has the `raw-sub-tests` feature.
 
