@@ -162,7 +162,7 @@ func (h *GoalHandle) GetResult() ([]byte, error) {
 // ctx. The C call of a result wait has a fixed timeout of 30 seconds, and the service client
 // behind it ends its query after 10 seconds. A call without a deadline, such as GetResult,
 // therefore holds Close for at most 30 seconds, and normally about 10 seconds, and then fails
-// with an error. SendGoalContext registers too, and its C call has a fixed timeout of 10 seconds. SendGoal and Cancel do not register.
+// with an error. SendGoalContext registers too, and its C call has a fixed timeout of 10 seconds. It also stays registered while it runs the goal's SerializeCDR, so a slow serializer adds its own time to the hold. SendGoal and Cancel do not register.
 func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 	if h.handle.Load() == nil || h.client == nil {
 		return nil, fmt.Errorf("goal handle is closed")
@@ -500,7 +500,7 @@ func finishSendGoal(ctx context.Context, h *GoalHandle, err error) (*GoalHandle,
 // holds it. Registered calls: GetResultWithContext, GetResult, GetTypedResult,
 // GetTypedResultContext and SendGoalContext. Close waits for the C call of each, not for
 // its context. A result wait holds Close for at most 30 seconds, the fixed timeout of its C
-// call (the query behind it ends after 10 seconds), and a goal send for at most 10 seconds. After that the call returns an error.
+// call (the query behind it ends after 10 seconds), and a goal send for at most 10 seconds plus the time of the goal's SerializeCDR, which runs while the call is registered. A SerializeCDR that calls Close deadlocks. After that the call returns an error.
 // Unregistered calls: SendGoal and GoalHandle.Cancel. Close does not wait for them.
 // Do not call them concurrently with Close.
 func (c *ActionClient) Close() error {
