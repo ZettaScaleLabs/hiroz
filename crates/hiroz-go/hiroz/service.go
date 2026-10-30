@@ -239,16 +239,23 @@ func (c *ServiceClient) callRawContext(ctx context.Context, requestBytes []byte)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case r := <-ch:
-		if r.err != nil {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			if dl, ok := ctx.Deadline(); ok && errors.Is(r.err, ErrTimeout) && !time.Now().Before(dl) {
-				return nil, context.DeadlineExceeded
-			}
-		}
-		return r.data, r.err
+		return finishContextCall(ctx, r.data, r.err)
 	}
+}
+
+// finishContextCall maps the outcome of a finished call to the result of the caller.
+// When both ctx.Done and the result channel are ready, select picks either one. This
+// function checks ctx again, so an ended context wins over a result, whatever select chose.
+func finishContextCall(ctx context.Context, data []byte, err error) ([]byte, error) {
+	if cerr := ctx.Err(); cerr != nil {
+		return nil, cerr
+	}
+	if err != nil {
+		if dl, ok := ctx.Deadline(); ok && errors.Is(err, ErrTimeout) && !time.Now().Before(dl) {
+			return nil, context.DeadlineExceeded
+		}
+	}
+	return data, err
 }
 
 // call makes a synchronous service call with a default timeout of DefaultServiceTimeout.
