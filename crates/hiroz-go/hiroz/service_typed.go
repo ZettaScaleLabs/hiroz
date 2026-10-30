@@ -1,6 +1,7 @@
 package hiroz
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -33,6 +34,37 @@ func CallTyped[Resp Message](client *ServiceClient, request Message, response Re
 //	err := hiroz.CallTypedWithTimeout(client, req, resp, 10*time.Second)
 func CallTypedWithTimeout[Resp Message](client *ServiceClient, request Message, response Resp, timeout time.Duration) error {
 	respBytes, err := client.callWithTimeout(request, timeout)
+	if err != nil {
+		return err
+	}
+	if err := response.DeserializeCDR(respBytes); err != nil {
+		return newHirozError(ErrorCodeDeserializationFailed, fmt.Sprintf("failed to deserialize response: %v", err))
+	}
+	return nil
+}
+
+// CallTypedContext makes a typed service call that ends when ctx ends.
+// A context deadline sets the timeout of the call, up to 10 seconds. The service client
+// behind it ends every query after 10 seconds, so a later deadline does not extend the call:
+// it returns ErrTimeout after about 10 seconds. Without a deadline the call uses
+// DefaultServiceTimeout. When ctx ends first, the error wraps ctx.Err()
+// (context.Canceled or context.DeadlineExceeded) and does not match ErrTimeout.
+// A call timeout that ends after the context deadline has passed also returns
+// context.DeadlineExceeded. ErrTimeout means the server did not answer within the call
+// timeout while the context deadline was still in the future.
+//
+// Cancelling ctx does not abort the call in the C layer. The call ends at its timeout,
+// and ServiceClient.Close waits for it.
+func CallTypedContext[Resp Message](ctx context.Context, client *ServiceClient, request Message, response Resp) error {
+	// Check before the user's serializer runs, so a cancelled call does not wait for it.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	reqBytes, err := request.SerializeCDR()
+	if err != nil {
+		return fmt.Errorf("failed to serialize request: %w", err)
+	}
+	respBytes, err := client.callRawContext(ctx, reqBytes)
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,9 @@
 package hiroz
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 // BuildTypedActionServer creates an action server with typed goal/feedback/result handling.
 // The goal callback receives the deserialized goal and returns bool (accept/reject).
@@ -59,6 +62,20 @@ func BuildTypedActionServer[Goal, Result Message](
 //	err := hiroz.GetTypedResult(handle, result)
 func GetTypedResult[Result Message](handle *GoalHandle, result Result) error {
 	resultBytes, err := handle.GetResult()
+	if err != nil {
+		return err
+	}
+	if err := result.DeserializeCDR(resultBytes); err != nil {
+		return newHirozError(ErrorCodeDeserializationFailed, fmt.Sprintf("failed to deserialize result: %v", err))
+	}
+	return nil
+}
+
+// GetTypedResultContext is GetTypedResult with a wait that ends when ctx ends.
+// When ctx ends first, the error is ctx.Err(). See GoalHandle.GetResultWithContext for
+// what the cancel does not stop.
+func GetTypedResultContext[Result Message](ctx context.Context, handle *GoalHandle, result Result) error {
+	resultBytes, err := handle.GetResultWithContext(ctx)
 	if err != nil {
 		return err
 	}

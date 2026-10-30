@@ -73,6 +73,10 @@ var createSubscriber = func(c subscriberCall) *cSubscriber {
 	)
 }
 
+// destroySubscriber makes the one C call that destroys a subscriber. A test replaces it.
+// Production code never assigns it.
+var destroySubscriber = func(h *cSubscriber) int32 { return int32(C.hiroz_subscriber_destroy(h)) }
+
 // SubscriberBuilder builds a Subscriber
 type SubscriberBuilder struct {
 	node        *Node
@@ -171,7 +175,7 @@ func (s *Subscriber) Close() error {
 		if s.handle == nil {
 			return
 		}
-		result := C.hiroz_subscriber_destroy(s.handle)
+		result := destroySubscriber(s.handle)
 		s.handle = nil
 		if result != 0 {
 			err = fmt.Errorf("subscriber close failed (rc=%d): %w", result, ErrCloseFailed)

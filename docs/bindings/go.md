@@ -176,12 +176,9 @@ server, err := node.CreateServiceServer("add_two_ints").
 // Client
 client, err := node.CreateServiceClient("add_two_ints").
     Build(&example_interfaces.AddTwoInts{})
-respBytes, err := client.Call(&example_interfaces.AddTwoIntsRequest{A: 5, B: 3})
-// client.CallWithTimeout(req, 10*time.Second) for a custom timeout
 var resp example_interfaces.AddTwoIntsResponse
-if err := resp.DeserializeCDR(respBytes); err != nil {
-    // handle error
-}
+err = hiroz.CallTyped(client, &example_interfaces.AddTwoIntsRequest{A: 5, B: 3}, &resp)
+// hiroz.CallTypedWithTimeout(client, req, &resp, 10*time.Second) for a custom timeout
 // use resp.Sum
 ```
 
@@ -303,6 +300,23 @@ err := hiroz.CallTyped(client, &example_interfaces.AddTwoIntsRequest{A: 5, B: 3}
 // hiroz.CallTypedWithTimeout(client, req, resp, 10*time.Second)
 ```
 
+### Context variants
+
+The calls in this table have a variant that ends when a `context.Context` ends. Other blocking calls, such as `CallTypedWithTimeout`, keep their timeout argument and have no other variant.
+
+| Call | Context variant |
+|------|-----------------|
+| `hiroz.CallTyped` | `hiroz.CallTypedContext(ctx, client, req, resp)` |
+| `client.WaitForService(timeout)` | `client.WaitForServiceContext(ctx)` |
+| `client.SendGoal(goal)` | `client.SendGoalContext(ctx, goal)` |
+| `handle.GetResult()`, `hiroz.GetTypedResult` | `handle.GetResultWithContext(ctx)`, `hiroz.GetTypedResultContext(ctx, handle, result)` |
+| `hiroz.BuildWithTypedCallback` | `hiroz.BuildWithTypedCallbackContext(ctx, builder, handler)` |
+| `hiroz.SubscriberWithChannel` | `hiroz.SubscriberWithChannelContext[T](ctx, builder, size)` |
+
+A context deadline sets the timeout of `CallTypedContext`, up to 10 seconds. The service client behind it ends every query after 10 seconds, so a later deadline does not extend the call: it returns `hiroz.ErrTimeout` after about 10 seconds. Without a deadline the call uses `DefaultServiceTimeout` (5 s). When the context ends first, the error wraps `context.Canceled` or `context.DeadlineExceeded`. A call whose C timeout ends after the context deadline has passed also returns `context.DeadlineExceeded`, not `hiroz.ErrTimeout`. `ErrTimeout` means the server did not answer within the call timeout while the context deadline was still in the future. `WaitForServiceContext` waits in slices of at most 250 ms, so it returns within one slice of a cancel.
+
+A cancel does not stop work that the C layer already started. A service call runs until its timeout, and `ServiceClient.Close` waits for it. A `CallTypedContext` call without a deadline can hold `Close` for up to `DefaultServiceTimeout`. `Close` ends a running `WaitForServiceContext` within one slice, and that call returns a closed-client error. A call that starts after `Close` has begun returns a closed-client error and does not reach the C layer. `ActionClient.Close` waits for every registered call that has started. For `SendGoalContext` that includes the goal's `SerializeCDR`, which runs while the call is registered, so a slow serializer holds `Close` longer, and a serializer that calls `Close` deadlocks. It waits for the C call of: `SendGoalContext`, `GetResultWithContext`, `GetResult`, `GetTypedResult` and `GetTypedResultContext`. It does not wait for `SendGoal` or `GoalHandle.Cancel`, so do not call them concurrently with `Close`. `Close` waits for the C call and not for the context, and nothing aborts that call. The C call of a result wait has a fixed timeout of 30 seconds, and the C call of a goal send has one of 10 seconds. The service client behind a result wait ends its query after 10 seconds. A `GetResult` call without a deadline therefore holds `Close` for at most 30 seconds, and normally about 10 seconds, and then returns an error. Do not close a goal handle while a result wait on it is running: `GoalHandle.Close` is not gated by the client, and the C call reads the handle that `Close` frees. `SendGoalContext` closes the goal handle when the C layer returns, but the server may already hold the goal, and the cancel does not cancel it. That cleanup does not register with the client, so it can run after `Close` destroyed the client handle. The destroy of a goal handle does not read the client, but no test checks this. The two subscriber variants destroy the subscriber when the context ends. `SubscriberWithChannelContext` then closes the channel, so a `range` loop finishes. It has no cleanup function, so pass a context that you cancel. The channel stays open until the context ends.
+
 ### Action
 
 ```go
@@ -323,8 +337,8 @@ server, err := hiroz.BuildTypedActionServer(
 )
 
 // Typed client
-client, err := hiroz.BuildTypedActionClient(node.CreateActionClient("fibonacci"), &example_interfaces.Fibonacci{})
-handle, err := hiroz.SendTypedGoal(client, &example_interfaces.FibonacciGoal{Order: 10})
+client, err := node.CreateActionClient("fibonacci").Build(&example_interfaces.Fibonacci{})
+handle, err := client.SendGoal(&example_interfaces.FibonacciGoal{Order: 10})
 result := &example_interfaces.FibonacciResult{}
 err = hiroz.GetTypedResult(handle, result)
 ```

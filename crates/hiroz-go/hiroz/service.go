@@ -8,6 +8,8 @@ extern hiroz_ServiceCallback getServiceCallback();
 */
 import "C"
 import (
+	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"runtime/cgo"
@@ -21,6 +23,41 @@ import (
 // These thin wrappers make atomic.Pointer usable with CGO handles.
 type cServiceClientHandle struct{ p *C.hiroz_service_client_t }
 type cServiceServerHandle struct{ p *C.hiroz_service_server_t }
+
+// cServiceClient is the C client type. Tests name it to stub serviceCall and serviceWait.
+type cServiceClient = C.hiroz_service_client_t
+
+// serviceCall makes the one blocking C call of a service request. A test replaces it to
+// run the call paths without a Zenoh session. Production code never assigns it.
+var serviceCall = func(h *cServiceClient, req []byte, timeoutMs uint64) ([]byte, int32) {
+	// Pin the request data to prevent GC relocation during the C call
+	pinner := &runtime.Pinner{}
+	defer pinner.Unpin()
+	pinner.Pin(&req[0])
+
+	var respPtr *C.uint8_t
+	var respLen C.uintptr_t
+
+	rc := C.hiroz_service_client_call(
+		h,
+		(*C.uint8_t)(unsafe.Pointer(&req[0])),
+		C.uintptr_t(len(req)),
+		&respPtr,
+		&respLen,
+		C.uint64_t(timeoutMs),
+	)
+	if rc != 0 {
+		return nil, int32(rc)
+	}
+	resp := C.GoBytes(unsafe.Pointer(respPtr), C.int(respLen))
+	C.hiroz_free_bytes((*C.uint8_t)(respPtr), C.uintptr_t(respLen))
+	return resp, 0
+}
+
+// serviceWait makes the one blocking C call of wait_for_service. A test replaces it.
+var serviceWait = func(h *cServiceClient, timeoutMs uint64) int32 {
+	return int32(C.hiroz_service_client_wait_for_service(h, C.uint64_t(timeoutMs)))
+}
 
 // Service represents a ROS 2 service (request/response pattern)
 type Service interface {
@@ -38,6 +75,7 @@ type ServiceClient struct {
 	node      *Node
 	service   string
 	closeOnce sync.Once
+	inflight  inflightGate // tracks calls that run in a goroutine, so Close does not free the handle under them
 }
 
 // ServiceServer responds to ROS 2 service requests
@@ -121,47 +159,103 @@ func (c *ServiceClient) callRaw(requestBytes []byte, timeoutMs uint64) ([]byte, 
 	if hw == nil {
 		return nil, fmt.Errorf("service client is closed")
 	}
-	h := hw.p
+	return c.invoke(hw.p, requestBytes, timeoutMs)
+}
 
+// invoke runs one service call on an open handle and maps the C result to an error.
+func (c *ServiceClient) invoke(h *cServiceClient, requestBytes []byte, timeoutMs uint64) ([]byte, error) {
 	if len(requestBytes) == 0 {
 		return nil, fmt.Errorf("empty request")
 	}
 
-	// Pin the request data to prevent GC relocation during the C call
-	pinner := &runtime.Pinner{}
-	defer pinner.Unpin()
-	pinner.Pin(&requestBytes[0])
-
-	var respPtr *C.uint8_t
-	var respLen C.uintptr_t
-
-	result := C.hiroz_service_client_call(
-		h,
-		(*C.uint8_t)(unsafe.Pointer(&requestBytes[0])),
-		C.uintptr_t(len(requestBytes)),
-		&respPtr,
-		&respLen,
-		C.uint64_t(timeoutMs),
-	)
+	resp, rc := serviceCall(h, requestBytes, timeoutMs)
 
 	logger.Debug("hiroz_service_client_call",
 		"service", c.service, "req_len", len(requestBytes),
-		"resp_len", int(respLen), "rc", int(result))
+		"resp_len", len(resp), "rc", int(rc))
 
-	if result != 0 {
-		code := ErrorCode(result)
+	if rc != 0 {
+		code := ErrorCode(rc)
 		if code == ErrorCodeServiceTimeout {
 			return nil, newHirozError(ErrorCodeServiceTimeout,
 				fmt.Sprintf("service[%s] call timed out", c.service))
 		}
 		return nil, newHirozError(ErrorCodeServiceCallFailed,
-			fmt.Sprintf("service[%s] call failed (rc=%d)", c.service, result))
+			fmt.Sprintf("service[%s] call failed (rc=%d)", c.service, rc))
+	}
+	return resp, nil
+}
+
+// callRawContext makes a service call that ends when ctx ends.
+// A context with a deadline sets the timeout of the call, up to 10 seconds. The service
+// client behind it ends every query after 10 seconds, so a later deadline does not extend
+// the call: it returns ErrTimeout after about 10 seconds. Without a deadline the call uses
+// DefaultServiceTimeout. When ctx ends first, the error wraps ctx.Err(), never ErrTimeout.
+// The C call itself runs until its timeout, and Close waits for it.
+func (c *ServiceClient) callRawContext(ctx context.Context, requestBytes []byte) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !c.inflight.enter() {
+		return nil, fmt.Errorf("service client is closed")
+	}
+	registered := true
+	defer func() {
+		if registered {
+			c.inflight.leave()
+		}
+	}()
+	hw := c.handle.Load()
+	if hw == nil {
+		return nil, fmt.Errorf("service client is closed")
 	}
 
-	respBytes := C.GoBytes(unsafe.Pointer(respPtr), C.int(respLen))
-	C.hiroz_free_bytes((*C.uint8_t)(respPtr), C.uintptr_t(respLen))
+	timeoutMs := uint64(DefaultServiceTimeout.Milliseconds())
+	if dl, ok := ctx.Deadline(); ok {
+		remaining := time.Until(dl)
+		if remaining <= 0 {
+			return nil, context.DeadlineExceeded
+		}
+		timeoutMs = uint64((remaining + time.Millisecond - 1) / time.Millisecond)
+	}
 
-	return respBytes, nil
+	type result struct {
+		data []byte
+		err  error
+	}
+	ch := make(chan result, 1)
+	// Copy the request before the worker starts. SerializeCDR may return storage that the
+	// message owns, and a cancelled call returns while the worker can still read the bytes.
+	requestBytes = append([]byte(nil), requestBytes...)
+	h := hw.p          // read while registered, so Close has not freed it
+	registered = false // the goroutine now owns the registration
+	go func() {
+		defer c.inflight.leave()
+		data, err := c.invoke(h, requestBytes, timeoutMs)
+		ch <- result{data, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case r := <-ch:
+		return finishContextCall(ctx, r.data, r.err)
+	}
+}
+
+// finishContextCall maps the outcome of a finished call to the result of the caller.
+// When both ctx.Done and the result channel are ready, select picks either one. This
+// function checks ctx again, so an ended context wins over a result, whatever select chose.
+func finishContextCall(ctx context.Context, data []byte, err error) ([]byte, error) {
+	if cerr := ctx.Err(); cerr != nil {
+		return nil, cerr
+	}
+	if err != nil {
+		if dl, ok := ctx.Deadline(); ok && errors.Is(err, ErrTimeout) && !time.Now().Before(dl) {
+			return nil, context.DeadlineExceeded
+		}
+	}
+	return data, err
 }
 
 // call makes a synchronous service call with a default timeout of DefaultServiceTimeout.
@@ -210,7 +304,7 @@ func (c *ServiceClient) WaitForService(timeout time.Duration) error {
 		timeoutMs = 1
 	}
 
-	rc := C.hiroz_service_client_wait_for_service(hw.p, C.uint64_t(timeoutMs))
+	rc := serviceWait(hw.p, timeoutMs)
 	if rc == 0 {
 		return nil
 	}
@@ -223,10 +317,86 @@ func (c *ServiceClient) WaitForService(timeout time.Duration) error {
 		fmt.Sprintf("service[%s] wait_for_service failed (rc=%d)", c.service, rc))
 }
 
-// Close destroys the service client
+// waitSlice is the longest single C wait inside WaitForServiceContext.
+// It bounds how long a cancelled context waits before the call returns.
+const waitSlice = 250 * time.Millisecond
+
+// waitSliceMs turns the time left before a deadline into the timeout of one C wait. It
+// returns expired when no time is left. Otherwise the timeout is at least 1 ms and at most
+// waitSlice, and a fraction of a millisecond rounds up.
+func waitSliceMs(remaining time.Duration) (timeoutMs uint64, expired bool) {
+	if remaining <= 0 {
+		return 0, true
+	}
+	if remaining > waitSlice {
+		remaining = waitSlice
+	}
+	return uint64((remaining + time.Millisecond - 1) / time.Millisecond), false
+}
+
+// WaitForServiceContext blocks until a matching service server is visible in the ROS graph
+// or ctx ends. It returns nil when the service is ready and ctx.Err() when ctx ends first.
+// Any other failure returns the HirozError of the C layer. The C wait runs in slices of at
+// most 250 ms, so a cancelled context returns within one slice. Close also ends the wait
+// within one slice: the call then returns an error that says the client is closed.
+func (c *ServiceClient) WaitForServiceContext(ctx context.Context) error {
+	if !c.inflight.enter() {
+		return fmt.Errorf("service client is closed")
+	}
+	defer c.inflight.leave()
+	hw := c.handle.Load()
+	if hw == nil {
+		return fmt.Errorf("service client is closed")
+	}
+	h := hw.p
+	quit := c.inflight.quitting()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		select {
+		case <-quit:
+			return fmt.Errorf("service client is closed")
+		default:
+		}
+		remaining := waitSlice
+		if dl, ok := ctx.Deadline(); ok {
+			remaining = time.Until(dl)
+		}
+		timeoutMs, expired := waitSliceMs(remaining)
+		if expired {
+			return context.DeadlineExceeded
+		}
+		rc := serviceWait(h, timeoutMs)
+		// A cancel or a Close that came while the C wait ran ends the call, even when the C
+		// wait then found the server.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		select {
+		case <-quit:
+			return fmt.Errorf("service client is closed")
+		default:
+		}
+		if rc == 0 {
+			return nil
+		}
+		if ErrorCode(rc) != ErrorCodeServiceTimeout {
+			return newHirozError(ErrorCode(rc),
+				fmt.Sprintf("service[%s] wait_for_service failed (rc=%d)", c.service, rc))
+		}
+	}
+}
+
+// Close destroys the service client.
+// Close blocks until every call made through a context variant has returned. A
+// CallTypedContext that is still inside the C layer holds Close until its call timeout
+// ends. A WaitForServiceContext call returns within one wait slice.
 func (c *ServiceClient) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
+		c.inflight.shutdown() // refuse new calls, then drain in-flight calls before freeing the handle
 		hw := c.handle.Load()
 		if hw == nil {
 			return
