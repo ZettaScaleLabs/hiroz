@@ -1,4 +1,5 @@
 use super::node::{CNode, get_node_ref};
+use super::qos::CQosProfileV2;
 use super::{ErrorCode, cstr_to_str};
 use std::collections::HashMap;
 use std::ffi::c_char;
@@ -190,6 +191,56 @@ pub unsafe extern "C" fn hiroz_service_client_create(
     _resp_type_name: *const c_char,
     _resp_type_hash: *const c_char,
 ) -> *mut CServiceClient {
+    unsafe { create_service_client(node, service_name, req_type_name, req_type_hash, None) }
+}
+
+/// Create a service client with a versioned QoS profile
+///
+/// The profile goes into the liveliness token of the client, where a peer reads it. It does not
+/// change how a call is delivered. `qos` may be null for the default profile. Returns null if
+/// `qos` has a `struct_size` below 4.
+///
+/// # Safety
+/// `node` must be a valid node pointer. The strings must be valid C strings. `qos` must be null,
+/// or point to `struct_size` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hiroz_service_client_create_with_qos_v2(
+    node: *mut CNode,
+    service_name: *const c_char,
+    req_type_name: *const c_char,
+    req_type_hash: *const c_char,
+    _resp_type_name: *const c_char,
+    _resp_type_hash: *const c_char,
+    qos: *const CQosProfileV2,
+) -> *mut CServiceClient {
+    unsafe {
+        match CQosProfileV2::to_qos_profile(qos) {
+            Ok(qos_profile) => create_service_client(
+                node,
+                service_name,
+                req_type_name,
+                req_type_hash,
+                qos_profile,
+            ),
+            Err(e) => {
+                tracing::warn!("hiroz: Invalid QoS struct for a service client: {:?}", e);
+                std::ptr::null_mut()
+            }
+        }
+    }
+}
+
+/// The body shared by the service client creators.
+///
+/// # Safety
+/// The same as `hiroz_service_client_create`.
+unsafe fn create_service_client(
+    node: *mut CNode,
+    service_name: *const c_char,
+    req_type_name: *const c_char,
+    req_type_hash: *const c_char,
+    qos_profile: Option<crate::qos::QosProfile>,
+) -> *mut CServiceClient {
     unsafe {
         let node_ref = match get_node_ref(node) {
             Some(n) => n,
@@ -211,7 +262,12 @@ pub unsafe extern "C" fn hiroz_service_client_create(
             Err(_) => return std::ptr::null_mut(),
         };
 
-        match node_ref.create_raw_service_client(service_str, type_name_str, type_hash_str) {
+        match node_ref.create_raw_service_client_with_qos(
+            service_str,
+            type_name_str,
+            type_hash_str,
+            qos_profile,
+        ) {
             Ok(raw_client) => Box::into_raw(Box::new(CServiceClient {
                 inner: Box::new(raw_client),
             })),
@@ -320,6 +376,73 @@ pub unsafe extern "C" fn hiroz_service_server_create(
     user_data: usize,
 ) -> *mut CServiceServer {
     unsafe {
+        create_service_server(
+            node,
+            service_name,
+            req_type_name,
+            req_type_hash,
+            callback,
+            user_data,
+            None,
+        )
+    }
+}
+
+/// Create a service server with a versioned QoS profile
+///
+/// The same as `hiroz_service_server_create`, with a QoS profile. The profile goes into the
+/// liveliness token of the server, where a peer reads it. It does not change how a request is
+/// delivered. `qos` may be null for the default profile. Returns null if `qos` has a
+/// `struct_size` below 4.
+///
+/// # Safety
+/// `node` must be a valid node pointer. The strings must be valid C strings. `callback` must be a
+/// valid function pointer. `qos` must be null, or point to `struct_size` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hiroz_service_server_create_with_qos_v2(
+    node: *mut CNode,
+    service_name: *const c_char,
+    req_type_name: *const c_char,
+    req_type_hash: *const c_char,
+    _resp_type_name: *const c_char,
+    _resp_type_hash: *const c_char,
+    callback: ServiceCallback,
+    user_data: usize,
+    qos: *const CQosProfileV2,
+) -> *mut CServiceServer {
+    unsafe {
+        match CQosProfileV2::to_qos_profile(qos) {
+            Ok(qos_profile) => create_service_server(
+                node,
+                service_name,
+                req_type_name,
+                req_type_hash,
+                callback,
+                user_data,
+                qos_profile,
+            ),
+            Err(e) => {
+                tracing::warn!("hiroz: Invalid QoS struct for a service server: {:?}", e);
+                std::ptr::null_mut()
+            }
+        }
+    }
+}
+
+/// The body shared by the service server creators.
+///
+/// # Safety
+/// The same as `hiroz_service_server_create`.
+unsafe fn create_service_server(
+    node: *mut CNode,
+    service_name: *const c_char,
+    req_type_name: *const c_char,
+    req_type_hash: *const c_char,
+    callback: ServiceCallback,
+    user_data: usize,
+    qos_profile: Option<crate::qos::QosProfile>,
+) -> *mut CServiceServer {
+    unsafe {
         let node_ref = match get_node_ref(node) {
             Some(n) => n,
             None => return std::ptr::null_mut(),
@@ -340,14 +463,18 @@ pub unsafe extern "C" fn hiroz_service_server_create(
             Err(_) => return std::ptr::null_mut(),
         };
 
-        let raw_server =
-            match node_ref.create_raw_service_server(service_str, type_name_str, type_hash_str) {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::warn!("hiroz: Failed to create service server: {}", e);
-                    return std::ptr::null_mut();
-                }
-            };
+        let raw_server = match node_ref.create_raw_service_server_with_qos(
+            service_str,
+            type_name_str,
+            type_hash_str,
+            qos_profile,
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("hiroz: Failed to create service server: {}", e);
+                return std::ptr::null_mut();
+            }
+        };
 
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_clone = shutdown.clone();

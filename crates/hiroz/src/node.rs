@@ -758,6 +758,39 @@ impl ZNode {
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
     {
+        self.create_raw_subscriber_inner(
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            qos,
+            group,
+            has_buffer_fields,
+            false,
+        )
+    }
+
+    /// The body of [`ZNode::create_raw_subscriber_with_buffer_fields`].
+    ///
+    /// `announce` makes a subscriber that stays out of the buffer group declare a token without a
+    /// `backends:` segment, so a peer reads its QoS. A subscriber that joins always declares its
+    /// token.
+    #[cfg(feature = "ffi")]
+    #[allow(clippy::too_many_arguments)]
+    fn create_raw_subscriber_inner<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        group: crate::BufferGroup,
+        has_buffer_fields: Option<bool>,
+        announce: bool,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(&[u8]) + Send + Sync + 'static,
+    {
         use crate::{
             entity::{EndpointEntity, EndpointKind},
             pubsub::apply_transient_local_sub,
@@ -812,12 +845,12 @@ impl ZNode {
             .callback(move |sample: zenoh::sample::Sample| h(sample))
             .advanced();
         let subscriber = apply_transient_local_sub(builder, &entity.qos).wait()?;
-        let token = if group_key.is_some() {
+        let token = if group_key.is_some() || announce {
             Some(crate::buffer_group::declare_token(
                 &self.session,
                 &self.keyexpr_format,
                 &entity,
-                true,
+                group_key.is_some(),
             )?)
         } else {
             None
@@ -838,6 +871,21 @@ impl ZNode {
         type_name: &str,
         type_hash: &str,
     ) -> Result<crate::ffi::service::RawServiceClient> {
+        self.create_raw_service_client_with_qos(service, type_name, type_hash, None)
+    }
+
+    /// Create a raw service client for FFI (no type safety) with a QoS profile.
+    ///
+    /// The profile goes into the liveliness token, where a peer reads it. It does not change how a
+    /// call is delivered. `None` announces the default profile.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_service_client_with_qos(
+        &self,
+        service: &str,
+        type_name: &str,
+        type_hash: &str,
+        qos: Option<crate::qos::QosProfile>,
+    ) -> Result<crate::ffi::service::RawServiceClient> {
         use crate::entity::{EndpointEntity, EndpointKind};
         use crate::topic_name;
         use std::sync::atomic::AtomicUsize;
@@ -855,7 +903,7 @@ impl ZNode {
                 name: type_name.to_string(),
                 hash: TypeHash::from_rihs_string(type_hash).unwrap_or(TypeHash::zero()),
             }),
-            qos: Default::default(),
+            qos: qos.map(|q| q.to_protocol_qos()).unwrap_or_default(),
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
@@ -899,6 +947,21 @@ impl ZNode {
         type_name: &str,
         type_hash: &str,
     ) -> Result<crate::ffi::service::RawServiceServer> {
+        self.create_raw_service_server_with_qos(service, type_name, type_hash, None)
+    }
+
+    /// Create a raw service server for FFI (no type safety) with a QoS profile.
+    ///
+    /// The profile goes into the liveliness token, where a peer reads it. It does not change how a
+    /// request is delivered. `None` announces the default profile.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_service_server_with_qos(
+        &self,
+        service: &str,
+        type_name: &str,
+        type_hash: &str,
+        qos: Option<crate::qos::QosProfile>,
+    ) -> Result<crate::ffi::service::RawServiceServer> {
         use crate::common::DataHandler;
         use crate::entity::{EndpointEntity, EndpointKind};
         use crate::topic_name;
@@ -916,7 +979,7 @@ impl ZNode {
                 name: type_name.to_string(),
                 hash: TypeHash::from_rihs_string(type_hash).unwrap_or(TypeHash::zero()),
             }),
-            qos: Default::default(),
+            qos: qos.map(|q| q.to_protocol_qos()).unwrap_or_default(),
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
@@ -962,17 +1025,51 @@ impl ZNode {
         &self,
         action_name: &str,
         action_type: &str,
+        goal_type: &str,
+        goal_hash: &str,
+        result_type: &str,
+        result_hash: &str,
+        feedback_type: &str,
+        feedback_hash: &str,
+    ) -> Result<crate::ffi::action::RawActionClient> {
+        self.create_raw_action_client_with_qos(
+            action_name,
+            action_type,
+            goal_type,
+            goal_hash,
+            result_type,
+            result_hash,
+            feedback_type,
+            feedback_hash,
+            Default::default(),
+        )
+    }
+
+    /// Create a raw action client for FFI (no type safety) with a QoS profile per entity.
+    ///
+    /// An entity with `None` gets the default profile, except the status subscriber: the client
+    /// creates it only when `qos.status_topic` is `Some`, and the profile of the subscriber is
+    /// that value. The subscriber declares a token that carries the profile, and it stays out of
+    /// the buffer group.
+    #[cfg(feature = "ffi")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_raw_action_client_with_qos(
+        &self,
+        action_name: &str,
+        action_type: &str,
         _goal_type: &str,
         goal_hash: &str,
         _result_type: &str,
         result_hash: &str,
         _feedback_type: &str,
         feedback_hash: &str,
+        qos: crate::ffi::action::ActionQos,
     ) -> Result<crate::ffi::action::RawActionClient> {
         let send_goal_service = format!("{}/_action/send_goal", action_name);
         let get_result_service = format!("{}/_action/get_result", action_name);
         let cancel_goal_service = format!("{}/_action/cancel_goal", action_name);
         let feedback_topic = format!("{}/_action/feedback", action_name);
+        let status_topic = format!("{}/_action/status", action_name);
 
         // Compute DDS-style type names required by rmw_zenoh_cpp's graph discovery.
         // action_type is e.g. "example_interfaces/action/Fibonacci" → package="example_interfaces", name="Fibonacci"
@@ -983,13 +1080,26 @@ impl ZNode {
         let cancel_goal_type = dds_from_namespace("action_msgs::srv", "CancelGoal");
         let feedback_type_dds =
             dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
+        let status_type_dds = dds_from_namespace("action_msgs::msg", "GoalStatusArray");
 
-        let send_goal_client =
-            self.create_raw_service_client(&send_goal_service, &send_goal_type, goal_hash)?;
-        let get_result_client =
-            self.create_raw_service_client(&get_result_service, &get_result_type, result_hash)?;
-        let cancel_goal_client =
-            self.create_raw_service_client(&cancel_goal_service, &cancel_goal_type, "")?;
+        let send_goal_client = self.create_raw_service_client_with_qos(
+            &send_goal_service,
+            &send_goal_type,
+            goal_hash,
+            qos.goal_service,
+        )?;
+        let get_result_client = self.create_raw_service_client_with_qos(
+            &get_result_service,
+            &get_result_type,
+            result_hash,
+            qos.result_service,
+        )?;
+        let cancel_goal_client = self.create_raw_service_client_with_qos(
+            &cancel_goal_service,
+            &cancel_goal_type,
+            "",
+            qos.cancel_service,
+        )?;
 
         // Feedback subscriber (no-op callback for now; Go handles via polling or separate mechanism).
         // Its callback reads nothing, so it stays out of the buffer group.
@@ -998,15 +1108,35 @@ impl ZNode {
             &feedback_type_dds,
             feedback_hash,
             |_| {},
-            None,
+            qos.feedback_topic,
             crate::BufferGroup::Off,
         )?;
+
+        // The status subscriber exists only when the caller gives a status QoS. Its callback reads
+        // nothing and its message has no buffer field, so it stays out of the buffer group. It
+        // declares a token without `backends:`, which is where a peer reads its QoS.
+        let status_sub = qos
+            .status_topic
+            .map(|status_qos| {
+                self.create_raw_subscriber_inner(
+                    &status_topic,
+                    &status_type_dds,
+                    "",
+                    |_| {},
+                    Some(status_qos),
+                    crate::BufferGroup::Off,
+                    None,
+                    true,
+                )
+            })
+            .transpose()?;
 
         Ok(crate::ffi::action::RawActionClient {
             send_goal_client,
             get_result_client,
             cancel_goal_client,
             _feedback_sub: feedback_sub,
+            _status_sub: status_sub,
         })
     }
 
@@ -1018,12 +1148,42 @@ impl ZNode {
         &self,
         action_name: &str,
         action_type: &str,
+        goal_type: &str,
+        goal_hash: &str,
+        result_type: &str,
+        result_hash: &str,
+        feedback_type: &str,
+        feedback_hash: &str,
+    ) -> Result<crate::ffi::action::RawActionServer> {
+        self.create_raw_action_server_with_qos(
+            action_name,
+            action_type,
+            goal_type,
+            goal_hash,
+            result_type,
+            result_hash,
+            feedback_type,
+            feedback_hash,
+            Default::default(),
+        )
+    }
+
+    /// Create a raw action server for FFI (no type safety) with a QoS profile per entity.
+    ///
+    /// An entity with `None` gets the default profile.
+    #[cfg(feature = "ffi")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_raw_action_server_with_qos(
+        &self,
+        action_name: &str,
+        action_type: &str,
         _goal_type: &str,
         goal_hash: &str,
         _result_type: &str,
         result_hash: &str,
         _feedback_type: &str,
         feedback_hash: &str,
+        qos: crate::ffi::action::ActionQos,
     ) -> Result<crate::ffi::action::RawActionServer> {
         let send_goal_service = format!("{}/_action/send_goal", action_name);
         let get_result_service = format!("{}/_action/get_result", action_name);
@@ -1042,16 +1202,37 @@ impl ZNode {
             dds_from_namespace(&action_ns, &format!("{aname}_FeedbackMessage"));
         let status_type_dds = dds_from_namespace("action_msgs::msg", "GoalStatusArray");
 
-        let send_goal_server =
-            self.create_raw_service_server(&send_goal_service, &send_goal_type, goal_hash)?;
-        let get_result_server =
-            self.create_raw_service_server(&get_result_service, &get_result_type, result_hash)?;
-        let cancel_goal_server =
-            self.create_raw_service_server(&cancel_goal_service, &cancel_goal_type, "")?;
+        let send_goal_server = self.create_raw_service_server_with_qos(
+            &send_goal_service,
+            &send_goal_type,
+            goal_hash,
+            qos.goal_service,
+        )?;
+        let get_result_server = self.create_raw_service_server_with_qos(
+            &get_result_service,
+            &get_result_type,
+            result_hash,
+            qos.result_service,
+        )?;
+        let cancel_goal_server = self.create_raw_service_server_with_qos(
+            &cancel_goal_service,
+            &cancel_goal_type,
+            "",
+            qos.cancel_service,
+        )?;
 
-        let feedback_pub =
-            self.create_raw_publisher(&feedback_topic, &feedback_type_dds, feedback_hash)?;
-        let status_pub = self.create_raw_publisher(&status_topic, &status_type_dds, "")?;
+        let feedback_pub = self.create_raw_publisher_with_qos(
+            &feedback_topic,
+            &feedback_type_dds,
+            feedback_hash,
+            qos.feedback_topic,
+        )?;
+        let status_pub = self.create_raw_publisher_with_qos(
+            &status_topic,
+            &status_type_dds,
+            "",
+            qos.status_topic,
+        )?;
 
         Ok(crate::ffi::action::RawActionServer {
             send_goal_server,

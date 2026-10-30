@@ -346,6 +346,29 @@ Apply with `.WithQoS(profile)` on the publisher or subscriber builder.
 !!! tip
     Match QoS profiles on both sides. BestEffort publisher + Reliable subscriber will not exchange messages.
 
+### C: the versioned QoS struct
+
+The C header has two QoS structs. `hiroz_qos_profile_t` has no size field and cannot grow. The `_with_qos` functions take it, and it does not change. `hiroz_qos_profile_v2_t` starts with a `uint32_t struct_size` and has the same fields after it. The `_with_qos_v2` functions take it. A later release can add fields at the end of the v2 struct without breaking a program that was built against an older header.
+
+Call `hiroz_qos_profile_v2_init(&qos, sizeof(qos))` to write the default profile and the size, then change single fields. The second argument is the size of your allocation, which is `sizeof(hiroz_qos_profile_v2_t)` of the header that you compiled against. The function writes the fields that lie completely inside that size and no other byte, and it sets `struct_size` to that size. It returns 0, a negative value if `qos` is null, and a negative value if the size is below 4. A zeroed struct does not give the default: the deadline, the lifespan and the lease are then zero and not infinite. If you set the fields yourself, set `struct_size = sizeof(hiroz_qos_profile_v2_t)`. hiroz reads only the fields that lie completely inside `struct_size` and uses the default for the others. A field that `struct_size` cuts in two counts as absent, and the same holds for a member of `hiroz_action_qos_v2_t`, which then counts as null. A `struct_size` below 4 is an error: the creator logs a warning and returns null. A null `qos` pointer gives the default profile.
+
+The size rule keeps both mixes of versions safe. A program built against an older header passes its smaller size to a newer library: the library writes only the fields that the program has, and uses the default for the new ones. A program built against a newer header passes its larger size to an older library: the library writes the fields that it knows, leaves the other bytes as they were, and ignores them when it reads. The program must then set the fields that the older library does not know.
+
+| Entity | Function | Where a peer sees the QoS |
+|---|---|---|
+| Publisher | `hiroz_publisher_create_with_qos_v2` | liveliness token, and delivery for transient-local |
+| Subscriber | `hiroz_subscriber_create_with_qos_v2` | liveliness token when the subscriber joins the buffer group, and delivery for transient-local |
+| Service client | `hiroz_service_client_create_with_qos_v2` | liveliness token |
+| Service server | `hiroz_service_server_create_with_qos_v2` | liveliness token |
+| Action client | `hiroz_action_client_create_with_qos_v2` | liveliness token of the three services |
+| Action server | `hiroz_action_server_create_with_qos_v2` | liveliness token of the three services, the feedback publisher and the status publisher |
+
+The QoS of a service goes into the liveliness token and does not change how a call is delivered. The subscriber functions with a buffer-group choice (`hiroz_subscriber_create_with_group`, `hiroz_subscriber_create_with_buffer_fields`) still take `hiroz_qos_profile_t`. They have no v2 form yet.
+
+An action takes one `hiroz_action_qos_v2_t`. It starts with its own `struct_size` and has five pointers to `hiroz_qos_profile_v2_t`: `goal_service`, `result_service`, `cancel_service`, `feedback_topic` and `status_topic`. A null pointer, and a null member, give the default profile for that entity. The action server publishes its status with `status_topic`. The action client creates a status subscriber with it when it is not null, and creates none when it is null. That subscriber declares a liveliness token that carries the profile, and it stays out of the buffer group. The feedback subscriber of the client stays out of the buffer group and declares no token, so a peer cannot read its QoS. The feedback QoS still reaches the subscriber, where it controls transient-local replay.
+
+The Go bindings do not use the v2 functions. Go service and action builders have no QoS setting.
+
 ---
 
 ## Graph Introspection

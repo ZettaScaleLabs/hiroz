@@ -1,4 +1,5 @@
 use super::node::{CNode, get_node_ref};
+use super::qos::CActionQosV2;
 use super::service::QueryKey;
 use super::service::{RawServiceClient, RawServiceServer};
 use super::{ErrorCode, cstr_to_str};
@@ -32,13 +33,26 @@ pub type ActionExecuteCallback = extern "C" fn(
 pub type ActionFeedbackCallback =
     extern "C" fn(user_data: usize, feedback_data: *const u8, feedback_len: usize);
 
+/// The QoS of the five entities of an action. An entity with `None` gets the default profile.
+/// The exception is `status_topic` on a client: `None` creates no status subscriber.
+#[derive(Default)]
+pub struct ActionQos {
+    pub goal_service: Option<crate::qos::QosProfile>,
+    pub result_service: Option<crate::qos::QosProfile>,
+    pub cancel_service: Option<crate::qos::QosProfile>,
+    pub feedback_topic: Option<crate::qos::QosProfile>,
+    pub status_topic: Option<crate::qos::QosProfile>,
+}
+
 /// Raw action client for FFI.
-/// Contains: service clients for SendGoal/GetResult/CancelGoal + subscriber for Feedback.
+/// Contains: service clients for SendGoal/GetResult/CancelGoal + subscriber for Feedback, and a
+/// subscriber for Status when the caller gave a status QoS.
 pub struct RawActionClient {
     pub(crate) send_goal_client: RawServiceClient,
     pub(crate) get_result_client: RawServiceClient,
     pub(crate) cancel_goal_client: RawServiceClient,
     pub(crate) _feedback_sub: RawSubscriber,
+    pub(crate) _status_sub: Option<RawSubscriber>,
 }
 
 /// Raw action server for FFI.
@@ -89,6 +103,89 @@ pub unsafe extern "C" fn hiroz_action_client_create(
     feedback_type_hash: *const c_char,
 ) -> *mut CActionClient {
     unsafe {
+        create_action_client(
+            node,
+            action_name,
+            action_type_name,
+            goal_type_name,
+            goal_type_hash,
+            result_type_name,
+            result_type_hash,
+            feedback_type_name,
+            feedback_type_hash,
+            ActionQos::default(),
+        )
+    }
+}
+
+/// Create an action client with a versioned QoS struct
+///
+/// The same as `hiroz_action_client_create`, with a QoS profile for the three services and the
+/// feedback subscriber. A null `qos`, or a null member, asks for the default profile, except
+/// `status_topic`: a null `status_topic` creates no status subscriber, and a non-null one creates
+/// a status subscriber with that profile. The subscriber declares a liveliness token that carries
+/// the profile, and it stays out of the buffer group. The profile of a service goes into its
+/// liveliness token and does not change how a call is delivered. Returns null if `qos`, or a
+/// member, has a `struct_size` below 4.
+///
+/// # Safety
+/// `node` must be a valid node pointer. The strings must be valid C strings. `qos` must be null,
+/// or point to `struct_size` readable bytes. Each non-null member must point to `struct_size`
+/// readable bytes.
+#[allow(clippy::too_many_arguments)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hiroz_action_client_create_with_qos_v2(
+    node: *mut CNode,
+    action_name: *const c_char,
+    action_type_name: *const c_char,
+    goal_type_name: *const c_char,
+    goal_type_hash: *const c_char,
+    result_type_name: *const c_char,
+    result_type_hash: *const c_char,
+    feedback_type_name: *const c_char,
+    feedback_type_hash: *const c_char,
+    qos: *const CActionQosV2,
+) -> *mut CActionClient {
+    unsafe {
+        match CActionQosV2::to_action_qos(qos) {
+            Ok(qos) => create_action_client(
+                node,
+                action_name,
+                action_type_name,
+                goal_type_name,
+                goal_type_hash,
+                result_type_name,
+                result_type_hash,
+                feedback_type_name,
+                feedback_type_hash,
+                qos,
+            ),
+            Err(e) => {
+                tracing::warn!("hiroz: Invalid QoS struct for an action client: {:?}", e);
+                std::ptr::null_mut()
+            }
+        }
+    }
+}
+
+/// The body shared by the action client creators.
+///
+/// # Safety
+/// The same as `hiroz_action_client_create`.
+#[allow(clippy::too_many_arguments)]
+unsafe fn create_action_client(
+    node: *mut CNode,
+    action_name: *const c_char,
+    action_type_name: *const c_char,
+    goal_type_name: *const c_char,
+    goal_type_hash: *const c_char,
+    result_type_name: *const c_char,
+    result_type_hash: *const c_char,
+    feedback_type_name: *const c_char,
+    feedback_type_hash: *const c_char,
+    qos: ActionQos,
+) -> *mut CActionClient {
+    unsafe {
         let node_ref = match get_node_ref(node) {
             Some(n) => n,
             None => return std::ptr::null_mut(),
@@ -129,7 +226,7 @@ pub unsafe extern "C" fn hiroz_action_client_create(
             Err(_) => return std::ptr::null_mut(),
         };
 
-        match node_ref.create_raw_action_client(
+        match node_ref.create_raw_action_client_with_qos(
             action_str,
             action_type,
             goal_type,
@@ -138,6 +235,7 @@ pub unsafe extern "C" fn hiroz_action_client_create(
             result_hash,
             feedback_type,
             feedback_hash,
+            qos,
         ) {
             Ok(raw_client) => {
                 let shutdown = Arc::new(AtomicBool::new(false));
@@ -334,6 +432,98 @@ pub unsafe extern "C" fn hiroz_action_server_create(
     user_data: usize,
 ) -> *mut CActionServer {
     unsafe {
+        create_action_server(
+            node,
+            action_name,
+            action_type_name,
+            goal_type_name,
+            goal_type_hash,
+            result_type_name,
+            result_type_hash,
+            feedback_type_name,
+            feedback_type_hash,
+            goal_callback,
+            execute_callback,
+            user_data,
+            ActionQos::default(),
+        )
+    }
+}
+
+/// Create an action server with a versioned QoS struct
+///
+/// The same as `hiroz_action_server_create`, with a QoS profile for the three services, the
+/// feedback publisher and the status publisher. A null `qos`, or a null member, asks for the
+/// default profile. The profile of a service goes into its liveliness token and does not change
+/// how a request is delivered. Returns null if `qos`, or a member, has a `struct_size` below 4.
+///
+/// # Safety
+/// `node` must be a valid node pointer. The strings must be valid C strings. The callbacks must be
+/// valid function pointers. `qos` must be null, or point to `struct_size` readable bytes. Each
+/// non-null member must point to `struct_size` readable bytes.
+#[allow(clippy::too_many_arguments)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hiroz_action_server_create_with_qos_v2(
+    node: *mut CNode,
+    action_name: *const c_char,
+    action_type_name: *const c_char,
+    goal_type_name: *const c_char,
+    goal_type_hash: *const c_char,
+    result_type_name: *const c_char,
+    result_type_hash: *const c_char,
+    feedback_type_name: *const c_char,
+    feedback_type_hash: *const c_char,
+    goal_callback: ActionGoalCallback,
+    execute_callback: ActionExecuteCallback,
+    user_data: usize,
+    qos: *const CActionQosV2,
+) -> *mut CActionServer {
+    unsafe {
+        match CActionQosV2::to_action_qos(qos) {
+            Ok(qos) => create_action_server(
+                node,
+                action_name,
+                action_type_name,
+                goal_type_name,
+                goal_type_hash,
+                result_type_name,
+                result_type_hash,
+                feedback_type_name,
+                feedback_type_hash,
+                goal_callback,
+                execute_callback,
+                user_data,
+                qos,
+            ),
+            Err(e) => {
+                tracing::warn!("hiroz: Invalid QoS struct for an action server: {:?}", e);
+                std::ptr::null_mut()
+            }
+        }
+    }
+}
+
+/// The body shared by the action server creators.
+///
+/// # Safety
+/// The same as `hiroz_action_server_create`.
+#[allow(clippy::too_many_arguments)]
+unsafe fn create_action_server(
+    node: *mut CNode,
+    action_name: *const c_char,
+    action_type_name: *const c_char,
+    goal_type_name: *const c_char,
+    goal_type_hash: *const c_char,
+    result_type_name: *const c_char,
+    result_type_hash: *const c_char,
+    feedback_type_name: *const c_char,
+    feedback_type_hash: *const c_char,
+    goal_callback: ActionGoalCallback,
+    execute_callback: ActionExecuteCallback,
+    user_data: usize,
+    qos: ActionQos,
+) -> *mut CActionServer {
+    unsafe {
         let node_ref = match get_node_ref(node) {
             Some(n) => n,
             None => return std::ptr::null_mut(),
@@ -374,7 +564,7 @@ pub unsafe extern "C" fn hiroz_action_server_create(
             Err(_) => return std::ptr::null_mut(),
         };
 
-        let raw_server = match node_ref.create_raw_action_server(
+        let raw_server = match node_ref.create_raw_action_server_with_qos(
             action_str,
             action_type,
             goal_type,
@@ -383,6 +573,7 @@ pub unsafe extern "C" fn hiroz_action_server_create(
             result_hash,
             feedback_type,
             feedback_hash,
+            qos,
         ) {
             Ok(s) => s,
             Err(e) => {

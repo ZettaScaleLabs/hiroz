@@ -1,5 +1,6 @@
 //! C-compatible QoS types for FFI
 
+use super::action::ActionQos;
 use crate::qos::{
     QosDurability, QosDuration, QosHistory, QosLiveliness, QosProfile, QosReliability,
 };
@@ -93,6 +94,279 @@ impl CQosProfile {
             lifespan,
             liveliness,
             liveliness_lease_duration,
+        }
+    }
+}
+
+/// Versioned C-compatible QoS profile for FFI
+///
+/// `struct_size` comes first. The caller sets it to `sizeof(hiroz_qos_profile_v2_t)` of the
+/// header it compiled against, or calls `hiroz_qos_profile_v2_init` with that size, which sets
+/// it. A later release can add fields at the end. hiroz reads only the fields that lie
+/// completely inside `struct_size` and takes the default for the others, so a program built
+/// against an older header keeps working. A field that `struct_size` cuts in two counts as
+/// absent: hiroz never reads part of a field. A `struct_size` below 4 is invalid: the creator
+/// returns null.
+///
+/// The fields after `struct_size` have the meaning that they have in `hiroz_qos_profile_t`.
+#[repr(C)]
+pub struct CQosProfileV2 {
+    /// `sizeof(hiroz_qos_profile_v2_t)` as the caller knows it
+    pub struct_size: u32,
+    /// 0 = Reliable (default), 1 = BestEffort
+    pub reliability: i32,
+    /// 0 = Volatile (default), 1 = TransientLocal
+    pub durability: i32,
+    /// 0 = KeepLast (default), 1 = KeepAll
+    pub history: i32,
+    /// Depth for KeepLast (default: 10, ignored for KeepAll)
+    pub history_depth: i32,
+    pub deadline_sec: u64,
+    pub deadline_nsec: u64,
+    pub lifespan_sec: u64,
+    pub lifespan_nsec: u64,
+    /// 0 = Automatic (default), 1 = ManualByNode, 2 = ManualByTopic
+    pub liveliness: i32,
+    pub liveliness_lease_sec: u64,
+    pub liveliness_lease_nsec: u64,
+}
+
+/// A `struct_size` that cannot hold the size field. The value is the size the caller gave.
+#[derive(Debug)]
+pub struct InvalidStructSize(pub u32);
+
+impl CQosProfileV2 {
+    /// The size of the struct in this build.
+    const SIZE: u32 = std::mem::size_of::<Self>() as u32;
+
+    /// The smallest valid `struct_size`: the size field itself.
+    const MIN_SIZE: u32 = std::mem::size_of::<u32>() as u32;
+
+    /// The default profile. It has the same values as `QosProfile::default()`.
+    fn defaults() -> Self {
+        Self {
+            struct_size: Self::SIZE,
+            reliability: 0,
+            durability: 0,
+            history: 0,
+            history_depth: crate::qos::DEFAULT_HISTORY_DEPTH as i32,
+            deadline_sec: QosDuration::INFINITE.sec,
+            deadline_nsec: QosDuration::INFINITE.nsec,
+            lifespan_sec: QosDuration::INFINITE.sec,
+            lifespan_nsec: QosDuration::INFINITE.nsec,
+            liveliness: 0,
+            liveliness_lease_sec: QosDuration::INFINITE.sec,
+            liveliness_lease_nsec: QosDuration::INFINITE.nsec,
+        }
+    }
+
+    /// Convert a nullable pointer to an optional QosProfile.
+    ///
+    /// Null gives `Ok(None)`: the default QoS. A `struct_size` below the size field gives `Err`.
+    /// A `struct_size` below the full size gives the default for every field that it does not
+    /// cover completely. A `struct_size` above the full size is accepted and the extra bytes are not read.
+    ///
+    /// # Safety
+    /// The pointer must be null, or point to at least `struct_size` readable bytes.
+    pub unsafe fn to_qos_profile(
+        ptr: *const CQosProfileV2,
+    ) -> Result<Option<QosProfile>, InvalidStructSize> {
+        if ptr.is_null() {
+            return Ok(None);
+        }
+        let struct_size = unsafe { std::ptr::read_unaligned(ptr as *const u32) };
+        if struct_size < Self::MIN_SIZE {
+            return Err(InvalidStructSize(struct_size));
+        }
+        let mut full = Self::defaults();
+        let covered = struct_size.min(Self::SIZE) as usize;
+        unsafe { Self::copy_whole_members(ptr as *const u8, &mut full, covered) };
+        Ok(Some(full.as_v1().as_qos_profile()))
+    }
+
+    /// Copy each member whose whole extent lies inside the first `covered` bytes of `src` into
+    /// `dst`. A member that `covered` splits or excludes is not present: it keeps the value in
+    /// `dst`. A partial copy of a member would give a value that nobody wrote.
+    ///
+    /// The copy works on bytes and makes no reference to `dst`, so `dst` may be memory that the
+    /// caller did not initialise, and `src` and `dst` may be unaligned.
+    ///
+    /// # Safety
+    /// `src` must point to at least `covered` readable bytes. `dst` must be valid for writes of
+    /// every member that lies inside `covered` bytes.
+    unsafe fn copy_whole_members(src: *const u8, dst: *mut Self, covered: usize) {
+        macro_rules! member {
+            ($field:ident: $ty:ty) => {{
+                let offset = std::mem::offset_of!(Self, $field);
+                let size = std::mem::size_of::<$ty>();
+                if offset + size <= covered {
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            src.add(offset),
+                            std::ptr::addr_of_mut!((*dst).$field) as *mut u8,
+                            size,
+                        );
+                    }
+                }
+            }};
+        }
+        member!(struct_size: u32);
+        member!(reliability: i32);
+        member!(durability: i32);
+        member!(history: i32);
+        member!(history_depth: i32);
+        member!(deadline_sec: u64);
+        member!(deadline_nsec: u64);
+        member!(lifespan_sec: u64);
+        member!(lifespan_nsec: u64);
+        member!(liveliness: i32);
+        member!(liveliness_lease_sec: u64);
+        member!(liveliness_lease_nsec: u64);
+    }
+
+    fn as_v1(&self) -> CQosProfile {
+        CQosProfile {
+            reliability: self.reliability,
+            durability: self.durability,
+            history: self.history,
+            history_depth: self.history_depth,
+            deadline_sec: self.deadline_sec,
+            deadline_nsec: self.deadline_nsec,
+            lifespan_sec: self.lifespan_sec,
+            lifespan_nsec: self.lifespan_nsec,
+            liveliness: self.liveliness,
+            liveliness_lease_sec: self.liveliness_lease_sec,
+            liveliness_lease_nsec: self.liveliness_lease_nsec,
+        }
+    }
+}
+
+/// Write the default QoS profile, and the size of the struct, to `out`
+///
+/// `size` is the size of the allocation that `out` points to, as the caller knows it:
+/// `sizeof(hiroz_qos_profile_v2_t)` of the header that the caller compiled against. The function
+/// writes the fields that lie completely inside `size` and no other byte, and it sets
+/// `struct_size` to `size`. Call it before you change single fields. A zeroed struct has
+/// deadline, lifespan and lease of zero, which is not the default of infinite.
+///
+/// Two cases need no other care. A program built against an older header passes its smaller
+/// size: a newer library writes only the fields that the program has, and the creator takes the
+/// default for the fields that it does not have. A program built against a newer header passes
+/// its larger size: an older library writes the fields that it knows and leaves the bytes after
+/// them as they were, so the program must set the fields that are new to it. The creator ignores
+/// the bytes beyond the struct that it knows.
+///
+/// Returns 0 on success, `ErrorCode::NullPointer` if `out` is null, and `ErrorCode::Unknown` if
+/// `size` is below 4, which cannot hold `struct_size`. A failed call writes nothing.
+///
+/// # Safety
+/// `out` must be null or point to writable memory of `size` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hiroz_qos_profile_v2_init(out: *mut CQosProfileV2, size: usize) -> i32 {
+    if out.is_null() {
+        return super::ErrorCode::NullPointer as i32;
+    }
+    if size < CQosProfileV2::MIN_SIZE as usize {
+        return super::ErrorCode::Unknown as i32;
+    }
+    let defaults = CQosProfileV2::defaults();
+    let covered = size.min(CQosProfileV2::SIZE as usize);
+    unsafe {
+        CQosProfileV2::copy_whole_members(
+            &defaults as *const CQosProfileV2 as *const u8,
+            out,
+            covered,
+        );
+        // The caller's size, which may be smaller or larger than this library's struct.
+        std::ptr::write_unaligned(out as *mut u32, size.min(u32::MAX as usize) as u32);
+    }
+    super::ErrorCode::Success as i32
+}
+
+/// Versioned C-compatible QoS of the five entities of an action
+///
+/// `struct_size` comes first and works as in `hiroz_qos_profile_v2_t`: the caller sets it to
+/// `sizeof(hiroz_action_qos_v2_t)`, hiroz reads only the members that lie completely inside it,
+/// and any other member counts as null. A member that `struct_size` cuts in two is not read, not
+/// even in part. A null member asks for the default profile. A `struct_size` below 4 is invalid:
+/// the creator returns null.
+///
+/// Each member points to a `hiroz_qos_profile_v2_t` that must stay valid for the creator call only.
+#[repr(C)]
+pub struct CActionQosV2 {
+    /// `sizeof(hiroz_action_qos_v2_t)` as the caller knows it
+    pub struct_size: u32,
+    /// The SendGoal service
+    pub goal_service: *const CQosProfileV2,
+    /// The GetResult service
+    pub result_service: *const CQosProfileV2,
+    /// The CancelGoal service
+    pub cancel_service: *const CQosProfileV2,
+    /// The feedback topic
+    pub feedback_topic: *const CQosProfileV2,
+    /// The status topic. An action server publishes with it. An action client creates a status
+    /// subscriber with it when it is not null, and creates none when it is null.
+    pub status_topic: *const CQosProfileV2,
+}
+
+impl CActionQosV2 {
+    /// The size of the struct in this build.
+    const SIZE: u32 = std::mem::size_of::<Self>() as u32;
+
+    /// Convert a nullable pointer to the QoS of the five entities.
+    ///
+    /// Null gives the default for every entity. An invalid `struct_size`, here or in a member,
+    /// gives `Err`.
+    ///
+    /// # Safety
+    /// The pointer must be null, or point to at least `struct_size` readable bytes, and each
+    /// non-null member inside that size must meet the safety rule of
+    /// [`CQosProfileV2::to_qos_profile`].
+    pub unsafe fn to_action_qos(ptr: *const CActionQosV2) -> Result<ActionQos, InvalidStructSize> {
+        if ptr.is_null() {
+            return Ok(ActionQos::default());
+        }
+        let struct_size = unsafe { std::ptr::read_unaligned(ptr as *const u32) };
+        if struct_size < CQosProfileV2::MIN_SIZE {
+            return Err(InvalidStructSize(struct_size));
+        }
+        let mut full = Self {
+            struct_size: Self::SIZE,
+            goal_service: std::ptr::null(),
+            result_service: std::ptr::null(),
+            cancel_service: std::ptr::null(),
+            feedback_topic: std::ptr::null(),
+            status_topic: std::ptr::null(),
+        };
+        let covered = struct_size.min(Self::SIZE) as usize;
+        macro_rules! member {
+            ($field:ident) => {{
+                let offset = std::mem::offset_of!(Self, $field);
+                let size = std::mem::size_of_val(&full.$field);
+                if offset + size <= covered {
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            (ptr as *const u8).add(offset),
+                            std::ptr::addr_of_mut!(full.$field) as *mut u8,
+                            size,
+                        );
+                    }
+                }
+            }};
+        }
+        member!(goal_service);
+        member!(result_service);
+        member!(cancel_service);
+        member!(feedback_topic);
+        member!(status_topic);
+        unsafe {
+            Ok(ActionQos {
+                goal_service: CQosProfileV2::to_qos_profile(full.goal_service)?,
+                result_service: CQosProfileV2::to_qos_profile(full.result_service)?,
+                cancel_service: CQosProfileV2::to_qos_profile(full.cancel_service)?,
+                feedback_topic: CQosProfileV2::to_qos_profile(full.feedback_topic)?,
+                status_topic: CQosProfileV2::to_qos_profile(full.status_topic)?,
+            })
         }
     }
 }
