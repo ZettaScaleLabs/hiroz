@@ -56,6 +56,10 @@ func CallTypedWithTimeout[Resp Message](client *ServiceClient, request Message, 
 // Cancelling ctx does not abort the call in the C layer. The call ends at its timeout,
 // and ServiceClient.Close waits for it.
 func CallTypedContext[Resp Message](ctx context.Context, client *ServiceClient, request Message, response Resp) error {
+	// Check before the user's serializer runs, so a cancelled call does not wait for it.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	reqBytes, err := request.SerializeCDR()
 	if err != nil {
 		return fmt.Errorf("failed to serialize request: %w", err)
