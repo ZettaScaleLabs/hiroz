@@ -455,9 +455,14 @@ fn pub_fn_rest(line: &str) -> Option<&str> {
 /// Adds `Type::method` to `found` for each `pub fn` in an `impl` block of a type whose name ends in `Builder`.
 /// Adds `Type::with_type_info` for each `impl_with_type_info!` call on such a type.
 /// It reads `impl` headers at the start of a line, which is where rustfmt puts them.
+/// A header that spans lines is joined up to the line with its opening brace.
 fn scan_source(text: &str, found: &mut BTreeSet<String>) {
     let mut owner: Option<String> = None;
-    for line in text.lines() {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut next = 0;
+    while next < lines.len() {
+        let line = lines[next];
+        next += 1;
         if let Some(rest) = line.strip_prefix("impl_with_type_info!(") {
             let name = ident_prefix(rest);
             if name.ends_with("Builder") {
@@ -465,8 +470,14 @@ fn scan_source(text: &str, found: &mut BTreeSet<String>) {
             }
             continue;
         }
-        if line.starts_with("impl") {
-            owner = impl_self_type(line).filter(|name| name.ends_with("Builder"));
+        if line.starts_with("impl<") || line.starts_with("impl ") {
+            let mut header = line.to_string();
+            while !header.contains('{') && !header.trim_end().ends_with(';') && next < lines.len() {
+                header.push(' ');
+                header.push_str(lines[next].trim());
+                next += 1;
+            }
+            owner = impl_self_type(&header).filter(|name| name.ends_with("Builder"));
             continue;
         }
         if line.trim_end() == "}" {
@@ -863,10 +874,11 @@ fn rust_definitions(tokens: &[String]) -> BTreeSet<String> {
                 let mut depth = 0;
                 for k in i + 1..tokens.len() {
                     match t(k) {
-                        "(" | "[" => depth += 1,
-                        ")" | "]" => depth -= 1,
+                        "(" | "[" | "{" => depth += 1,
+                        ")" | "]" | "}" => depth -= 1,
                         // Depth 3 is the parameter list of `signature = (...)`. A deeper `name =` is
-                        // an argument of a call in a default, such as `format!("{x}", x = 1)`.
+                        // an argument of a call in a default, such as `format!("{x}", x = 1)` or
+                        // `format!{"{x}", x = 1}`. Braces count, so a brace-delimited call is deeper too.
                         _ if depth == 3
                             && is_ident(t(k))
                             && t(k + 1) == "="
@@ -945,7 +957,14 @@ fn check_binding_symbols(rows: &[Value], sources: &BTreeMap<&str, String>) -> Ve
             }
             let identifiers = symbol
                 .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                .filter(|part| !part.is_empty());
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>();
+            // A symbol such as `.` has no identifier to look up, so it would pass every source.
+            if identifiers.is_empty() {
+                errors.push(format!(
+                    "row `{id}`, binding `{binding}`: symbol `{symbol}` names no identifier"
+                ));
+            }
             for identifier in identifiers {
                 let defined = if binding == "go" {
                     go_defines(&clean, identifier)
@@ -1425,4 +1444,33 @@ fn a_format_argument_in_a_python_default_is_not_a_definition() {
     // A negative control for the positive one above: `Ghost` is a named argument of `format!`.
     let source = "#[pyo3(signature = (a = format!(\"{Ghost}\", Ghost = 1)))]\nfn f() {}";
     assert!(!ghost_defined("python", source), "accepted: {source}");
+}
+
+#[test]
+fn a_format_argument_in_a_brace_delimited_macro_is_not_a_definition() {
+    // The same negative control with `format!{...}`: braces deepen the group like parentheses.
+    let source = "#[pyo3(signature = (a = format!{\"{Ghost}\", Ghost = 1}))]\nfn f() {}";
+    assert!(!ghost_defined("python", source), "accepted: {source}");
+}
+
+#[test]
+fn builder_scan_reads_an_impl_header_that_spans_lines() {
+    let source = "impl<\n    T,\n> ZSpanBuilder<T> {\n    pub fn with_span(self) {}\n}\n";
+    let mut found = BTreeSet::new();
+    scan_rust_file(source, &mut found);
+    assert!(found.contains("ZSpanBuilder::with_span"), "{found:?}");
+}
+
+#[test]
+fn a_symbol_without_an_identifier_fails() {
+    // `.` splits into no identifier, so it would otherwise pass every source.
+    let rows = parse_rows(
+        "[[row]]\nid = \"publisher.extra\"\nentity = \"publisher\"\noption = \"extra\"\npython = { status = \"present\", symbol = \".\" }\n",
+    )
+    .expect("row parses");
+    let mut sources = BTreeMap::new();
+    sources.insert("python", "fn f() {}".to_string());
+    let errors = check_binding_symbols(&rows, &sources);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("names no identifier"), "{errors:?}");
 }
