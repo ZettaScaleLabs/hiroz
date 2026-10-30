@@ -359,6 +359,14 @@ func TestHostileBigElements(t *testing.T) {
 	rejects(t, raw, m.DeserializeCDR)
 }
 
+// An element that holds a 1 GiB fixed array is a 1 GiB Go array. A count of one with
+// no bytes after it must fail before that array is allocated.
+func TestHostileHugeElement(t *testing.T) {
+	raw := []byte{0x00, 0x01, 0x00, 0x00, 1, 0, 0, 0}
+	var m test_msgs.HugeArr
+	rejects(t, raw, m.DeserializeCDR)
+}
+
 // The boundary of a sequence of nested messages: a count whose elements fit the
 // bytes left decodes, and one more element is rejected.
 func TestCustomBoundary(t *testing.T) {
@@ -408,6 +416,8 @@ func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
 	// Their bound is checked as text in TestGenerateUnpackBoundsArrayLength.
 	bigN := uint(65536)
 	bigFixed := []FieldDefinition{{Name: "b", FieldType: u8, IsArray: true, ArrayKind: "fixed", ArraySize: &bigN}}
+	hugeN := uint(1 << 30)
+	hugeFixed := []FieldDefinition{{Name: "b", FieldType: u8, IsArray: true, ArrayKind: "fixed", ArraySize: &hugeN}}
 	msgs := []MessageDefinition{
 		{Package: "test_msgs", Name: "Empty", FullName: "test_msgs/Empty"},
 		{Package: "test_msgs", Name: "One", FullName: "test_msgs/One", Fields: []FieldDefinition{
@@ -420,6 +430,8 @@ func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
 		{Package: "test_msgs", Name: "EmptyArr", FullName: "test_msgs/EmptyArr", Fields: seq("v", custom("Empty"))},
 		{Package: "test_msgs", Name: "Big", FullName: "test_msgs/Big", Fields: bigFixed},
 		{Package: "test_msgs", Name: "BigArr", FullName: "test_msgs/BigArr", Fields: seq("v", custom("Big"))},
+		{Package: "test_msgs", Name: "Huge", FullName: "test_msgs/Huge", Fields: hugeFixed},
+		{Package: "test_msgs", Name: "HugeArr", FullName: "test_msgs/HugeArr", Fields: seq("v", custom("Huge"))},
 	}
 	registerKnown(t, msgs)
 
@@ -451,6 +463,7 @@ func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
 		{name: "TestPrimitiveBoundary"},
 		{name: "TestSequenceOfEmptyMessagesDecodes"},
 		{name: "TestHostileBigElements"},
+		{name: "TestHostileHugeElement"},
 		{name: "TestCustomBoundary"},
 		// On a 32-bit target int(uint32) of 0xFFFFFFFF is negative.
 		{name: "TestHostilePrimitiveArray", goarch: "386"},

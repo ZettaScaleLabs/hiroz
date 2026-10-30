@@ -202,10 +202,14 @@ func nestedMinSize(ft FieldType, visiting map[string]bool) int64 {
 // decode, and an element that needs bytes fails with a short-buffer error as
 // soon as the input ends.
 //
+// An element of known size is rejected before it is allocated when fewer bytes are left than it needs.
+//
 // What stays unbounded: elements of zero bytes (minElem 0, or a type of unknown
 // size). The reservation for them is capped at the bytes left, and the loop
 // still runs arrLen times, so a hostile length costs CPU time but no memory.
 func emitCustomSeqUnpack(g *CodeBuilder, fieldAccess, elemType string, minElem int64) {
+	// A known size of one byte or more lets the loop reject an element before it allocates it.
+	known := minElem >= 1
 	if minElem < 1 {
 		minElem = 1
 	}
@@ -219,6 +223,11 @@ func emitCustomSeqUnpack(g *CodeBuilder, fieldAccess, elemType string, minElem i
 	g.P("%s = make([]%s, 0, capHint)", fieldAccess, elemType)
 	g.P("for i := 0; i < arrLen; i++ {")
 	g.In()
+	if known {
+		// `var elem` reserves the whole element, so a type with a huge fixed array costs its full
+		// size even when no bytes are left to decode it.
+		g.P("if len(data)-offset < %d { return offset, fmt.Errorf(\"sequence element needs at least %d bytes, %%d left\", len(data)-offset) }", minElem, minElem)
+	}
 	g.P("var elem %s", elemType)
 	g.P("offset, err = elem.UnpackFromRawAt(data, offset)")
 	g.P("if err != nil { return offset, err }")
