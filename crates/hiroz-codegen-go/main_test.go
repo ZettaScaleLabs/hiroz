@@ -583,6 +583,8 @@ func TestMinCDRSize(t *testing.T) {
 		{"fixed int32 array", []FieldDefinition{fixed("Int32", 3)}, 12},
 		{"string", []FieldDefinition{scalar(FieldType{Kind: "String"})}, 4},
 		{"time and duration", []FieldDefinition{scalar(FieldType{Kind: "Time"}), scalar(FieldType{Kind: "Duration"})}, 16},
+		{"fixed time array", []FieldDefinition{fixed("Time", 3)}, 24},
+		{"time sequence", []FieldDefinition{seq(FieldType{Kind: "Time"})}, 4},
 		{"unbounded sequence of float64", []FieldDefinition{seq(FieldType{Kind: "Float64"})}, 4},
 		{"sequence of strings", []FieldDefinition{seq(FieldType{Kind: "String"})}, 4},
 		{"sequence of nested", []FieldDefinition{seq(custom("Pair"))}, 4},
