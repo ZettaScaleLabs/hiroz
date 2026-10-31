@@ -321,6 +321,18 @@ def clean-env [home: string, extra: list] {
     $e
 }
 
+# Was the command still running when the timeout fired?
+#
+# GNU `timeout --preserve-status -s INT` reports 124, or the INT-preserved
+# 130/2. uutils `timeout` reports 137 whenever `-k` is given, even when the
+# child stopped within a second of the INT. A real SIGKILL escalation cannot
+# happen before the INT window plus the `-k` grace has passed, so 137 counts as
+# alive only when it arrives sooner than that.
+def still-running [rc: int, elapsed: duration, secs: int] {
+    if $rc in [124 130 2] { return true }
+    $rc == 137 and $elapsed < (($secs + 5) * 1sec)
+}
+
 def run-one [entry: record, home: string] {
     if $entry.class == "skip" {
         return { result: "skip", rc: 0, note: $entry.reason, out: "" }
@@ -362,7 +374,9 @@ def run-one [entry: record, home: string] {
     # `do { }` instead makes nu raise on the first failing command, which ends
     # the whole suite at the first red — the opposite of what a test runner
     # should do.
+    let started = (date now)
     let res = (with-env $env_map { ^bash -c $wrapped | complete })
+    let elapsed = ((date now) - $started)
     let rc = $res.exit_code
     let out = $"($res.stdout)($res.stderr)"
 
@@ -385,23 +399,23 @@ def run-one [entry: record, home: string] {
     if $entry.class == "run-timeout-quiet" {
         # Survived its window without erroring. No output requirement — see
         # the class comment in make-entry.
-        let alive = ($rc in [124 130 2])
+        let alive = (still-running $rc $elapsed $secs)
         if $alive or $rc == 0 {
             { result: "pass", rc: $rc, note: "ran (quiet allowed)", out: $out }
         } else {
-            { result: "fail", rc: $rc, note: "exited non-zero before timeout", out: $out }
+            { result: "fail", rc: $rc, note: $"exited non-zero before timeout \(rc ($rc), ($elapsed)\)", out: $out }
         }
     } else if $entry.class == "run-timeout" {
         # A streaming command is healthy if it was still running when the
         # timeout fired (124, or the INT-preserved 130/2) AND it printed
         # something. Exiting 0 early is also fine. Anything else is a failure.
-        let alive = ($rc in [124 130 2])
+        let alive = (still-running $rc $elapsed $secs)
         if ($alive or $rc == 0) and (($out | str trim) != "") {
             { result: "pass", rc: $rc, note: "streamed output", out: $out }
         } else if ($alive or $rc == 0) {
             { result: "fail", rc: $rc, note: "ran but produced no output", out: $out }
         } else {
-            { result: "fail", rc: $rc, note: "exited non-zero before timeout", out: $out }
+            { result: "fail", rc: $rc, note: $"exited non-zero before timeout \(rc ($rc), ($elapsed)\)", out: $out }
         }
     } else {
         if $rc == 0 {
