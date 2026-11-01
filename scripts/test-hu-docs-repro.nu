@@ -327,10 +327,11 @@ def clean-env [home: string, extra: list] {
 # 130/2. uutils `timeout` reports 137 whenever `-k` is given, even when the
 # child stopped within a second of the INT. A real SIGKILL escalation cannot
 # happen before the INT window plus the `-k` grace has passed, so 137 counts as
-# alive only when it arrives sooner than that.
+# alive only when it arrives inside the window from the INT to that grace. A 137
+# before the INT fired is a command that failed on its own.
 def still-running [rc: int, elapsed: duration, secs: int] {
     if $rc in [124 130 2] { return true }
-    $rc == 137 and $elapsed < (($secs + 5) * 1sec)
+    $rc == 137 and $elapsed >= ($secs * 1sec) and $elapsed < (($secs + 5) * 1sec)
 }
 
 def run-one [entry: record, home: string] {
