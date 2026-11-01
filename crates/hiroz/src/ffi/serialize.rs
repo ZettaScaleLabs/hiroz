@@ -1,12 +1,21 @@
 //! FFI for serialization/deserialization
 //! Go passes raw struct bytes, Rust serializes to CDR
 
-use super::{ErrorCode, cstr_to_str};
 use std::ffi::c_char;
+
+use super::{ErrorCode, cstr_to_str};
 
 /// Serialize a message to CDR format
 /// Input: type_name (C string), raw message bytes from Go
 /// Output: CDR serialized bytes via out_ptr/out_len
+///
+/// # Safety
+/// Every non-null string pointer must address a NUL-terminated string. The input
+/// byte pointer must be readable for its supplied length, within one allocation,
+/// for this call. Non-null output pointers must be aligned, writable, disjoint
+/// storage. Inputs are borrowed only until return. On success, ownership of the
+/// output allocation transfers to the caller; free it exactly once with
+/// `hiroz_free_bytes` and the returned length. Outputs are unchanged on failure.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_serialize(
     type_name: *const c_char,
@@ -41,6 +50,14 @@ pub unsafe extern "C" fn hiroz_serialize(
 }
 
 /// Deserialize CDR bytes to raw format for Go
+///
+/// # Safety
+/// Every non-null string pointer must address a NUL-terminated string. The input
+/// byte pointer must be readable for its supplied length, within one allocation,
+/// for this call. Non-null output pointers must be aligned, writable, disjoint
+/// storage. Inputs are borrowed only until return. On success, ownership of the
+/// output allocation transfers to the caller; free it exactly once with
+/// `hiroz_free_bytes` and the returned length. Outputs are unchanged on failure.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_deserialize(
     type_name: *const c_char,
@@ -73,12 +90,19 @@ pub unsafe extern "C" fn hiroz_deserialize(
     }
 }
 
-/// Free bytes allocated by serialize/deserialize
+/// Free bytes allocated by serialize/deserialize.
+///
+/// # Safety
+/// A non-null pointer with a nonzero length must be an allocation returned by a
+/// Hiroz FFI function that documents `hiroz_free_bytes` as its deallocator. Pass
+/// the exact returned length, and call this only once after all readers have
+/// finished. No other operation may access the allocation during or after this
+/// call. A null pointer or zero length is a no-op.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_free_bytes(ptr: *mut u8, len: usize) {
     if !ptr.is_null() && len > 0 {
         unsafe {
-            let _ = Box::from_raw(std::slice::from_raw_parts_mut(ptr, len));
+            let _ = Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len));
         }
     }
 }

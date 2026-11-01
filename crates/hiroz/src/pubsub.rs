@@ -1,30 +1,47 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
-use std::{marker::PhantomData, sync::Arc};
+use std::{
+    marker::PhantomData,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
-use tracing::{debug, trace, warn};
-use zenoh::liveliness::LivelinessToken;
-use zenoh::{Result, Session, Wait, key_expr::KeyExpr, sample::Sample};
-
-use crate::Builder;
-use crate::attachment::{Attachment, GidArray};
-use crate::common::DataHandler;
-use crate::entity::{EndpointEntity, EndpointKind};
-use crate::event::{EventsManager, MessageLossTracker};
-use crate::graph::Graph;
-use crate::impl_with_type_info;
-use crate::queue::BoundedQueue;
-use crate::topic_name;
-
-use crate::msg::{SerdeCdrSerdes, ZDeserializer, ZMessage, ZSerializer};
-use crate::qos::QosProfile;
 use hiroz_protocol::qos::{QosDurability, QosHistory, QosReliability};
-use std::sync::Mutex;
+use tracing::{debug, trace, warn};
+use zenoh::{
+    Result, Session, Wait, key_expr::KeyExpr, liveliness::LivelinessToken, sample::Sample,
+};
 use zenoh_ext::{
     AdvancedPublisher, AdvancedPublisherBuilder, AdvancedPublisherBuilderExt, AdvancedSubscriber,
     AdvancedSubscriberBuilder, AdvancedSubscriberBuilderExt, CacheConfig, HistoryConfig,
     MissDetectionConfig, RecoveryConfig,
 };
+
+use crate::{
+    Builder,
+    attachment::{Attachment, GidArray},
+    common::DataHandler,
+    entity::{EndpointEntity, EndpointKind},
+    event::{EventsManager, MessageLossTracker},
+    graph::Graph,
+    impl_with_type_info,
+    msg::{SerdeCdrSerdes, ZDeserializer, ZMessage, ZSerializer},
+    qos::QosProfile,
+    queue::BoundedQueue,
+    topic_name,
+};
+
+/// Own the subscription appropriate for the endpoint's durability.
+///
+/// AdvancedSubscriber deduplicates timestamped samples to merge live traffic
+/// with history. That filtering is incorrect for volatile traffic: concurrent
+/// publishers in one session share a timestamp ID and can arrive out of order.
+#[allow(dead_code)] // The variants own the subscriptions until the endpoint drops.
+pub enum SubscriberTransport {
+    Volatile(zenoh::pubsub::Subscriber<()>),
+    TransientLocal(AdvancedSubscriber<()>),
+}
 
 /// Sporadic heartbeat period for TransientLocal+Reliable publishers.
 /// Matches rmw_zenoh_cpp's `SAMPLE_MISS_DETECTION_HEARTBEAT_PERIOD`.
@@ -140,6 +157,9 @@ pub struct ZPub<T: ZMessage, S: ZSerializer> {
     encoding: Option<Arc<zenoh::bytes::Encoding>>,
     graph: Arc<Graph>,
     _phantom_data: PhantomData<(T, S)>,
+    // AdvancedPublisher may own a cache queryable. Finish all endpoint cleanup
+    // before the session runtime closes. This guard must remain the last field.
+    _session: Arc<Session>,
 }
 
 impl<T: ZMessage, S: ZSerializer> std::fmt::Debug for ZPub<T, S> {
@@ -392,6 +412,7 @@ where
             encoding,
             graph: self.graph,
             _phantom_data: Default::default(),
+            _session: self.session,
         })
     }
 }
@@ -916,20 +937,25 @@ where
             group_sub = Some(gb.wait()?);
         }
         let h = shared.clone();
-        let mut sub_builder = self
+        let sub_builder = self
             .session
-            .declare_subscriber(key_expr.clone())
-            .callback(move |s: Sample| h(s))
-            .advanced();
-
-        // Apply locality restriction if specified
-        if let Some(locality) = self.locality {
-            sub_builder = sub_builder.allowed_origin(locality);
-            debug!("[SUB] Locality restriction: {:?}", locality);
-        }
-
-        let sub_builder = apply_transient_local_sub(sub_builder, &self.entity.qos);
-        let inner = sub_builder.wait()?;
+            .declare_subscriber(key_expr)
+            .callback(move |sample| h(sample));
+        let inner = if matches!(self.entity.qos.durability, QosDurability::TransientLocal) {
+            let mut advanced = sub_builder.advanced();
+            if let Some(locality) = self.locality {
+                advanced = advanced.allowed_origin(locality);
+            }
+            SubscriberTransport::TransientLocal(
+                apply_transient_local_sub(advanced, &self.entity.qos).wait()?,
+            )
+        } else {
+            let mut plain = sub_builder;
+            if let Some(locality) = self.locality {
+                plain = plain.allowed_origin(locality);
+            }
+            SubscriberTransport::Volatile(plain.wait()?)
+        };
 
         let token = crate::buffer_group::declare_token(
             &self.session,
@@ -951,6 +977,7 @@ where
             dyn_schema: self.dyn_schema,
             expected_encoding: self.expected_encoding,
             _phantom_data: Default::default(),
+            _session: self.session,
         })
     }
 
@@ -1057,7 +1084,7 @@ where
 pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     pub entity: EndpointEntity,
     pub queue: Option<Arc<BoundedQueue<Q>>>,
-    _inner: AdvancedSubscriber<()>,
+    _inner: SubscriberTransport,
     _lv_token: LivelinessToken,
     /// The group subscription of a joined subscriber, `None` otherwise.
     _group_sub: Option<zenoh::pubsub::Subscriber<()>>,
@@ -1069,6 +1096,9 @@ pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     /// Expected encoding for validation.
     pub expected_encoding: Option<crate::encoding::Encoding>,
     _phantom_data: PhantomData<(T, Q, S)>,
+    // The transport owns weak session references; keep it functional until Drop.
+    // Fields drop in declaration order; this guard must remain last.
+    _session: Arc<Session>,
 }
 
 impl<T: ZMessage, Q, S: ZDeserializer> std::fmt::Debug for ZSub<T, Q, S> {

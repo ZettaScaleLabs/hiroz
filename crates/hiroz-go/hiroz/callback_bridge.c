@@ -16,3 +16,7 @@ hiroz_ActionExecuteCallback getActionExecuteCallback() {
 hiroz_MessageCallback getSubscriberCallback() {
 	return (hiroz_MessageCallback)goSubscriberCallback;
 }
+
+hiroz_SubscriberDropCallback getSubscriberDropCallback() {
+    return (hiroz_SubscriberDropCallback)goSubscriberDropCallback;
+}
