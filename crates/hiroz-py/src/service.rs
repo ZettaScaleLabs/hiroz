@@ -1,8 +1,37 @@
 use crate::traits::{RawClient, RawServer};
 use hiroz::service::RequestId;
+use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::time::Duration;
+
+/// Build a `RequestId` from the dict that `take_request` returns.
+///
+/// Raises `KeyError` when `sn` or `gid` is missing and `ValueError` when `gid` does not hold
+/// exactly 16 bytes. A value of the wrong type raises `TypeError` from the extraction.
+fn request_id_from_dict(request_id: &Bound<'_, PyDict>) -> PyResult<RequestId> {
+    let sn: i64 = request_id
+        .get_item("sn")?
+        .ok_or_else(|| PyKeyError::new_err("request_id has no 'sn' key"))?
+        .extract()?;
+    let gid_vec: Vec<u8> = request_id
+        .get_item("gid")?
+        .ok_or_else(|| PyKeyError::new_err("request_id has no 'gid' key"))?
+        .extract()?;
+    let writer_guid: [u8; 16] = gid_vec.try_into().map_err(|v: Vec<u8>| {
+        PyValueError::new_err(format!(
+            "request_id 'gid' must hold 16 bytes, got {}",
+            v.len()
+        ))
+    })?;
+    // source_timestamp is excluded from RequestId Hash/Eq, so 0 is the correct sentinel.
+    // The pending map lookup succeeds regardless of the original timestamp.
+    Ok(RequestId {
+        sequence_number: sn,
+        writer_guid,
+        source_timestamp: 0,
+    })
+}
 
 /// Python wrapper for service client
 #[pyclass(name = "ZClient")]
@@ -114,17 +143,7 @@ impl PyZServer {
         let cdr_bytes =
             hiroz_msgs::serialize_to_cdr(&self.response_type_name, response.py(), response)?;
 
-        let sn: i64 = request_id.get_item("sn")?.unwrap().extract()?;
-        let gid_vec: Vec<u8> = request_id.get_item("gid")?.unwrap().extract()?;
-        let mut gid = [0u8; 16];
-        gid.copy_from_slice(&gid_vec[..16]);
-        // source_timestamp is excluded from RequestId Hash/Eq — 0 is the correct sentinel;
-        // the pending map lookup succeeds regardless of the original timestamp.
-        let key = RequestId {
-            sequence_number: sn,
-            writer_guid: gid,
-            source_timestamp: 0,
-        };
+        let key = request_id_from_dict(request_id)?;
 
         py.allow_threads(|| {
             let inner = self
