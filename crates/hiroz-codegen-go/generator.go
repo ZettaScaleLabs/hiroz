@@ -71,13 +71,14 @@ func emitUnpackAlign(g *CodeBuilder, align int) {
 }
 
 // emitArrLenCheck emits the bound on a decoded sequence length. Every element
-// of a string, primitive, time or duration sequence takes at least one byte on
-// the wire, so a length above the bytes left cannot be valid. The check runs
-// before `make`: a hostile 32-bit length would otherwise reserve gigabytes, and
-// a Go out-of-memory abort cannot be recovered. `arrLen < 0` covers the
-// overflow of int(uint32) on 32-bit targets.
-func emitArrLenCheck(g *CodeBuilder) {
-	g.P("if arrLen < 0 || arrLen > len(data)-offset { return offset, fmt.Errorf(\"sequence length %%d exceeds the %%d bytes left\", arrLen, len(data)-offset) }")
+// of a string, primitive, time or duration sequence takes at least minElem
+// bytes on the wire, so a length above (bytes left) / minElem cannot be valid.
+// The check runs before `make`: a hostile 32-bit length would otherwise reserve
+// gigabytes, and a Go out-of-memory abort cannot be recovered. Bounding by the
+// element size keeps the reservation within one Go element per minElem input
+// bytes. `arrLen < 0` covers the overflow of int(uint32) on 32-bit targets.
+func emitArrLenCheck(g *CodeBuilder, minElem int64) {
+	g.P("if arrLen < 0 || arrLen > (len(data)-offset)/%d { return offset, fmt.Errorf(\"sequence length %%d needs at least %d bytes each, %%d left\", arrLen, len(data)-offset) }", minElem, minElem)
 }
 
 // knownMessages indexes the message definitions of the manifest by
@@ -663,7 +664,7 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for string array length\") }")
 			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 			g.P("offset += 4")
-			emitArrLenCheck(g)
+			emitArrLenCheck(g, 4) // a string takes its 4-byte length at least
 			g.P("%s = make([]string, arrLen)", fieldAccess)
 			g.P("for i := 0; i < arrLen; i++ {")
 			g.In()
@@ -735,7 +736,7 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
 			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 			g.P("offset += 4")
-			emitArrLenCheck(g)
+			emitArrLenCheck(g, 8) // a time or duration is two int32
 			g.P("%s = make([]%s, arrLen)", fieldAccess, fieldToGoBaseTypeInPkg(field, g.currentPkg))
 			g.P("for i := 0; i < arrLen; i++ {")
 			g.In()
@@ -825,7 +826,7 @@ func generatePrimitiveUnpackCode(g *CodeBuilder, field FieldDefinition, align in
 		g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
 		g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 		g.P("offset += 4")
-		emitArrLenCheck(g)
+		emitArrLenCheck(g, primitiveSize(field.FieldType.Kind))
 		elemType := fieldToGoBaseTypeInPkg(field, g.currentPkg)
 		g.P("%s = make([]%s, arrLen)", fieldAccess, elemType)
 		g.P("for i := 0; i < arrLen; i++ {")

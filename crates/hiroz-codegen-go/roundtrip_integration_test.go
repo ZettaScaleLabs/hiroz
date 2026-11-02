@@ -394,6 +394,78 @@ func TestSequenceOfEmptyMessagesDecodes(t *testing.T) {
 		t.Fatalf("decoded %d elements, want 1000", len(m.V))
 	}
 }
+
+// bodyWithCount builds a body of real size: the encapsulation header, a sequence
+// count, then n zero bytes.
+func bodyWithCount(count uint32, n int) []byte {
+	raw := make([]byte, 8+n)
+	raw[1] = 0x01
+	raw[4], raw[5], raw[6], raw[7] = byte(count), byte(count>>8), byte(count>>16), byte(count>>24)
+	return raw
+}
+
+// A count equal to the bytes left is the largest a bound on the count alone lets
+// through. On a 4 MiB body it reserves 16 bytes per body byte for strings, which
+// is 64 MiB. Each string takes at least 4 bytes, so the count is rejected before
+// anything is reserved.
+func TestHostileStringArrayRealBody(t *testing.T) {
+	const n = 4 << 20
+	raw := bodyWithCount(n, n)
+	var m test_msgs.StrArr
+	var err error
+	got := allocated(func() { err = m.DeserializeCDR(raw) })
+	if err == nil {
+		t.Errorf("a count of %d strings in %d bytes decoded without an error", n, n)
+	}
+	if got > n {
+		t.Errorf("a count of %d strings in %d bytes reserved %d bytes before it failed", n, n, got)
+	}
+}
+
+// The same for float64: a count equal to the bytes left reserves 8 bytes per body
+// byte, which is 32 MiB. Each float64 takes 8 bytes.
+func TestHostilePrimitiveArrayRealBody(t *testing.T) {
+	const n = 4 << 20
+	raw := bodyWithCount(n, n)
+	var m test_msgs.PrimArr
+	var err error
+	got := allocated(func() { err = m.DeserializeCDR(raw) })
+	if err == nil {
+		t.Errorf("a count of %d float64 in %d bytes decoded without an error", n, n)
+	}
+	if got > n {
+		t.Errorf("a count of %d float64 in %d bytes reserved %d bytes before it failed", n, n, got)
+	}
+}
+
+// The boundary of both bounds: the largest count that fits decodes, and one more
+// is rejected. Empty strings take 4 bytes each. A float64 takes 8 and starts on an
+// 8-byte boundary, so its body carries 4 bytes of padding first.
+func TestSizedBoundary(t *testing.T) {
+	const n = 4096
+	var okStr test_msgs.StrArr
+	if err := okStr.DeserializeCDR(bodyWithCount(n/4, n)); err != nil {
+		t.Fatalf("%d empty strings in %d bytes were rejected: %v", n/4, n, err)
+	}
+	if len(okStr.V) != n/4 {
+		t.Fatalf("decoded %d strings, want %d", len(okStr.V), n/4)
+	}
+	var overStr test_msgs.StrArr
+	if err := overStr.DeserializeCDR(bodyWithCount(n/4+1, n)); err == nil {
+		t.Fatalf("%d strings in %d bytes decoded without an error", n/4+1, n)
+	}
+	var okF test_msgs.PrimArr
+	if err := okF.DeserializeCDR(bodyWithCount(n/8, n+4)); err != nil {
+		t.Fatalf("%d float64 in %d bytes were rejected: %v", n/8, n, err)
+	}
+	if len(okF.V) != n/8 {
+		t.Fatalf("decoded %d float64, want %d", len(okF.V), n/8)
+	}
+	var overF test_msgs.PrimArr
+	if err := overF.DeserializeCDR(bodyWithCount(n/8+1, n+4)); err == nil {
+		t.Fatalf("%d float64 in %d bytes decoded without an error", n/8+1, n)
+	}
+}
 `
 
 func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
@@ -465,6 +537,9 @@ func TestRoundtripRejectsHostileSequenceLength(t *testing.T) {
 		{name: "TestHostileBigElements"},
 		{name: "TestHostileHugeElement"},
 		{name: "TestCustomBoundary"},
+		{name: "TestHostileStringArrayRealBody"},
+		{name: "TestHostilePrimitiveArrayRealBody"},
+		{name: "TestSizedBoundary"},
 		// On a 32-bit target int(uint32) of 0xFFFFFFFF is negative.
 		{name: "TestHostilePrimitiveArray", goarch: "386"},
 		{name: "TestHostileStringArray", goarch: "386"},
