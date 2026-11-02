@@ -913,6 +913,33 @@ jobs:
       - name: Go FFI tests (hiroz unit tests)
         run: nu scripts/test-go.nu --ffi-only
 
+  packaged-embedded-msgs:
+    name: Packaged Embedded Messages (ubuntu-latest)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
+        with:
+          cache: false
+          toolchain: stable
+
+      - name: Install Nushell
+        uses: hustcer/setup-nu@9215c80adb545a85c419d5085b76eb6d082f49e7  # v3
+        with:
+          version: '0.116.1'
+
+      - name: Layout check detects a bad layout
+        run: nu scripts/ci/check-embedded-msgs-packaged.nu self-test-layout
+
+      - name: A packaged build embeds the bundled messages
+        run: nu scripts/ci/check-embedded-msgs-packaged.nu
+
   python-tests:
     name: Python Tests (hiroz-py) (${{ matrix.distro }})
     runs-on: ubuntu-latest
