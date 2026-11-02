@@ -7,6 +7,34 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "hiroz-msgs-py"
+version = "0.2.1"
+source = { directory = "../hiroz-msgs/python" }
+dependencies = [
+    { name = "msgspec", version = "0.18.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "msgspec", version = "0.20.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "msgspec", specifier = ">=0.18.0" }]
+
+[[package]]
+name = "hiroz-py"
+version = "0.2.1"
+source = { editable = "." }
+dependencies = [
+    { name = "hiroz-msgs-py" },
+    { name = "msgspec", version = "0.18.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "msgspec", version = "0.20.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "hiroz-msgs-py", directory = "../hiroz-msgs/python" },
+    { name = "msgspec", specifier = ">=0.18.0" },
+]
+
+[[package]]
 name = "msgspec"
 version = "0.18.6"
 source = { registry = "https://pypi.org/simple" }
@@ -118,15 +146,3 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/42/1d/e9401b352aa399af5efa35f1f130651698e65f919ecb9221b925b2236948/msgspec-0.20.0-cp39-cp39-win_amd64.whl", hash = "sha256:9fbcb660632a2f5c247c0dc820212bf3a423357ac6241ff6dc6cfc6f72584016", size = 188527, upload-time = "2025-11-24T03:56:26.193Z" },
     { url = "https://files.pythonhosted.org/packages/02/59/079f33cd092ee42c9b97a59daa2115e7550a7eba98781ef6657e3d710d56/msgspec-0.20.0-cp39-cp39-win_arm64.whl", hash = "sha256:f7cd0e89b86a16005745cb99bd1858e8050fc17f63de571504492b267bca188a", size = 173927, upload-time = "2025-11-24T03:56:27.52Z" },
 ]
-
-[[package]]
-name = "hiroz-py"
-version = "0.2.1"
-source = { editable = "." }
-dependencies = [
-    { name = "msgspec", version = "0.18.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
-    { name = "msgspec", version = "0.20.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "msgspec", specifier = ">=0.18.0" }]
