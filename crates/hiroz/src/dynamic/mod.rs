@@ -56,6 +56,7 @@
 
 pub(crate) mod discovery;
 pub mod error;
+pub(crate) mod limits;
 pub mod message;
 pub mod registry;
 pub mod schema;
@@ -72,6 +73,7 @@ mod tests;
 
 // Re-export main types
 pub use discovery::DiscoveredTopicSchema;
+pub(crate) use discovery::{SchemaDiscovery, discovered_schema_type_info};
 pub use error::DynamicError;
 pub use message::{DynamicMessage, DynamicMessageBuilder};
 #[cfg(feature = "dynamic-schema-loader")]
@@ -91,15 +93,14 @@ pub use type_description_service::{
     wire_to_schema_type_description,
 };
 pub use type_info::ros_type_name_from_dds;
-pub use value::{DynamicValue, FromDynamic, IntoDynamic};
-
-pub(crate) use discovery::{SchemaDiscovery, discovered_schema_type_info};
 pub(crate) use type_info::schema_type_info;
-
+pub use value::{DynamicValue, FromDynamic, IntoDynamic};
 use zenoh::sample::Sample;
 
-use crate::msg::ZMessage;
-use crate::pubsub::{ZPub, ZPubBuilder, ZSub, ZSubBuilder};
+use crate::{
+    msg::ZMessage,
+    pubsub::{ZPub, ZPubBuilder, ZSub, ZSubBuilder},
+};
 
 // Implement ZMessage for DynamicMessage
 impl ZMessage for DynamicMessage {

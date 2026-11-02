@@ -9,11 +9,12 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ServiceTypeInfo;
-use crate::ZBuf;
-use crate::dynamic::{FieldType, MessageSchema, TypeDescriptionService};
-use crate::entity::{TypeHash, TypeInfo};
-use crate::msg::{SerdeCdrSerdes, ZMessage, ZService};
+use crate::{
+    ServiceTypeInfo, ZBuf,
+    dynamic::{FieldType, MessageSchema, TypeDescriptionService},
+    entity::{TypeHash, TypeInfo},
+    msg::{SerdeCdrSerdes, ZMessage, ZService},
+};
 
 // ============================================================================
 // Parameter type constants (from ParameterType.msg)
@@ -421,7 +422,7 @@ fn parameter_value_schema()
         .field("string_value", FieldType::String)
         .field(
             "byte_array_value",
-            FieldType::Sequence(Box::new(FieldType::Uint8)),
+            FieldType::Sequence(Box::new(FieldType::Byte)),
         )
         .field(
             "bool_array_value",

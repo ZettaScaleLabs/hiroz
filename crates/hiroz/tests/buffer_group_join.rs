@@ -88,6 +88,11 @@ fn dynamic_schema_shapes_decide_the_join() {
     let msg = |inner: FieldType| Box::new(FieldType::Message(schema(inner)));
     let rows: Vec<(&str, FieldType, bool)> = vec![
         ("bytes", bytes(), true),
+        (
+            "octets",
+            FieldType::Sequence(Box::new(FieldType::Byte)),
+            false,
+        ),
         ("nested", *msg(bytes()), true),
         ("array_of_messages", FieldType::Array(msg(bytes()), 2), true),
         (
@@ -132,9 +137,8 @@ fn dynamic_schema_shapes_decide_the_join() {
 }
 
 /// The join decision of a typed subscriber follows the message definition that the code generator
-/// wrote. An unbounded `uint8[]` joins, and so does an unbounded `byte[]`: the generator maps ROS
-/// `byte` and `uint8` to one type, so the typed rule is wider than the rule of `rmw_zenoh_cpp`.
-/// A nested `byte[]` joins. An unbounded `int8[]` and a `float64[]` do not.
+/// wrote. An unbounded `uint8[]` joins. ROS `byte[]` retains its octet identity,
+/// so it stays out, including when nested. `int8[]` and `float64[]` also stay out.
 ///
 /// Control in the same test: `UInt8MultiArray` joins.
 #[test]
@@ -163,10 +167,10 @@ fn typed_message_fields_decide_the_join() {
         observed,
         vec![
             ("uint8", true),
-            ("byte", true),
+            ("byte", false),
             ("int8", false),
             ("f64", false),
-            ("nested", true),
+            ("nested", false),
         ],
         "{NAME}: (topic, joined) as observed, then as expected"
     );

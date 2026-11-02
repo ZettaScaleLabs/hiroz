@@ -204,6 +204,7 @@ func GenerateGoMessage(msg MessageDefinition, prefix string) ([]byte, error) {
 
 	// Generate TypeHash method
 	generateTypeHashMethod(g, msg)
+	emitTypeDescription(g, msg.Name, msg)
 
 	// Generate SerializeCDR / DeserializeCDR / PackToRawAt / UnpackFromRawAt
 	emitMessageCodec(g, msg.Name, msg.Fields)
@@ -827,6 +828,7 @@ func generateServiceMessage(g *CodeBuilder, name string, msg MessageDefinition, 
 	// Generate TypeName method
 	g.P("func (m *%s) TypeName() string { return %s_TypeName }", name, name)
 	g.P("func (m *%s) TypeHash() string { return %s_TypeHash }", name, name)
+	emitTypeDescription(g, name, msg)
 	g.P("")
 
 	emitMessageCodec(g, name, msg.Fields)
@@ -1060,6 +1062,7 @@ func generateActionSubMessage(g *CodeBuilder, name string, msg MessageDefinition
 
 	g.P("func (m *%s) TypeName() string { return %s_TypeName }", name, name)
 	g.P("func (m *%s) TypeHash() string { return %s_TypeHash }", name, name)
+	emitTypeDescription(g, name, msg)
 	g.P("")
 
 	emitMessageCodec(g, name, msg.Fields)
@@ -1072,4 +1075,15 @@ func capitalize(s string) string {
 	runes := []rune(s)
 	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
+}
+
+// emitTypeDescription avoids a runtime package dependency in generated messages.
+// Bindings recognize this optional method and register schemas automatically.
+func emitTypeDescription(g *CodeBuilder, name string, msg MessageDefinition) {
+	if len(msg.TypeDescription) == 0 {
+		return
+	}
+	g.P("// TypeDescriptionJSON returns this type's complete ROS TypeDescription.")
+	g.P("func (m *%s) TypeDescriptionJSON() string { return %q }", name, string(msg.TypeDescription))
+	g.P("")
 }

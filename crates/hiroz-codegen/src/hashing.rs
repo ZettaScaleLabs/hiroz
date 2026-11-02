@@ -9,14 +9,13 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Result, bail};
-
-use crate::types::{ArrayType, FieldType, ParsedMessage};
-
 // Re-export types from hiroz-schema for backwards compatibility
 pub use hiroz_schema::{
     FieldDescription, FieldTypeDescription, TypeDescription, TypeDescriptionMsg, TypeHash, TypeId,
     calculate_hash, to_hash_version, to_ros2_json,
 };
+
+use crate::types::{ArrayType, FieldType, ParsedMessage};
 
 /// Calculate RIHS01 hash for a message
 pub fn calculate_type_hash(
@@ -37,11 +36,11 @@ pub fn calculate_service_type_hash(
     service_event_info_desc: &TypeDescription,
     resolved_deps: &BTreeMap<String, TypeDescription>,
 ) -> Result<TypeHash> {
-    // ROS2 uses slash format, not :: format
-    // Detect if this is an action service (contains SendGoal/GetResult/CancelGoal)
-    let is_action = service_name.contains("SendGoal")
-        || service_name.contains("GetResult")
-        || service_name.contains("CancelGoal");
+    // Per-action synthetic services (Foo_SendGoal / Foo_GetResult) live under
+    // `{pkg}/action/…`. CancelGoal is the shared action_msgs *srv*
+    // (`action_msgs/srv/CancelGoal`) — do NOT treat it as /action/ or the RIHS
+    // hash diverges from rmw_zenoh and cancel queries never match the server.
+    let is_action = service_name.contains("SendGoal") || service_name.contains("GetResult");
     let path = if is_action { "action" } else { "srv" };
 
     // Action services use /action/ path, regular services use /srv/ path

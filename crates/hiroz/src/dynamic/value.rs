@@ -3,8 +3,7 @@
 //! This module provides the `DynamicValue` enum for representing any ROS 2
 //! value at runtime, along with conversion traits.
 
-use super::message::DynamicMessage;
-use super::schema::FieldType;
+use super::{message::DynamicMessage, schema::FieldType};
 
 /// Runtime representation of any ROS 2 value.
 #[derive(Clone, Debug, PartialEq)]
@@ -218,7 +217,7 @@ pub fn default_for_type(field_type: &FieldType) -> DynamicValue {
         FieldType::Int16 => DynamicValue::Int16(0),
         FieldType::Int32 => DynamicValue::Int32(0),
         FieldType::Int64 => DynamicValue::Int64(0),
-        FieldType::Uint8 => DynamicValue::Uint8(0),
+        FieldType::Byte | FieldType::Uint8 => DynamicValue::Uint8(0),
         FieldType::Uint16 => DynamicValue::Uint16(0),
         FieldType::Uint32 => DynamicValue::Uint32(0),
         FieldType::Uint64 => DynamicValue::Uint64(0),

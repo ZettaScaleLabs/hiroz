@@ -31,7 +31,7 @@ nix develop
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install mdbook
+python3 -m pip install mkdocs-material
 ```
 
 ## Pre-Submission Checks
@@ -48,7 +48,22 @@ This runs:
 - `cargo clippy --all-targets -- -D warnings` - linting
 - `cargo build` - compilation
 - `cargo test` - tests
-- `mdbook test book -L ./target/debug/deps` - documentation
+- `mkdocs build --strict` - documentation (when MkDocs is installed)
+
+### Go binding changes
+
+Build the native library, C header, Go package, and generated messages from the
+same revision. The complete [Go API validation guide](docs/bindings/go-api-validation.md)
+includes focused regressions and the combined check:
+
+```bash
+./scripts/check-go-api.sh
+```
+
+Install the Go version declared in `crates/hiroz-go/go.mod`, a C/C++ toolchain,
+Python 3, and cbindgen 0.29.4. These tests require loopback sockets, but no ROS
+installation or external router. Report skipped checks explicitly; compiling the
+ROS interoperability suite does not establish wire interoperability.
 
 ## Code Style
 
@@ -78,8 +93,8 @@ This helps us manage CI workflow approvals.
 ## Documentation
 
 - Examples live in `crates/hiroz/examples/` as runnable programs
-- Book chapters reference examples via `{{#include}}`
-- Test documentation: `mdbook serve book`
+- MkDocs pages live in `docs/`; keep examples runnable and link their source.
+- Test documentation: `mkdocs serve`
 
 See the [book](https://zettascalelabs.github.io/hiroz/) for detailed guides.
 

@@ -160,22 +160,22 @@ impl TypeId {
 
     /// Check if a type ID is an array (fixed size)
     pub const fn is_array(type_id: u8) -> bool {
-        type_id >= 49 && type_id <= 65
+        type_id >= 49 && type_id <= 70
     }
 
     /// Check if a type ID is a bounded sequence
     pub const fn is_bounded_sequence(type_id: u8) -> bool {
-        type_id >= 97 && type_id <= 113
+        type_id >= 97 && type_id <= 118
     }
 
     /// Check if a type ID is an unbounded sequence
     pub const fn is_unbounded_sequence(type_id: u8) -> bool {
-        type_id >= 145 && type_id <= 161
+        type_id >= 145 && type_id <= 166
     }
 
     /// Check if a type ID is a single (non-array, non-sequence) value
     pub const fn is_single(type_id: u8) -> bool {
-        type_id >= 1 && type_id <= 17
+        type_id >= 1 && type_id <= 22
     }
 
     /// Get the base type ID (strip array/sequence modifier)
@@ -215,6 +215,28 @@ impl TypeId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_string_collection_ids_are_classified() {
+        assert!(TypeId::is_single(TypeId::BOUNDED_STRING));
+        for offset in [
+            TypeId::ARRAY_OFFSET,
+            TypeId::BOUNDED_SEQUENCE_OFFSET,
+            TypeId::UNBOUNDED_SEQUENCE_OFFSET,
+        ] {
+            assert_eq!(
+                TypeId::base_type(TypeId::BOUNDED_STRING + offset),
+                TypeId::BOUNDED_STRING
+            );
+            assert_eq!(
+                TypeId::base_type(TypeId::BOUNDED_WSTRING + offset),
+                TypeId::BOUNDED_WSTRING
+            );
+        }
+        assert!(TypeId::is_array(69));
+        assert!(TypeId::is_bounded_sequence(117));
+        assert!(TypeId::is_unbounded_sequence(165));
+    }
 
     #[test]
     fn test_type_id_offsets() {

@@ -36,15 +36,15 @@ fn sequence_of(inner: &str) -> String {
     format!("Sequence(::std::boxed::Box::new(::hiroz::dynamic::FieldType::{inner}))")
 }
 
-/// An unbounded `uint8[]`, `char[]` and `byte[]` all become a sequence of `Uint8`, so the typed
-/// join counts all three. An unbounded `int8[]` stays a sequence of `Int8`, and a bounded or fixed
-/// `uint8` is not a sequence.
+/// `uint8[]` and `char[]` use Uint8; ROS `byte[]` preserves its distinct Byte identity.
+/// Only the Uint8 form joins the buffer group. An unbounded `int8[]` stays Int8,
+/// and a bounded or fixed `uint8` is not an unbounded sequence.
 ///
 /// Control in the same test: the `uint8[]` field has the sequence form that the other rows are
 /// compared against, so a generator that writes no schema at all cannot pass.
 #[test]
-fn byte_char_and_uint8_sequences_share_one_schema_kind() {
-    const NAME: &str = "byte_char_and_uint8_sequences_share_one_schema_kind";
+fn byte_identity_is_distinct_from_buffer_sequence_kinds() {
+    const NAME: &str = "byte_identity_is_distinct_from_buffer_sequence_kinds";
     let code = generated(
         "uint8[] u\nchar[] c\nbyte[] b\nint8[] i\nuint8[<=4] bounded\nuint8[4] fixed\nfloat64[] f\n",
     );
@@ -52,7 +52,7 @@ fn byte_char_and_uint8_sequences_share_one_schema_kind() {
     let rows = [
         ("u", uint8_sequence.clone()),
         ("c", uint8_sequence.clone()),
-        ("b", uint8_sequence.clone()),
+        ("b", sequence_of("Byte")),
         ("i", sequence_of("Int8")),
         (
             "bounded",

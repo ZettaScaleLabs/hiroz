@@ -41,6 +41,14 @@ pub enum DynamicError {
     /// Type description service call timed out — no response from the remote node.
     ServiceTimeout { node: String, service: String },
 
+    /// A type-description request failed before its deadline (for example, a
+    /// responder disappeared or returned malformed CDR).
+    ServiceCallFailed {
+        node: String,
+        service: String,
+        reason: String,
+    },
+
     /// Automatic topic-based schema discovery requires publisher node identity.
     MissingNodeIdentity { topic: String },
 
@@ -108,6 +116,17 @@ impl fmt::Display for DynamicError {
                     f,
                     "type description service timed out: no response from node '{}' on service '{}'",
                     node, service
+                )
+            }
+            DynamicError::ServiceCallFailed {
+                node,
+                service,
+                reason,
+            } => {
+                write!(
+                    f,
+                    "type description service failed for node '{}' on service '{}': {}",
+                    node, service, reason
                 )
             }
             DynamicError::MissingNodeIdentity { topic } => {

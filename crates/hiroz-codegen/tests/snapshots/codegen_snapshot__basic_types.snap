@@ -49,7 +49,7 @@ impl ::hiroz::MessageTypeInfo for BasicTypes {
                             "test_interface_files/msg/BasicTypes",
                         )
                         .field("bool_value", ::hiroz::dynamic::FieldType::Bool)
-                        .field("byte_value", ::hiroz::dynamic::FieldType::Uint8)
+                        .field("byte_value", ::hiroz::dynamic::FieldType::Byte)
                         .field("char_value", ::hiroz::dynamic::FieldType::Uint8)
                         .field("float32_value", ::hiroz::dynamic::FieldType::Float32)
                         .field("float64_value", ::hiroz::dynamic::FieldType::Float64)

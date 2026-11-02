@@ -1,7 +1,6 @@
 //! ros::Host, HostSubscription, HostServiceClient implementations.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use hiroz::{
     Builder,
@@ -13,14 +12,15 @@ use hiroz::{
     graph::Graph,
     node::ZNode,
 };
+use hu::plugin::types::PluginError;
 use wasmtime::component::Resource;
 use zenoh::Wait;
 
+use super::{
+    super::state::{PluginState, ServiceClientData, SubscriptionData},
+    hu,
+};
 use crate::core::message_formatter::dynamic_message_to_json;
-
-use super::super::state::{PluginState, ServiceClientData, SubscriptionData};
-use super::hu;
-use hu::plugin::types::PluginError;
 
 /// The message type advertised by a live publisher or subscriber on `topic`, if
 /// any. Free-standing (rather than a `PluginState` method) so it can be tested
@@ -692,7 +692,7 @@ fn json_to_dynamic_value(
                 .map_err(|_| "value out of range for i32")?,
         )),
         FieldType::Int64 => Ok(DynamicValue::Int64(value.as_i64().ok_or("expected i64")?)),
-        FieldType::Uint8 => Ok(DynamicValue::Uint8(
+        FieldType::Byte | FieldType::Uint8 => Ok(DynamicValue::Uint8(
             u8::try_from(value.as_u64().ok_or("expected u8")?)
                 .map_err(|_| "value out of range for u8")?,
         )),
@@ -808,8 +808,9 @@ mod service_type_name_tests {
 
 #[cfg(test)]
 mod type_hash_guard_tests {
-    use super::{HashCheck, check_type_hash, rihs_ungated};
     use hiroz::TypeHash;
+
+    use super::{HashCheck, check_type_hash, rihs_ungated};
 
     fn hash(byte: u8) -> TypeHash {
         TypeHash::new(1, [byte; 32])
@@ -878,8 +879,9 @@ mod type_hash_guard_tests {
 
 #[cfg(test)]
 mod guest_timeout_tests {
-    use super::{MAX_GUEST_TIMEOUT, clamp_guest_timeout};
     use std::time::Duration;
+
+    use super::{MAX_GUEST_TIMEOUT, clamp_guest_timeout};
 
     // This clamp stops a guest-supplied `timeout-ms` from deciding how long the
     // host suspends the epoch ticker. That suspension covers every plugin in

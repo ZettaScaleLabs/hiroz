@@ -1,5 +1,5 @@
 #!/usr/bin/env nu
-# Check that all examples referenced in book documentation exist in the codebase
+# Check that all examples referenced in MkDocs documentation exist in the codebase
 
 def main [] {
     # Get actual example names from cargo metadata (authoritative)
@@ -13,38 +13,38 @@ def main [] {
         | get name
     )
 
-    # Collect all example names referenced in book markdown files
-    let book_refs = (
-        glob book/src/**/*.md
+    # Collect all example names referenced in MkDocs markdown files
+    let doc_refs = (
+        glob docs/**/*.md
         | each { |file|
-            open $file
+            open --raw $file
             | lines
             | each { |line|
                 if ($line | str contains "cargo run --example") {
                     let trimmed = ($line | str trim)
                     if not ($trimmed | str starts-with "#") {
-                        # Extract example name: text after "--example " up to " " or end
-                        let after = ($trimmed | str replace --regex ".*--example\\s+" "")
-                        let name = ($after | str replace --regex "[`\\s].*" "" | str trim)
-                        if ($name | is-not-empty) {
-                            {file: ($file | path basename), example: $name}
-                        }
+                        # Ignore prose that mentions the option without naming an
+                        # example, and collect every complete command on the line.
+                        $trimmed
+                        | parse --regex 'cargo\s+run\s+--example\s+(?P<example>[A-Za-z0-9_-]+)'
+                        | each { |entry| {file: ($file | path basename), example: $entry.example} }
                     }
                 }
             }
+            | flatten
             | compact
         }
         | flatten
         | uniq-by example
     )
 
-    # Check each book reference against actual cargo examples
+    # Check each documentation reference against actual cargo examples
     let missing = (
-        $book_refs
+        $doc_refs
         | where { |ref_| $ref_.example not-in $example_names }
     )
 
-    print $"Book references ($book_refs | length) unique examples"
+    print $"Documentation references ($doc_refs | length) unique examples"
     print $"Codebase contains ($example_names | length) examples"
 
     if ($missing | is-empty) {

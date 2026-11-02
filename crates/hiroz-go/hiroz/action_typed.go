@@ -28,8 +28,23 @@ func BuildTypedActionServer[Goal, Result Message](
 	goalCallback func(Goal) bool,
 	executeCallback func(h *ServerGoalHandle, goal Goal) (Result, error),
 ) (*ActionServer, error) {
+	rawGoalCallback, rawExecuteCallback, err := typedActionCallbacks(goalCallback, executeCallback)
+	if err != nil {
+		return nil, err
+	}
+	return builder.Build(action, rawGoalCallback, rawExecuteCallback)
+}
+
+func typedActionCallbacks[Goal, Result Message](goalCallback func(Goal) bool, executeCallback func(*ServerGoalHandle, Goal) (Result, error)) (func([]byte) bool, func(*ServerGoalHandle, []byte) ([]byte, error), error) {
+	if goalCallback == nil || executeCallback == nil {
+		return nil, nil, fmt.Errorf("action callbacks cannot be nil")
+	}
+	allocate, err := messageFactory[Goal]()
+	if err != nil {
+		return nil, nil, err
+	}
 	rawGoalCallback := func(goalBytes []byte) bool {
-		var goal Goal
+		goal := allocate()
 		if err := goal.DeserializeCDR(goalBytes); err != nil {
 			return false
 		}
@@ -37,7 +52,7 @@ func BuildTypedActionServer[Goal, Result Message](
 	}
 
 	rawExecuteCallback := func(h *ServerGoalHandle, goalBytes []byte) ([]byte, error) {
-		var goal Goal
+		goal := allocate()
 		if err := goal.DeserializeCDR(goalBytes); err != nil {
 			return nil, fmt.Errorf("failed to deserialize goal: %w", err)
 		}
@@ -48,7 +63,7 @@ func BuildTypedActionServer[Goal, Result Message](
 		return result.SerializeCDR()
 	}
 
-	return builder.Build(action, rawGoalCallback, rawExecuteCallback)
+	return rawGoalCallback, rawExecuteCallback, nil
 }
 
 // GetTypedResult waits for the goal result and deserializes it into the provided result template.

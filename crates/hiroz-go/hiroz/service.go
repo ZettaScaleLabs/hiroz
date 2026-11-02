@@ -8,6 +8,7 @@ extern hiroz_ServiceCallback getServiceCallback();
 */
 import "C"
 import (
+	"context"
 	"fmt"
 	"runtime"
 	"runtime/cgo"
@@ -34,29 +35,36 @@ type Service interface {
 
 // ServiceClient calls ROS 2 services
 type ServiceClient struct {
-	handle    atomic.Pointer[cServiceClientHandle]
-	node      *Node
-	service   string
-	closeOnce sync.Once
+	mu         sync.RWMutex
+	operations map[*serviceOperation]struct{}
+	handle     atomic.Pointer[cServiceClientHandle]
+	node       *Node
+	service    string
+	closeOnce  sync.Once
 }
 
 // ServiceServer responds to ROS 2 service requests
 type ServiceServer struct {
-	handle    atomic.Pointer[cServiceServerHandle]
-	node      *Node
-	service   string
-	closure   *serviceClosure
-	closeOnce sync.Once
+	mu           sync.RWMutex
+	callbackMode bool
+	stop         context.CancelFunc
+	handle       atomic.Pointer[cServiceServerHandle]
+	node         *Node
+	service      string
+	closure      *serviceClosure
+	closeOnce    sync.Once
 }
 
 // ServiceClientBuilder builds a ServiceClient
 type ServiceClientBuilder struct {
+	qos     *QosProfile
 	node    *Node
 	service string
 }
 
 // ServiceServerBuilder builds a ServiceServer
 type ServiceServerBuilder struct {
+	qos     *QosProfile
 	node    *Node
 	service string
 }
@@ -79,6 +87,11 @@ func (n *Node) CreateServiceServer(service string) *ServiceServerBuilder {
 
 // Build creates the service client
 func (b *ServiceClientBuilder) Build(svc Service) (*ServiceClient, error) {
+	node, release, err := b.node.acquire()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	serviceC := C.CString(b.service)
 	defer C.free(unsafe.Pointer(serviceC))
 
@@ -90,11 +103,17 @@ func (b *ServiceClientBuilder) Build(svc Service) (*ServiceClient, error) {
 	svcHashC := C.CString(svc.TypeHash())
 	defer C.free(unsafe.Pointer(svcHashC))
 
-	handle := C.hiroz_service_client_create(
-		b.node.handle,
+	var cQos *C.hiroz_qos_profile_t
+	if b.qos != nil {
+		q := b.qos.toCQos()
+		cQos = &q
+	}
+	handle := C.hiroz_service_client_create_with_qos(
+		node,
 		serviceC,
 		svcTypeC, svcHashC,
 		svcTypeC, svcHashC,
+		cQos,
 	)
 
 	if handle == nil {
@@ -117,124 +136,50 @@ const DefaultServiceTimeout = 5 * time.Second
 // callRaw makes a synchronous service call with raw CDR bytes.
 // Returns the raw CDR response bytes.
 func (c *ServiceClient) callRaw(requestBytes []byte, timeoutMs uint64) ([]byte, error) {
-	hw := c.handle.Load()
-	if hw == nil {
-		return nil, fmt.Errorf("service client is closed")
+	if timeoutMs > uint64((1<<63-1)/int64(time.Millisecond)) {
+		return nil, fmt.Errorf("timeout exceeds time.Duration")
 	}
-	h := hw.p
-
-	if len(requestBytes) == 0 {
-		return nil, fmt.Errorf("empty request")
-	}
-
-	// Pin the request data to prevent GC relocation during the C call
-	pinner := &runtime.Pinner{}
-	defer pinner.Unpin()
-	pinner.Pin(&requestBytes[0])
-
-	var respPtr *C.uint8_t
-	var respLen C.uintptr_t
-
-	result := C.hiroz_service_client_call(
-		h,
-		(*C.uint8_t)(unsafe.Pointer(&requestBytes[0])),
-		C.uintptr_t(len(requestBytes)),
-		&respPtr,
-		&respLen,
-		C.uint64_t(timeoutMs),
-	)
-
-	logger.Debug("hiroz_service_client_call",
-		"service", c.service, "req_len", len(requestBytes),
-		"resp_len", int(respLen), "rc", int(result))
-
-	if result != 0 {
-		code := ErrorCode(result)
-		if code == ErrorCodeServiceTimeout {
-			return nil, newHirozError(ErrorCodeServiceTimeout,
-				fmt.Sprintf("service[%s] call timed out", c.service))
-		}
-		return nil, newHirozError(ErrorCodeServiceCallFailed,
-			fmt.Sprintf("service[%s] call failed (rc=%d)", c.service, result))
-	}
-
-	respBytes := C.GoBytes(unsafe.Pointer(respPtr), C.int(respLen))
-	C.hiroz_free_bytes((*C.uint8_t)(respPtr), C.uintptr_t(respLen))
-
-	return respBytes, nil
+	return c.CallRawWithTimeout(requestBytes, time.Duration(timeoutMs)*time.Millisecond)
 }
 
-// call makes a synchronous service call with a default timeout of DefaultServiceTimeout.
-// The request is serialized via CDR, sent, and the raw response bytes are returned.
-// For typed responses use hiroz.CallTyped(client, req, &resp).
-func (c *ServiceClient) call(request Message) ([]byte, error) {
-	reqBytes, err := request.SerializeCDR()
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize request: %w", err)
-	}
-
-	return c.callRaw(reqBytes, uint64(DefaultServiceTimeout.Milliseconds()))
-}
-
-// callWithTimeout makes a synchronous service call with a custom timeout.
-// The request is serialized via CDR, sent, and the raw response bytes are returned.
+func (c *ServiceClient) call(request Message) ([]byte, error) { return c.Call(request) }
 func (c *ServiceClient) callWithTimeout(request Message, timeout time.Duration) ([]byte, error) {
-	reqBytes, err := request.SerializeCDR()
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize request: %w", err)
-	}
-
-	timeoutMs := uint64(timeout.Milliseconds())
-	if timeoutMs == 0 {
-		timeoutMs = 1
-	}
-	return c.callRaw(reqBytes, timeoutMs)
+	return c.CallWithTimeout(request, timeout)
 }
 
-// WaitForService blocks until at least one matching service server is visible
-// in the ROS graph, or `timeout` elapses. Returns nil when the service becomes
-// ready, an error wrapping ErrorCodeServiceTimeout on timeout, or another error
-// if the client is closed.
-//
-// Mirrors rclcpp's `Client::wait_for_service`. Use this instead of fixed sleeps
-// to coordinate readiness between a service client and a freshly-created
-// service server (the graph announce is asynchronous over zenoh liveliness).
+// WaitForService waits for graph discovery. Zero performs a nonblocking check;
+// a negative duration is invalid. Use WaitForServiceWithContext for cancellation.
 func (c *ServiceClient) WaitForService(timeout time.Duration) error {
-	hw := c.handle.Load()
-	if hw == nil {
-		return fmt.Errorf("service client is closed")
+	if timeout < 0 {
+		return fmt.Errorf("service timeout must not be negative")
 	}
-
-	timeoutMs := uint64(timeout.Milliseconds())
-	if timeoutMs == 0 && timeout > 0 {
-		timeoutMs = 1
+	if timeout == 0 {
+		return c.checkService(0)
 	}
-
-	rc := C.hiroz_service_client_wait_for_service(hw.p, C.uint64_t(timeoutMs))
-	if rc == 0 {
-		return nil
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := c.WaitForServiceWithContext(ctx)
+	if err == context.DeadlineExceeded {
+		return newHirozError(ErrorCodeServiceTimeout, "service readiness timed out")
 	}
-	code := ErrorCode(rc)
-	if code == ErrorCodeServiceTimeout {
-		return newHirozError(ErrorCodeServiceTimeout,
-			fmt.Sprintf("service[%s] not available after %s", c.service, timeout))
-	}
-	return newHirozError(code,
-		fmt.Sprintf("service[%s] wait_for_service failed (rc=%d)", c.service, rc))
+	return err
 }
 
-// Close destroys the service client
+// Close prevents new calls and cancels outstanding calls. Independent C query
+// handles retain their session until their caller has drained and destroyed them.
 func (c *ServiceClient) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
-		hw := c.handle.Load()
-		if hw == nil {
-			return
+		c.mu.Lock()
+		hw := c.handle.Swap(nil)
+		for operation := range c.operations {
+			operation.cancel()
 		}
-		c.handle.Store(nil)
-		result := C.hiroz_service_client_destroy(hw.p)
-		if result != 0 {
-			err = fmt.Errorf("service client close failed (rc=%d): %w", result, ErrCloseFailed)
+		c.mu.Unlock()
+		if hw != nil {
+			if rc := C.hiroz_service_client_destroy(hw.p); rc != 0 {
+				err = fmt.Errorf("service client close failed (rc=%d): %w", rc, ErrCloseFailed)
+			}
 		}
 	})
 	return err
@@ -271,65 +216,59 @@ func (sc *serviceClosure) drop() {
 
 // Build creates the service server with callback.
 // The callback receives raw request bytes and must return raw response bytes.
-// Note: the callback is invoked on a C/Rust thread — avoid long blocking operations.
+// Callbacks run serially on a Go goroutine. Use BuildQueued for deferred or
+// concurrent processing. A callback may close its own server safely.
 func (b *ServiceServerBuilder) Build(svc Service, callback func([]byte) ([]byte, error)) (*ServiceServer, error) {
-	serviceC := C.CString(b.service)
-	defer C.free(unsafe.Pointer(serviceC))
-
-	// Use the service-level TypeName/TypeHash (DDS format) so the key expression
-	// matches rmw_zenoh_cpp and the Rust hiroz native API.
-	svcTypeC := C.CString(svc.TypeName())
-	defer C.free(unsafe.Pointer(svcTypeC))
-
-	svcHashC := C.CString(svc.TypeHash())
-	defer C.free(unsafe.Pointer(svcHashC))
-
-	// Create pinned closure
-	closure := newServiceClosure(b.service, callback)
-
-	handle := C.hiroz_service_server_create(
-		b.node.handle,
-		serviceC,
-		svcTypeC, svcHashC,
-		svcTypeC, svcHashC,
-		C.getServiceCallback(),
-		// closure.pinner.Pin(closure) guarantees the struct address is stable,
-		// making this uintptr cast safe. Do not remove the Pin call above.
-		C.uintptr_t(closure.selfHandle),
-	)
-
-	if handle == nil {
-		closure.drop()
-		return nil, fmt.Errorf("%w: service server for %s", ErrBuildFailed, b.service)
+	if callback == nil {
+		return nil, fmt.Errorf("service callback cannot be nil")
 	}
-
-	server := &ServiceServer{
-		node:    b.node,
-		service: b.service,
-		closure: closure,
+	server, err := b.BuildQueued(svc)
+	if err != nil {
+		return nil, err
 	}
-	server.handle.Store(&cServiceServerHandle{p: handle})
-	runtime.SetFinalizer(server, (*ServiceServer).Close)
-
+	server.callbackMode = true
+	ctx, cancel := context.WithCancel(context.Background())
+	server.stop = cancel
+	// User callbacks run in Go; there are no pinned callbacks owned by C.
+	// Each request owns its reply handle independently of the server lifetime.
+	go func() {
+		for {
+			request, err := server.takeRequest(ctx)
+			if err != nil {
+				if native, ok := err.(HirozError); ok && native.Code() == ErrorCodeDeserializationFailed {
+					// A malformed peer request must not stop this service's worker.
+					continue
+				}
+				return
+			}
+			_ = safeCall(func() error {
+				defer request.Close()
+				response, err := callback(request.Data)
+				if err != nil {
+					return err
+				}
+				return request.ReplyRaw(response)
+			})
+		}
+	}()
 	return server, nil
 }
 
-// Close destroys the service server
+// Close stops new requests. Already delivered requests remain valid until replied
+// to or closed, so callbacks can safely close their own server.
 func (s *ServiceServer) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
-		hw := s.handle.Load()
-		if hw == nil {
-			return
+		s.mu.Lock()
+		hw := s.handle.Swap(nil)
+		if s.stop != nil {
+			s.stop()
 		}
-		s.handle.Store(nil)
-		result := C.hiroz_service_server_destroy(hw.p)
-		if s.closure != nil {
-			s.closure.drop()
-			s.closure = nil
-		}
-		if result != 0 {
-			err = fmt.Errorf("service server close failed (rc=%d): %w", result, ErrCloseFailed)
+		s.mu.Unlock()
+		if hw != nil {
+			if rc := C.hiroz_service_server_destroy(hw.p); rc != 0 {
+				err = fmt.Errorf("service server close failed (rc=%d): %w", rc, ErrCloseFailed)
+			}
 		}
 	})
 	return err

@@ -311,11 +311,11 @@ fn raw_subscriber_default_joins_and_announces_backends() {
     );
 }
 
-/// The feedback subscriber of a raw action client stays out of the group. A `Cpu` raw subscriber
-/// on the same node is the control.
+/// The complete raw action client receives feedback, so it joins Auto while its
+/// buffer-free status subscriber stays out. Both endpoints retain discovery.
 #[test]
-fn raw_action_client_feedback_subscriber_stays_out() {
-    const NAME: &str = "raw_action_client_feedback_subscriber_stays_out";
+fn raw_action_client_feedback_joins_and_status_stays_out() {
+    const NAME: &str = "raw_action_client_feedback_joins_and_status_stays_out";
     let f = Fixture::new("raw_action");
     let _client = f
         .node
@@ -327,24 +327,27 @@ fn raw_action_client_feedback_subscriber_stays_out() {
             "",
             "",
             "",
-            "",
+            None,
+            |_, _| {},
         )
         .expect("raw action client");
     let (_c, _control) = subscribe(&f.node, "raw_action_control", BufferGroup::Cpu, None);
-
-    assert_joins(
-        NAME,
-        &f.raw,
-        "raw_action_control",
-        "the Cpu control (the filter below counts for nothing without it)",
-    );
-    let feedback: Vec<String> = tokens(&f.raw)
-        .into_iter()
-        .filter(|t| t.contains("feedback") && t.contains("backends:"))
+    assert_joins(NAME, &f.raw, "raw_action_control", "the Cpu control");
+    let all = tokens(&f.raw);
+    let feedback: Vec<_> = all
+        .iter()
+        .filter(|t| t.contains("feedback") && t.contains("backends:cpu:"))
         .collect();
+    assert_eq!(feedback.len(), 1, "{NAME}: feedback must join: {all:?}");
+    let status: Vec<_> = all.iter().filter(|t| t.contains("status")).collect();
+    assert_eq!(
+        status.len(),
+        1,
+        "{NAME}: status must retain discovery: {all:?}"
+    );
     assert!(
-        feedback.is_empty(),
-        "{NAME}: the feedback subscriber announced backends: {feedback:?}"
+        !status[0].contains("backends:"),
+        "{NAME}: status must stay out: {status:?}"
     );
 }
 
@@ -646,27 +649,24 @@ fn raw_denied_group_key_leaves_the_base_key_flowing() {
 // Exact subscriptions
 // ---------------------------------------------------------------------------------------------
 
-/// Whether a plain publisher on `key` has a matching subscriber now.
+/// Keep one publisher alive while its remote interest snapshot arrives. A new
+/// publisher on every poll discards that snapshot before it can report a match.
+/// A negative result waits the whole budget so a late match cannot pass as absent.
 fn matches(session: &zenoh::Session, key: &str) -> bool {
     use zenoh::Wait;
     let publisher = session
         .declare_publisher(key.to_owned())
         .wait()
         .expect("publisher");
-    publisher
-        .matching_status()
-        .wait()
-        .expect("status")
-        .matching()
-}
-
-/// Poll until `matches(key)` equals `want` or `RECV` passes. It returns the last reading.
-fn settle(session: &zenoh::Session, key: &str, want: bool) -> bool {
     let end = Instant::now() + RECV;
     loop {
-        let now = matches(session, key);
-        if now == want || Instant::now() >= end {
-            return now;
+        let matching = publisher
+            .matching_status()
+            .wait()
+            .expect("status")
+            .matching();
+        if matching || Instant::now() >= end {
+            return matching;
         }
         std::thread::sleep(POLL);
     }
@@ -692,21 +692,20 @@ fn raw_subscriber_declares_two_exact_subscriptions_and_off_declares_one() {
 
     // Controls: both subscribers match their base key, and the default one matches its group key.
     assert!(
-        settle(raw, &base_key("raw_exact_default"), true),
+        matches(raw, &base_key("raw_exact_default")),
         "{NAME}: the default subscriber does not match its base key"
     );
     assert!(
-        settle(raw, &group_key("raw_exact_default"), true),
+        matches(raw, &group_key("raw_exact_default")),
         "{NAME}: the default subscriber does not match its group key"
     );
     assert!(
-        settle(raw, &base_key("raw_exact_off"), true),
+        matches(raw, &base_key("raw_exact_off")),
         "{NAME}: the Off subscriber does not match its base key"
     );
 
     // The default subscriber matches no sibling key. The Off subscriber matches no group key and
-    // no sibling key. The group key control above was read after the same settle time.
-    std::thread::sleep(QUIET);
+    // no sibling key. Each negative probe remains alive for the full snapshot budget.
     assert!(
         !matches(raw, &sibling("raw_exact_default")),
         "{NAME}: the default subscriber matches a sibling key, so it is not exact"

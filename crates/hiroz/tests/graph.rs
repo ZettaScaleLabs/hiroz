@@ -25,6 +25,42 @@ use hiroz_protocol::{
 mod common;
 use common::TestRouter;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn local_registration_and_removal_do_not_depend_on_snapshot_lifetimes() -> Result<()> {
+    let router = TestRouter::new();
+    let context = ZContextBuilder::default()
+        .with_domain_id(244)
+        .disable_multicast_scouting()
+        .with_connect_endpoints([router.endpoint()])
+        .with_mode("client")
+        .build()?;
+    let node = context
+        .create_node("graph_snapshot_owner")
+        .without_parameters()
+        .build()?;
+    let _publisher = node
+        .create_pub::<RosString>("/graph_snapshot_topic")
+        .build()?;
+    assert!(wait_for_publishers(&node, "/graph_snapshot_topic", 1, 2_000).await?);
+    let graph = node.graph();
+    let snapshots = graph.get_entities_by_topic(EndpointKind::Publisher, "/graph_snapshot_topic");
+    assert_eq!(snapshots.len(), 1);
+    for _ in 0..10 {
+        graph.add_local_entity(snapshots[0].as_ref().clone())?;
+    }
+    assert_eq!(
+        graph.count(EndpointKind::Publisher, "/graph_snapshot_topic"),
+        1
+    );
+    graph.remove_local_entity(&snapshots[0])?;
+    assert_eq!(
+        graph.count(EndpointKind::Publisher, "/graph_snapshot_topic"),
+        0
+    );
+    assert!(matches!(snapshots[0].as_ref(), Entity::Endpoint(_)));
+    Ok(())
+}
+
 /// A pass-through `KeyExprFormatter` that delegates to `RmwZenohFormatter` for
 /// everything except its own admin space, so a node using it is
 /// distinguishable on the wire from a plain rmw_zenoh node without

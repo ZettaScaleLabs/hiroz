@@ -1,8 +1,9 @@
-use crate::msg::ZMessage;
+use std::{fmt, time::SystemTime};
+
 use hiroz_cdr::{CdrBuffer, CdrDeserialize, CdrReader, CdrSerialize, CdrSerializedSize, CdrWriter};
 use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::time::SystemTime;
+
+use crate::msg::ZMessage;
 
 pub mod client;
 pub mod driver;
@@ -32,6 +33,7 @@ pub trait ZAction: Send + Sync + 'static {
     type Goal: ZMessage + Clone + Send + Sync + serde::Serialize + for<'de> serde::Deserialize<'de>;
     type Result: ZMessage
         + Clone
+        + Default
         + Send
         + Sync
         + serde::Serialize
@@ -398,7 +400,10 @@ impl CdrDeserialize for GoalId {
     fn cdr_deserialize<'de, BO: byteorder::ByteOrder>(
         r: &mut CdrReader<'de, BO>,
     ) -> hiroz_cdr::Result<Self> {
-        Ok(GoalId(<[u8; 16]>::cdr_deserialize(r)?))
+        // UUID octets have byte alignment and need no intermediate allocation.
+        let mut id = [0; 16];
+        id.copy_from_slice(r.read_bytes(16)?);
+        Ok(GoalId(id))
     }
 }
 
@@ -492,6 +497,34 @@ impl CdrSerializedSize for GoalInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_goal_id_cdr_preserves_octets_at_unaligned_offsets() {
+        fn check<BO: byteorder::ByteOrder>() {
+            let id = GoalId(std::array::from_fn(|i| (i * 17) as u8));
+            for offset in 0..8 {
+                let mut bytes = vec![0xaa; offset];
+                bytes.extend_from_slice(id.as_bytes());
+                bytes.push(0xbb);
+                let mut reader = CdrReader::<BO>::new(&bytes);
+                reader.read_bytes(offset).unwrap();
+                assert_eq!(GoalId::cdr_deserialize(&mut reader).unwrap(), id);
+                assert_eq!(reader.position(), offset + 16);
+                assert_eq!(reader.read_bytes(1).unwrap(), &[0xbb]);
+            }
+        }
+        check::<byteorder::LittleEndian>();
+        check::<byteorder::BigEndian>();
+    }
+
+    #[test]
+    fn test_goal_id_cdr_rejects_every_truncated_uuid() {
+        let bytes = [0xff; 16];
+        for length in 0..16 {
+            let mut reader = CdrReader::<byteorder::LittleEndian>::new(&bytes[..length]);
+            assert!(GoalId::cdr_deserialize(&mut reader).is_err());
+        }
+    }
 
     #[test]
     fn test_goal_id_display_is_hyphenated_uuid() {

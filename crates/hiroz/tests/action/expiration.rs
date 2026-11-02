@@ -6,16 +6,18 @@
 //! 3. Expired goals are properly cleaned up
 //! 4. Status is updated when goals expire
 
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::time::{Duration, Instant};
-use tokio::time::sleep;
+use std::{
+    sync::{Arc, atomic::AtomicBool},
+    time::{Duration, Instant},
+};
 
-use hiroz::action::state::*;
-use hiroz::action::*;
-use hiroz::context::ZContextBuilder;
-use hiroz::{Builder, Result, define_action};
+use hiroz::{
+    Builder, Result,
+    action::{state::*, *},
+    define_action,
+};
 use serde::{Deserialize, Serialize};
+use tokio::time::sleep;
 
 // Simple test action type
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,7 +25,7 @@ struct TestGoal {
     order: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct TestResult {
     sequence: Vec<i32>,
 }
@@ -45,7 +47,7 @@ define_action! {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_terminated_goal_expiration() -> Result<()> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_expiration_node").build()?;
 
     // Create a server with short result timeout (1 second)
@@ -62,6 +64,7 @@ async fn test_terminated_goal_expiration() -> Result<()> {
         manager.goals.insert(
             goal_id,
             ServerGoalState::Terminated {
+                info: GoalInfo::new(goal_id),
                 result: TestResult {
                     sequence: vec![0, 1, 1, 2, 3, 5],
                 },
@@ -95,7 +98,7 @@ async fn test_terminated_goal_expiration() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_executing_goal_expiration_with_timeout() -> Result<()> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_expiration_node2").build()?;
 
     // Create a server with short goal timeout (1 second)
@@ -112,6 +115,7 @@ async fn test_executing_goal_expiration_with_timeout() -> Result<()> {
         manager.goals.insert(
             goal_id,
             ServerGoalState::Executing {
+                info: GoalInfo::new(goal_id),
                 goal: TestGoal { order: 5 },
                 cancel_flag: Arc::new(AtomicBool::new(false)),
                 expires_at: Some(now + Duration::from_secs(1)),
@@ -142,7 +146,7 @@ async fn test_executing_goal_expiration_with_timeout() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_accepted_goal_expiration_with_timeout() -> Result<()> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_expiration_node3").build()?;
 
     // Create a server with short goal timeout (1 second)
@@ -159,7 +163,9 @@ async fn test_accepted_goal_expiration_with_timeout() -> Result<()> {
         manager.goals.insert(
             goal_id,
             ServerGoalState::Accepted {
+                info: GoalInfo::new(goal_id),
                 goal: TestGoal { order: 5 },
+                cancel_flag: Arc::new(AtomicBool::new(false)),
                 timestamp: now,
                 expires_at: Some(now + Duration::from_secs(1)),
             },
@@ -189,7 +195,7 @@ async fn test_accepted_goal_expiration_with_timeout() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_no_expiration_without_timeout() -> Result<()> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_expiration_node4").build()?;
 
     // Create a server WITHOUT goal timeout
@@ -204,6 +210,7 @@ async fn test_no_expiration_without_timeout() -> Result<()> {
         manager.goals.insert(
             goal_id,
             ServerGoalState::Executing {
+                info: GoalInfo::new(goal_id),
                 goal: TestGoal { order: 5 },
                 cancel_flag: Arc::new(AtomicBool::new(false)),
                 expires_at: None, // No expiration
@@ -229,7 +236,7 @@ async fn test_no_expiration_without_timeout() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_multiple_goals_expiration() -> Result<()> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_expiration_node5").build()?;
 
     // Create a server with short timeouts
@@ -251,6 +258,7 @@ async fn test_multiple_goals_expiration() -> Result<()> {
         manager.goals.insert(
             goal_id1,
             ServerGoalState::Terminated {
+                info: GoalInfo::new(goal_id1),
                 result: TestResult {
                     sequence: vec![0, 1],
                 },
@@ -263,6 +271,7 @@ async fn test_multiple_goals_expiration() -> Result<()> {
         manager.goals.insert(
             goal_id2,
             ServerGoalState::Executing {
+                info: GoalInfo::new(goal_id2),
                 goal: TestGoal { order: 3 },
                 cancel_flag: Arc::new(AtomicBool::new(false)),
                 expires_at: Some(expires),
@@ -272,7 +281,9 @@ async fn test_multiple_goals_expiration() -> Result<()> {
         manager.goals.insert(
             goal_id3,
             ServerGoalState::Accepted {
+                info: GoalInfo::new(goal_id3),
                 goal: TestGoal { order: 2 },
+                cancel_flag: Arc::new(AtomicBool::new(false)),
                 timestamp: now,
                 expires_at: Some(expires),
             },

@@ -178,6 +178,7 @@ client, err := node.CreateServiceClient("add_two_ints").
     Build(&example_interfaces.AddTwoInts{})
 respBytes, err := client.Call(&example_interfaces.AddTwoIntsRequest{A: 5, B: 3})
 // client.CallWithTimeout(req, 10*time.Second) for a custom timeout
+// client.CallWithContext(ctx, req) for cancellation and deadlines
 var resp example_interfaces.AddTwoIntsResponse
 if err := resp.DeserializeCDR(respBytes); err != nil {
     // handle error
@@ -220,7 +221,7 @@ resultBytes, err := handle.GetResult()
 ### Goal status
 
 ```go
-handle.GetStatus()    // GoalStatusAccepted → GoalStatusSucceeded
+handle.Status()       // Updated from the status topic and result replies
 handle.IsActive()     // true while executing
 handle.IsTerminal()   // true when finished
 handle.Cancel()       // request cancellation
