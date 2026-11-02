@@ -529,6 +529,15 @@ jobs:
           nu scripts/test-pure-rust.nu clippy-hiroz-py
         shell: bash
 
+      - name: Check hiroz-py uv.lock is current
+        # `uv` comes from the pureRust-ci dev shell, which is only set up on Linux.
+        if: runner.os == 'Linux'
+        run: |
+          source /tmp/nix-dev-env.sh
+          cd crates/hiroz-py
+          uv lock --check
+        shell: bash
+
       - name: Clippy (hiroz-tests, interop features)
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
