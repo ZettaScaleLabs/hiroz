@@ -688,11 +688,20 @@ impl ZPub<crate::dynamic::DynamicMessage, crate::dynamic::DynamicSerdeCdrSerdes>
 }
 
 /// The subscriptions of a raw-callback subscriber: one on the topic key, and one on the group key
-/// when the subscriber joins the group. Dropping the value undeclares both. The topic-key
-/// subscription is an advanced subscriber, so a transient-local QoS replays history.
+/// when the subscriber joins the group. Dropping the value undeclares both. Only a transient-local
+/// QoS makes the topic-key subscription an advanced one, because only that QoS needs history. A
+/// volatile subscriber keeps a plain subscription, which delivers every sample.
 pub(crate) struct RawSubscriptions {
-    _base: AdvancedSubscriber<()>,
+    _base: RawBase,
     _group: Option<zenoh::pubsub::Subscriber<()>>,
+}
+
+/// The topic-key subscription of a [`RawSubscriptions`].
+/// The enum only keeps the subscription alive, so nothing reads its fields.
+#[allow(dead_code)]
+enum RawBase {
+    Plain(zenoh::pubsub::Subscriber<()>),
+    Advanced(AdvancedSubscriber<()>),
 }
 
 /// Declare the group-key subscription of a joined subscriber, or nothing when `group_key` is
@@ -899,15 +908,26 @@ where
             &shared,
         )?;
         let h = shared.clone();
-        let mut sub_builder = self
-            .session
-            .declare_subscriber(key_expr.clone())
-            .callback(move |s: Sample| h(s))
-            .advanced();
-        if let Some(locality) = self.locality {
-            sub_builder = sub_builder.allowed_origin(locality);
-        }
-        let sub = apply_transient_local_sub(sub_builder, &self.entity.qos).wait()?;
+        let base = if matches!(self.entity.qos.durability, QosDurability::TransientLocal) {
+            let mut sub_builder = self
+                .session
+                .declare_subscriber(key_expr.clone())
+                .callback(move |s: Sample| h(s))
+                .advanced();
+            if let Some(locality) = self.locality {
+                sub_builder = sub_builder.allowed_origin(locality);
+            }
+            RawBase::Advanced(apply_transient_local_sub(sub_builder, &self.entity.qos).wait()?)
+        } else {
+            let mut sub_builder = self
+                .session
+                .declare_subscriber(key_expr.clone())
+                .callback(move |s: Sample| h(s));
+            if let Some(locality) = self.locality {
+                sub_builder = sub_builder.allowed_origin(locality);
+            }
+            RawBase::Plain(sub_builder.wait()?)
+        };
 
         let token = crate::buffer_group::declare_token(
             &self.session,
@@ -918,7 +938,7 @@ where
 
         Ok((
             RawSubscriptions {
-                _base: sub,
+                _base: base,
                 _group: group_sub,
             },
             token,
