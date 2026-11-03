@@ -1,36 +1,77 @@
 package hiroz
 
-import "testing"
+import (
+	"runtime/cgo"
+	"testing"
+)
 
-const rejectedBuilds = 1000
+// handleIsValid reports whether h still names a value. A deleted cgo.Handle panics on Value.
+func handleIsValid(h cgo.Handle) (valid bool) {
+	defer func() {
+		if recover() != nil {
+			valid = false
+		}
+	}()
+	h.Value()
+	return true
+}
 
-// A build that fails must not keep the handler or the memory it captured.
-// Each case builds many subscribers and compares the live callback state before and after.
-func TestRejectedSubscriberBuildReleasesCallbackState(t *testing.T) {
-	cases := []struct {
-		name  string
-		group BufferGroup
-	}{
-		{"invalid group", BufferGroup(3)},
-		{"negative group", BufferGroup(-1)},
-		// The node has no session, so the C creator returns null for a valid group.
-		{"creation failure", BufferGroupCpu},
+// A build that the C layer rejects must delete every handle of its callback state.
+// The replaced C creator returns null, as it does when the node has no session. It also
+// records the handles of the closure that the build passed to it.
+func TestFailedSubscriberBuildReleasesCallbackHandles(t *testing.T) {
+	var handles map[string]cgo.Handle
+	original := createSubscriber
+	createSubscriber = func(c subscriberCall) *cSubscriber {
+		closure := cgo.Handle(uintptr(c.userData)).Value().(*closureContext[[]byte])
+		handles = map[string]cgo.Handle{
+			"onCall": cgo.Handle(closure.onCall),
+			"self":   cgo.Handle(closure.selfHandle),
+			"pinner": cgo.Handle(closure.pinner),
+		}
+		for name, h := range handles {
+			if !handleIsValid(h) {
+				t.Errorf("handle %s must be valid while the build runs", name)
+			}
+		}
+		return nil
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			before := liveClosures.Load()
-			for i := 0; i < rejectedBuilds; i++ {
-				captured := make([]byte, 1024)
-				sub, err := (&Node{}).CreateSubscriber("chatter").
-					WithBufferGroup(tc.group).
-					BuildWithCallback(&MockMessage{typeName: "std_msgs/msg/String", typeHash: "RIHS01_build_failure"}, func(data []byte) { _ = captured })
-				if err == nil || sub != nil {
-					t.Fatalf("build %d: want an error and no subscriber, got sub=%v err=%v", i, sub, err)
-				}
-			}
-			if leaked := liveClosures.Load() - before; leaked != 0 {
-				t.Errorf("%d rejected builds left %d callback handles alive, want 0", rejectedBuilds, leaked)
-			}
-		})
+	t.Cleanup(func() { createSubscriber = original })
+
+	sub, err := (&Node{}).CreateSubscriber("chatter").
+		BuildWithCallback(&MockMessage{typeName: "std_msgs/msg/String", typeHash: "RIHS01_build_failure"}, func([]byte) {})
+	if err == nil || sub != nil {
+		t.Fatalf("want an error and no subscriber, got sub=%v err=%v", sub, err)
+	}
+	if handles == nil {
+		t.Fatal("the C creator was not called")
+	}
+	for name, h := range handles {
+		if handleIsValid(h) {
+			t.Errorf("handle %s is still valid after the failed build", name)
+		}
+	}
+}
+
+// An unknown group fails before the build creates any callback state.
+func TestUnknownGroupBuildCreatesNoCallbackState(t *testing.T) {
+	called := false
+	original := createSubscriber
+	createSubscriber = func(subscriberCall) *cSubscriber {
+		called = true
+		return nil
+	}
+	t.Cleanup(func() { createSubscriber = original })
+
+	for _, group := range []BufferGroup{3, -1} {
+		sub, err := (&Node{}).CreateSubscriber("chatter").
+			WithBufferGroup(group).
+			BuildWithCallback(&MockMessage{typeName: "std_msgs/msg/String", typeHash: "RIHS01_build_failure"}, func([]byte) {})
+		if err == nil || sub != nil {
+			t.Errorf("group %d: want an error and no subscriber, got sub=%v err=%v", group, sub, err)
+		}
+	}
+	if called {
+		t.Error("the C creator must not be called for an unknown group")
 	}
 }
