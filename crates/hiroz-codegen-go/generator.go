@@ -417,16 +417,9 @@ func fieldNeedsBinary(field FieldDefinition) bool {
 		return true // string length uses binary
 	case "Int16", "UInt16", "Int32", "UInt32", "Int64", "UInt64", "Float32", "Float64":
 		return true // multi-byte numeric types
-	case "Time", "Duration":
-		// A sequence has a length prefix that uses binary. A fixed array has none.
+	case "Time", "Duration", "Custom":
+		// Only sequences need binary for their length prefix.
 		return field.IsArray && field.ArrayKind != "fixed"
-	case "Custom":
-		if field.IsArray {
-			// A sequence has a length prefix that uses binary. A fixed array has none.
-			return field.ArrayKind != "fixed"
-		}
-		// Same-package custom single value: PackToRawAt doesn't use binary in the caller
-		return false
 	case "Bool", "Int8", "UInt8":
 		// Dynamic/bounded arrays have a length prefix that uses binary.
 		// Fixed arrays use a simple loop without binary.
@@ -507,19 +500,14 @@ func generatePackField(g *CodeBuilder, field FieldDefinition) {
 		g.P("// Pack custom type: %s", field.Name)
 		g.P("{")
 		g.In()
-		if field.IsArray && field.ArrayKind == "fixed" {
-			// A fixed array has no length prefix.
-			g.P("for i := range %s {", fieldAccess)
-			g.In()
-			g.P("buf, offset = %s[i].PackToRawAt(buf, offset)", fieldAccess)
-			g.Out()
-			g.P("}")
-		} else if field.IsArray {
-			emitPackAlign(g, 4)
-			g.P("b := make([]byte, 4)")
-			g.P("binary.LittleEndian.PutUint32(b, uint32(len(%s)))", fieldAccess)
-			g.P("buf = append(buf, b...)")
-			g.P("offset += 4")
+		if field.IsArray {
+			if field.ArrayKind != "fixed" {
+				emitPackAlign(g, 4)
+				g.P("b := make([]byte, 4)")
+				g.P("binary.LittleEndian.PutUint32(b, uint32(len(%s)))", fieldAccess)
+				g.P("buf = append(buf, b...)")
+				g.P("offset += 4")
+			}
 			g.P("for i := range %s {", fieldAccess)
 			g.In()
 			g.P("buf, offset = %s[i].PackToRawAt(buf, offset)", fieldAccess)
@@ -705,8 +693,7 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 		g.P("{")
 		g.In()
 		if field.IsArray && field.ArrayKind == "fixed" {
-			// A fixed array has no length prefix and no length to bound: the
-			// element count is the array size, and each element checks its own bytes.
+			// Fixed arrays have no length prefix; each element checks its own bytes.
 			g.P("for i := range %s {", fieldAccess)
 			g.In()
 			g.P("offset, err = %s[i].UnpackFromRawAt(data, offset)", fieldAccess)
