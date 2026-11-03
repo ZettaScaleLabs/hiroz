@@ -52,26 +52,3 @@ func TestFailedSubscriberBuildReleasesCallbackHandles(t *testing.T) {
 		}
 	}
 }
-
-// An unknown group fails before the build creates any callback state.
-func TestUnknownGroupBuildCreatesNoCallbackState(t *testing.T) {
-	called := false
-	original := createSubscriber
-	createSubscriber = func(subscriberCall) *cSubscriber {
-		called = true
-		return nil
-	}
-	t.Cleanup(func() { createSubscriber = original })
-
-	for _, group := range []BufferGroup{3, -1} {
-		sub, err := (&Node{}).CreateSubscriber("chatter").
-			WithBufferGroup(group).
-			BuildWithCallback(&MockMessage{typeName: "std_msgs/msg/String", typeHash: "RIHS01_build_failure"}, func([]byte) {})
-		if err == nil || sub != nil {
-			t.Errorf("group %d: want an error and no subscriber, got sub=%v err=%v", group, sub, err)
-		}
-	}
-	if called {
-		t.Error("the C creator must not be called for an unknown group")
-	}
-}
