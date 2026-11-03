@@ -327,10 +327,8 @@ where
 }
 
 impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
-    /// Choose whether the cache joins rmw_zenoh's CPU buffer group. The setting holds before or
-    /// after [`with_stamp`](ZCacheBuilder::with_stamp). The default is
-    /// [`BufferGroup::Auto`](crate::BufferGroup::Auto). See [`BufferGroup`](crate::BufferGroup) for
-    /// the join rule, the cases that never join, and the router access-control rule.
+    /// Overrides the node's buffer-group default. The setting holds before or after
+    /// [`with_stamp`](ZCacheBuilder::with_stamp). See [`BufferGroup`](crate::BufferGroup).
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
         self.sub_builder = self.sub_builder.with_buffer_group(group);
         self

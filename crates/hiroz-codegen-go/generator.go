@@ -70,20 +70,15 @@ func emitUnpackAlign(g *CodeBuilder, align int) {
 	g.P("offset += (%d - offset%%%d) %% %d", align, align, align)
 }
 
-// emitArrLenCheck emits the bound on a decoded sequence length. Every element
-// of a string, primitive, time or duration sequence takes at least one byte on
-// the wire, so a length above the bytes left cannot be valid. The check runs
-// before `make`: a hostile 32-bit length would otherwise reserve gigabytes, and
-// a Go out-of-memory abort cannot be recovered. `arrLen < 0` covers the
-// overflow of int(uint32) on 32-bit targets.
-func emitArrLenCheck(g *CodeBuilder) {
-	g.P("if arrLen < 0 || arrLen > len(data)-offset { return offset, fmt.Errorf(\"sequence length %%d exceeds the %%d bytes left\", arrLen, len(data)-offset) }")
+// emitArrLenCheck rejects a sequence length that the bytes left cannot hold at
+// minElem bytes per element. It runs before `make`, so a hostile length reserves
+// nothing. `arrLen < 0` covers the overflow of int(uint32) on 32-bit targets.
+func emitArrLenCheck(g *CodeBuilder, minElem int64) {
+	g.P("if arrLen < 0 || arrLen > (len(data)-offset)/%d { return offset, fmt.Errorf(\"sequence length %%d needs at least %d bytes each, %%d left\", arrLen, len(data)-offset) }", minElem, minElem)
 }
 
-// knownMessages indexes the message definitions of the manifest by
-// "package/Name", with the package name as in the manifest. The generator reads
-// it to find the minimum encoded size of a nested message. main fills it before
-// it generates any file. A type that is not in the index has an unknown size.
+// knownMessages indexes the manifest messages by "package/Name". main fills it
+// before it generates any file. A type that is not in it has an unknown size.
 var knownMessages = map[string]MessageDefinition{}
 
 // registerMessages replaces the index of known messages.
@@ -94,8 +89,8 @@ func registerMessages(msgs []MessageDefinition) {
 	}
 }
 
-// maxMinSize caps a computed minimum size at 2 GiB. The emitted divisor is
-// capped lower still, and the cap keeps the product of two sizes inside int64.
+// maxMinSize caps a computed minimum size at 2 GiB, which keeps the product of
+// two sizes inside int64.
 const maxMinSize = int64(1) << 31
 
 // primitiveSize returns the encoded size in bytes of a primitive kind, or 0 for
@@ -114,18 +109,9 @@ func primitiveSize(kind string) int64 {
 	return 0
 }
 
-// minCDRSize returns a lower bound, in bytes, on the encoded size of one
-// message with the given fields. It never overestimates. It ignores alignment
-// padding, which only adds bytes. The rules follow what the decoder reads:
-//
-//   - a primitive takes its size; a fixed array takes the element size n times;
-//   - a string takes 4 bytes: the decoder accepts a length of zero, so it does
-//     not count the terminating byte;
-//   - a time or duration takes 8 bytes, and a fixed array of them takes 8 bytes
-//     n times;
-//   - a dynamic sequence takes 4 bytes, the length prefix, whatever its element;
-//   - a nested message takes the minimum of its own fields. A type that is not
-//     in knownMessages, or that contains itself, counts as 0.
+// minCDRSize returns a lower bound, in bytes, on the encoded size of one message.
+// It ignores alignment padding. A type that is not in knownMessages, or that
+// contains itself, counts as 0.
 func minCDRSize(fields []FieldDefinition) int64 {
 	return minCDRSizeVisiting(fields, map[string]bool{})
 }
@@ -150,7 +136,7 @@ func minCDRSizeVisiting(fields []FieldDefinition, visiting map[string]bool) int6
 		var one int64
 		switch f.FieldType.Kind {
 		case "String":
-			one = 4
+			one = 4 // the decoder accepts a zero length
 		case "Time", "Duration":
 			one = 8
 		case "Custom":
@@ -185,22 +171,15 @@ func nestedMinSize(ft FieldType, visiting map[string]bool) int64 {
 	return minCDRSizeVisiting(msg.Fields, visiting)
 }
 
-// emitCustomSeqUnpack emits the decode of a sequence of nested messages.
-// minElem is a lower bound on the encoded size of one element, from
-// minCDRSize.
-//
-// The length is not rejected, because a message with no fields takes zero bytes
-// and a valid sequence of them is longer than the bytes left. The reservation
-// is bounded by the bytes the elements need, not by their count: capHint is at
-// most (bytes left) / max(1, minElem). A bound on the count alone lets a hostile
-// length reserve count times the element size. The slice grows as elements
-// decode, and an element that needs bytes fails with a short-buffer error as
-// soon as the input ends.
-//
-// What stays unbounded: elements of zero bytes (minElem 0, or a type of unknown
-// size). The reservation for them is capped at the bytes left, and the loop
-// still runs arrLen times, so a hostile length costs CPU time but no memory.
+// emitCustomSeqUnpack emits the decode of a sequence of nested messages. minElem
+// is the lower bound on the encoded size of one element, from minCDRSize. The
+// reservation is at most (bytes left) / max(1, minElem) elements. An element of
+// known size is rejected before it is allocated when fewer bytes are left than
+// it needs. Elements of zero bytes are the exception: the loop runs arrLen times,
+// which costs CPU time and no memory.
 func emitCustomSeqUnpack(g *CodeBuilder, fieldAccess, elemType string, minElem int64) {
+	// With a known size, the loop rejects an element before it allocates it.
+	known := minElem >= 1
 	if minElem < 1 {
 		minElem = 1
 	}
@@ -214,6 +193,10 @@ func emitCustomSeqUnpack(g *CodeBuilder, fieldAccess, elemType string, minElem i
 	g.P("%s = make([]%s, 0, capHint)", fieldAccess, elemType)
 	g.P("for i := 0; i < arrLen; i++ {")
 	g.In()
+	if known {
+		// `var elem` allocates the whole element, even when no bytes are left to decode it.
+		g.P("if len(data)-offset < %d { return offset, fmt.Errorf(\"sequence element needs at least %d bytes, %%d left\", len(data)-offset) }", minElem, minElem)
+	}
 	g.P("var elem %s", elemType)
 	g.P("offset, err = elem.UnpackFromRawAt(data, offset)")
 	g.P("if err != nil { return offset, err }")
@@ -671,7 +654,7 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for string array length\") }")
 			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 			g.P("offset += 4")
-			emitArrLenCheck(g)
+			emitArrLenCheck(g, 4) // a string takes its 4-byte length at least
 			g.P("%s = make([]string, arrLen)", fieldAccess)
 			g.P("for i := 0; i < arrLen; i++ {")
 			g.In()
@@ -761,7 +744,7 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
 			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 			g.P("offset += 4")
-			emitArrLenCheck(g)
+			emitArrLenCheck(g, 8) // a time or duration is two int32
 			g.P("%s = make([]%s, arrLen)", fieldAccess, fieldToGoBaseTypeInPkg(field, g.currentPkg))
 			g.P("for i := 0; i < arrLen; i++ {")
 			g.In()
@@ -851,7 +834,7 @@ func generatePrimitiveUnpackCode(g *CodeBuilder, field FieldDefinition, align in
 		g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
 		g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 		g.P("offset += 4")
-		emitArrLenCheck(g)
+		emitArrLenCheck(g, primitiveSize(field.FieldType.Kind))
 		elemType := fieldToGoBaseTypeInPkg(field, g.currentPkg)
 		g.P("%s = make([]%s, arrLen)", fieldAccess, elemType)
 		g.P("for i := 0; i < arrLen; i++ {")
