@@ -180,10 +180,18 @@ func (s *Subscriber) Close() error {
 	return err
 }
 
+// subscriberClosure recovers the closure context that userData names.
+// It reports false when the context is gone.
+func subscriberClosure(userData uintptr) (*closureContext[[]byte], bool) {
+	return cgo.Handle(userData).Value().(*closureContext[[]byte]), true
+}
+
 //export goSubscriberCallback
 func goSubscriberCallback(userData C.uintptr_t, data *C.uint8_t, length C.size_t) {
-	// Cast userData back to closureContext pointer
-	closure := cgo.Handle(userData).Value().(*closureContext[[]byte])
+	closure, ok := subscriberClosure(uintptr(userData))
+	if !ok {
+		return
+	}
 
 	// Copy data to Go slice
 	goData := C.GoBytes(unsafe.Pointer(data), C.int(length))
