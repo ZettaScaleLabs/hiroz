@@ -11,9 +11,12 @@ use std::{
 };
 
 use hiroz::{
-    Builder,
+    BufferGroup,
+    BufferGroup::{Auto, Cpu, Off},
+    Builder, SubscriberOptions, WithTypeInfo,
     context::{ZContext, ZContextBuilder},
     dynamic::{FieldType, MessageSchema},
+    msg::ZMessage,
     node::ZNode,
 };
 use hiroz_msgs::{
@@ -24,6 +27,11 @@ use zenoh::Wait;
 
 /// A node on a session that has no router and no peer, so every token it sees is its own.
 fn isolated_node() -> (ZContext, ZNode) {
+    isolated_node_with(SubscriberOptions::default())
+}
+
+/// As [`isolated_node`], with `options` as the node-level subscriber default.
+fn isolated_node_with(options: SubscriberOptions) -> (ZContext, ZNode) {
     let ctx = ZContextBuilder::default()
         .with_mode("peer")
         .disable_multicast_scouting()
@@ -31,7 +39,11 @@ fn isolated_node() -> (ZContext, ZNode) {
         .with_listen_endpoints(["tcp/127.0.0.1:0"])
         .build()
         .expect("context");
-    let node = ctx.create_node("join_node").build().expect("node");
+    let node = ctx
+        .create_node("join_node")
+        .with_subscriber_options(options)
+        .build()
+        .expect("node");
     (ctx, node)
 }
 
@@ -169,5 +181,131 @@ fn typed_message_fields_decide_the_join() {
             ("nested", true),
         ],
         "{NAME}: (topic, joined) as observed, then as expected"
+    );
+}
+
+/// A node-level default group applies to a subscriber that sets none, and a group set on the
+/// builder wins over it. `UInt8MultiArray` joins under `Auto` and `Float64MultiArray` does not, so
+/// the two message types show a default that forces a join and a default that forces a stay-out.
+///
+/// Control in the same test: a node with no options joins the first type and not the second, so
+/// each row differs from that baseline only through the node default or the builder choice.
+#[test]
+fn node_default_group_applies_and_builder_overrides() {
+    const NAME: &str = "node_default_group_applies_and_builder_overrides";
+    let default_node = isolated_node();
+    let off_node =
+        isolated_node_with(SubscriberOptions::default().with_buffer_group(BufferGroup::Off));
+    let cpu_node =
+        isolated_node_with(SubscriberOptions::default().with_buffer_group(BufferGroup::Cpu));
+    let (d, off, cpu) = (&default_node.1, &off_node.1, &cpu_node.1);
+
+    // (node, topic, group set on the builder, whether the subscriber joins)
+    let u8_cases = [
+        (d, "d_u8", None, true),
+        (off, "off_u8", None, false),
+        (off, "off_u8_cpu", Some(Cpu), true),
+        (off, "off_u8_auto", Some(Auto), true),
+    ];
+    let f64_cases = [
+        (d, "d_f64", None, false),
+        (cpu, "cpu_f64", None, true),
+        (cpu, "cpu_f64_off", Some(Off), false),
+        (cpu, "cpu_f64_auto", Some(Auto), false),
+    ];
+    let _subs: Vec<_> = u8_cases
+        .iter()
+        .map(|(node, topic, group, _)| sub_with_group::<UInt8MultiArray>(node, topic, *group))
+        .chain(f64_cases.iter().map(|(node, topic, group, _)| {
+            sub_with_group::<Float64MultiArray>(node, topic, *group)
+        }))
+        .collect();
+
+    let cases: Vec<_> = u8_cases.iter().chain(&f64_cases).collect();
+    let observed: Vec<(&str, bool)> = cases
+        .iter()
+        .map(|(node, topic, _, _)| (*topic, joined(node, topic)))
+        .collect();
+    let expected: Vec<(&str, bool)> = cases
+        .iter()
+        .map(|(_, topic, _, joins)| (*topic, *joins))
+        .collect();
+    assert_eq!(
+        observed, expected,
+        "{NAME}: (topic, joined) as observed, then as expected"
+    );
+}
+
+/// A subscriber that the caller keeps alive, so that its token stays on the session.
+fn sub_with_group<T>(
+    node: &ZNode,
+    topic: &str,
+    group: Option<BufferGroup>,
+) -> Box<dyn std::any::Any>
+where
+    T: ZMessage + WithTypeInfo,
+{
+    let builder = node.create_sub::<T>(topic);
+    let builder = match group {
+        Some(group) => builder.with_buffer_group(group),
+        None => builder,
+    };
+    Box::new(builder.build().unwrap())
+}
+
+/// A raw subscriber that sets no group follows the node default. `create_raw_subscriber_with_group`
+/// takes the group as an argument and ignores the node default.
+#[cfg(feature = "ffi")]
+#[test]
+fn raw_subscriber_follows_node_default() {
+    const NAME: &str = "raw_subscriber_follows_node_default";
+    const TYPE_NAME: &str = "std_msgs::msg::dds_::UInt8MultiArray_";
+    const TYPE_HASH: &str =
+        "RIHS01_5687e861b8d307a5e48b7515467ae7a5fc2daf805bd0ce6d8e9e604bade9f385";
+    let (_default_ctx, default_node) = isolated_node();
+    let (_off_ctx, off_node) =
+        isolated_node_with(SubscriberOptions::default().with_buffer_group(BufferGroup::Off));
+    let _default = default_node
+        .create_raw_subscriber("/raw_default", TYPE_NAME, TYPE_HASH, |_| {})
+        .unwrap();
+    let _off = off_node
+        .create_raw_subscriber("/raw_off", TYPE_NAME, TYPE_HASH, |_| {})
+        .unwrap();
+    let _explicit = off_node
+        .create_raw_subscriber_with_group(
+            "/raw_explicit",
+            TYPE_NAME,
+            TYPE_HASH,
+            |_| {},
+            None,
+            BufferGroup::Cpu,
+        )
+        .unwrap();
+    assert!(
+        joined(&default_node, "raw_default"),
+        "{NAME}: control, a node with no options joins a raw subscriber"
+    );
+    assert!(
+        joined(&off_node, "raw_explicit"),
+        "{NAME}: an explicit group on the raw entry point wins over the node default"
+    );
+    // The explicit subscriber's token is visible, so a token of `raw_off` would be too. A raw
+    // subscriber that stays out declares no token.
+    let replies = off_node
+        .session()
+        .liveliness()
+        .get("@ros2_lv/**")
+        .timeout(Duration::from_secs(2))
+        .wait()
+        .expect("liveliness get");
+    let mut stayed_out = true;
+    while let Ok(reply) = replies.recv() {
+        if let Ok(sample) = reply.result() {
+            stayed_out &= !sample.key_expr().as_str().contains("/%raw_off/");
+        }
+    }
+    assert!(
+        stayed_out,
+        "{NAME}: a raw subscriber under a node default of Off declared a token"
     );
 }
