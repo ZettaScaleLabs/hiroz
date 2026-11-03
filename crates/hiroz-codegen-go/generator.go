@@ -140,12 +140,6 @@ func minCDRSizeVisiting(fields []FieldDefinition, visiting map[string]bool) int6
 		case "Time", "Duration":
 			one = 8
 		case "Custom":
-			// The codec writes an array of nested messages with a length prefix
-			// whatever its declared kind, so 4 bytes is the bound that holds.
-			if f.IsArray {
-				total += 4
-				continue
-			}
 			one = nestedMinSize(f.FieldType, visiting)
 		default:
 			one = primitiveSize(f.FieldType.Kind)
@@ -423,15 +417,9 @@ func fieldNeedsBinary(field FieldDefinition) bool {
 		return true // string length uses binary
 	case "Int16", "UInt16", "Int32", "UInt32", "Int64", "UInt64", "Float32", "Float64":
 		return true // multi-byte numeric types
-	case "Time", "Duration":
-		// A sequence has a length prefix that uses binary. A fixed array has none.
+	case "Time", "Duration", "Custom":
+		// Only sequences need binary for their length prefix.
 		return field.IsArray && field.ArrayKind != "fixed"
-	case "Custom":
-		if field.IsArray {
-			return true // array length prefix uses binary
-		}
-		// Same-package custom single value: PackToRawAt doesn't use binary in the caller
-		return false
 	case "Bool", "Int8", "UInt8":
 		// Dynamic/bounded arrays have a length prefix that uses binary.
 		// Fixed arrays use a simple loop without binary.
@@ -513,11 +501,13 @@ func generatePackField(g *CodeBuilder, field FieldDefinition) {
 		g.P("{")
 		g.In()
 		if field.IsArray {
-			emitPackAlign(g, 4)
-			g.P("b := make([]byte, 4)")
-			g.P("binary.LittleEndian.PutUint32(b, uint32(len(%s)))", fieldAccess)
-			g.P("buf = append(buf, b...)")
-			g.P("offset += 4")
+			if field.ArrayKind != "fixed" {
+				emitPackAlign(g, 4)
+				g.P("b := make([]byte, 4)")
+				g.P("binary.LittleEndian.PutUint32(b, uint32(len(%s)))", fieldAccess)
+				g.P("buf = append(buf, b...)")
+				g.P("offset += 4")
+			}
 			g.P("for i := range %s {", fieldAccess)
 			g.In()
 			g.P("buf, offset = %s[i].PackToRawAt(buf, offset)", fieldAccess)
@@ -702,7 +692,15 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 		g.P("// Unpack custom type: %s", field.Name)
 		g.P("{")
 		g.In()
-		if field.IsArray {
+		if field.IsArray && field.ArrayKind == "fixed" {
+			// Fixed arrays have no length prefix; each element checks its own bytes.
+			g.P("for i := range %s {", fieldAccess)
+			g.In()
+			g.P("offset, err = %s[i].UnpackFromRawAt(data, offset)", fieldAccess)
+			g.P("if err != nil { return offset, err }")
+			g.Out()
+			g.P("}")
+		} else if field.IsArray {
 			emitUnpackAlign(g, 4)
 			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
 			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
