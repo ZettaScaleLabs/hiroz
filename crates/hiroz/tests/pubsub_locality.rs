@@ -58,3 +58,86 @@ fn publisher_honours_locality() {
         "the restricted publisher delivered after the control message"
     );
 }
+
+/// A publisher with `Locality::Remote` delivers to a subscriber on another session and not to one
+/// on its own session.
+///
+/// Control in the same test: the remote subscriber must receive the restricted publisher's
+/// message, so a publisher that suppresses every message once a locality is set fails. The local
+/// subscriber first receives a message from an unrestricted publisher, so it is live, and then
+/// must receive nothing.
+#[test]
+fn remote_publisher_reaches_a_remote_subscriber_only() {
+    const TOPIC: &str = "/pubsub_locality_remote";
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("bind")
+        .local_addr()
+        .expect("address")
+        .port();
+    let endpoint = format!("tcp/127.0.0.1:{port}");
+    let ctx_a = ZContextBuilder::default()
+        .with_mode("peer")
+        .disable_multicast_scouting()
+        .with_connect_endpoints(Vec::<String>::new())
+        .with_listen_endpoints([endpoint.clone()])
+        .build()
+        .expect("context a");
+    let node_a = ctx_a.create_node("locality_a").build().expect("node a");
+    let ctx_b = ZContextBuilder::default()
+        .with_mode("peer")
+        .disable_multicast_scouting()
+        .with_connect_endpoints([endpoint])
+        .with_listen_endpoints(["tcp/127.0.0.1:0"])
+        .build()
+        .expect("context b");
+    let node_b = ctx_b.create_node("locality_b").build().expect("node b");
+
+    let local_subscriber = node_a
+        .create_sub::<RosString>(TOPIC)
+        .build()
+        .expect("local subscriber");
+    let remote_subscriber = node_b
+        .create_sub::<RosString>(TOPIC)
+        .build()
+        .expect("remote subscriber");
+    let restricted = node_a
+        .create_pub::<RosString>(TOPIC)
+        .with_locality(Locality::Remote)
+        .build()
+        .expect("restricted publisher");
+    let control = node_a
+        .create_pub::<RosString>(TOPIC)
+        .with_locality(Locality::SessionLocal)
+        .build()
+        .expect("session-local publisher");
+
+    // The sessions need a moment to learn each other's declarations, so the restricted publisher
+    // sends until the remote subscriber has received one message.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let received = loop {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the remote subscriber never received the restricted publisher's message"
+        );
+        restricted.publish(&message("restricted")).expect("publish");
+        if let Ok(received) = remote_subscriber.recv_timeout(Duration::from_millis(200)) {
+            break received;
+        }
+    };
+    assert_eq!(received.data, "restricted");
+
+    control.publish(&message("control")).expect("publish");
+    let first = local_subscriber
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the session-local publisher delivers");
+    assert_eq!(
+        first.data, "control",
+        "a publisher restricted to remote subscribers delivered to a local one"
+    );
+    assert!(
+        local_subscriber
+            .recv_timeout(Duration::from_millis(500))
+            .is_err(),
+        "the restricted publisher delivered to a subscriber on its own session"
+    );
+}
