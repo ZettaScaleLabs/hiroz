@@ -344,7 +344,7 @@ Common presets:
 
 ## Locality
 
-Publishers, subscribers and caches take a `Locality` from `zenoh::sample`. `with_locality` restricts an entity to peers of one locality: `SessionLocal` (the same Zenoh session), `Remote` (other sessions) or `Any` (the default). On a publisher it limits the subscribers that receive the message. On a subscriber or a cache it limits the publishers that the entity receives from.
+Publishers, subscribers and caches take a `Locality` from `zenoh::sample`. `with_locality` restricts an entity to peers of one locality: `SessionLocal` (the same Zenoh session), `Remote` (other sessions) or `Any` (the default). On a publisher it limits the subscribers that receive the message. On a subscriber or a cache it limits the publishers that the entity receives from. The restriction applies to live messages. With `TransientLocal` QoS, the stored history reaches a subscriber or a cache outside the locality.
 
 ```rust
 use hiroz::prelude::*;

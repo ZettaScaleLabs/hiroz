@@ -317,7 +317,9 @@ impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
     }
 
     /// Apply a QoS profile to the underlying subscriber. A `TransientLocal` durability makes the
-    /// cache request the history of publishers that started earlier.
+    /// cache request the history of publishers that started earlier. That subscription drops a
+    /// sample that is not newer than one it already delivered from the same source. A volatile
+    /// cache delivers every sample.
     pub fn with_qos(mut self, qos: crate::qos::QosProfile) -> Self {
         self.sub_builder = self.sub_builder.with_qos(qos);
         self
@@ -326,6 +328,9 @@ impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
     /// Restrict the cache to samples from publishers of one locality: the same session, remote
     /// sessions or both. The default is both. The restriction applies to the topic subscription
     /// and to the buffer-group subscription alike.
+    ///
+    /// The restriction applies to live samples. A cache with `TransientLocal` QoS still receives
+    /// the history of publishers outside the locality.
     pub fn with_locality(mut self, locality: zenoh::sample::Locality) -> Self {
         self.sub_builder = self.sub_builder.with_locality(locality);
         self

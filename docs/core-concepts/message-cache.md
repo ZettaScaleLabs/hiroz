@@ -133,8 +133,8 @@ A cache declares the same kind of subscription as `create_sub`, so the builder t
 
 | Builder method | Effect |
 |---|---|
-| `with_qos(qos)` | A `TransientLocal` durability makes the cache request the history of publishers that started earlier. The cache stores the replayed messages like live ones. The default durability is `Volatile`. |
-| `with_locality(locality)` | Restricts the cache to publishers of one locality: `Locality::SessionLocal` (the same session), `Locality::Remote` or `Locality::Any`. The default is `Any`. |
+| `with_qos(qos)` | A `TransientLocal` durability makes the cache request the history of publishers that started earlier. The cache stores the replayed messages like live ones. That subscription drops a sample that is not newer than one already delivered from the same source. The default durability is `Volatile`, and a volatile cache delivers every sample. |
+| `with_locality(locality)` | Restricts the cache to publishers of one locality: `Locality::SessionLocal` (the same session), `Locality::Remote` or `Locality::Any`. The default is `Any`. The restriction applies to live samples. A `TransientLocal` cache still receives the history of publishers outside the locality. |
 | `with_encoding(encoding)` | Sets the encoding that the cache expects. A sample with a known, different encoding logs a warning, and the cache stores the message. A sample with an unknown encoding is logged at debug level only. |
 
 ### Message loss

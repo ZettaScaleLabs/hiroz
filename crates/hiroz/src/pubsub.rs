@@ -277,6 +277,9 @@ impl<T, S> ZPubBuilder<T, S> {
     /// or both. The default is both. A restricted publisher does not deliver to a subscriber
     /// outside that locality, even when the subscriber matches the key.
     ///
+    /// The restriction applies to live messages. With `TransientLocal` QoS, a subscriber outside
+    /// the locality still receives the stored history.
+    ///
     /// # Example
     ///
     /// ```no_run
