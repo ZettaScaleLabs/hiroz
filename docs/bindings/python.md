@@ -360,7 +360,7 @@ A subscriber never joins in two cases, under every value: it uses `transient_loc
 
 A value outside the table raises `ValueError`. A value that is not a string raises `TypeError`. The argument works for queue subscribers and for callback subscribers.
 
-Publishers, service clients, service servers and action clients and servers have no `buffer_group` argument in Python.
+Publishers, service clients, service servers and action clients and servers have no `buffer_group` argument in Python. The Python node builder has no node-level default for it either, so each `create_subscriber` call chooses its own value.
 
 ## Errors
 
