@@ -13,6 +13,7 @@ use std::{
 use hiroz::{
     BufferGroup, Builder,
     attachment::Attachment,
+    cache::ZCache,
     context::{ZContext, ZContextBuilder},
     event::ZenohEventType,
     node::ZNode,
@@ -39,6 +40,21 @@ fn wait_until(what: &str, condition: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !condition() {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Poll until the cache holds `len` messages. On a timeout the failure names what the cache holds.
+fn wait_for_len(what: &str, cache: &ZCache<RosString>, len: usize) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while cache.len() != len {
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {what}: the cache holds {} of {len} messages, oldest stamp {:?}, newest stamp {:?}",
+            cache.len(),
+            cache.oldest_stamp(),
+            cache.newest_stamp(),
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -251,8 +267,22 @@ fn volatile_cache_keeps_reordered_timestamps() {
         .expect("the probe sees the real publication");
     wait_until("the cache to store the real message", || cache.len() == 1);
 
+    // The cache indexes a message by its timestamp as a `SystemTime`, which has no room for the
+    // logical counter of the clock. Two timestamps from one clock tick differ only in that counter
+    // and index the same entry. A coarse system clock produces such a pair, so the test draws
+    // `newer` until the two timestamps differ as a `SystemTime`.
     let older = node.session().new_timestamp();
-    let newer = node.session().new_timestamp();
+    let tick_deadline = Instant::now() + Duration::from_secs(10);
+    let newer = loop {
+        let candidate = node.session().new_timestamp();
+        if candidate.get_time().to_system_time() > older.get_time().to_system_time() {
+            break candidate;
+        }
+        assert!(
+            Instant::now() < tick_deadline,
+            "the clock never produced a timestamp after {older}"
+        );
+    };
     for timestamp in [newer, older] {
         node.session()
             .put(sample.key_expr().clone(), sample.payload().clone())
@@ -260,9 +290,7 @@ fn volatile_cache_keeps_reordered_timestamps() {
             .wait()
             .expect("timestamped put");
     }
-    wait_until("the cache to store both timestamped samples", || {
-        cache.len() == 3
-    });
+    wait_for_len("the cache to store both timestamped samples", &cache, 3);
 }
 
 /// The locality of a cache restricts the buffer-group subscription as well as the topic one.
