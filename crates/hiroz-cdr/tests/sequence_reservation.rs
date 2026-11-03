@@ -107,3 +107,24 @@ fn typed_decoder_accepts_a_count_at_the_boundary() {
     );
     assert!(decode(5, 4).is_err(), "{NAME}: count above unread bytes");
 }
+
+/// An element that takes no bytes on the wire and is not a serde type.
+#[derive(Debug, PartialEq)]
+struct ZeroBytes;
+
+impl CdrDeserialize for ZeroBytes {
+    fn cdr_deserialize<'de, BO: byteorder::ByteOrder>(
+        _reader: &mut CdrReader<'de, BO>,
+    ) -> hiroz_cdr::Result<Self> {
+        Ok(Self)
+    }
+}
+
+/// The generic `Vec<T>` decoder accepts a count above the unread bytes when elements take none.
+#[test]
+fn generic_vec_decodes_zero_byte_elements() {
+    let body = 3u32.to_le_bytes();
+    let mut r = CdrReader::<LittleEndian>::new(&body);
+    let v = Vec::<ZeroBytes>::cdr_deserialize(&mut r).expect("zero-byte elements must decode");
+    assert_eq!(v, [ZeroBytes, ZeroBytes, ZeroBytes]);
+}
