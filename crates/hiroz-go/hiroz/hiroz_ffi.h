@@ -729,7 +729,8 @@ struct hiroz_subscriber_t *hiroz_subscriber_create(struct hiroz_node_t *node,
  * Create a subscriber with callback and QoS profile
  *
  * The subscriber uses the node default for rmw_zenoh's CPU buffer group. A C node always has
- * the default, `BufferGroup::Auto`, so the subscriber joins. Use
+ * the default, `BufferGroup::Auto`, so the subscriber joins. The exception is a QoS that
+ * rmw_zenoh does not serve on the group key (transient-local): that subscriber stays out. Use
  * `hiroz_subscriber_create_with_group` to choose.
  *
  * # Safety
