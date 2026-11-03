@@ -135,6 +135,13 @@ fn typed_vec_survives_a_hostile_length() {
         let err = Vec::<Big>::cdr_deserialize(&mut r).expect_err("hostile length must be an error");
         println!("hostile: {err}");
 
+        // One unread byte: a rule that caps only an empty remainder still reserves the count.
+        let mut truncated = length_only(HOSTILE_LENGTH);
+        truncated.push(0);
+        let mut r = CdrReader::<LittleEndian>::new(&truncated);
+        let err = Vec::<Big>::cdr_deserialize(&mut r).expect_err("truncated must be an error");
+        println!("truncated: {err}");
+
         // The same process decodes the next, valid message.
         let valid = valid_body(3);
         let mut r = CdrReader::<LittleEndian>::new(&valid);
@@ -152,6 +159,7 @@ fn typed_vec_survives_a_hostile_length() {
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("hostile: "), "{name}: {}", describe(&out));
+    assert!(stdout.contains("truncated: "), "{name}: {}", describe(&out));
     assert!(
         stdout.contains("next valid: 3 elements"),
         "{name}: {}",

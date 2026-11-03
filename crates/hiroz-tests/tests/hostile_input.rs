@@ -61,6 +61,14 @@ fn hostile_sample() -> Vec<u8> {
     v
 }
 
+/// A hostile sample followed by one unread byte. A rule that caps only an empty remainder
+/// still reserves the declared count for it.
+fn truncated_sample() -> Vec<u8> {
+    let mut v = hostile_sample();
+    v.push(0);
+    v
+}
+
 /// A valid sample: `n` f64 values behind the header and a length prefix.
 fn valid_f64_sample(n: u32) -> Vec<u8> {
     let mut v = vec![0x00, 0x01, 0x00, 0x00];
@@ -141,6 +149,10 @@ fn dynamic_decoder_survives_a_hostile_sequence_length() {
             .expect_err("hostile length must be an error");
         println!("hostile: {err}");
 
+        let err = DynamicMessage::from_cdr(&truncated_sample(), &schema)
+            .expect_err("truncated sample must be an error");
+        println!("truncated: {err}");
+
         // The same process decodes the next, valid sample.
         let msg = DynamicMessage::from_cdr(&valid_f64_sample(3), &schema).expect("valid sample");
         println!("next valid: {} elements", elements(&msg, "values").len());
@@ -148,7 +160,7 @@ fn dynamic_decoder_survives_a_hostile_sequence_length() {
     }
     assert_child_survives(
         "dynamic_decoder_survives_a_hostile_sequence_length",
-        &["hostile: ", "next valid: 3 elements"],
+        &["hostile: ", "truncated: ", "next valid: 3 elements"],
     );
 }
 
@@ -169,6 +181,10 @@ fn dynamic_decoder_survives_a_hostile_bounded_sequence_length() {
             .expect_err("hostile length must be an error");
         println!("hostile: {err}");
 
+        let err = DynamicMessage::from_cdr(&truncated_sample(), &schema)
+            .expect_err("truncated sample must be an error");
+        println!("truncated: {err}");
+
         // The same process decodes the next, valid sample.
         let msg = DynamicMessage::from_cdr(&valid_f64_sample(3), &schema).expect("valid sample");
         println!("next valid: {} elements", elements(&msg, "values").len());
@@ -176,7 +192,7 @@ fn dynamic_decoder_survives_a_hostile_bounded_sequence_length() {
     }
     assert_child_survives(
         "dynamic_decoder_survives_a_hostile_bounded_sequence_length",
-        &["hostile: ", "next valid: 3 elements"],
+        &["hostile: ", "truncated: ", "next valid: 3 elements"],
     );
 }
 
@@ -188,6 +204,29 @@ fn dynamic_decoder_decodes_a_long_valid_sequence() {
     let values = elements(&msg, "values");
     assert_eq!(values.len(), 1000);
     assert_eq!(values[999], DynamicValue::Float64(999.0));
+}
+
+/// Elements that take no bytes on the wire: a sequence of an empty message needs only its prefix.
+#[test]
+fn dynamic_decoder_decodes_zero_byte_elements() {
+    let empty = MessageSchema::builder("test_msgs/msg/Empty")
+        .build()
+        .expect("schema");
+    let mut sample = vec![0x00, 0x01, 0x00, 0x00];
+    sample.extend_from_slice(&3u32.to_le_bytes());
+    let element = Box::new(FieldType::Message(empty));
+    for (name, ty) in [
+        ("seq", FieldType::Sequence(element.clone())),
+        ("bounded", FieldType::BoundedSequence(element, 10)),
+    ] {
+        let schema = MessageSchema::builder("test_msgs/msg/EmptySeq")
+            .field("items", ty)
+            .build()
+            .expect("schema");
+        let msg = DynamicMessage::from_cdr(&sample, &schema)
+            .unwrap_or_else(|e| panic!("{name}: zero-byte elements must decode: {e}"));
+        assert_eq!(elements(&msg, "items").len(), 3, "{name}");
+    }
 }
 
 /// A sequence length that equals the bytes left decodes (one byte per element).
@@ -235,6 +274,10 @@ fn generated_decoder_survives_a_hostile_sequence_length() {
             Err(err) => println!("hostile: {err}"),
             Ok(_) => panic!("hostile length must be an error"),
         }
+        match UInt8MultiArray::deserialize(&truncated_sample()[..]) {
+            Err(err) => println!("truncated: {err}"),
+            Ok(_) => panic!("truncated sample must be an error"),
+        }
 
         let back = UInt8MultiArray::deserialize(&valid[..]).expect("valid sample");
         println!(
@@ -246,7 +289,7 @@ fn generated_decoder_survives_a_hostile_sequence_length() {
     }
     assert_child_survives(
         "generated_decoder_survives_a_hostile_sequence_length",
-        &["hostile: ", "next valid: 1 dims, 3 bytes"],
+        &["hostile: ", "truncated: ", "next valid: 1 dims, 3 bytes"],
     );
 }
 
