@@ -696,8 +696,8 @@ pub(crate) struct RawSubscriptions {
 }
 
 /// Declare the group-key subscription of a joined subscriber, or nothing when `group_key` is
-/// `None`. Every subscriber build path calls this before it declares the base subscription and the
-/// token, so the order that a publisher relies on is written once. `shared` serves both keys.
+/// `None`. Call it before the base subscription and the liveliness token: a publisher relies on
+/// that order. `shared` serves both keys.
 pub(crate) fn declare_group_subscription<F>(
     session: &Session,
     group_key: Option<&str>,
@@ -763,11 +763,7 @@ where
         }
     }
 
-    /// Choose whether this subscriber joins rmw_zenoh's CPU buffer group. The default is the
-    /// node default, which is [`BufferGroup::Auto`](crate::BufferGroup::Auto) unless
-    /// [`ZNodeBuilder::with_subscriber_options`](crate::node::ZNodeBuilder::with_subscriber_options)
-    /// says otherwise. See [`BufferGroup`](crate::BufferGroup) for the join rule, the cases that
-    /// never join, and the router access-control rule.
+    /// Overrides the node's buffer-group default. See [`BufferGroup`](crate::BufferGroup).
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
         self.options.buffer_group = group;
         self
