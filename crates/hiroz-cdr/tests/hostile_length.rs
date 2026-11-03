@@ -1,5 +1,5 @@
-//! A sequence length read from the wire must not make the decoder reserve the
-//! declared count. The reservation is bounded by the unread input.
+//! A decoder caps the initial capacity of a sequence by the unread input, whatever count the
+//! wire declares. Honest sequences still reserve their full count at once.
 //!
 //! An allocation failure aborts the process, so the test cannot catch it. Each
 //! case re-executes this test binary as a child process with a lowered address
@@ -125,7 +125,7 @@ fn harness_detects_an_allocation_abort() {
 
 // --- typed path -----------------------------------------------------------
 
-/// `Vec<T>::cdr_deserialize`, the path generated messages use for non-plain elements.
+/// Generic `Vec<T>::cdr_deserialize` coverage. Generated non-plain sequences use their own loop.
 #[test]
 fn typed_vec_survives_a_hostile_length() {
     if is_child() {
