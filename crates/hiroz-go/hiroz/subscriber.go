@@ -121,8 +121,8 @@ func (b *SubscriberBuilder) BuildWithCallback(msg Message, handler MessageHandle
 	typeHashC := C.CString(msg.TypeHash())
 	defer C.free(unsafe.Pointer(typeHashC))
 
-	// Create the closure with the user's callback. After a successful build the closure stays
-	// alive with the subscriber. A failed build creates no subscriber, so nothing can call it.
+	// Create the closure with the user's callback. A successful build keeps it alive with the
+	// subscriber. A failed build releases it, and goSubscriberCallback must tolerate a late sample.
 	closure := newClosure(handler, nil)
 
 	// A nil QoS pointer means the default QoS.
