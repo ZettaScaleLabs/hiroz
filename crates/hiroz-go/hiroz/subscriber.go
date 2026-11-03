@@ -181,8 +181,15 @@ func (s *Subscriber) Close() error {
 }
 
 // subscriberClosure recovers the closure context that userData names.
-// It reports false when the context is gone.
-func subscriberClosure(userData uintptr) (*closureContext[[]byte], bool) {
+// It reports false when the context is gone. A failed build releases the context, and a sample
+// that Zenoh already selected can still arrive. The lookup panics on a released handle, and a
+// panic in a callback from C ends the process.
+func subscriberClosure(userData uintptr) (closure *closureContext[[]byte], ok bool) {
+	defer func() {
+		if recover() != nil {
+			closure, ok = nil, false
+		}
+	}()
 	return cgo.Handle(userData).Value().(*closureContext[[]byte]), true
 }
 
