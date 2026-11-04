@@ -339,6 +339,13 @@ fn improves(candidate: &[f64], old: &[f64], margin: f64) -> bool {
     median(candidate) < median(old) - margin
 }
 
+/// The negative control of the improvement check: the old pin slowed on purpose must not pass it.
+/// It slows the arm that the check compares with, so the verdict does not depend on how far the
+/// old pin sits from no pin on the host.
+fn slowed_old_pin_is_rejected(old_slowed: &[f64], old: &[f64], margin: f64) -> bool {
+    !improves(old_slowed, old, margin)
+}
+
 /// The margin of the improvement check: twice the larger min-max range of the pinned and the
 /// old-pin arm. A real gap must exceed the noise of both arms, each side counted once.
 fn improvement_margin(pinned: &[f64], old: &[f64]) -> f64 {
@@ -387,6 +394,20 @@ fn improvement_check_passes_a_real_gain_and_fails_an_unchanged_arm() {
 }
 
 #[test]
+fn improvement_control_holds_where_the_old_pin_is_far_slower_than_no_pin() {
+    // On this host no pin runs at 36 ms and the old pin at 60 ms. Slowing no pin by the control
+    // delay gives 46 ms, which is below the old pin by more than a margin of 8 ms, so a control
+    // built from the no-pin arm reports a false failure of the gate.
+    let unpinned_slowed = [46.0; 5];
+    let old = [60.0, 60.0, 60.0, 60.0, 60.0];
+    let old_slowed = [70.0, 70.0, 70.0, 70.0, 70.0];
+    assert!(improves(&unpinned_slowed, &old, 8.0));
+    assert!(slowed_old_pin_is_rejected(&old_slowed, &old, 8.0));
+    // Positive control: an old pin that is not slowed, with a real gain, is not rejected.
+    assert!(!slowed_old_pin_is_rejected(&[20.0; 5], &old, 8.0));
+}
+
+#[test]
 fn control_tolerance_includes_the_pinned_range() {
     // Pinned is 15 ms slower in median and its range is 36 ms. A control of 10 ms over unpinned
     // must not validate this gate.
@@ -408,8 +429,18 @@ fn pinned_32mib_main_thread_receive_is_not_slower_than_unpinned() {
         glibc_version()
     );
     let delayed = format!("none+delay{CONTROL_DELAY_MS}");
-    // The old pin runs twice. The second set is the A/A control of the improvement check.
-    let arms = ["none", "lib", OLD_PIN_ARM, OLD_PIN_ARM, delayed.as_str()];
+    let old_delayed = format!("{OLD_PIN_ARM}+delay{CONTROL_DELAY_MS}");
+    // The old pin runs twice. The second set is the A/A control of the improvement check. The
+    // delayed old pin is its negative control, so the control holds on a host where the old pin
+    // is much slower than no pin.
+    let arms = [
+        "none",
+        "lib",
+        OLD_PIN_ARM,
+        OLD_PIN_ARM,
+        delayed.as_str(),
+        old_delayed.as_str(),
+    ];
     let mut samples: Vec<Vec<f64>> = vec![vec![]; arms.len()];
     for rep in 0..REPEATS {
         // Rotate the order, so a drift in host load does not belong to one arm.
@@ -418,20 +449,22 @@ fn pinned_32mib_main_thread_receive_is_not_slower_than_unpinned() {
             samples[i].push(run_once(arms[i]));
         }
     }
-    let [unpinned, pinned, old, old_b, slowed] =
-        <[Vec<f64>; 5]>::try_from(samples).expect("five arms");
+    let [unpinned, pinned, old, old_b, slowed, old_slowed] =
+        <[Vec<f64>; 6]>::try_from(samples).expect("six arms");
     println!(
-        "MEDIAN_P50_MS unpinned={:.3} pinned={:.3} old={:.3} old_b={:.3} slowed={:.3} ranges unpinned={:.3} pinned={:.3} old={:.3} old_b={:.3} slowed={:.3} n={REPEATS}",
+        "MEDIAN_P50_MS unpinned={:.3} pinned={:.3} old={:.3} old_b={:.3} slowed={:.3} old_slowed={:.3} ranges unpinned={:.3} pinned={:.3} old={:.3} old_b={:.3} slowed={:.3} old_slowed={:.3} n={REPEATS}",
         median(&unpinned),
         median(&pinned),
         median(&old),
         median(&old_b),
         median(&slowed),
+        median(&old_slowed),
         range(&unpinned),
         range(&pinned),
         range(&old),
         range(&old_b),
         range(&slowed),
+        range(&old_slowed),
     );
     // Control: the check must fire on the unpinned arm slowed on purpose. A control that passes the
     // check means the check cannot detect, so the verdict is UNKNOWN (plain assert, no marker).
@@ -449,8 +482,8 @@ fn pinned_32mib_main_thread_receive_is_not_slower_than_unpinned() {
         median(&old)
     );
     assert!(
-        !improves(&slowed, &old, margin),
-        "improvement control failed: the slowed arm passed the improvement check"
+        slowed_old_pin_is_rejected(&old_slowed, &old, margin),
+        "improvement control failed: the old pin slowed by {CONTROL_DELAY_MS} ms passed the improvement check"
     );
     assert!(
         improves(&pinned, &old, margin),
