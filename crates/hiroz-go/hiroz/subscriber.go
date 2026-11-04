@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"runtime/cgo"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -23,6 +24,9 @@ type Subscriber struct {
 	handle    *C.hiroz_subscriber_t
 	node      *Node
 	closeOnce sync.Once
+	// onClose runs once, after Close has destroyed the subscriber. The context variants set
+	// it to release their registration on the context.
+	onClose atomic.Pointer[func()]
 }
 
 // BufferGroup selects whether a subscriber joins the CPU buffer group of rmw_zenoh.
@@ -174,6 +178,11 @@ func (b *SubscriberBuilder) BuildWithCallback(msg Message, handler MessageHandle
 func (s *Subscriber) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
+		defer func() {
+			if f := s.onClose.Load(); f != nil {
+				(*f)()
+			}
+		}()
 		if s.handle == nil {
 			return
 		}
