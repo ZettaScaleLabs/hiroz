@@ -41,6 +41,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The generator needs every message definition to size nested messages.
+	registerMessages(manifest.Messages)
+
 	// Generate code for each message
 	for _, msg := range manifest.Messages {
 		if err := generateMessage(msg, *outputDir, *packagePrefix); err != nil {

@@ -53,7 +53,6 @@ pub struct ZNode {
     pub(crate) clock: crate::time::ZClock,
     pub(crate) shm_config: Option<Arc<crate::shm::ShmConfig>>,
     pub(crate) keyexpr_format: hiroz_protocol::KeyExprFormat,
-    /// Defaults for the subscribers of this node.
     pub(crate) subscriber_options: crate::SubscriberOptions,
     /// Optional type description service for this node.
     /// Enabled via `ZNodeBuilder::with_type_description_service()`.
@@ -90,7 +89,6 @@ pub struct ZNodeBuilder {
     pub(crate) enable_parameters: bool,
     /// Initial parameter overrides applied at declaration time.
     pub(crate) parameter_overrides: std::collections::HashMap<String, ParameterValue>,
-    /// Defaults for the subscribers of this node.
     pub(crate) subscriber_options: crate::SubscriberOptions,
 }
 

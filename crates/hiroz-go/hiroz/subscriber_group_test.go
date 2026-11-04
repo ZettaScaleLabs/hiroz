@@ -39,8 +39,9 @@ func TestBufferGroupValuesMatchTheCABI(t *testing.T) {
 	}
 }
 
-// replaceCreateSubscriber swaps the C creator for a recorder that fails every build.
-// It returns the groups that reached the C layer, in call order.
+// replaceCreateSubscriber swaps createSubscriber for a recorder that fails every build.
+// It returns the groups that BuildWithCallback handed to createSubscriber, in call order.
+// The recorder runs before the Go-to-C conversion and the C call, so it cannot see them.
 func replaceCreateSubscriber(t *testing.T) *[]int32 {
 	t.Helper()
 	var groups []int32
@@ -53,9 +54,10 @@ func replaceCreateSubscriber(t *testing.T) *[]int32 {
 	return &groups
 }
 
-// The group a builder holds is the group the C creator receives.
-// The recorder sees the call that BuildWithCallback makes. The join is tested on the Rust side.
-func TestBuildWithCallbackSendsTheGroupToC(t *testing.T) {
+// The group a builder holds is the group BuildWithCallback hands to createSubscriber.
+// This is builder-to-wrapper recording only. TestBuiltSubscriberGroupDecidesGraphVisibility
+// covers the conversion and the real C call.
+func TestBuildWithCallbackRecordsTheGroupItHandsToTheWrapper(t *testing.T) {
 	cases := []struct {
 		name  string
 		setup func(b *SubscriberBuilder)
@@ -80,21 +82,25 @@ func TestBuildWithCallbackSendsTheGroupToC(t *testing.T) {
 				t.Fatal("the recorder returns no handle, so the build must fail")
 			}
 			if len(*groups) != 1 || (*groups)[0] != tc.want {
-				t.Errorf("groups sent to C = %v, want [%d]", *groups, tc.want)
+				t.Errorf("groups handed to createSubscriber = %v, want [%d]", *groups, tc.want)
 			}
 		})
 	}
 }
 
-// An unknown group stops in Go and never reaches the C creator.
-func TestBuildWithCallbackKeepsAnUnknownGroupAwayFromC(t *testing.T) {
+// An unknown group fails the build before createSubscriber runs. The replacement records its
+// calls, so this shows the production path does not reach the creator. It does not measure
+// whether the build allocated callback state first.
+func TestUnknownGroupFailsBeforeTheCreatorRuns(t *testing.T) {
 	groups := replaceCreateSubscriber(t)
 	msg := &MockMessage{typeName: "std_msgs/msg/String", typeHash: "RIHS01_group"}
-	_, err := (&Node{}).CreateSubscriber("chatter").WithBufferGroup(BufferGroup(3)).BuildWithCallback(msg, func([]byte) {})
-	if err == nil {
-		t.Fatal("an unknown group must fail the build")
+	for _, group := range []BufferGroup{3, -1} {
+		sub, err := (&Node{}).CreateSubscriber("chatter").WithBufferGroup(group).BuildWithCallback(msg, func([]byte) {})
+		if err == nil || sub != nil {
+			t.Errorf("group %d: want an error and no subscriber, got sub=%v err=%v", group, sub, err)
+		}
 	}
 	if len(*groups) != 0 {
-		t.Errorf("the C creator ran %d times for an unknown group, want 0", len(*groups))
+		t.Errorf("createSubscriber ran %d times for an unknown group, want 0", len(*groups))
 	}
 }
