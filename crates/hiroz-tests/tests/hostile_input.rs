@@ -11,7 +11,7 @@
 use std::process::{Command, Output};
 
 use hiroz::dynamic::{DynamicMessage, DynamicValue, FieldType, MessageSchema};
-use nix::sys::resource::{Resource, setrlimit};
+use nix::sys::resource::{Resource, getrlimit, setrlimit};
 
 const CHILD_ENV: &str = "HIROZ_TESTS_HOSTILE_CHILD";
 const HOSTILE_LENGTH: u32 = 99_999_999;
@@ -22,6 +22,13 @@ fn is_child() -> bool {
     std::env::var_os(CHILD_ENV).is_some()
 }
 
+/// Smallest address-space headroom a child accepts. Below it the child ends with `SKIP_STATUS`.
+const MIN_HEADROOM: u64 = 128 << 20;
+/// Exit status of a child that cannot lower its address-space limit far enough to test.
+const SKIP_STATUS: i32 = 77;
+
+/// Lower RLIMIT_AS to the current virtual size plus `HEADROOM`, and never above the inherited
+/// hard limit. A child that has less than `MIN_HEADROOM` ends with `SKIP_STATUS`.
 fn limit_address_space() {
     let status = std::fs::read_to_string("/proc/self/status").expect("read /proc/self/status");
     let kb: u64 = status
@@ -29,10 +36,31 @@ fn limit_address_space() {
         .find_map(|l| l.strip_prefix("VmSize:"))
         .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
         .expect("VmSize in /proc/self/status");
-    let limit = kb * 1024 + HEADROOM;
+    let size = kb * 1024;
+    let (_, hard) = getrlimit(Resource::RLIMIT_AS).expect("getrlimit RLIMIT_AS");
+    // RLIM_INFINITY is the largest value, so `min` leaves an unlimited hard limit alone.
+    let limit = (size + HEADROOM).min(hard);
+    if limit < size + MIN_HEADROOM {
+        println!("address-space limit unavailable: inherited hard limit {hard}, VmSize {size}");
+        std::process::exit(SKIP_STATUS);
+    }
     setrlimit(Resource::RLIMIT_AS, limit, limit).expect("setrlimit RLIMIT_AS");
+    println!("address-space limit: {limit}");
     // The child aborts on purpose; a core dump would be large and slow.
     setrlimit(Resource::RLIMIT_CORE, 0, 0).expect("setrlimit RLIMIT_CORE");
+}
+
+/// The child ended because it could not lower its limit, so the case did not run. This is
+/// reported on stderr and is not a pass.
+fn skipped(out: &Output) -> bool {
+    if out.status.code() != Some(SKIP_STATUS) {
+        return false;
+    }
+    eprintln!(
+        "SKIPPED: the inherited address-space hard limit leaves no room to test\n{}",
+        describe(out)
+    );
+    true
 }
 
 /// A child under an inherited hard limit must lower its limit and not raise it.
@@ -146,6 +174,9 @@ fn f64_sequence_schema() -> std::sync::Arc<MessageSchema> {
 /// Run the case in a child; it must exit 0 and print every marker.
 fn assert_child_survives(name: &str, markers: &[&str]) {
     let out = run_child(name);
+    if skipped(&out) {
+        return;
+    }
     assert!(
         out.status.success(),
         "{name}: the child must survive a hostile length\n{}",
@@ -177,6 +208,9 @@ fn harness_detects_an_allocation_abort_here() {
         return;
     }
     let out = run_child("harness_detects_an_allocation_abort_here");
+    if skipped(&out) {
+        return;
+    }
     assert_eq!(
         out.status.signal(),
         Some(6),
