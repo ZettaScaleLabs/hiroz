@@ -3,7 +3,9 @@ package hiroz
 import (
 	"context"
 	"errors"
+	"runtime"
 	"runtime/cgo"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -159,7 +161,25 @@ func TestSubscriberWithChannelContextLateCallbackIsSafe(t *testing.T) {
 	}
 }
 
-// A callback that waits on a full channel returns when the context ends.
+// waitCallbackBlocked waits until a callback of SubscriberWithChannelContext is parked in
+// its send, so a test cancels only when a callback waits on the full channel.
+func waitCallbackBlocked(t *testing.T) {
+	t.Helper()
+	waitUntil(t, "a callback to block on the full channel", func() bool {
+		buf := make([]byte, 1<<20)
+		buf = buf[:runtime.Stack(buf, true)]
+		for _, g := range strings.Split(string(buf), "\n\n") {
+			if strings.Contains(g, "SubscriberWithChannelContext") &&
+				(strings.Contains(g, "[select") || strings.Contains(g, "[chan send")) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// A callback that waits on a full channel returns when the context ends. The cancel comes
+// only after the callback is parked in its send, so the release has to come from the cancel.
 func TestSubscriberWithChannelContextCancelReleasesBlockedCallback(t *testing.T) {
 	f := stubSubscriber(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -172,14 +192,83 @@ func TestSubscriberWithChannelContextCancelReleasesBlockedCallback(t *testing.T)
 
 	returned := make(chan struct{})
 	go func() { f.deliver([]byte{1}); close(returned) }()
+	waitCallbackBlocked(t)
 	cancel()
-	select {
-	case <-returned:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the callback stayed blocked after cancel")
+	receiveBounded(t, returned, "the blocked callback to return after cancel")
+
+	drained := make(chan struct{})
+	go func() {
+		for range ch {
+		}
+		close(drained)
+	}()
+	receiveBounded(t, drained, "the channel to close")
+}
+
+// A sample that is inside DeserializeCDR when ctx ends is dropped when the decoder returns,
+// also when the decoder returns before the destroy has finished. The destroy is held, so the
+// send has a free buffer slot and an ended context to choose between. The loop covers the
+// random choice of select.
+func TestSubscriberWithChannelContextDecoderReleasedAfterCancelDropsSample(t *testing.T) {
+	f := stubSubscriber(t)
+	t.Cleanup(func() { decodeGate.Store(nil) })
+	for i := 0; i < 25; i++ {
+		holdDestroy, freeDestroy := newRelease(t)
+		entered := make(chan struct{}, 1)
+		destroySubscriber = func(*cSubscriber) int32 {
+			entered <- struct{}{}
+			<-holdDestroy
+			return 0
+		}
+		b := newBarrier()
+		decodeGate.Store(b)
+		ctx, cancel := context.WithCancel(context.Background())
+		_, ch, err := SubscriberWithChannelContext[*gateMessage](ctx, (&Node{}).CreateSubscriber("chatter"), 4)
+		if err != nil {
+			t.Fatalf("build failed: %v", err)
+		}
+
+		delivered := make(chan struct{})
+		go func() { f.deliver([]byte{1}); close(delivered) }()
+		b.waitEntered(t, "the decoder")
+		cancel()
+		receiveBounded(t, entered, "the destroy to start")
+		b.free()
+		receiveBounded(t, delivered, "the callback to return")
+		freeDestroy()
+
+		got := 0
+		closedCh := make(chan struct{})
+		go func() {
+			for range ch {
+				got++
+			}
+			close(closedCh)
+		}()
+		receiveBounded(t, closedCh, "the channel to close")
+		if got != 0 {
+			t.Fatalf("iteration %d: a sample that was in the decoder at cancel arrived", i)
+		}
 	}
-	for range ch {
+}
+
+// A callback that starts before the build reports failure must not stay blocked on a channel
+// that nobody can read.
+func TestSubscriberWithChannelContextBuildFailureReleasesCallback(t *testing.T) {
+	returned := make(chan struct{})
+	original := createSubscriber
+	createSubscriber = func(c subscriberCall) *cSubscriber {
+		call := cgo.Handle(c.userData).Value().(*closureContext[[]byte]).call
+		go func() { call([]byte{1}); close(returned) }()
+		return nil
 	}
+	t.Cleanup(func() { createSubscriber = original })
+
+	sub, ch, err := SubscriberWithChannelContext[*nilSafeMessage](context.Background(), (&Node{}).CreateSubscriber("chatter"), 0)
+	if sub != nil || ch != nil || !errors.Is(err, ErrBuildFailed) {
+		t.Fatalf("want ErrBuildFailed and no subscriber, got sub=%v ch=%v err=%v", sub, ch, err)
+	}
+	receiveBounded(t, returned, "the callback to return after the failed build")
 }
 
 // Closing the subscriber first is safe: the later cancel destroys nothing twice.
@@ -223,7 +312,7 @@ func TestBuildWithTypedCallbackContextCancelDestroys(t *testing.T) {
 	}
 
 	cancel()
-	<-f.destroyed
+	receiveBounded(t, f.destroyed, "the destroy after cancel")
 	if n := f.destroys.Load(); n != 1 {
 		t.Errorf("destroys = %d after cancel, want 1", n)
 	}
