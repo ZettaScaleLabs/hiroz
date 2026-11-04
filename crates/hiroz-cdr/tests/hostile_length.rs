@@ -8,7 +8,9 @@
 //! Environment: the abort needs an address-space limit. A cgroup memory limit
 //! does not trigger it, because the reservation is not charged until it is touched.
 
-#![cfg(target_os = "linux")]
+// The abort needs a reservation above the address space of a 32-bit process, and
+// `setrlimit` takes a narrower type there, so the file runs on 64-bit Linux only.
+#![cfg(all(target_os = "linux", target_pointer_width = "64"))]
 
 use std::process::{Command, Output};
 
@@ -223,6 +225,7 @@ fn typed_vec_survives_a_hostile_length() {
         let mut r = CdrReader::<LittleEndian>::new(&valid);
         let v = Vec::<Big>::cdr_deserialize(&mut r).expect("valid message must decode");
         assert_eq!(v.len(), 3);
+        assert_eq!(v[2].0, [8, 9, 10, 11], "decoded values");
         println!("next valid: {} elements", v.len());
         return;
     }
@@ -261,6 +264,7 @@ fn serde_vec_survives_a_hostile_length() {
         let valid = valid_body(3);
         let (v, _) = from_bytes::<Vec<Big>, LittleEndian>(&valid).expect("valid message");
         assert_eq!(v.len(), 3);
+        assert_eq!(v[2].0, [8, 9, 10, 11], "decoded values");
         println!("next valid: {} elements", v.len());
         return;
     }
@@ -303,11 +307,16 @@ fn zero_size_elements_need_no_payload_bytes() {
     let decode = |len: u32, payload: usize| {
         let mut body = length_only(len);
         body.extend(std::iter::repeat_n(0u8, payload));
-        from_bytes::<Vec<()>, LittleEndian>(&body).map(|(v, _)| v.len())
+        from_bytes::<Vec<()>, LittleEndian>(&body).map(|(v, consumed)| (v.len(), consumed))
     };
-    // Controls: the decoder handles empty and non-empty sequences.
-    assert_eq!(decode(0, 0).unwrap(), 0, "empty sequence");
-    assert_eq!(decode(3, 3).unwrap(), 3, "one byte per element");
-    assert_eq!(decode(3, 0).unwrap(), 3, "zero-byte unit elements");
-    assert_eq!(decode(3, 2).unwrap(), 3, "trailing bytes remain unread");
+    // Controls: the decoder handles empty and non-empty sequences. Elements take no bytes, so
+    // every decode consumes the four bytes of the length prefix and leaves the payload unread.
+    assert_eq!(decode(0, 0).unwrap(), (0, 4), "empty sequence");
+    assert_eq!(decode(3, 3).unwrap(), (3, 4), "payload bytes remain unread");
+    assert_eq!(decode(3, 0).unwrap(), (3, 4), "zero-byte unit elements");
+    assert_eq!(
+        decode(3, 2).unwrap(),
+        (3, 4),
+        "trailing bytes remain unread"
+    );
 }
