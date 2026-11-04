@@ -235,6 +235,9 @@ fn cache_loss_tracking_survives_publisher_churn() {
         .expect("the probe receive")
         .expect("the probe sees the real publication");
     wait_until("the cache to store the real message", || cache.len() == 1);
+    // The probe is never read again. A full probe queue would block the puts below.
+    let (key, payload) = (sample.key_expr().clone(), sample.payload().clone());
+    drop(probe);
 
     let gid_for = |n: u32| {
         let mut gid = [7u8; 16];
@@ -243,7 +246,7 @@ fn cache_loss_tracking_survives_publisher_churn() {
     };
     let put = |sn: i64, gid: [u8; 16]| {
         node.session()
-            .put(sample.key_expr().clone(), sample.payload().clone())
+            .put(key.clone(), payload.clone())
             .attachment(Attachment::new(sn, gid))
             .wait()
             .expect("forged put");
