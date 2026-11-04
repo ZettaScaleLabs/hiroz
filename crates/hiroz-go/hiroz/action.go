@@ -459,11 +459,12 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 	// gets only the copy, so a caller that reuses the goal after a cancelled call cannot
 	// change or race with the send. The generated SerializeCDR returns a fresh buffer.
 	goalBytes, err := serializeGoal(goal)
-	if err != nil {
-		return nil, err
+	// Serialising is user code and can take a while: ctx may have ended during it. The
+	// context error wins over a serializer error.
+	if cerr := ctx.Err(); cerr != nil {
+		return nil, cerr
 	}
-	// Serialising is user code and can take a while: ctx may have ended during it.
-	if err := ctx.Err(); err != nil {
+	if err != nil {
 		return nil, err
 	}
 	goalBytes = append([]byte(nil), goalBytes...)
