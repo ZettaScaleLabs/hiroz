@@ -110,6 +110,8 @@ use zenoh::session::ZenohId;
 ///
 /// The guard exists to turn a stack overflow into a dropped message and a
 /// greppable log. It is not a cycle detector.
+///
+/// cbindgen:ignore
 pub const MAX_DELIVERY_DEPTH: u32 = 8;
 
 thread_local! {
