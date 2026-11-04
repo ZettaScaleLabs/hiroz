@@ -793,19 +793,23 @@ struct hiroz_subscriber_t *hiroz_subscriber_create_with_group(struct hiroz_node_
  * Create a subscriber with callback and QoS profile, telling hiroz whether the message type
  * has a buffer field.
  *
- * `buffer_fields` is one of `BUFFER_FIELDS_UNKNOWN` (0), `BUFFER_FIELDS_ABSENT` (1) and
- * `BUFFER_FIELDS_PRESENT` (2). Any other value makes the call log a warning and return null.
- * The subscriber uses the node default for the buffer group, as
+ * `buffer_fields` is one of `hiroz_BUFFER_FIELDS_UNKNOWN` (0), `hiroz_BUFFER_FIELDS_ABSENT` (1)
+ * and `hiroz_BUFFER_FIELDS_PRESENT` (2). Any other value makes the call log a warning and return
+ * null. The subscriber uses the node default for the buffer group, as
  * `hiroz_subscriber_create_with_qos` does, and a C node has the default `Auto`. Under `Auto`,
  * `UNKNOWN` and `PRESENT` join the CPU buffer group. `ABSENT` stays out: it declares the base
- * key only and no liveliness token, so ROS tools do not list it. Pass `ABSENT` only when the type has no unbounded `uint8[]`
- * or `char[]` field, directly or nested. On a buffer topic the subscriber then receives
- * nothing, without an error, and no token form fixes that on a released `rmw_zenoh_cpp`.
+ * key only and no liveliness token, so ROS tools do not list it. A subscriber with a
+ * transient-local QoS stays out under every value. Pass `ABSENT` only when the type has no
+ * unbounded `uint8[]` or `char[]` field, directly or nested. On a buffer topic the subscriber
+ * then receives nothing, without an error, and no token form fixes that on a released
+ * `rmw_zenoh_cpp`.
  *
  * # Safety
  * `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
  * must be valid C strings. `callback` must be a valid function pointer.
- * `qos` may be null for default QoS.
+ * `qos` may be null for default QoS. `user_data` is passed through to the callback.
+ * `hiroz_subscriber_destroy` does not wait for a callback that is running, so the caller must
+ * not free what `user_data` names until it knows that no callback is running.
  */
 struct hiroz_subscriber_t *hiroz_subscriber_create_with_buffer_fields(struct hiroz_node_t *node,
                                                                       const char *topic,

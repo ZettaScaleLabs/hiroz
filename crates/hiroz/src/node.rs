@@ -724,18 +724,18 @@ impl ZNode {
     /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group` and
     /// `has_buffer_fields` ask for it.
     ///
-    /// `has_buffer_fields` is the caller's claim about the message type: `Some(true)` when the type
-    /// has an unbounded `uint8[]` or `char[]` field, directly or nested, `Some(false)` when it has
-    /// none, and `None` when the caller does not know. hiroz cannot check the claim. A caller that
+    /// `has_buffer_fields` is the caller's claim about the message type. `Some(true)` means the type
+    /// has an unbounded `uint8[]` or `char[]` field, directly or nested. `Some(false)` means it has
+    /// none. `None` means the caller does not know. hiroz cannot check the claim. A caller that
     /// has a [`MessageSchema`](crate::dynamic::MessageSchema) can pass
     /// `Some(schema.has_buffer_fields())`. That method also counts an unbounded `byte[]`, which
     /// `rmw_zenoh_cpp` does not, so pass your own flag for an exact answer.
     ///
     /// Only `BufferGroup::Auto` reads the flag. `Auto` with `None` or `Some(true)` joins, as
     /// [`ZNode::create_raw_subscriber_with_group`] does. `Auto` with `Some(false)` stays out: it
-    /// declares the base key only and no token, so ROS tools do not list it. `Cpu` joins and `Off` stays out whatever the flag
-    /// says. A transient-local QoS or a custom key expression format stays out under every
-    /// setting.
+    /// declares the base key only and no token, so ROS tools do not list it. `Cpu` joins and `Off`
+    /// stays out whatever the flag says. A transient-local QoS or a custom key expression format
+    /// stays out under every setting.
     ///
     /// A wrong `Some(true)` costs one extra join and loses no data. A wrong `Some(false)` on a
     /// buffer topic is the dangerous direction: the subscriber declares no token, so a

@@ -130,6 +130,18 @@ Set the choice with `with_buffer_group` on a subscriber builder or a cache build
 - A transient-local subscriber never joins, and `Cpu` does not change that, because it reads its cached history from the base key. `rmw_zenoh_cpp` does the same: [0.10.6](https://github.com/ros2/rmw_zenoh/blob/4e17ccf/rmw_zenoh_cpp/src/detail/rmw_subscription_data.cpp#L99-L103) and [rolling at 678931f](https://github.com/ros2/rmw_zenoh/blob/678931f/rmw_zenoh_cpp/src/detail/rmw_subscription_data.cpp#L103-L107) disable buffer endpoints for transient-local subscribers, and rolling does so for [publishers](https://github.com/ros2/rmw_zenoh/blob/678931f/rmw_zenoh_cpp/src/detail/rmw_publisher_data.cpp#L94-L98). This limit concerns buffer transport and does not disable transient-local QoS. A subscriber on a key format other than `rmw_zenoh`'s never joins, under every setting.
 - `rmw-zenoh-rs` subscriptions use `Off`.
 
+A transient-local subscriber reads its history from `<topic key>`. The released 0.10.6 package gave this result in 75 cells with Image topics: five kinds of late joiner, three publish-time situations, n=5 per cell. The history arrived on `<topic key>` in every cell and never on `<topic key>/_buf_cpu`. No test covers history after [ros2/rmw_zenoh#1078](https://github.com/ros2/rmw_zenoh/pull/1078).
+
+If you use router access control, allow `<topic key>` and `<topic key>/_buf_cpu`. A joined subscriber declares only these two keys, so a rule on `<topic key>/**` is not needed. A rule that allows `<topic key>` and not `<topic key>/_buf_cpu` stops a joined subscriber from receiving buffer messages. `build` returns `Ok` and no error appears. The base key still delivers. A subscriber receives a message that carries no buffer through the base key, so a rule on the group key does not affect that message. This holds for a subscriber with no message schema and for a subscriber set to `Cpu` on a topic that carries no buffer. `Off` stops a subscriber from joining, so `Off` needs no rule for the group key. A subscriber with no `backends:` field receives no buffer message from a buffer-aware publisher until a release carries [ros2/rmw_zenoh#1078](https://github.com/ros2/rmw_zenoh/pull/1078). `Off` therefore does not bring those messages back. hiroz logs each join at `debug` level and names both keys.
+
+A subscriber with no `backends:` field still receives topics that carry no buffer through the base key. A buffer-aware publisher writes a message that carries a buffer on the group key only, so this subscriber receives nothing for it. The fix in [ros2/rmw_zenoh#1078](https://github.com/ros2/rmw_zenoh/pull/1078) is not released. This limit covers `Off` subscribers, transient-local subscribers, subscribers on a key format other than `rmw_zenoh`'s and `rmw-zenoh-rs` subscriptions. Measurements cover an `Off` subscriber only. No test runs the other three.
+
+| Limit | Cause | Measured | Fix |
+|---|---|---|---|
+| A joined subscriber reports lost-message events for messages that arrived | The publisher advances one sequence number for each endpoint copy | The lost count was K times the delivered messages for K other buffer-aware subscribers. K was 1 and 4, n=5 per K, one machine, 100 messages per second for 20 s, released 0.10.6 package. An unreleased revision gave the same. | The open fix [ros2/rmw_zenoh#1079](https://github.com/ros2/rmw_zenoh/pull/1079) gave a count of 0 (n=5 per K) |
+
+No hiroz test covers this limit, and hiroz code does not change for it.
+
 ### Join only on buffer topics: a raw subscriber that knows its type
 
 A caller that knows its message type can tell a raw subscriber whether the type has a buffer field. The subscriber then joins only on buffer topics, as `rmw_zenoh_cpp` decides. With the `ffi` feature, call `ZNode::create_raw_subscriber_with_buffer_fields(topic, type_name, type_hash, callback, qos, group, has_buffer_fields)`. The last argument is an `Option<bool>`:
@@ -153,25 +165,13 @@ hiroz cannot check the flag. The two wrong answers differ:
 
 The second row follows from one fact: a raw subscriber that stays out declares no liveliness token. ROS tools do not list such a subscriber, and no publisher learns that it exists. A buffer-aware publisher writes a buffer message only for a subscriber whose token ends in `backends:cpu:`, so it never writes to this one. A typed `Off` subscriber declares a token without `backends:`, and a buffer-aware publisher does not write buffer messages to it until a release carries [ros2/rmw_zenoh#1078](https://github.com/ros2/rmw_zenoh/pull/1078). Pass `Cpu` when you are not sure.
 
-The C library has `hiroz_subscriber_create_with_buffer_fields`. It takes the arguments of `hiroz_subscriber_create_with_qos` and a last `int32_t buffer_fields`. It uses the node default for the group, which is always `Auto` for a C node:
+The C library has `hiroz_subscriber_create_with_buffer_fields`. It takes the arguments of `hiroz_subscriber_create_with_qos` and a last `int32_t buffer_fields`. It uses the node default for the group, which is always `Auto` for a C node. A subscriber with a transient-local QoS stays out under every value:
 
 | `buffer_fields` | constant | meaning |
 |---|---|---|
-| `0` | `hiroz_BUFFER_FIELDS_UNKNOWN` | `None`: join |
-| `1` | `hiroz_BUFFER_FIELDS_ABSENT` | `Some(false)` |
-| `2` | `hiroz_BUFFER_FIELDS_PRESENT` | `Some(true)` |
+| `0` | `hiroz_BUFFER_FIELDS_UNKNOWN` | `None`: join, except under a transient-local QoS |
+| `1` | `hiroz_BUFFER_FIELDS_ABSENT` | `Some(false)`: stay out |
+| `2` | `hiroz_BUFFER_FIELDS_PRESENT` | `Some(true)`: join, except under a transient-local QoS |
 | any other value | | the call logs a warning and returns null |
 
-The Go bindings do not call this function. Go calls `hiroz_subscriber_create_with_group`, and Go needs its message generator to supply the flag first. Python subscribers pass no schema, so with `'auto'` they join on every topic, and this entry point does not change that.
-
-A transient-local subscriber reads its history from `<topic key>`. The released 0.10.6 package gave this result in 75 cells with Image topics: five kinds of late joiner, three publish-time situations, n=5 per cell. The history arrived on `<topic key>` in every cell and never on `<topic key>/_buf_cpu`. No test covers history after [ros2/rmw_zenoh#1078](https://github.com/ros2/rmw_zenoh/pull/1078).
-
-If you use router access control, allow `<topic key>` and `<topic key>/_buf_cpu`. A joined subscriber declares only these two keys, so a rule on `<topic key>/**` is not needed. A rule that allows `<topic key>` and not `<topic key>/_buf_cpu` stops a joined subscriber from receiving buffer messages. `build` returns `Ok` and no error appears. The base key still delivers. A subscriber receives a message that carries no buffer through the base key, so a rule on the group key does not affect that message. This holds for a subscriber with no message schema and for a subscriber set to `Cpu` on a topic that carries no buffer. `Off` stops a subscriber from joining, so `Off` needs no rule for the group key. A subscriber with no `backends:` field receives no buffer message from a buffer-aware publisher until a release carries [ros2/rmw_zenoh#1078](https://github.com/ros2/rmw_zenoh/pull/1078). `Off` therefore does not bring those messages back. hiroz logs each join at `debug` level and names both keys.
-
-A subscriber with no `backends:` field still receives topics that carry no buffer through the base key. A buffer-aware publisher writes a message that carries a buffer on the group key only, so this subscriber receives nothing for it. The fix in [ros2/rmw_zenoh#1078](https://github.com/ros2/rmw_zenoh/pull/1078) is not released. This limit covers `Off` subscribers, transient-local subscribers, subscribers on a key format other than `rmw_zenoh`'s and `rmw-zenoh-rs` subscriptions. Measurements cover an `Off` subscriber only. No test runs the other three.
-
-| Limit | Cause | Measured | Fix |
-|---|---|---|---|
-| A joined subscriber reports lost-message events for messages that arrived | The publisher advances one sequence number for each endpoint copy | The lost count was K times the delivered messages for K other buffer-aware subscribers. K was 1 and 4, n=5 per K, one machine, 100 messages per second for 20 s, released 0.10.6 package. An unreleased revision gave the same. | The open fix [ros2/rmw_zenoh#1079](https://github.com/ros2/rmw_zenoh/pull/1079) gave a count of 0 (n=5 per K) |
-
-No hiroz test covers this limit, and hiroz code does not change for it.
+The Go bindings do not call this function. Go calls `hiroz_subscriber_create_with_group`, and Go does not yet supply the flag. Python subscribers pass no schema, so with `'auto'` they join on every topic, and this entry point does not change that.
