@@ -205,8 +205,15 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 		}
 		senders.RLock()
 		defer senders.RUnlock()
-		if closed {
+		if closed || ctx.Err() != nil {
 			return
+		}
+		// done closes before the destroy runs. When both arms of the send below are ready,
+		// select picks either, so drop the sample first.
+		select {
+		case <-done:
+			return
+		default:
 		}
 		select {
 		case outCh <- msg:
