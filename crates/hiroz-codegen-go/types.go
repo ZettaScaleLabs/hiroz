@@ -1,5 +1,7 @@
 package main
 
+import "encoding/json"
+
 const ExpectedVersion = 1
 
 type CodegenManifest struct {
@@ -10,12 +12,13 @@ type CodegenManifest struct {
 }
 
 type MessageDefinition struct {
-	Package   string               `json:"package"`
-	Name      string               `json:"name"`
-	FullName  string               `json:"full_name"`
-	TypeHash  string               `json:"type_hash"`
-	Fields    []FieldDefinition    `json:"fields"`
-	Constants []ConstantDefinition `json:"constants"`
+	TypeDescription json.RawMessage      `json:"type_description,omitempty"`
+	Package         string               `json:"package"`
+	Name            string               `json:"name"`
+	FullName        string               `json:"full_name"`
+	TypeHash        string               `json:"type_hash"`
+	Fields          []FieldDefinition    `json:"fields"`
+	Constants       []ConstantDefinition `json:"constants"`
 }
 
 type FieldDefinition struct {
