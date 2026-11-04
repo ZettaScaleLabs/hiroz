@@ -362,31 +362,19 @@ pub extern "C" fn rmw_init(
     // Initialize Zenoh logging
     zenoh::init_log_from_env_or("error");
 
-    // Stop glibc returning the payload heap to the kernel between messages.
-    // See #349 for the mechanism and the measurements. At 1 MiB and 200 Hz
-    // this costs 33% of round-trip latency. The thresholds and the reasons
-    // for them live in `hiroz::malloc_pin`.
+    // Stop glibc returning the payload heap to the kernel between messages. The thresholds and
+    // the reasons for them live in `hiroz::malloc_pin`.
     match hiroz::malloc_pin::pin_large_message_thresholds() {
-        hiroz::malloc_pin::PinOutcome::Rejected { mmap_rc, trim_rc } => {
-            // mallopt() returns 0 only for a handful of documented invalid
-            // (param, value) combinations. A silent failure here would look
-            // identical to the regression the pin exists to prevent, so make
-            // it visible by default.
-            tracing::warn!(
-                "glibc rejected the allocator threshold pin (mallopt rc: mmap={}, trim={}); \
-                 large 1 MiB-class messages may show the heap-trim latency regression this call exists to avoid",
-                mmap_rc,
-                trim_rc
+        outcome @ hiroz::malloc_pin::PinOutcome::Rejected { .. } => {
+            // A rejected pin looks like the latency regression it exists to prevent, and the
+            // `error` filter installed above drops anything below error level.
+            tracing::error!(
+                "glibc rejected the allocator threshold pin ({outcome}); large receives may show \
+                 the heap-trim latency this call exists to avoid"
             );
         }
-        hiroz::malloc_pin::PinOutcome::Pinned { mmap_rc, trim_rc } => {
-            tracing::debug!(
-                "glibc thresholds pinned (mmap {} MiB, trim {} MiB; mallopt rc: mmap={}, trim={})",
-                hiroz::malloc_pin::MMAP_THRESHOLD >> 20,
-                hiroz::malloc_pin::TRIM_THRESHOLD >> 20,
-                mmap_rc,
-                trim_rc
-            );
+        hiroz::malloc_pin::PinOutcome::Pinned { .. } => {
+            tracing::debug!("glibc thresholds pinned");
         }
         // OperatorSet, Unsupported and any variant added later stay silent.
         _ => {}

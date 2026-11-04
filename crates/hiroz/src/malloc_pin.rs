@@ -46,10 +46,18 @@ pub enum PinOutcome {
     Unsupported,
 }
 
+/// A one-line description for logs. A rejected mmap threshold reports that the trim call did
+/// not run, because its return code of 0 would read as a second rejection.
 impl core::fmt::Display for PinOutcome {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Pinned { mmap_rc, trim_rc } | Self::Rejected { mmap_rc, trim_rc } => {
+            Self::Pinned { mmap_rc, trim_rc } => {
+                write!(f, "mallopt rc: mmap={mmap_rc}, trim={trim_rc}")
+            }
+            Self::Rejected { mmap_rc: 0, .. } => {
+                f.write_str("mallopt rc: mmap=0, trim not attempted")
+            }
+            Self::Rejected { mmap_rc, trim_rc } => {
                 write!(f, "mallopt rc: mmap={mmap_rc}, trim={trim_rc}")
             }
             Self::OperatorSet => f.write_str("operator set"),
