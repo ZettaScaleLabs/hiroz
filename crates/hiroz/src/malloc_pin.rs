@@ -46,6 +46,18 @@ pub enum PinOutcome {
     Unsupported,
 }
 
+impl core::fmt::Display for PinOutcome {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Pinned { mmap_rc, trim_rc } | Self::Rejected { mmap_rc, trim_rc } => {
+                write!(f, "mallopt rc: mmap={mmap_rc}, trim={trim_rc}")
+            }
+            Self::OperatorSet => f.write_str("operator set"),
+            Self::Unsupported => f.write_str("unsupported"),
+        }
+    }
+}
+
 /// Value of `M_MMAP_THRESHOLD`, in bytes.
 pub const MMAP_THRESHOLD: i32 = 64 << 20;
 /// Value of `M_TRIM_THRESHOLD`, in bytes.

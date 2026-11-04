@@ -83,3 +83,34 @@ fn block_comment_is_not_a_call() {
     let src = format!("/* a /* nested */ still comment {CALL} */\n{CALL};\n");
     assert_eq!(pin_calls(&src), vec![2]);
 }
+
+/// The part of `src` that handles the `Rejected` outcome, up to the next outcome arm.
+fn rejected_arm(src: &str) -> &str {
+    let start = src
+        .find("PinOutcome::Rejected")
+        .expect("context.rs handles PinOutcome::Rejected");
+    let rest = &src[start..];
+    let end = rest[1..].find("PinOutcome::").map_or(rest.len(), |i| i + 1);
+    &rest[..end]
+}
+
+/// `rmw_init` installs an `error` log filter just before the pin, so a rejection that is logged
+/// below `error` never prints in the default configuration.
+#[test]
+fn a_rejected_pin_is_logged_at_error_level() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(CONTEXT_RS);
+    let src = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    let arm = rejected_arm(&src);
+    assert!(
+        arm.contains("tracing::error!"),
+        "the Rejected arm must log at error level: {arm}"
+    );
+}
+
+#[test]
+fn rejected_arm_ends_at_the_next_outcome() {
+    let src = "match o {\n PinOutcome::Rejected { .. } => { tracing::error!(\"x\"); }\n PinOutcome::Pinned { .. } => { tracing::debug!(\"y\"); }\n}";
+    let arm = rejected_arm(src);
+    assert!(arm.contains("error!") && !arm.contains("debug!"), "{arm}");
+}
