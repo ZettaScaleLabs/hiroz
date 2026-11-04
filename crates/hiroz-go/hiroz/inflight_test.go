@@ -17,11 +17,10 @@ func gateShut(g *inflightGate) bool {
 }
 
 // A call that arrives after Close has started must not register and must not reach C.
-// Before the gate, such a call loaded the handle that Close was about to free.
 func TestCallTypedContextRefusedOnceCloseStarted(t *testing.T) {
 	var calls atomic.Int32
 	started := make(chan struct{})
-	release := make(chan struct{})
+	release, free := newRelease(t)
 	stubServiceCall(t, func([]byte, uint64) ([]byte, int32) {
 		if calls.Add(1) == 1 {
 			close(started)
@@ -33,7 +32,7 @@ func TestCallTypedContextRefusedOnceCloseStarted(t *testing.T) {
 
 	first := make(chan error, 1)
 	go func() { first <- CallTypedContext(context.Background(), c, mockReq(), &MockMessage{}) }()
-	<-started
+	receiveBounded(t, started, "the first call to reach the C layer")
 
 	closed := make(chan struct{})
 	go func() { _ = c.Close(); close(closed) }()
@@ -47,11 +46,11 @@ func TestCallTypedContextRefusedOnceCloseStarted(t *testing.T) {
 		t.Errorf("C calls = %d, want 1: the late call reached the C layer", n)
 	}
 
-	close(release)
-	if err := <-first; err != nil {
+	free()
+	if err := receiveBounded(t, first, "the first call to return"); err != nil {
 		t.Errorf("the call that began before Close failed: %v", err)
 	}
-	<-closed
+	receiveBounded(t, closed, "Close to return")
 }
 
 // Close must end a WaitForServiceContext that has no deadline and no server.
@@ -68,7 +67,7 @@ func TestCloseEndsWaitForServiceContext(t *testing.T) {
 	c := openTestClient()
 	waitErr := make(chan error, 1)
 	go func() { waitErr <- c.WaitForServiceContext(context.Background()) }()
-	<-entered
+	receiveBounded(t, entered, "the wait to start")
 
 	closed := make(chan struct{})
 	go func() { _ = c.Close(); close(closed) }()
@@ -116,7 +115,7 @@ func TestSendGoalContextRefusedOnceCloseStarted(t *testing.T) {
 	c := openTestActionClient()
 	var sends atomic.Int32
 	started := make(chan struct{})
-	release := make(chan struct{})
+	release, free := newRelease(t)
 	stubSendGoal(t, func(cl *ActionClient, _ []byte) (*GoalHandle, error) {
 		if sends.Add(1) == 1 {
 			close(started)
@@ -127,7 +126,7 @@ func TestSendGoalContextRefusedOnceCloseStarted(t *testing.T) {
 
 	first := make(chan error, 1)
 	go func() { h, err := c.SendGoalContext(context.Background(), goalMsg()); _ = h; first <- err }()
-	<-started
+	receiveBounded(t, started, "the first call to reach the C layer")
 
 	closed := make(chan struct{})
 	go func() { _ = c.Close(); close(closed) }()
@@ -140,9 +139,9 @@ func TestSendGoalContextRefusedOnceCloseStarted(t *testing.T) {
 	if n := sends.Load(); n != 1 {
 		t.Errorf("sends = %d, want 1: the late send reached the C layer", n)
 	}
-	close(release)
-	if err := <-first; err != nil {
+	free()
+	if err := receiveBounded(t, first, "the first call to return"); err != nil {
 		t.Errorf("the send that began before Close failed: %v", err)
 	}
-	<-closed
+	receiveBounded(t, closed, "Close to return")
 }
