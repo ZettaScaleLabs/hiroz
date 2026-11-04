@@ -1,5 +1,6 @@
 //! A decoder caps the initial capacity of a sequence by the unread input, whatever count the
-//! wire declares. Honest sequences still reserve their full count at once.
+//! wire declares. A sequence whose count does not exceed the unread bytes still reserves its
+//! full count at once.
 //!
 //! An allocation failure aborts the process, so the test cannot catch it. Each
 //! case re-executes this test binary as a child process with a lowered address
