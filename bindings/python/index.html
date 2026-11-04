@@ -2101,6 +2101,123 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#qos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        QoS
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="QoS">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#constructor-arguments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Constructor arguments
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dictionaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dictionaries
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared Memory
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Shared Memory">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#buffer-group" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Buffer Group
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Errors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Errors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-raises-what" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What raises what
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#performance-zero-copy-large-payloads" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3107,6 +3224,123 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#qos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        QoS
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="QoS">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#constructor-arguments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Constructor arguments
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dictionaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dictionaries
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared Memory
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Shared Memory">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#buffer-group" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Buffer Group
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Errors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Errors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-raises-what" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What raises what
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#performance-zero-copy-large-payloads" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3550,9 +3784,9 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 </span></code></pre></div>
 <h4 id="client-lifecycle">Client Lifecycle<a class="headerlink" href="#client-lifecycle" title="Permanent link">&para;</a></h4>
 <ol>
-<li><code>client.send_goal(goal)</code> → <code>ActionGoalHandle</code> — blocks until accepted (raises on rejection)</li>
-<li><code>handle.recv_feedback(timeout)</code> — receive next feedback; returns <code>None</code> when channel closes</li>
-<li><code>handle.get_result(timeout)</code> — block until terminal state; returns <code>None</code> on timeout</li>
+<li><code>client.send_goal(goal)</code> → <code>ActionGoalHandle</code> — blocks until accepted. It raises on rejection. It raises <code>RuntimeError</code> when no server answers: the goal query ends after at most 10 seconds, and a hard limit of 11 seconds applies on top. It never raises <code>TimeoutError</code></li>
+<li><code>handle.recv_feedback(timeout)</code> — receive next feedback; returns <code>None</code> on timeout or when the feedback channel closes</li>
+<li><code>handle.get_result(timeout)</code> — block until terminal state; returns <code>None</code> on timeout. Without <code>timeout</code> it has no time limit. The first call consumes the handle, so a timeout cannot be retried: a second call always raises <code>RuntimeError</code></li>
 <li><code>handle.cancel()</code> — request cancellation (the server decides when to honour it)</li>
 </ol>
 <h3 id="goal-status">Goal Status<a class="headerlink" href="#goal-status" title="Permanent link">&para;</a></h3>
@@ -3646,26 +3880,346 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 <h3 id="custom-namespace">Custom Namespace<a class="headerlink" href="#custom-namespace" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">node</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">create_node</span><span class="p">(</span><span class="s2">&quot;my_node&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">with_namespace</span><span class="p">(</span><span class="s2">&quot;/robot1&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
 </span></code></pre></div>
+<h2 id="qos">QoS<a class="headerlink" href="#qos" title="Permanent link">&para;</a></h2>
+<p><code>create_publisher</code> and <code>create_subscriber</code> take an optional <code>qos</code> argument. The other entity factories (<code>create_client</code>, <code>create_server</code>, <code>create_action_client</code>, <code>create_action_server</code>) have no <code>qos</code> argument. With no <code>qos</code>, an entity uses the <code>default</code> profile in the table below.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">hiroz_py</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">hiroz_py</span><span class="w"> </span><span class="kn">import</span> <span class="n">std_msgs</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="n">qos</span> <span class="o">=</span> <span class="n">hiroz_py</span><span class="o">.</span><span class="n">QosProfile</span><span class="p">(</span><span class="n">reliability</span><span class="o">=</span><span class="s2">&quot;best_effort&quot;</span><span class="p">,</span> <span class="n">history</span><span class="o">=</span><span class="s2">&quot;keep_last&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="n">pub</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">create_publisher</span><span class="p">(</span><span class="s2">&quot;/topic&quot;</span><span class="p">,</span> <span class="n">std_msgs</span><span class="o">.</span><span class="n">String</span><span class="p">,</span> <span class="n">qos</span><span class="o">=</span><span class="n">qos</span><span class="p">)</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="n">sub</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">create_subscriber</span><span class="p">(</span><span class="s2">&quot;/topic&quot;</span><span class="p">,</span> <span class="n">std_msgs</span><span class="o">.</span><span class="n">String</span><span class="p">,</span> <span class="n">qos</span><span class="o">=</span><span class="n">hiroz_py</span><span class="o">.</span><span class="n">QosProfile</span><span class="o">.</span><span class="n">sensor_data</span><span class="p">())</span>
+</span></code></pre></div>
+<h3 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h3>
+<p>After <code>import hiroz_py</code>, the constants <code>hiroz_py.QOS_DEFAULT</code>, <code>QOS_SENSOR_DATA</code>, <code>QOS_PARAMETERS</code> and <code>QOS_SERVICES</code> are <code>QosProfile</code> objects. The package replaces the native module values with <code>QosProfile.default()</code>, <code>sensor_data()</code>, <code>parameters()</code> and <code>services()</code>. The native module <code>hiroz_py._native</code> holds the same four names as plain <code>dict</code> objects. Pass either form as the <code>qos</code> argument, because <code>qos</code> accepts both.</p>
+<table>
+<thead>
+<tr>
+<th>preset</th>
+<th>reliability</th>
+<th>durability</th>
+<th>history</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>default</code></td>
+<td><code>reliable</code></td>
+<td><code>volatile</code></td>
+<td><code>keep_last</code>, depth 10</td>
+</tr>
+<tr>
+<td><code>sensor_data</code></td>
+<td><code>best_effort</code></td>
+<td><code>volatile</code></td>
+<td><code>keep_last</code>, depth 5</td>
+</tr>
+<tr>
+<td><code>parameters</code></td>
+<td><code>reliable</code></td>
+<td><code>volatile</code></td>
+<td><code>keep_last</code>, depth 1000</td>
+</tr>
+<tr>
+<td><code>services</code></td>
+<td><code>reliable</code></td>
+<td><code>volatile</code></td>
+<td><code>keep_last</code>, depth 10</td>
+</tr>
+</tbody>
+</table>
+<p>All four presets use <code>automatic</code> liveliness. Their deadline, lifespan and liveliness lease duration are infinite.</p>
+<h3 id="constructor-arguments">Constructor arguments<a class="headerlink" href="#constructor-arguments" title="Permanent link">&para;</a></h3>
+<p><code>QosProfile(...)</code> starts from the <code>default</code> profile and overrides each argument you pass. Every argument is optional.</p>
+<table>
+<thead>
+<tr>
+<th>argument</th>
+<th>values</th>
+<th>note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>reliability</code></td>
+<td><code>"reliable"</code>, <code>"best_effort"</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>durability</code></td>
+<td><code>"volatile"</code>, <code>"transient_local"</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>history</code></td>
+<td><code>"keep_last"</code>, <code>"keep_all"</code></td>
+<td><code>"keep_last"</code> with no <code>depth</code> uses depth 10</td>
+</tr>
+<tr>
+<td><code>depth</code></td>
+<td>integer greater than 0</td>
+<td>with no <code>history</code>, <code>depth</code> selects <code>keep_last</code>. With <code>history="keep_all"</code>, <code>depth</code> is ignored</td>
+</tr>
+<tr>
+<td><code>liveliness</code></td>
+<td><code>"automatic"</code>, <code>"manual_by_node"</code>, <code>"manual_by_topic"</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>deadline</code></td>
+<td>float, seconds</td>
+<td></td>
+</tr>
+<tr>
+<td><code>lifespan</code></td>
+<td>float, seconds</td>
+<td></td>
+</tr>
+<tr>
+<td><code>liveliness_lease_duration</code></td>
+<td>float, seconds</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>A string outside the listed values raises <code>ValueError</code>. With <code>keep_last</code>, a <code>depth</code> of 0 raises <code>ValueError</code>. A negative <code>depth</code> raises <code>OverflowError</code> when Python converts the argument, before the profile checks it.</p>
+<p>A profile has read-only properties <code>reliability</code>, <code>durability</code>, <code>history</code> and <code>depth</code>. <code>depth</code> is 0 for <code>keep_all</code>. There are no properties for the other fields.</p>
+<h3 id="dictionaries">Dictionaries<a class="headerlink" href="#dictionaries" title="Permanent link">&para;</a></h3>
+<p><code>qos</code> also accepts a <code>dict</code> with the same keys as the constructor arguments, for example <code>{"reliability": "best_effort", "history": "keep_last", "depth": 5}</code>. Any other object raises <code>TypeError</code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>A dictionary key that is not in the table above is ignored without an error, so a misspelled key leaves that field at its default. A <code>depth</code> key with no <code>history</code> key is also ignored in a dictionary. Use <code>QosProfile(...)</code> when you want these mistakes to fail early.</p>
+</div>
+<h2 id="shared-memory">Shared Memory<a class="headerlink" href="#shared-memory" title="Permanent link">&para;</a></h2>
+<p>Shared memory (SHM) is a property of the context. Enable it on the <code>ZContextBuilder</code> before you call <code>build()</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">ctx</span> <span class="o">=</span> <span class="n">hiroz_py</span><span class="o">.</span><span class="n">ZContextBuilder</span><span class="p">()</span><span class="o">.</span><span class="n">with_shm_enabled</span><span class="p">()</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>method</th>
+<th>effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>with_shm_enabled()</code></td>
+<td>creates an SHM pool of 10 MiB</td>
+</tr>
+<tr>
+<td><code>with_shm_pool_size(size_bytes)</code></td>
+<td>creates an SHM pool of <code>size_bytes</code></td>
+</tr>
+<tr>
+<td><code>with_shm_threshold(threshold)</code></td>
+<td>sets the message size, in bytes, from which SHM applies. The default threshold is 512 bytes. It has an effect only after <code>with_shm_enabled()</code> or <code>with_shm_pool_size()</code></td>
+</tr>
+</tbody>
+</table>
+<p>Pool creation can fail. The failure raises <code>HirozError</code>.</p>
+<p>The Python publish methods do not use the pool or the threshold. <code>ZPublisher.publish()</code> serialises the message to a buffer and sends it. <code>ZPublisher.publish_raw()</code> sends the bytes you pass. Neither method allocates from the SHM pool, so <code>with_shm_pool_size()</code> and <code>with_shm_threshold()</code> do not change how Python publishes.</p>
+<h3 id="environment-variables">Environment variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>variable</th>
+<th>read by</th>
+<th>rule</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ZENOH_SHM_ALLOC_SIZE</code></td>
+<td><code>with_shm_enabled()</code></td>
+<td>a positive integer, in bytes, replaces the 10 MiB pool size. Any other value is ignored</td>
+</tr>
+<tr>
+<td><code>ZENOH_SHM_MESSAGE_SIZE_THRESHOLD</code></td>
+<td><code>with_shm_enabled()</code> and <code>with_shm_pool_size()</code></td>
+<td>a positive power of two, in bytes, sets the threshold. Any other value is ignored without an error</td>
+</tr>
+</tbody>
+</table>
+<p><code>with_shm_pool_size()</code> does not read <code>ZENOH_SHM_ALLOC_SIZE</code>. A later call to <code>with_shm_threshold()</code> replaces a threshold that came from the environment.</p>
+<h2 id="buffer-group">Buffer Group<a class="headerlink" href="#buffer-group" title="Permanent link">&para;</a></h2>
+<p><code>create_subscriber</code> has a <code>buffer_group</code> argument. It decides whether the subscriber joins the CPU buffer group of <code>rmw_zenoh</code>. A buffer-aware ROS 2 Lyrical publisher sends a message with an unbounded <code>uint8[]</code> or <code>char[]</code> field to the members of this group on a separate key. The <a href="../../user-guide/interop/#buffer-messages-from-lyrical-publishers">ROS 2 Interoperability</a> chapter explains the mechanism.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">sub</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">create_subscriber</span><span class="p">(</span><span class="s2">&quot;/chatter&quot;</span><span class="p">,</span> <span class="n">std_msgs</span><span class="o">.</span><span class="n">String</span><span class="p">,</span> <span class="n">buffer_group</span><span class="o">=</span><span class="s2">&quot;off&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>value</th>
+<th>the subscriber joins</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>"auto"</code> (default)</td>
+<td>on every topic. The Python bindings have no message schema to inspect, so <code>"auto"</code> does the same as <code>"cpu"</code></td>
+</tr>
+<tr>
+<td><code>"cpu"</code></td>
+<td>on every topic</td>
+</tr>
+<tr>
+<td><code>"off"</code></td>
+<td>never</td>
+</tr>
+</tbody>
+</table>
+<p>A subscriber never joins in two cases, under every value: it uses <code>transient_local</code> durability, or its key format is not the one of <code>rmw_zenoh</code>.</p>
+<p>A value outside the table raises <code>ValueError</code>. A value that is not a string raises <code>TypeError</code>. The argument works for queue subscribers and for callback subscribers.</p>
+<p>Publishers, service clients, service servers and action clients and servers have no <code>buffer_group</code> argument in Python. The Python node builder has no node-level default for it either, so each <code>create_subscriber</code> call chooses its own value.</p>
+<h2 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h2>
+<p>hiroz-py defines four exception classes. All of them are attributes of <code>hiroz_py</code>.</p>
+<table>
+<thead>
+<tr>
+<th>class</th>
+<th>base</th>
+<th>raised by hiroz-py</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HirozError</code></td>
+<td><code>Exception</code></td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>TimeoutError</code></td>
+<td><code>HirozError</code></td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>SerializationError</code></td>
+<td><code>HirozError</code></td>
+<td>never</td>
+</tr>
+<tr>
+<td><code>TypeMismatchError</code></td>
+<td><code>HirozError</code></td>
+<td>never</td>
+</tr>
+</tbody>
+</table>
+<p><code>hiroz_py.TimeoutError</code> is not the built-in <code>TimeoutError</code>. Catch it as <code>hiroz_py.TimeoutError</code>.</p>
+<p>Every service client query ends after 10 seconds. A call has no way to wait longer for a reply, so the default <code>timeout</code> of one hour is never reached. The call raises <code>hiroz_py.TimeoutError</code> when the <code>timeout</code> ends first, so only a <code>timeout</code> below 10 seconds can raise it. The call raises <code>RuntimeError</code> when the query ends first with no reply. The message is <code>Failed to call service: Service call ended before any response was received</code>. The query can end before the <code>timeout</code>, for example when no server matches: the test in <code>crates/hiroz-py/tests/test_service.py</code> with <code>timeout=1.0</code> and no server expects <code>RuntimeError</code>. A <code>timeout</code> above 10 seconds always ends after the query, so it raises <code>RuntimeError</code>. At exactly 10 seconds either error may happen, because the <code>timeout</code> and the 10 second query limit end at the same moment.</p>
+<p>A negative, NaN, infinite or overflowing <code>timeout</code> is not supported. An overflowing <code>timeout</code> is a value too large for a <code>Duration</code>. It does not raise a normal exception: the binding panics and Python raises <code>pyo3_runtime.PanicException</code>, which derives from <code>BaseException</code>, so <code>except Exception</code> does not catch it. Every <code>timeout</code> argument that is a float behaves this way.</p>
+<h3 id="what-raises-what">What raises what<a class="headerlink" href="#what-raises-what" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>situation</th>
+<th>result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ZClient.call(..., timeout=t)</code> with <code>t</code> below 10 seconds, and the <code>timeout</code> ends before the query does</td>
+<td><code>hiroz_py.TimeoutError</code></td>
+</tr>
+<tr>
+<td><code>ZClient.call(..., timeout=t)</code> with <code>t</code> below 10 seconds, and the query ends first with no reply, for example when no server matches</td>
+<td><code>RuntimeError</code></td>
+</tr>
+<tr>
+<td><code>ZClient.call(...)</code> with no <code>timeout</code>, or with <code>t</code> above 10 seconds, and no response arrives</td>
+<td><code>RuntimeError</code>, after at most 10 seconds</td>
+</tr>
+<tr>
+<td><code>ZClient.call(..., timeout=10.0)</code> and no response arrives</td>
+<td><code>hiroz_py.TimeoutError</code> or <code>RuntimeError</code>: either may happen</td>
+</tr>
+<tr>
+<td>a server answers a <code>ZClient.call</code> after the 10 second query has ended</td>
+<td><code>RuntimeError</code>. The late reply is dropped</td>
+</tr>
+<tr>
+<td><code>ZClient.call(...)</code> fails for any other reason, for example the server disappears</td>
+<td><code>RuntimeError</code></td>
+</tr>
+<tr>
+<td><code>ZSubscriber.recv(timeout=t)</code> gets no message in time</td>
+<td>returns <code>None</code></td>
+</tr>
+<tr>
+<td><code>ZActionClient.send_goal(...)</code> gets no answer from a server</td>
+<td><code>RuntimeError</code>, after at most 11 seconds</td>
+</tr>
+<tr>
+<td><code>ZServer.take_request()</code> or <code>send_response(...)</code> fails in the core</td>
+<td><code>RuntimeError</code></td>
+</tr>
+<tr>
+<td>an action client or server cannot be created, an action call fails in the core, you finish a goal twice, or you call <code>recv</code> on a callback subscriber</td>
+<td><code>RuntimeError</code></td>
+</tr>
+<tr>
+<td>a context, node, publisher, subscriber, service client or service server cannot be created, or a publish or receive fails in the core</td>
+<td><code>HirozError</code></td>
+</tr>
+<tr>
+<td>a QoS string, a depth of 0 with <code>keep_last</code>, or a <code>buffer_group</code> value is invalid</td>
+<td><code>ValueError</code></td>
+</tr>
+<tr>
+<td>a negative <code>depth</code></td>
+<td><code>OverflowError</code>, raised by the argument conversion</td>
+</tr>
+<tr>
+<td>a message field holds an integer outside the range of its type</td>
+<td><code>OverflowError</code>, raised when the message is converted</td>
+</tr>
+<tr>
+<td>a message object lacks a field that its type defines</td>
+<td><code>AttributeError</code>, raised when the message is converted</td>
+</tr>
+<tr>
+<td>a message class has no <code>__msgtype__</code>, or <code>qos</code> has the wrong type</td>
+<td><code>TypeError</code></td>
+</tr>
+<tr>
+<td>the request class passed to <code>create_client</code> or <code>create_server</code> has no <code>__hash__</code> string</td>
+<td><code>TypeError</code></td>
+</tr>
+<tr>
+<td>the request class passed to <code>create_client</code> or <code>create_server</code> has a malformed <code>__hash__</code></td>
+<td><code>ValueError</code></td>
+</tr>
+</tbody>
+</table>
+<p>In the code that converts Python messages to and from CDR, invalid values raise <code>ValueError</code>, <code>TypeError</code>, <code>OverflowError</code> or <code>AttributeError</code>. They do not raise <code>SerializationError</code> or <code>TypeMismatchError</code>.</p>
+<p><code>ZServer.send_response(response, request_id)</code> needs the <code>request_id</code> dictionary that <code>take_request()</code> returned. Pass it unchanged. A dictionary without an <code>sn</code> or <code>gid</code> key raises <code>KeyError</code>. A <code>gid</code> that does not hold 16 bytes raises <code>ValueError</code>.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">hiroz_py</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="k">try</span><span class="p">:</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>    <span class="n">resp</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="n">req</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mf">2.0</span><span class="p">)</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="k">except</span> <span class="n">hiroz_py</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">:</span>
+</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;no response in 2 s&quot;</span><span class="p">)</span>
+</span><span id="__span-19-7"><a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="k">except</span> <span class="ne">RuntimeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+</span><span id="__span-19-8"><a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;call failed:&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+</span></code></pre></div>
 <h2 id="performance-zero-copy-large-payloads">Performance: Zero-Copy Large Payloads<a class="headerlink" href="#performance-zero-copy-large-payloads" title="Permanent link">&para;</a></h2>
 <p>When working with large byte arrays (sensor data, images, point clouds), hiroz-py minimizes memory copies using a zero-copy optimization for <code>uint8[]</code> and <code>byte[]</code> fields.</p>
 <h3 id="zbufview">ZBufView<a class="headerlink" href="#zbufview" title="Permanent link">&para;</a></h3>
 <p>When a subscriber receives a message, hiroz exposes byte array fields as a <code>ZBufView</code> — a zero-copy view into the received network buffer. <code>ZBufView</code> implements Python's buffer protocol:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">msg</span> <span class="o">=</span> <span class="n">sub</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="c1"># msg.data is a ZBufView — no copy has occurred</span>
-</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>
-</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="c1"># Zero-copy access via buffer protocol</span>
-</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="n">mv</span> <span class="o">=</span> <span class="nb">memoryview</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
-</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="n">header</span> <span class="o">=</span> <span class="n">mv</span><span class="p">[:</span><span class="mi">8</span><span class="p">]</span>  <span class="c1"># Slice without copying the entire payload</span>
-</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>
-</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="c1"># Only copies when explicitly converted</span>
-</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="n">data</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="n">msg</span> <span class="o">=</span> <span class="n">sub</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="c1"># msg.data is a ZBufView — no copy has occurred</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="c1"># Zero-copy access via buffer protocol</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="n">mv</span> <span class="o">=</span> <span class="nb">memoryview</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="n">header</span> <span class="o">=</span> <span class="n">mv</span><span class="p">[:</span><span class="mi">8</span><span class="p">]</span>  <span class="c1"># Slice without copying the entire payload</span>
+</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a>
+</span><span id="__span-20-8"><a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="c1"># Only copies when explicitly converted</span>
+</span><span id="__span-20-9"><a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a><span class="n">data</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
 </span></code></pre></div>
 <h3 id="echo-without-copying">Echo Without Copying<a class="headerlink" href="#echo-without-copying" title="Permanent link">&para;</a></h3>
 <p>For relay and echo patterns, pass <code>ZBufView</code> fields directly to a new message. The derive macro detects <code>ZBufView</code> and extracts the inner buffer via reference counting — no data copy occurs:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Receive and re-publish — zero-copy for byte array fields</span>
-</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="n">msg</span> <span class="o">=</span> <span class="n">sub</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
-</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="n">echo</span> <span class="o">=</span> <span class="n">std_msgs</span><span class="o">.</span><span class="n">ByteMultiArray</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">msg</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>  <span class="c1"># No copy!</span>
-</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="n">pub</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">echo</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># Receive and re-publish — zero-copy for byte array fields</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="n">msg</span> <span class="o">=</span> <span class="n">sub</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="n">echo</span> <span class="o">=</span> <span class="n">std_msgs</span><span class="o">.</span><span class="n">ByteMultiArray</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">msg</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>  <span class="c1"># No copy!</span>
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="n">pub</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">echo</span><span class="p">)</span>
 </span></code></pre></div>
 <h3 id="zbufview-api">ZBufView API<a class="headerlink" href="#zbufview-api" title="Permanent link">&para;</a></h3>
 <table>
@@ -3726,31 +4280,29 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 <h2 id="ros-2-interoperability">ROS 2 Interoperability<a class="headerlink" href="#ros-2-interoperability" title="Permanent link">&para;</a></h2>
 <p>Python nodes interoperate with ROS 2 C++ nodes via the shared Zenoh transport. See the dedicated <strong><a href="../../user-guide/interop/">ROS 2 Interoperability</a></strong> chapter for setup instructions.</p>
 <h2 id="running-tests">Running Tests<a class="headerlink" href="#running-tests" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Python unit tests</span>
-</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="nb">cd</span><span class="w"> </span>crates/hiroz-py
-</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="nb">source</span><span class="w"> </span>.venv/bin/activate
-</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>-v
-</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>
-</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="c1"># Python-Rust interop tests</span>
-</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a>cargo<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--features<span class="w"> </span>python-interop<span class="w"> </span>-p<span class="w"> </span>hiroz-tests<span class="w"> </span>--test<span class="w"> </span>python_interop<span class="w"> </span>--<span class="w"> </span>--test-threads<span class="o">=</span><span class="m">1</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="c1"># Python unit tests</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="nb">cd</span><span class="w"> </span>crates/hiroz-py
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="nb">source</span><span class="w"> </span>.venv/bin/activate
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>-v
+</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>
+</span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a><span class="c1"># Python-Rust interop tests</span>
+</span><span id="__span-22-7"><a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>cargo<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--features<span class="w"> </span>python-interop<span class="w"> </span>-p<span class="w"> </span>hiroz-tests<span class="w"> </span>--test<span class="w"> </span>python_interop<span class="w"> </span>--<span class="w"> </span>--test-threads<span class="o">=</span><span class="m">1</span>
 </span></code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <details class="question">
 <summary>Import errors when using hiroz_py</summary>
 <p>This error occurs when the package hasn't been built or installed correctly.
 <strong>Solution:</strong> Rebuild and install the package:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nb">cd</span><span class="w"> </span>crates/hiroz-py
-</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="nb">source</span><span class="w"> </span>.venv/bin/activate
-</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>../hiroz-msgs/python/
-</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>maturin<span class="w"> </span>develop
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="nb">cd</span><span class="w"> </span>crates/hiroz-py
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="nb">source</span><span class="w"> </span>.venv/bin/activate
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>../hiroz-msgs/python/
+</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a>maturin<span class="w"> </span>develop
 </span></code></pre></div>
 </details>
 <details class="question">
 <summary>Message type not found</summary>
 <p>This error occurs when trying to use a message type that isn't supported by the Python bindings.
-<strong>Solution:</strong> Check the supported message types by looking at the match arms in <code>crates/hiroz-py/src/node.rs</code>.
-Currently supported: <code>std_msgs/String</code>, <code>std_msgs/ByteMultiArray</code>, <code>geometry_msgs/Vector3</code>,
-<code>geometry_msgs/Twist</code>, <code>sensor_msgs/LaserScan</code>, and <code>example_interfaces/AddTwoInts</code>.</p>
+<strong>Solution:</strong> Use a class from <code>hiroz_msgs_py</code>. A class that only defines <code>__msgtype__</code> passes <code>create_publisher</code> and <code>create_subscriber</code>, but <code>publish</code> raises <code>ValueError</code> and <code>recv</code> raises <code>TypeError</code> when the type is not in the generated registry. <code>hiroz_py.list_registered_types()</code> returns the registered message type names.</p>
 <p>Ensure you are passing a message class object (e.g., <code>std_msgs.String</code>), not a string.</p>
 </details>
 <details class="question">
