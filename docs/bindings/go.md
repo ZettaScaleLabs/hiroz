@@ -99,7 +99,7 @@ Callbacks flow in reverse: Rust invokes C function pointers → dispatched to Go
 The library exports `hiroz_abi_version()`, an integer that changes only when an exported function, struct layout or error code is removed or altered.
 Adding a function does not change it.
 The first value is 1. The function never returns 0.
-Go needs a library that exports `hiroz_abi_version` (0.2.2 or later). Linking against an older library fails with an undefined symbol.
+Go needs a library that exports `hiroz_abi_version`. Linking against a library that lacks it fails with an undefined symbol.
 Go exposes it as `hiroz.ABIVersion()`.
 Hiroz does not yet compare it with the version the header declares, and CI does not yet check ABI changes against the last release.
 So a mismatch between `hiroz_ffi.h` and `libhiroz` is still not detected automatically.
