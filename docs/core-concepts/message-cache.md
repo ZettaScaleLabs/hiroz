@@ -129,7 +129,7 @@ let cache = node
 
 ## Subscriber Options
 
-A cache declares the same kind of subscription as `create_sub`, so the builder takes the same options.
+A cache shares the locality and encoding checks of `create_sub`, and a `TransientLocal` cache requests history as a subscriber does. A volatile cache keeps a plain subscription, not the advanced one that `create_sub` declares, so that it stores reordered samples.
 
 | Builder method | Effect |
 |---|---|
@@ -139,7 +139,7 @@ A cache declares the same kind of subscription as `create_sub`, so the builder t
 
 ### Message loss
 
-A cache tracks the sequence numbers that hiroz publishers send in the sample attachment. A gap raises a `MessageLost` event with the number of skipped messages. Read it with `cache.events_mgr()`, the same handle that `ZSub::events_mgr()` returns. A publisher that sends no attachment, such as a plain Zenoh peer, is never reported as lossy. The first sample of a publisher is a baseline, so a cache that joins late reports no loss for history it never received. The cache raises no other event type itself.
+A cache tracks the sequence numbers that hiroz publishers send in the sample attachment. A gap raises a `MessageLost` event with the number of skipped messages. Read it with `cache.events_mgr()`, the same handle that `ZSub::events_mgr()` returns. A publisher that sends no attachment, such as a plain Zenoh peer, is never reported as lossy. The first sample of a publisher is a baseline, so a cache that joins late reports no loss for history it never received. The tracker keeps the baselines of at most 1024 publishers and drops the publisher heard from least recently. When that publisher sends again, its sample is a new baseline: it reports no loss, and a gap that fell inside the eviction goes unreported. The cache raises no other event type itself.
 
 ## Comparison with `message_filters::Cache<T>`
 
