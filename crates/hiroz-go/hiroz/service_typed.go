@@ -55,6 +55,15 @@ func CallTypedWithTimeout[Resp Message](client *ServiceClient, request Message, 
 //
 // Cancelling ctx does not abort the call in the C layer. The call ends at its timeout,
 // and ServiceClient.Close waits for it.
+//
+// The context bounds the wait for the C result and nothing else. request.SerializeCDR and
+// response.DeserializeCDR are your code, they run synchronously on the calling goroutine,
+// and cancelling ctx cannot interrupt them:
+//   - A call that ends in SerializeCDR returns only when the serializer returns. It then
+//     returns the context error and does not reach the C layer.
+//   - ctx is checked once after the C result arrives and before DeserializeCDR runs. If ctx
+//     ends while DeserializeCDR runs, the call still returns nil, and response holds the
+//     decoded value.
 func CallTypedContext[Resp Message](ctx context.Context, client *ServiceClient, request Message, response Resp) error {
 	// Check before the user's serializer runs, so a cancelled call does not wait for it.
 	if err := ctx.Err(); err != nil {
