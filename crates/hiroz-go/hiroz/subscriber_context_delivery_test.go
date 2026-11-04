@@ -118,10 +118,10 @@ func TestBuildWithTypedCallbackContextDeliversForPointerType(t *testing.T) {
 }
 
 // With the real library, destroying a subscriber returns while a handler is still running.
+// The publisher calls the handler on its own thread, so the test publishes from a goroutine.
 func TestBuildWithTypedCallbackContextDestroyDoesNotWaitForRunningHandler(t *testing.T) {
 	node, pub := ctxDeliveryFixture(t, "/ctx_delivery_destroy")
 	b := newBarrier()
-	defer b.free()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sub, err := BuildWithTypedCallbackContext(ctx, node.CreateSubscriber("/ctx_delivery_destroy"), func(*ctxDeliveryMsg) { b.hold() })
@@ -129,23 +129,26 @@ func TestBuildWithTypedCallbackContextDestroyDoesNotWaitForRunningHandler(t *tes
 		t.Fatalf("subscriber: %v", err)
 	}
 
-	deadline := time.After(8 * time.Second)
-	tick := time.NewTicker(100 * time.Millisecond)
-	defer tick.Stop()
-entered:
-	for {
-		if err := pub.Publish(&ctxDeliveryMsg{Value: "hello"}); err != nil {
-			t.Fatalf("publish: %v", err)
+	stop := make(chan struct{})
+	published := make(chan struct{})
+	go func() {
+		defer close(published)
+		for {
+			_ = pub.Publish(&ctxDeliveryMsg{Value: "hello"})
+			select {
+			case <-stop:
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
 		}
-		select {
-		case <-b.entered:
-			break entered
-		case <-deadline:
-			t.Fatal("the handler never ran")
-		case <-tick.C:
-		}
-	}
+	}()
+	defer func() {
+		b.free()
+		close(stop)
+		receiveBounded(t, published, "the publisher goroutine to stop")
+	}()
 
+	b.waitEntered(t, "the handler")
 	closed := make(chan error, 1)
 	go func() { closed <- sub.Close() }()
 	if err := receiveBounded(t, closed, "Close to return while the handler runs"); err != nil {
