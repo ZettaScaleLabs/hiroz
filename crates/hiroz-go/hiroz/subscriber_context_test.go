@@ -11,7 +11,11 @@ import (
 )
 
 func TestSubscriberWithChannelContextAlreadyCancelled(t *testing.T) {
-	before := liveClosures.Load()
+	// A cancelled context must not reach the C creator, so no callback state exists.
+	var creates atomic.Int32
+	original := createSubscriber
+	createSubscriber = func(subscriberCall) *cSubscriber { creates.Add(1); return nil }
+	t.Cleanup(func() { createSubscriber = original })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -22,8 +26,8 @@ func TestSubscriberWithChannelContextAlreadyCancelled(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
-	if leaked := liveClosures.Load() - before; leaked != 0 {
-		t.Errorf("a cancelled context left %d callback handles alive, want 0", leaked)
+	if n := creates.Load(); n != 0 {
+		t.Errorf("a cancelled context reached the C creator %d times, want 0", n)
 	}
 }
 
