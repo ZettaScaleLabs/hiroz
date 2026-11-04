@@ -17,13 +17,14 @@
 //! | `intra_process_only_publisher_does_not_reach_another_context` | nothing goes on the wire, with a control proving the wire works |
 //! | `a_different_rust_type_on_the_same_topic_is_not_delivered` | the `TypeId` gate holds |
 //! | `dropping_the_subscriber_unregisters_it` | no delivery into a dead subscriber |
-//! | `a_pooled_payload_buffer_is_written_in_place_and_reused` | one buffer serves many sends |
 //! | `a_plain_publish_reaches_a_shared_callback_subscriber` | #39 — no silent same-session loss |
 //! | `publish_shared_without_a_locality_restriction_arrives_once` | #39 — and no duplicate either |
 //! | `a_self_publishing_callback_does_not_recurse_without_bound` | #40 — a cycle is refused, not fatal |
 //! | `a_plain_publisher_takes_the_wire_for_an_ordinary_subscriber` | #36 — no drop when nobody is on the bus |
 //! | `the_wire_is_used_when_a_subscriber_is_off_session` | #36 — and the bus is not, so no duplicate |
 //! | `a_sole_receiver_is_given_the_message_to_own` | #36 — the move, not a shared Arc |
+
+#![cfg(feature = "ros-msgs")]
 
 mod common;
 
@@ -1464,5 +1465,110 @@ fn a_channel_no_endpoint_holds_is_reclaimed() -> hiroz::Result<()> {
         "a channel a live publisher still holds must survive a reclamation pass"
     );
     drop(held);
+    Ok(())
+}
+
+/// A shared and an owned subscriber of one type cannot both be served by an
+/// intra-process-only publisher: the value cannot be given away with two
+/// takers, and the shared path skips the owned one.
+///
+/// Serving the shared subscriber and reporting `Ok` hides the starved owned one
+/// behind a success, so the publisher refuses and delivers to neither.
+#[test]
+fn publish_owned_refuses_when_an_owned_and_a_shared_subscriber_coexist() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("owned_mixed").build()?;
+
+    let shared = Arc::new(AtomicUsize::new(0));
+    let owned = Arc::new(AtomicUsize::new(0));
+    let (cs, co) = (shared.clone(), owned.clone());
+    let _s1 = node
+        .create_sub::<RosString>("owned_mixed")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            cs.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let _s2 = node
+        .create_sub::<RosString>("owned_mixed")
+        .build_with_owned_callback(move |_m: RosString| {
+            co.fetch_add(1, Ordering::SeqCst);
+        })?;
+
+    let publisher = node
+        .create_pub::<RosString>("owned_mixed")
+        .with_intra_process_only()
+        .build()?;
+    wait_for_ready(Duration::from_millis(300));
+
+    let outcome = publisher.publish_owned(RosString {
+        data: "one shared taker, one owned taker".to_owned(),
+    });
+
+    assert!(
+        outcome.is_err(),
+        "the owned subscriber cannot be served and there is no wire behind the bus: \
+         this must refuse rather than report success. Got {outcome:?}"
+    );
+    assert_eq!(
+        (shared.load(Ordering::SeqCst), owned.load(Ordering::SeqCst)),
+        (0, 0),
+        "a refused publish delivers to nobody"
+    );
+    Ok(())
+}
+
+/// A panic payload whose destructor panics must not escape the isolation.
+///
+/// `catch_unwind` returns the payload; dropping it is user code running outside
+/// the guard. The first subscriber panics with such a payload, and the second
+/// must still be called.
+#[test]
+fn a_panic_payload_that_panics_on_drop_does_not_stop_delivery() -> hiroz::Result<()> {
+    struct Bomb;
+    impl Drop for Bomb {
+        fn drop(&mut self) {
+            panic!("the payload's destructor panics");
+        }
+    }
+
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("bomb").build()?;
+
+    let after = Arc::new(AtomicUsize::new(0));
+    let a = after.clone();
+    let _s1 = node
+        .create_sub::<RosString>("bomb")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            std::panic::panic_any(Bomb);
+        })?;
+    let _s2 = node
+        .create_sub::<RosString>("bomb")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            a.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let publisher = node
+        .create_pub::<RosString>("bomb")
+        .with_intra_process_only()
+        .build()?;
+
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        publisher.publish_shared(Arc::new(RosString {
+            data: "armed".to_owned(),
+        }))
+    }));
+    std::panic::set_hook(prev);
+
+    assert!(
+        result.is_ok(),
+        "the payload's destructor panicked into the publishing thread"
+    );
+    assert_eq!(
+        after.load(Ordering::SeqCst),
+        1,
+        "the sibling after the bomb must still be called"
+    );
     Ok(())
 }
