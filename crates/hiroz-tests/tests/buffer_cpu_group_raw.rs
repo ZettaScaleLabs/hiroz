@@ -1108,6 +1108,17 @@ fn subscribe_with_flag(
     group: BufferGroup,
     has_buffer_fields: Option<bool>,
 ) -> (Arc<Tally>, RawSubscriber) {
+    subscribe_with_flag_qos(node, topic, group, has_buffer_fields, None)
+}
+
+/// `subscribe_with_flag` with an explicit QoS.
+fn subscribe_with_flag_qos(
+    node: &ZNode,
+    topic: &str,
+    group: BufferGroup,
+    has_buffer_fields: Option<bool>,
+    qos: Option<QosProfile>,
+) -> (Arc<Tally>, RawSubscriber) {
     let (count, callback) = counter();
     let sub = node
         .create_raw_subscriber_with_buffer_fields(
@@ -1115,7 +1126,7 @@ fn subscribe_with_flag(
             TYPE_NAME,
             TYPE_HASH,
             callback,
-            None,
+            qos,
             group,
             has_buffer_fields,
         )
@@ -1222,6 +1233,48 @@ fn raw_buffer_fields_do_not_override_off() {
     );
 }
 
+/// A transient-local QoS and a custom key expression format stay out when the flag says
+/// `Some(true)`: the flag cannot override either. A `Cpu` control joins first, so the empty
+/// answers below are not a dead setup.
+#[test]
+fn raw_buffer_fields_do_not_override_the_exclusions() {
+    const NAME: &str = "raw_buffer_fields_do_not_override_the_exclusions";
+    let f = Fixture::new("raw_flag_excl");
+    let (control, _c) =
+        subscribe_with_flag(&f.node, "raw_flag_excl_control", BufferGroup::Cpu, None);
+    let (_custom_ctx, custom_node) = f.custom_format_node("raw_flag_excl_custom");
+    let (tl, _tl_sub) = subscribe_with_flag_qos(
+        &f.node,
+        "raw_flag_excl_tl",
+        BufferGroup::Auto,
+        Some(true),
+        transient_local(),
+    );
+    let (fmt, _fmt_sub) = subscribe_with_flag(
+        &custom_node,
+        "raw_flag_excl_fmt",
+        BufferGroup::Auto,
+        Some(true),
+    );
+    assert_joins(NAME, &f.raw, "raw_flag_excl_control", "the Cpu control");
+    assert_delivers_on_both_keys(
+        NAME,
+        &f.raw,
+        "raw_flag_excl_control",
+        &control,
+        "the control callback",
+    );
+    for (topic, count) in [("raw_flag_excl_tl", &tl), ("raw_flag_excl_fmt", &fmt)] {
+        assert_stays_out(
+            &format!("{NAME}: {topic}"),
+            &f.raw,
+            "raw_flag_excl_control",
+            topic,
+            count,
+        );
+    }
+}
+
 /// A one-field message schema.
 fn one_field(field_type: FieldType) -> Arc<MessageSchema> {
     MessageSchema::builder("pkg/msg/M")
@@ -1230,8 +1283,10 @@ fn one_field(field_type: FieldType) -> Arc<MessageSchema> {
         .unwrap()
 }
 
-/// The flag of a schema decides the join. The expectations are literals: a `uint8[]` message
-/// joins and a `float64[]` message stays out.
+/// The flag of a schema decides the join. The expectations are literals: the flag of a `uint8[]`
+/// schema makes the subscriber join and the flag of a `float64[]` schema keeps it out. Both
+/// subscribers use the same type name and hash, so the test shows that the flag reaches the join
+/// decision. It does not send a `float64[]` message.
 #[test]
 fn raw_flag_from_a_schema_decides_the_join() {
     const NAME: &str = "raw_flag_from_a_schema_decides_the_join";
@@ -1293,6 +1348,144 @@ impl CFixture {
                 buffer_fields,
             )
         }
+    }
+}
+
+impl CFixture {
+    /// `hiroz_subscriber_create_with_buffer_fields` on `/topic` with a transient-local QoS. Null
+    /// on failure.
+    fn with_buffer_fields_transient_local(
+        &self,
+        topic: &str,
+        user_data: usize,
+        buffer_fields: i32,
+    ) -> *mut hiroz::ffi::subscriber::CSubscriber {
+        use std::ffi::CString;
+        let topic = CString::new(format!("/{topic}")).unwrap();
+        let type_name = CString::new(TYPE_NAME).unwrap();
+        let type_hash = CString::new(TYPE_HASH).unwrap();
+        let qos = hiroz::ffi::qos::CQosProfile {
+            reliability: 0,
+            durability: 1,
+            history: 0,
+            history_depth: 10,
+            deadline_sec: 0,
+            deadline_nsec: 0,
+            lifespan_sec: 0,
+            lifespan_nsec: 0,
+            liveliness: 0,
+            liveliness_lease_sec: 0,
+            liveliness_lease_nsec: 0,
+        };
+        unsafe {
+            hiroz::ffi::subscriber::hiroz_subscriber_create_with_buffer_fields(
+                self.node,
+                topic.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                c_count,
+                user_data,
+                &qos,
+                buffer_fields,
+            )
+        }
+    }
+}
+
+/// The ABI numbers are `0`, `1` and `2`, written here as literals: the other tests read the
+/// constants back from the Rust source, so a swap of two constants would move them together. `1`
+/// stays out and `0` and `2` join. A `Cpu` subscriber made with group `1` is the control.
+#[test]
+fn c_abi_buffer_fields_numbers_are_pinned() {
+    const NAME: &str = "c_abi_buffer_fields_numbers_are_pinned";
+    assert_eq!(BUFFER_FIELDS_UNKNOWN, 0, "{NAME}");
+    assert_eq!(BUFFER_FIELDS_ABSENT, 1, "{NAME}");
+    assert_eq!(BUFFER_FIELDS_PRESENT, 2, "{NAME}");
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_flag_lit");
+    let (_control_tally, control_data) = c_tally();
+    let (zero_tally, zero_data) = c_tally();
+    let (one_tally, one_data) = c_tally();
+    let (two_tally, two_data) = c_tally();
+    let control = c.with_group("c_flag_lit_control", control_data, 1);
+    let zero = c.with_buffer_fields("c_flag_lit_zero", zero_data, 0);
+    let one = c.with_buffer_fields("c_flag_lit_one", one_data, 1);
+    let two = c.with_buffer_fields("c_flag_lit_two", two_data, 2);
+    assert!(
+        !control.is_null() && !zero.is_null() && !one.is_null() && !two.is_null(),
+        "{NAME}: a creator returned null"
+    );
+
+    assert_joins(NAME, &raw, "c_flag_lit_zero", "the subscriber with 0");
+    assert_delivers_on_both_keys(NAME, &raw, "c_flag_lit_zero", zero_tally, "the 0 callback");
+    assert_joins(NAME, &raw, "c_flag_lit_two", "the subscriber with 2");
+    assert_delivers_on_both_keys(NAME, &raw, "c_flag_lit_two", two_tally, "the 2 callback");
+    assert_stays_out(
+        NAME,
+        &raw,
+        "c_flag_lit_control",
+        "c_flag_lit_one",
+        one_tally,
+    );
+
+    for sub in [one, two, zero, control] {
+        c_destroy(sub);
+    }
+}
+
+/// A transient-local QoS through the C entry stays out under `UNKNOWN` and `PRESENT`: neither
+/// value overrides it. The same two values with the default QoS join, on the same node.
+#[test]
+fn c_abi_buffer_fields_do_not_override_a_transient_local_qos() {
+    const NAME: &str = "c_abi_buffer_fields_do_not_override_a_transient_local_qos";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_flag_tl");
+    let (control_tally, control_data) = c_tally();
+    let (unknown_tally, unknown_data) = c_tally();
+    let (present_tally, present_data) = c_tally();
+    let control = c.with_buffer_fields("c_flag_tl_control", control_data, BUFFER_FIELDS_PRESENT);
+    let unknown = c.with_buffer_fields_transient_local(
+        "c_flag_tl_unknown",
+        unknown_data,
+        BUFFER_FIELDS_UNKNOWN,
+    );
+    let present = c.with_buffer_fields_transient_local(
+        "c_flag_tl_present",
+        present_data,
+        BUFFER_FIELDS_PRESENT,
+    );
+    assert!(
+        !control.is_null() && !unknown.is_null() && !present.is_null(),
+        "{NAME}: a creator returned null"
+    );
+
+    assert_joins(NAME, &raw, "c_flag_tl_control", "the default-QoS control");
+    assert_delivers_on_both_keys(
+        NAME,
+        &raw,
+        "c_flag_tl_control",
+        control_tally,
+        "the control callback",
+    );
+    assert_stays_out(
+        NAME,
+        &raw,
+        "c_flag_tl_control",
+        "c_flag_tl_unknown",
+        unknown_tally,
+    );
+    assert_stays_out(
+        NAME,
+        &raw,
+        "c_flag_tl_control",
+        "c_flag_tl_present",
+        present_tally,
+    );
+
+    for sub in [present, unknown, control] {
+        c_destroy(sub);
     }
 }
 
