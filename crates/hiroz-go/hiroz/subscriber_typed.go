@@ -216,6 +216,10 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 
 	sub, err := builder.BuildWithCallback(msgTemplate, rawHandler)
 	if err != nil {
+		// The C layer may have started the subscription before it failed, so a callback can
+		// already wait on the full channel. Release it. Leave outCh open: that callback may
+		// still send.
+		close(done)
 		return nil, nil, err
 	}
 
