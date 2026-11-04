@@ -215,6 +215,9 @@ func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 		defer h.client.inflight.leave()
 
 		resultBytes, result := actionResult(goalHandle)
+		// The goal handle finalizer destroys the C handle that the call reads. The caller may
+		// drop its last reference after a cancel, so keep h reachable until the call returns.
+		runtime.KeepAlive(h)
 		if result != 0 {
 			ch <- ffiResult{nil, newHirozError(ErrorCodeActionResultFailed, fmt.Sprintf("failed to get result with code %d", result))}
 			return
