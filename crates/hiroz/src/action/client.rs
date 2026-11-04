@@ -233,12 +233,13 @@ impl<'a, A: ZAction> Builder for ZActionClientBuilder<'a, A> {
             })?;
         tracing::debug!("Feedback subscriber created successfully");
 
-        // Create status subscriber with callback for direct message routing
         // Use the action's status_type_info for proper ROS 2 interop
         let status_type_info = Some(A::status_type_info());
+        // The status message has no buffer field, so the subscriber stays out of the buffer group.
         let mut status_sub_builder = self
             .node
-            .create_sub_impl::<StatusMessage>(&status_topic_name, status_type_info);
+            .create_sub_impl::<StatusMessage>(&status_topic_name, status_type_info)
+            .with_buffer_group(crate::BufferGroup::Off);
         if let Some(qos) = self.status_topic_qos {
             status_sub_builder.entity.qos = qos.to_protocol_qos();
         }

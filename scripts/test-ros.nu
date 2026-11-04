@@ -59,9 +59,9 @@ def run-ros-interop [] {
 
     let distro = get-distro
     let cmd = if $distro == "humble" {
-        "cargo nextest run -p hiroz-tests --profile interop --no-default-features --features ros-interop,humble"
+        "cargo nextest run -p hiroz-tests --profile interop --no-default-features --features ros-interop,humble,raw-sub-tests"
     } else {
-        $"cargo nextest run -p hiroz-tests --profile interop --features ros-interop,($distro)"
+        $"cargo nextest run -p hiroz-tests --profile interop --features ros-interop,raw-sub-tests,($distro)"
     }
 
     # Pre-build with the same features nextest will use, so the build cache is
@@ -70,9 +70,9 @@ def run-ros-interop [] {
     # feature set) triggers a concurrent recompile that replaces the binary
     # while nextest is already running → double-spawn / "No such file" failure.
     let prebuild_cmd = if $distro == "humble" {
-        "cargo build -j4 -p hiroz-tests --tests --no-default-features --features ros-interop,humble"
+        "cargo build -j4 -p hiroz-tests --tests --no-default-features --features ros-interop,humble,raw-sub-tests"
     } else {
-        $"cargo build -j4 -p hiroz-tests --tests --features ros-interop,($distro)"
+        $"cargo build -j4 -p hiroz-tests --tests --features ros-interop,raw-sub-tests,($distro)"
     }
     run-cmd $prebuild_cmd
 

@@ -735,6 +735,7 @@ impl ZContext {
             enable_type_desc_service: false,
             enable_parameters: true,
             parameter_overrides: std::collections::HashMap::new(),
+            subscriber_options: Default::default(),
         }
     }
 

@@ -53,6 +53,7 @@ pub struct ZNode {
     pub(crate) clock: crate::time::ZClock,
     pub(crate) shm_config: Option<Arc<crate::shm::ShmConfig>>,
     pub(crate) keyexpr_format: hiroz_protocol::KeyExprFormat,
+    pub(crate) subscriber_options: crate::SubscriberOptions,
     /// Optional type description service for this node.
     /// Enabled via `ZNodeBuilder::with_type_description_service()`.
     /// The service uses callback mode and requires no background task.
@@ -88,9 +89,22 @@ pub struct ZNodeBuilder {
     pub(crate) enable_parameters: bool,
     /// Initial parameter overrides applied at declaration time.
     pub(crate) parameter_overrides: std::collections::HashMap<String, ParameterValue>,
+    pub(crate) subscriber_options: crate::SubscriberOptions,
 }
 
 impl ZNodeBuilder {
+    /// Set the defaults for every subscriber that this node creates, cache and raw subscribers
+    /// included. A setting on a subscriber builder replaces the default for that subscriber. A
+    /// subscriber that the node creates for itself keeps the choice that the node makes for it:
+    /// the status subscriber of an action client always stays out, and the feedback subscriber of
+    /// a typed action client follows the default.
+    ///
+    /// See [`SubscriberOptions`](crate::SubscriberOptions) for the options.
+    pub fn with_subscriber_options(mut self, options: crate::SubscriberOptions) -> Self {
+        self.subscriber_options = options;
+        self
+    }
+
     pub fn with_namespace<S: AsRef<str>>(mut self, namespace: S) -> Self {
         self.namespace = normalize_node_namespace(namespace.as_ref());
         self
@@ -291,6 +305,7 @@ impl Builder for ZNodeBuilder {
             clock: self.clock,
             shm_config: self.shm_config,
             keyexpr_format: self.keyexpr_format.clone(),
+            subscriber_options: self.subscriber_options,
             type_desc_service,
             parameter_service,
         })
@@ -384,10 +399,14 @@ impl ZNode {
         // consumer that answers GetTypeDescription for its subscribed type, as
         // ROS 2 nodes do. This is what lets `hu meter pub` resolve the schema
         // from a topic that only has a subscriber.
-        if let Some(schema) = T::message_schema() {
-            self.register_schema_with_type_description_service(&schema);
+        let schema = T::message_schema();
+        if let Some(schema) = &schema {
+            self.register_schema_with_type_description_service(schema);
         }
-        self.create_sub_impl(topic, Some(T::type_info()))
+        let mut builder = self.create_sub_impl(topic, Some(T::type_info()));
+        // `None` without a schema: such a subscriber cannot tell, so `Auto` joins it.
+        builder.has_buffer_fields = schema.map(|schema| schema.has_buffer_fields());
+        builder
     }
 
     #[doc(hidden)]
@@ -417,6 +436,8 @@ impl ZNode {
             dyn_schema: None,
             locality: None,
             expected_encoding: None,
+            options: self.subscriber_options,
+            has_buffer_fields: None,
             _phantom_data: Default::default(),
         }
     }
@@ -455,7 +476,10 @@ impl ZNode {
             "[NOD] Creating cache: topic={}, capacity={}",
             topic, capacity
         );
-        let sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
+        let mut sub_builder = self.create_sub_impl(topic, Some(T::type_info()));
+        // The rule of `create_sub`. A cache does not call `create_sub`, because that also registers
+        // the type-description service.
+        sub_builder.has_buffer_fields = T::message_schema().map(|schema| schema.has_buffer_fields());
         ZCacheBuilder::new(sub_builder, capacity)
     }
 
@@ -627,7 +651,9 @@ impl ZNode {
     }
 
     /// Create a raw subscriber for FFI (no type safety)
-    /// Returns a RawSubscriber that must be kept alive as long as the subscription is active
+    /// Returns a RawSubscriber that must be kept alive as long as the subscription is active.
+    /// It follows the node default for the CPU buffer group, as
+    /// [`ZNode::create_raw_subscriber_with_qos`] does.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber<F>(
         &self,
@@ -643,6 +669,10 @@ impl ZNode {
     }
 
     /// Create a raw subscriber for FFI with optional QoS
+    ///
+    /// It uses the buffer group of the node default, `BufferGroup::Auto` unless
+    /// [`ZNodeBuilder::with_subscriber_options`] says otherwise. Use
+    /// [`ZNode::create_raw_subscriber_with_group`] to choose for one subscriber.
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_qos<F>(
         &self,
@@ -651,6 +681,36 @@ impl ZNode {
         type_hash: &str,
         callback: F,
         qos: Option<crate::qos::QosProfile>,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(&[u8]) + Send + Sync + 'static,
+    {
+        self.create_raw_subscriber_with_group(
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            qos,
+            self.subscriber_options.buffer_group,
+        )
+    }
+
+    /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group`
+    /// asks for it.
+    ///
+    /// A raw subscriber has no message schema, so `Auto` and `Cpu` both join: two exact
+    /// subscriptions, the base key and `<key>/_buf_cpu`, then a token ending `backends:cpu:`. One
+    /// callback serves both keys. `Off`, a transient-local QoS and a custom key expression format
+    /// stay out: the base key only, and no token.
+    #[cfg(feature = "ffi")]
+    pub fn create_raw_subscriber_with_group<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        group: crate::BufferGroup,
     ) -> Result<crate::ffi::subscriber::RawSubscriber>
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
@@ -681,17 +741,50 @@ impl ZNode {
         };
 
         let topic_ke = self.keyexpr_format.topic_key_expr(&entity)?;
-        let subscriber = self
-            .session
-            .declare_subscriber((*topic_ke).clone())
-            .callback(move |sample| {
-                let payload = sample.payload().to_bytes();
-                callback(&payload);
-            })
-            .advanced();
-        let subscriber = apply_transient_local_sub(subscriber, &entity.qos).wait()?;
+        let key_expr = (*topic_ke).clone();
 
-        Ok(crate::ffi::subscriber::RawSubscriber { inner: subscriber })
+        let group_key = crate::buffer_group::joined_group_key(
+            group,
+            None,
+            &self.keyexpr_format,
+            &entity,
+            key_expr.as_str(),
+        );
+
+        // A joined subscriber declares two exact subscriptions, the base key and the group key,
+        // both before the token. One callback serves both.
+        let shared = std::sync::Arc::new(move |sample: zenoh::sample::Sample| {
+            callback(&sample.payload().to_bytes())
+        });
+        let group_sub = crate::pubsub::declare_group_subscription(
+            &self.session,
+            group_key.as_deref(),
+            None,
+            &shared,
+        )?;
+        let h = shared.clone();
+        let builder = self
+            .session
+            .declare_subscriber(key_expr.clone())
+            .callback(move |sample: zenoh::sample::Sample| h(sample))
+            .advanced();
+        let subscriber = apply_transient_local_sub(builder, &entity.qos).wait()?;
+        let token = if group_key.is_some() {
+            Some(crate::buffer_group::declare_token(
+                &self.session,
+                &self.keyexpr_format,
+                &entity,
+                true,
+            )?)
+        } else {
+            None
+        };
+
+        Ok(crate::ffi::subscriber::RawSubscriber::new(
+            token,
+            subscriber,
+            group_sub,
+        ))
     }
 
     /// Create a raw service client for FFI (no type safety)
@@ -855,9 +948,16 @@ impl ZNode {
         let cancel_goal_client =
             self.create_raw_service_client(&cancel_goal_service, &cancel_goal_type, "")?;
 
-        // Feedback subscriber (no-op callback for now; Go handles via polling or separate mechanism)
-        let feedback_sub =
-            self.create_raw_subscriber(&feedback_topic, &feedback_type_dds, feedback_hash, |_| {})?;
+        // Feedback subscriber (no-op callback for now; Go handles via polling or separate mechanism).
+        // Its callback reads nothing, so it stays out of the buffer group.
+        let feedback_sub = self.create_raw_subscriber_with_group(
+            &feedback_topic,
+            &feedback_type_dds,
+            feedback_hash,
+            |_| {},
+            None,
+            crate::BufferGroup::Off,
+        )?;
 
         Ok(crate::ffi::action::RawActionClient {
             send_goal_client,
