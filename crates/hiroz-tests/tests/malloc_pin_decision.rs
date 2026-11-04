@@ -83,3 +83,12 @@ fn rejected_trim_threshold_is_described_with_its_return_code() {
     assert!(text.contains("trim=0"), "{text}");
     assert!(!text.contains("not attempted"), "{text}");
 }
+
+/// The decision tests above read both constants from production, so they stay green when a
+/// constant changes. This test states the measured values, so a change to either one fails here
+/// and has to be a deliberate edit of both places.
+#[test]
+fn thresholds_are_the_measured_values() {
+    assert_eq!(MMAP_THRESHOLD, 64 << 20);
+    assert_eq!(TRIM_THRESHOLD, 256 << 20);
+}
