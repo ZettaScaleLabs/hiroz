@@ -766,3 +766,329 @@ fn raw_create_and_teardown_cycles_leave_no_token_and_no_callback() {
         assert_torn_down(&name, &f.raw, TOPIC, &count);
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// The C ABI: `hiroz_subscriber_create_with_group`
+// ---------------------------------------------------------------------------------------------
+
+/// The C callback of the ABI tests. `user_data` is the address of a leaked `Tally`. It tallies a
+/// payload as `counter` does, so a test can tell a group-key delivery from a base-key one.
+extern "C" fn c_count(user_data: usize, data: *const u8, len: usize) {
+    let tally = unsafe { &*(user_data as *const Tally) };
+    let payload = unsafe { std::slice::from_raw_parts(data, len) };
+    if payload == GROUP_PAYLOAD {
+        tally.group.fetch_add(1, Ordering::Relaxed);
+    } else {
+        tally.base.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// A tally that outlives the test, and the `user_data` that names it. The C callback can run until
+/// its subscriber is destroyed, so the tally is never freed.
+fn c_tally() -> (&'static Tally, usize) {
+    let tally: &'static Tally = Box::leak(Box::new(Tally {
+        group: AtomicUsize::new(0),
+        base: AtomicUsize::new(0),
+    }));
+    (tally, tally as *const Tally as usize)
+}
+
+/// A context and a node made through the C ABI, as a C caller makes them.
+struct CFixture {
+    ctx: *mut hiroz::ffi::context::CContext,
+    node: *mut hiroz::ffi::node::CNode,
+}
+
+impl CFixture {
+    fn new(endpoint: &str, name: &str) -> Self {
+        use std::ffi::CString;
+        let endpoint = CString::new(endpoint).unwrap();
+        let endpoints = [endpoint.as_ptr()];
+        let mode = CString::new("client").unwrap();
+        let config = hiroz::ffi::context::CContextConfig {
+            domain_id: 0,
+            config_file: std::ptr::null(),
+            connect_endpoints: endpoints.as_ptr(),
+            connect_endpoints_count: 1,
+            mode: mode.as_ptr(),
+            disable_multicast_scouting: true,
+            connect_to_local_zenohd: false,
+            json_config: std::ptr::null(),
+            remap_rules: std::ptr::null(),
+            remap_rules_count: 0,
+            enable_logging: false,
+            namespace: std::ptr::null(),
+        };
+        let name = CString::new(name).unwrap();
+        unsafe {
+            let ctx = hiroz::ffi::context::hiroz_context_create_with_config(&config);
+            assert!(!ctx.is_null(), "the C context was not created");
+            let node = hiroz::ffi::node::hiroz_node_create(ctx, name.as_ptr(), std::ptr::null());
+            assert!(!node.is_null(), "the C node was not created");
+            Self { ctx, node }
+        }
+    }
+
+    /// `hiroz_subscriber_create_with_group` on `/topic`. Null on failure.
+    fn with_group(
+        &self,
+        topic: &str,
+        user_data: usize,
+        group: i32,
+    ) -> *mut hiroz::ffi::subscriber::CSubscriber {
+        use std::ffi::CString;
+        let topic = CString::new(format!("/{topic}")).unwrap();
+        let type_name = CString::new(TYPE_NAME).unwrap();
+        let type_hash = CString::new(TYPE_HASH).unwrap();
+        unsafe {
+            hiroz::ffi::subscriber::hiroz_subscriber_create_with_group(
+                self.node,
+                topic.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                c_count,
+                user_data,
+                std::ptr::null(),
+                group,
+            )
+        }
+    }
+
+    /// `hiroz_subscriber_create` on `/topic`: no group choice. Null on failure.
+    fn plain(&self, topic: &str, user_data: usize) -> *mut hiroz::ffi::subscriber::CSubscriber {
+        use std::ffi::CString;
+        let topic = CString::new(format!("/{topic}")).unwrap();
+        let type_name = CString::new(TYPE_NAME).unwrap();
+        let type_hash = CString::new(TYPE_HASH).unwrap();
+        unsafe {
+            hiroz::ffi::subscriber::hiroz_subscriber_create(
+                self.node,
+                topic.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                c_count,
+                user_data,
+            )
+        }
+    }
+
+    /// `hiroz_subscriber_create_with_qos` on `/topic` with the default QoS. Null on failure.
+    fn with_qos(&self, topic: &str, user_data: usize) -> *mut hiroz::ffi::subscriber::CSubscriber {
+        use std::ffi::CString;
+        let topic = CString::new(format!("/{topic}")).unwrap();
+        let type_name = CString::new(TYPE_NAME).unwrap();
+        let type_hash = CString::new(TYPE_HASH).unwrap();
+        unsafe {
+            hiroz::ffi::subscriber::hiroz_subscriber_create_with_qos(
+                self.node,
+                topic.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                c_count,
+                user_data,
+                std::ptr::null(),
+            )
+        }
+    }
+}
+
+impl Drop for CFixture {
+    fn drop(&mut self) {
+        unsafe {
+            hiroz::ffi::node::hiroz_node_destroy(self.node);
+            hiroz::ffi::context::hiroz_context_destroy(self.ctx);
+        }
+    }
+}
+
+fn c_destroy(sub: *mut hiroz::ffi::subscriber::CSubscriber) {
+    unsafe { hiroz::ffi::subscriber::hiroz_subscriber_destroy(sub) };
+}
+
+/// Groups `1` (`Cpu`) and `2` (`Auto`) join: the token announces `backends:cpu:` and one callback
+/// serves the base key and the group key. Group `0` on the same node is the control that the token
+/// query tells joined and not joined apart.
+#[test]
+fn c_abi_groups_cpu_and_auto_join() {
+    const NAME: &str = "c_abi_groups_cpu_and_auto_join";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_abi_join");
+    let (_off_tally, off_data) = c_tally();
+    let (cpu_tally, cpu_data) = c_tally();
+    let (auto_tally, auto_data) = c_tally();
+    let off = c.with_group("c_abi_join_off", off_data, 0);
+    let cpu = c.with_group("c_abi_join_cpu", cpu_data, 1);
+    let auto = c.with_group("c_abi_join_auto", auto_data, 2);
+    assert!(
+        !off.is_null() && !cpu.is_null() && !auto.is_null(),
+        "{NAME}: a creator returned null"
+    );
+
+    assert_joins(
+        NAME,
+        &raw,
+        "c_abi_join_cpu",
+        "the C subscriber with group 1",
+    );
+    assert_joins(
+        NAME,
+        &raw,
+        "c_abi_join_auto",
+        "the C subscriber with group 2",
+    );
+    let off_tokens = tokens_of(&raw, "c_abi_join_off");
+    assert!(
+        off_tokens.iter().all(|t| !t.contains("backends:")),
+        "{NAME}: the group 0 control announced backends: {off_tokens:?}"
+    );
+    assert_delivers_on_both_keys(
+        NAME,
+        &raw,
+        "c_abi_join_cpu",
+        cpu_tally,
+        "the group 1 callback",
+    );
+    assert_delivers_on_both_keys(
+        NAME,
+        &raw,
+        "c_abi_join_auto",
+        auto_tally,
+        "the group 2 callback",
+    );
+
+    for sub in [off, cpu, auto] {
+        c_destroy(sub);
+    }
+}
+
+/// Group `0` stays out: no group key, no `backends:` field. A C subscriber with group `1` on the
+/// same node is the control.
+#[test]
+fn c_abi_group_off_stays_out() {
+    const NAME: &str = "c_abi_group_off_stays_out";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_abi_off");
+    let (_control_tally, control_data) = c_tally();
+    let (tally, data) = c_tally();
+    let control = c.with_group("c_abi_off_control", control_data, 1);
+    let subject = c.with_group("c_abi_off_subject", data, 0);
+    assert!(
+        !control.is_null() && !subject.is_null(),
+        "{NAME}: a creator returned null"
+    );
+
+    assert_stays_out(NAME, &raw, "c_abi_off_control", "c_abi_off_subject", tally);
+
+    c_destroy(subject);
+    c_destroy(control);
+}
+
+/// `hiroz_subscriber_create` and `hiroz_subscriber_create_with_qos` make no group choice. They
+/// follow the node default, which is `Auto` when nothing sets it, so they join. Group `0` on the
+/// same node is the control.
+#[test]
+fn c_abi_creators_without_a_group_join_by_default() {
+    const NAME: &str = "c_abi_creators_without_a_group_join_by_default";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_abi_def");
+    let (_off_tally, off_data) = c_tally();
+    let (plain_tally, plain_data) = c_tally();
+    let (qos_tally, qos_data) = c_tally();
+    let off = c.with_group("c_abi_def_off", off_data, 0);
+    let plain = c.plain("c_abi_def_plain", plain_data);
+    let qos = c.with_qos("c_abi_def_qos", qos_data);
+    assert!(
+        !off.is_null() && !plain.is_null() && !qos.is_null(),
+        "{NAME}: a creator returned null"
+    );
+
+    assert_joins(NAME, &raw, "c_abi_def_plain", "hiroz_subscriber_create");
+    assert_joins(
+        NAME,
+        &raw,
+        "c_abi_def_qos",
+        "hiroz_subscriber_create_with_qos",
+    );
+    let off_tokens = tokens_of(&raw, "c_abi_def_off");
+    assert!(
+        off_tokens.iter().all(|t| !t.contains("backends:")),
+        "{NAME}: the group 0 control announced backends: {off_tokens:?}"
+    );
+    assert_delivers_on_both_keys(
+        NAME,
+        &raw,
+        "c_abi_def_plain",
+        plain_tally,
+        "the plain callback",
+    );
+    assert_delivers_on_both_keys(NAME, &raw, "c_abi_def_qos", qos_tally, "the QoS callback");
+
+    for sub in [qos, plain, off] {
+        c_destroy(sub);
+    }
+}
+
+/// A group other than `0`, `1` and `2` is an error: the function returns null and declares
+/// nothing. Group `1` on the same node is the control that the node and the arguments are valid.
+#[test]
+fn c_abi_unknown_group_returns_null_and_declares_nothing() {
+    const NAME: &str = "c_abi_unknown_group_returns_null_and_declares_nothing";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_abi_bad");
+    let (_tally, data) = c_tally();
+
+    let control = c.with_group("c_abi_bad_control", data, 1);
+    assert!(
+        !control.is_null(),
+        "{NAME}: the control with group 1 returned null, so a null below proves nothing"
+    );
+    let bad = [3, -1, 99, i32::MIN];
+    for (i, group) in bad.into_iter().enumerate() {
+        let sub = c.with_group(&format!("c_abi_bad_{i}"), data, group);
+        let accepted = !sub.is_null();
+        if accepted {
+            c_destroy(sub);
+        }
+        assert!(!accepted, "{NAME}: group {group} was accepted");
+    }
+    // Let a token that a rejected call wrongly declared become visible.
+    std::thread::sleep(QUIET);
+    for i in 0..bad.len() {
+        let left = tokens_of(&raw, &format!("c_abi_bad_{i}"));
+        assert!(
+            left.is_empty(),
+            "{NAME}: a rejected group left tokens behind: {left:?}"
+        );
+    }
+
+    c_destroy(control);
+}
+
+/// Every cycle of create and destroy on one topic declares one token, removes it, and leaves no
+/// callback on the group key or the base key.
+#[test]
+fn c_abi_create_and_destroy_cycles_leave_no_token_and_no_callback() {
+    const NAME: &str = "c_abi_create_and_destroy_cycles_leave_no_token_and_no_callback";
+    const CYCLES: usize = 5;
+    const TOPIC: &str = "c_abi_cycle_topic";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_abi_cycle");
+
+    for cycle in 0..CYCLES {
+        let name = format!("{NAME}: cycle {cycle}");
+        let (tally, data) = c_tally();
+        let sub = c.with_group(TOPIC, data, 2);
+        assert!(!sub.is_null(), "{name}: the creator returned null");
+        // Positive controls: the token is visible and the callback fires before the destroy.
+        assert_joins(&name, &raw, TOPIC, "the C subscriber");
+        assert_delivers_on_both_keys(&name, &raw, TOPIC, tally, "the C callback");
+
+        c_destroy(sub);
+        assert_torn_down(&name, &raw, TOPIC, tally);
+    }
+}
