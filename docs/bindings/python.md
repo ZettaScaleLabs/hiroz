@@ -188,7 +188,7 @@ Each must have a `__msgtype__` class attribute:
 
 #### Client Lifecycle
 
-1. `client.send_goal(goal)` → `ActionGoalHandle` — blocks until accepted. It raises on rejection. It raises `RuntimeError` when no server answers: the goal query ends after at most 10 seconds, and a hard limit of 11 seconds applies on top. It never raises `TimeoutError`
+1. `client.send_goal(goal)` → `ActionGoalHandle` — blocks until accepted. It raises on rejection. It raises `RuntimeError` when no server answers. The goal query has a 10 second timeout, and an 11 second timeout applies while the call waits for the goal to be accepted. Neither covers the encoding of the goal. It never raises `TimeoutError`
 2. `handle.recv_feedback(timeout)` — receive next feedback; returns `None` on timeout or when the feedback channel closes
 3. `handle.get_result(timeout)` — block until terminal state; returns `None` on timeout. Without `timeout` it has no time limit. The first call consumes the handle, so a timeout cannot be retried: a second call always raises `RuntimeError`
 4. `handle.cancel()` — request cancellation (the server decides when to honour it)
@@ -278,7 +278,7 @@ sub = node.create_subscriber("/topic", std_msgs.String, qos=hiroz_py.QosProfile.
 
 ### Presets
 
-After `import hiroz_py`, the constants `hiroz_py.QOS_DEFAULT`, `QOS_SENSOR_DATA`, `QOS_PARAMETERS` and `QOS_SERVICES` are `QosProfile` objects. The package replaces the native module values with `QosProfile.default()`, `sensor_data()`, `parameters()` and `services()`. The native module `hiroz_py._native` holds the same four names as plain `dict` objects. Pass either form as the `qos` argument, because `qos` accepts both.
+After `import hiroz_py`, the constants `hiroz_py.QOS_DEFAULT`, `QOS_SENSOR_DATA`, `QOS_PARAMETERS` and `QOS_SERVICES` are `QosProfile` objects. They equal `QosProfile.default()`, `sensor_data()`, `parameters()` and `services()`. Pass a preset or a `dict` as the `qos` argument, because `qos` accepts both.
 
 | preset | reliability | durability | history |
 |---|---|---|---|
@@ -304,7 +304,7 @@ All four presets use `automatic` liveliness. Their deadline, lifespan and liveli
 | `lifespan` | float, seconds | |
 | `liveliness_lease_duration` | float, seconds | |
 
-A string outside the listed values raises `ValueError`. With `keep_last`, a `depth` of 0 raises `ValueError`. A negative `depth` raises `OverflowError` when Python converts the argument, before the profile checks it.
+A string outside the listed values raises `ValueError`. With `keep_last`, a `depth` of 0 raises `ValueError`. A negative `depth` raises `OverflowError` when Python converts the argument, before the profile checks it. A dictionary converts `depth` only when it has a `history` key; see Dictionaries below.
 
 A profile has read-only properties `reliability`, `durability`, `history` and `depth`. `depth` is 0 for `keep_all`. There are no properties for the other fields.
 
@@ -313,7 +313,7 @@ A profile has read-only properties `reliability`, `durability`, `history` and `d
 `qos` also accepts a `dict` with the same keys as the constructor arguments, for example `{"reliability": "best_effort", "history": "keep_last", "depth": 5}`. Any other object raises `TypeError`.
 
 !!! warning
-    A dictionary key that is not in the table above is ignored without an error, so a misspelled key leaves that field at its default. A `depth` key with no `history` key is also ignored in a dictionary. Use `QosProfile(...)` when you want these mistakes to fail early.
+    A dictionary key that is not in the table above is ignored without an error, so a misspelled key leaves that field at its default. A `depth` key with no `history` key is also ignored in a dictionary, so `{"depth": -1}` keeps the default depth and raises no error. When a `history` key is present, the dictionary converts `depth` too, so `{"history": "keep_last", "depth": -1}` raises `OverflowError`. Use `QosProfile(...)` when you want these mistakes to fail early.
 
 ## Shared Memory
 
@@ -375,7 +375,7 @@ hiroz-py defines four exception classes. All of them are attributes of `hiroz_py
 
 `hiroz_py.TimeoutError` is not the built-in `TimeoutError`. Catch it as `hiroz_py.TimeoutError`.
 
-Every service client query ends after 10 seconds. A call has no way to wait longer for a reply, so the default `timeout` of one hour is never reached. The call raises `hiroz_py.TimeoutError` when the `timeout` ends first, so only a `timeout` below 10 seconds can raise it. The call raises `RuntimeError` when the query ends first with no reply. The message is `Failed to call service: Service call ended before any response was received`. The query can end before the `timeout`, for example when no server matches: the test in `crates/hiroz-py/tests/test_service.py` with `timeout=1.0` and no server expects `RuntimeError`. A `timeout` above 10 seconds always ends after the query, so it raises `RuntimeError`. At exactly 10 seconds either error may happen, because the `timeout` and the 10 second query limit end at the same moment.
+Every service client query has a configured timeout of 10 seconds. The `timeout` argument of `call` is a separate, outer timeout that wraps the whole call, including the creation of the query. Its default is one hour. The call raises `hiroz_py.TimeoutError` when the outer `timeout` ends. The call raises `RuntimeError` when the query completes without a reply, for example when no server matches or when the 10 second query timeout ends. The two timeouts do not start at the same moment, so a `timeout` near 10 seconds can produce either error. Neither timeout covers the conversion of the request or the response, so neither is a limit on the elapsed time of the whole method.
 
 A negative, NaN, infinite or overflowing `timeout` is not supported. An overflowing `timeout` is a value too large for a `Duration`. It does not raise a normal exception: the binding panics and Python raises `pyo3_runtime.PanicException`, which derives from `BaseException`, so `except Exception` does not catch it. Every `timeout` argument that is a float behaves this way.
 
@@ -383,19 +383,17 @@ A negative, NaN, infinite or overflowing `timeout` is not supported. An overflow
 
 | situation | result |
 |---|---|
-| `ZClient.call(..., timeout=t)` with `t` below 10 seconds, and the `timeout` ends before the query does | `hiroz_py.TimeoutError` |
-| `ZClient.call(..., timeout=t)` with `t` below 10 seconds, and the query ends first with no reply, for example when no server matches | `RuntimeError` |
-| `ZClient.call(...)` with no `timeout`, or with `t` above 10 seconds, and no response arrives | `RuntimeError`, after at most 10 seconds |
-| `ZClient.call(..., timeout=10.0)` and no response arrives | `hiroz_py.TimeoutError` or `RuntimeError`: either may happen |
-| a server answers a `ZClient.call` after the 10 second query has ended | `RuntimeError`. The late reply is dropped |
+| the outer `timeout` of `ZClient.call` ends | `hiroz_py.TimeoutError` |
+| the query of `ZClient.call` completes with no reply, for example when no server matches or the 10 second query timeout ends | `RuntimeError` |
+| a server answers a `ZClient.call` after its query has ended | `RuntimeError`. The late reply is dropped |
 | `ZClient.call(...)` fails for any other reason, for example the server disappears | `RuntimeError` |
 | `ZSubscriber.recv(timeout=t)` gets no message in time | returns `None` |
-| `ZActionClient.send_goal(...)` gets no answer from a server | `RuntimeError`, after at most 11 seconds |
+| `ZActionClient.send_goal(...)` gets no answer from a server | `RuntimeError`. The goal query has a 10 second timeout, and an 11 second timeout applies while the call waits for the goal to be accepted |
 | `ZServer.take_request()` or `send_response(...)` fails in the core | `RuntimeError` |
 | an action client or server cannot be created, an action call fails in the core, you finish a goal twice, or you call `recv` on a callback subscriber | `RuntimeError` |
 | a context, node, publisher, subscriber, service client or service server cannot be created, or a publish or receive fails in the core | `HirozError` |
 | a QoS string, a depth of 0 with `keep_last`, or a `buffer_group` value is invalid | `ValueError` |
-| a negative `depth` | `OverflowError`, raised by the argument conversion |
+| a negative `depth` passed to `QosProfile(...)`, or in a dictionary that has a `history` key | `OverflowError`, raised by the conversion of `depth`. A dictionary without `history` does not convert `depth` |
 | a message field holds an integer outside the range of its type | `OverflowError`, raised when the message is converted |
 | a message object lacks a field that its type defines | `AttributeError`, raised when the message is converted |
 | a message class has no `__msgtype__`, or `qos` has the wrong type | `TypeError` |
