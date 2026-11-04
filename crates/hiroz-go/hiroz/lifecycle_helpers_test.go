@@ -2,6 +2,7 @@ package hiroz
 
 import (
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -17,4 +18,16 @@ func waitUntil(t *testing.T, what string, cond func() bool) {
 		}
 		runtime.Gosched()
 	}
+}
+
+// newRelease returns a channel that a stub waits on and the function that releases it. The
+// function is idempotent and also runs at the end of the test, so a failed assertion cannot
+// leave the stub goroutine blocked.
+func newRelease(t *testing.T) (<-chan struct{}, func()) {
+	t.Helper()
+	ch := make(chan struct{})
+	var once sync.Once
+	free := func() { once.Do(func() { close(ch) }) }
+	t.Cleanup(free)
+	return ch, free
 }
