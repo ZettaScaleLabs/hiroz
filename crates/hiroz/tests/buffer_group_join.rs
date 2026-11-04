@@ -11,9 +11,12 @@ use std::{
 };
 
 use hiroz::{
-    BufferGroup, Builder, SubscriberOptions,
+    BufferGroup,
+    BufferGroup::{Auto, Cpu, Off},
+    Builder, SubscriberOptions, WithTypeInfo,
     context::{ZContext, ZContextBuilder},
     dynamic::{FieldType, MessageSchema},
+    msg::ZMessage,
     node::ZNode,
 };
 use hiroz_msgs::{
@@ -195,81 +198,59 @@ fn node_default_group_applies_and_builder_overrides() {
         isolated_node_with(SubscriberOptions::default().with_buffer_group(BufferGroup::Off));
     let cpu_node =
         isolated_node_with(SubscriberOptions::default().with_buffer_group(BufferGroup::Cpu));
+    let (d, off, cpu) = (&default_node.1, &off_node.1, &cpu_node.1);
 
-    let _d = (
-        default_node
-            .1
-            .create_sub::<UInt8MultiArray>("/d_u8")
-            .build()
-            .unwrap(),
-        default_node
-            .1
-            .create_sub::<Float64MultiArray>("/d_f64")
-            .build()
-            .unwrap(),
-    );
-    let _off = (
-        off_node
-            .1
-            .create_sub::<UInt8MultiArray>("/off_u8")
-            .build()
-            .unwrap(),
-        off_node
-            .1
-            .create_sub::<UInt8MultiArray>("/off_u8_cpu")
-            .with_buffer_group(BufferGroup::Cpu)
-            .build()
-            .unwrap(),
-        off_node
-            .1
-            .create_sub::<UInt8MultiArray>("/off_u8_auto")
-            .with_buffer_group(BufferGroup::Auto)
-            .build()
-            .unwrap(),
-    );
-    let _cpu = (
-        cpu_node
-            .1
-            .create_sub::<Float64MultiArray>("/cpu_f64")
-            .build()
-            .unwrap(),
-        cpu_node
-            .1
-            .create_sub::<Float64MultiArray>("/cpu_f64_off")
-            .with_buffer_group(BufferGroup::Off)
-            .build()
-            .unwrap(),
-        cpu_node
-            .1
-            .create_sub::<Float64MultiArray>("/cpu_f64_auto")
-            .with_buffer_group(BufferGroup::Auto)
-            .build()
-            .unwrap(),
-    );
-    let observed: Vec<(&str, bool)> = vec![
-        ("d_u8", joined(&default_node.1, "d_u8")),
-        ("d_f64", joined(&default_node.1, "d_f64")),
-        ("off_u8", joined(&off_node.1, "off_u8")),
-        ("off_u8_cpu", joined(&off_node.1, "off_u8_cpu")),
-        ("off_u8_auto", joined(&off_node.1, "off_u8_auto")),
-        ("cpu_f64", joined(&cpu_node.1, "cpu_f64")),
-        ("cpu_f64_off", joined(&cpu_node.1, "cpu_f64_off")),
-        ("cpu_f64_auto", joined(&cpu_node.1, "cpu_f64_auto")),
+    // (node, topic, group set on the builder, whether the subscriber joins)
+    let u8_cases = [
+        (d, "d_u8", None, true),
+        (off, "off_u8", None, false),
+        (off, "off_u8_cpu", Some(Cpu), true),
+        (off, "off_u8_auto", Some(Auto), true),
     ];
+    let f64_cases = [
+        (d, "d_f64", None, false),
+        (cpu, "cpu_f64", None, true),
+        (cpu, "cpu_f64_off", Some(Off), false),
+        (cpu, "cpu_f64_auto", Some(Auto), false),
+    ];
+    let _subs: Vec<_> = u8_cases
+        .iter()
+        .map(|(node, topic, group, _)| sub_with_group::<UInt8MultiArray>(node, topic, *group))
+        .chain(f64_cases.iter().map(|(node, topic, group, _)| {
+            sub_with_group::<Float64MultiArray>(node, topic, *group)
+        }))
+        .collect();
+
+    let cases: Vec<_> = u8_cases.iter().chain(&f64_cases).collect();
+    let observed: Vec<(&str, bool)> = cases
+        .iter()
+        .map(|(node, topic, _, _)| (*topic, joined(node, topic)))
+        .collect();
+    let expected: Vec<(&str, bool)> = cases
+        .iter()
+        .map(|(_, topic, _, joins)| (*topic, *joins))
+        .collect();
     assert_eq!(
-        observed,
-        vec![
-            ("d_u8", true),
-            ("d_f64", false),
-            ("off_u8", false),
-            ("off_u8_cpu", true),
-            ("off_u8_auto", true),
-            ("cpu_f64", true),
-            ("cpu_f64_off", false),
-            ("cpu_f64_auto", false),
-        ],
+        observed, expected,
         "{NAME}: (topic, joined) as observed, then as expected"
     );
+}
+
+/// A subscriber that the caller keeps alive, so that its token stays on the session.
+fn sub_with_group<T>(
+    node: &ZNode,
+    topic: &str,
+    group: Option<BufferGroup>,
+) -> Box<dyn std::any::Any>
+where
+    T: ZMessage + WithTypeInfo,
+{
+    let builder = node.create_sub::<T>(topic);
+    let builder = match group {
+        Some(group) => builder.with_buffer_group(group),
+        None => builder,
+    };
+    Box::new(builder.build().unwrap())
 }
 
 /// A raw subscriber that sets no group follows the node default. `create_raw_subscriber_with_group`

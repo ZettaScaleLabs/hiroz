@@ -965,7 +965,8 @@ struct hiroz_subscriber_t *hiroz_subscriber_create(struct hiroz_node_t *node,
  * Create a subscriber with callback and QoS profile
  *
  * The subscriber uses the node default for rmw_zenoh's CPU buffer group. A C node always has
- * the default, `BufferGroup::Auto`, so the subscriber joins. Use
+ * the default, `BufferGroup::Auto`, so the subscriber joins. The exception is a QoS that
+ * rmw_zenoh does not serve on the group key (transient-local): that subscriber stays out. Use
  * `hiroz_subscriber_create_with_group` to choose.
  *
  * # Safety
@@ -1015,7 +1016,9 @@ struct hiroz_subscriber_t *hiroz_subscriber_create_with_qos_v2(struct hiroz_node
  * # Safety
  * `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
  * must be valid C strings. `callback` must be a valid function pointer.
- * `qos` may be null for default QoS.
+ * `qos` may be null for default QoS. `user_data` is passed through to the callback.
+ * `hiroz_subscriber_destroy` does not wait for a callback that is running, so the caller must
+ * not free what `user_data` names until it knows that no callback is running.
  */
 struct hiroz_subscriber_t *hiroz_subscriber_create_with_group(struct hiroz_node_t *node,
                                                               const char *topic,
@@ -1055,6 +1058,8 @@ struct hiroz_subscriber_t *hiroz_subscriber_create_with_buffer_fields(struct hir
 
 /**
  * Destroy a subscriber
+ *
+ * The call does not wait for a callback that is running. It can return while one still runs.
  *
  * # Safety
  * `sub` must be a valid subscriber pointer or null.

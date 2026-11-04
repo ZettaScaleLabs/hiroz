@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
+	"math"
 	"unicode"
 )
 
@@ -67,6 +68,141 @@ func emitUnpackAlign(g *CodeBuilder, align int) {
 		return
 	}
 	g.P("offset += (%d - offset%%%d) %% %d", align, align, align)
+}
+
+// emitArrLenCheck rejects a sequence length that the bytes left cannot hold at
+// minElem bytes per element. It runs before `make`, so a hostile length reserves
+// nothing. `arrLen < 0` covers the overflow of int(uint32) on 32-bit targets.
+func emitArrLenCheck(g *CodeBuilder, minElem int64) {
+	g.P("if arrLen < 0 || arrLen > (len(data)-offset)/%d { return offset, fmt.Errorf(\"sequence length %%d needs at least %d bytes each, %%d left\", arrLen, len(data)-offset) }", minElem, minElem)
+}
+
+// knownMessages indexes the manifest messages by "package/Name". main fills it
+// before it generates any file. A type that is not in it has an unknown size.
+var knownMessages = map[string]MessageDefinition{}
+
+// registerMessages replaces the index of known messages.
+func registerMessages(msgs []MessageDefinition) {
+	knownMessages = make(map[string]MessageDefinition, len(msgs))
+	for _, m := range msgs {
+		knownMessages[m.Package+"/"+m.Name] = m
+	}
+}
+
+// maxMinSize caps a computed minimum size at 2 GiB, which keeps the product of
+// two sizes inside int64.
+const maxMinSize = int64(1) << 31
+
+// primitiveSize returns the encoded size in bytes of a primitive kind, or 0 for
+// a kind that is not a primitive.
+func primitiveSize(kind string) int64 {
+	switch kind {
+	case "Bool", "Int8", "UInt8":
+		return 1
+	case "Int16", "UInt16":
+		return 2
+	case "Int32", "UInt32", "Float32":
+		return 4
+	case "Int64", "UInt64", "Float64":
+		return 8
+	}
+	return 0
+}
+
+// minCDRSize returns a lower bound, in bytes, on the encoded size of one message.
+// It ignores alignment padding. A type that is not in knownMessages, or that
+// contains itself, counts as 0.
+func minCDRSize(fields []FieldDefinition) int64 {
+	return minCDRSizeVisiting(fields, map[string]bool{})
+}
+
+func minCDRSizeVisiting(fields []FieldDefinition, visiting map[string]bool) int64 {
+	var total int64
+	for _, f := range fields {
+		if f.IsArray && f.ArrayKind != "fixed" {
+			total += 4
+			continue
+		}
+		var n int64 = 1
+		if f.IsArray {
+			if f.ArraySize == nil {
+				n = 0
+			} else if uint64(*f.ArraySize) > uint64(maxMinSize) {
+				n = maxMinSize
+			} else {
+				n = int64(*f.ArraySize)
+			}
+		}
+		var one int64
+		switch f.FieldType.Kind {
+		case "String":
+			one = 4 // the decoder accepts a zero length
+		case "Time", "Duration":
+			one = 8
+		case "Custom":
+			one = nestedMinSize(f.FieldType, visiting)
+		default:
+			one = primitiveSize(f.FieldType.Kind)
+		}
+		if f.IsArray && f.FieldType.Kind == "String" {
+			// A string array is written with a length prefix as well.
+			total += 4
+			continue
+		}
+		total += n * one
+		if total > maxMinSize {
+			return maxMinSize
+		}
+	}
+	return total
+}
+
+func nestedMinSize(ft FieldType, visiting map[string]bool) int64 {
+	if ft.Package == nil || ft.Name == nil {
+		return 0
+	}
+	key := *ft.Package + "/" + *ft.Name
+	msg, ok := knownMessages[key]
+	if !ok || visiting[key] {
+		return 0
+	}
+	visiting[key] = true
+	defer delete(visiting, key)
+	return minCDRSizeVisiting(msg.Fields, visiting)
+}
+
+// emitCustomSeqUnpack emits the decode of a sequence of nested messages. minElem
+// is the lower bound on the encoded size of one element, from minCDRSize. The
+// reservation is at most (bytes left) / max(1, minElem) elements. An element of
+// known size is rejected before it is allocated when fewer bytes are left than
+// it needs. Elements of zero bytes are the exception: the loop runs arrLen times,
+// which costs CPU time and no memory.
+func emitCustomSeqUnpack(g *CodeBuilder, fieldAccess, elemType string, minElem int64) {
+	// With a known size, the loop rejects an element before it allocates it.
+	known := minElem >= 1
+	if minElem < 1 {
+		minElem = 1
+	}
+	if minElem > math.MaxInt32 {
+		// Still a lower bound, and it fits an int on a 32-bit target.
+		minElem = math.MaxInt32
+	}
+	g.P("if arrLen < 0 { return offset, fmt.Errorf(\"sequence length %%d is negative\", arrLen) }")
+	g.P("capHint := arrLen")
+	g.P("if bound := (len(data) - offset) / %d; capHint > bound { capHint = bound }", minElem)
+	g.P("%s = make([]%s, 0, capHint)", fieldAccess, elemType)
+	g.P("for i := 0; i < arrLen; i++ {")
+	g.In()
+	if known {
+		// `var elem` allocates the whole element, even when no bytes are left to decode it.
+		g.P("if len(data)-offset < %d { return offset, fmt.Errorf(\"sequence element needs at least %d bytes, %%d left\", len(data)-offset) }", minElem, minElem)
+	}
+	g.P("var elem %s", elemType)
+	g.P("offset, err = elem.UnpackFromRawAt(data, offset)")
+	g.P("if err != nil { return offset, err }")
+	g.P("%s = append(%s, elem)", fieldAccess, fieldAccess)
+	g.Out()
+	g.P("}")
 }
 
 // fieldsHaveNested reports whether any field requires a nested unpack call
@@ -167,7 +303,6 @@ func GenerateGoMessage(msg MessageDefinition, prefix string) ([]byte, error) {
 		if field.FieldType.Kind == "Time" || field.FieldType.Kind == "Duration" {
 			if currentPkg != "builtin_interfaces" {
 				crossPkgImports["builtin_interfaces"] = true
-				needsBinary = true
 			}
 		}
 	}
@@ -282,12 +417,9 @@ func fieldNeedsBinary(field FieldDefinition) bool {
 		return true // string length uses binary
 	case "Int16", "UInt16", "Int32", "UInt32", "Int64", "UInt64", "Float32", "Float64":
 		return true // multi-byte numeric types
-	case "Custom", "Time", "Duration":
-		if field.IsArray {
-			return true // array length prefix uses binary
-		}
-		// Same-package custom single value: PackToRawAt doesn't use binary in the caller
-		return false
+	case "Time", "Duration", "Custom":
+		// Only sequences need binary for their length prefix.
+		return field.IsArray && field.ArrayKind != "fixed"
 	case "Bool", "Int8", "UInt8":
 		// Dynamic/bounded arrays have a length prefix that uses binary.
 		// Fixed arrays use a simple loop without binary.
@@ -369,11 +501,13 @@ func generatePackField(g *CodeBuilder, field FieldDefinition) {
 		g.P("{")
 		g.In()
 		if field.IsArray {
-			emitPackAlign(g, 4)
-			g.P("b := make([]byte, 4)")
-			g.P("binary.LittleEndian.PutUint32(b, uint32(len(%s)))", fieldAccess)
-			g.P("buf = append(buf, b...)")
-			g.P("offset += 4")
+			if field.ArrayKind != "fixed" {
+				emitPackAlign(g, 4)
+				g.P("b := make([]byte, 4)")
+				g.P("binary.LittleEndian.PutUint32(b, uint32(len(%s)))", fieldAccess)
+				g.P("buf = append(buf, b...)")
+				g.P("offset += 4")
+			}
 			g.P("for i := range %s {", fieldAccess)
 			g.In()
 			g.P("buf, offset = %s[i].PackToRawAt(buf, offset)", fieldAccess)
@@ -388,6 +522,18 @@ func generatePackField(g *CodeBuilder, field FieldDefinition) {
 	case "Time", "Duration":
 		g.P("// Pack %s: %s", field.FieldType.Kind, field.Name)
 		g.P("{")
+		if field.IsArray && field.ArrayKind == "fixed" {
+			// A fixed array has no length prefix.
+			g.In()
+			g.P("for i := range %s {", fieldAccess)
+			g.In()
+			g.P("buf, offset = %s[i].PackToRawAt(buf, offset)", fieldAccess)
+			g.Out()
+			g.P("}")
+			g.Out()
+			g.P("}")
+			return
+		}
 		g.In()
 		if field.IsArray {
 			emitPackAlign(g, 4)
@@ -496,6 +642,7 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for string array length\") }")
 			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 			g.P("offset += 4")
+			emitArrLenCheck(g, 4) // a string takes its 4-byte length at least
 			g.P("%s = make([]string, arrLen)", fieldAccess)
 			g.P("for i := 0; i < arrLen; i++ {")
 			g.In()
@@ -545,18 +692,20 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 		g.P("// Unpack custom type: %s", field.Name)
 		g.P("{")
 		g.In()
-		if field.IsArray {
-			emitUnpackAlign(g, 4)
-			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
-			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
-			g.P("offset += 4")
-			g.P("%s = make([]%s, arrLen)", fieldAccess, fieldToGoBaseTypeInPkg(field, g.currentPkg))
-			g.P("for i := 0; i < arrLen; i++ {")
+		if field.IsArray && field.ArrayKind == "fixed" {
+			// Fixed arrays have no length prefix; each element checks its own bytes.
+			g.P("for i := range %s {", fieldAccess)
 			g.In()
 			g.P("offset, err = %s[i].UnpackFromRawAt(data, offset)", fieldAccess)
 			g.P("if err != nil { return offset, err }")
 			g.Out()
 			g.P("}")
+		} else if field.IsArray {
+			emitUnpackAlign(g, 4)
+			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
+			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
+			g.P("offset += 4")
+			emitCustomSeqUnpack(g, fieldAccess, fieldToGoBaseTypeInPkg(field, g.currentPkg), nestedMinSize(field.FieldType, map[string]bool{}))
 		} else {
 			g.P("offset, err = %s.UnpackFromRawAt(data, offset)", fieldAccess)
 			g.P("if err != nil { return offset, err }")
@@ -568,11 +717,21 @@ func generateUnpackField(g *CodeBuilder, field FieldDefinition) {
 		g.P("// Unpack %s: %s", field.FieldType.Kind, field.Name)
 		g.P("{")
 		g.In()
-		if field.IsArray {
+		if field.IsArray && field.ArrayKind == "fixed" {
+			// A fixed array has no length prefix and no length to bound: the
+			// element count is the array size, and each element checks its own bytes.
+			g.P("for i := range %s {", fieldAccess)
+			g.In()
+			g.P("offset, err = %s[i].UnpackFromRawAt(data, offset)", fieldAccess)
+			g.P("if err != nil { return offset, err }")
+			g.Out()
+			g.P("}")
+		} else if field.IsArray {
 			emitUnpackAlign(g, 4)
 			g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
 			g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 			g.P("offset += 4")
+			emitArrLenCheck(g, 8) // a time or duration is two int32
 			g.P("%s = make([]%s, arrLen)", fieldAccess, fieldToGoBaseTypeInPkg(field, g.currentPkg))
 			g.P("for i := 0; i < arrLen; i++ {")
 			g.In()
@@ -662,6 +821,7 @@ func generatePrimitiveUnpackCode(g *CodeBuilder, field FieldDefinition, align in
 		g.P("if offset+4 > len(data) { return offset, fmt.Errorf(\"buffer too short for array length\") }")
 		g.P("arrLen := int(binary.LittleEndian.Uint32(data[offset:]))")
 		g.P("offset += 4")
+		emitArrLenCheck(g, primitiveSize(field.FieldType.Kind))
 		elemType := fieldToGoBaseTypeInPkg(field, g.currentPkg)
 		g.P("%s = make([]%s, arrLen)", fieldAccess, elemType)
 		g.P("for i := 0; i < arrLen; i++ {")
@@ -702,6 +862,11 @@ func fieldToGoBaseTypeInPkg(field FieldDefinition, currentPkg string) string {
 		return "float64"
 	case "String":
 		return "string"
+	case "Time", "Duration":
+		if currentPkg == "builtin_interfaces" {
+			return field.FieldType.Kind
+		}
+		return "builtin_interfaces." + field.FieldType.Kind
 	case "Custom":
 		pkg := sanitizePackageName(*field.FieldType.Package)
 		if pkg == currentPkg {
@@ -740,7 +905,6 @@ func GenerateGoService(srv ServiceDefinition, prefix string) ([]byte, error) {
 		if field.FieldType.Kind == "Time" || field.FieldType.Kind == "Duration" {
 			if pkgName != "builtin_interfaces" {
 				crossPkgImports["builtin_interfaces"] = true
-				needsBinary = true
 			}
 		}
 	}
@@ -936,7 +1100,6 @@ func GenerateGoAction(action ActionDefinition, prefix string) ([]byte, error) {
 		if field.FieldType.Kind == "Time" || field.FieldType.Kind == "Duration" {
 			if pkgName != "builtin_interfaces" {
 				crossPkgImports["builtin_interfaces"] = true
-				needsBinary = true
 			}
 		}
 	}
