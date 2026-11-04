@@ -99,6 +99,8 @@ func (b *SubscriberBuilder) WithBufferGroup(group BufferGroup) *SubscriberBuilde
 
 // BuildWithCallback creates the subscriber with a custom callback handler.
 // The handler is invoked on a C/Rust thread — avoid long blocking operations.
+// Close does not wait for a handler that is running. It also keeps the handler, and what the
+// handler captures, reachable: a successful build never releases them.
 func (b *SubscriberBuilder) BuildWithCallback(msg Message, handler MessageHandler) (*Subscriber, error) {
 	if handler == nil {
 		return nil, fmt.Errorf("callback handler cannot be nil")
@@ -121,8 +123,8 @@ func (b *SubscriberBuilder) BuildWithCallback(msg Message, handler MessageHandle
 	typeHashC := C.CString(msg.TypeHash())
 	defer C.free(unsafe.Pointer(typeHashC))
 
-	// Create the closure with the user's callback. After a successful build the closure stays
-	// alive with the subscriber. A failed build creates no subscriber, so nothing can call it.
+	// Create the closure with the user's callback. A successful build keeps it alive with the
+	// subscriber. A failed build releases it, and goSubscriberCallback must tolerate a late sample.
 	closure := newClosure(handler, nil)
 
 	// A nil QoS pointer means the default QoS.
@@ -180,10 +182,25 @@ func (s *Subscriber) Close() error {
 	return err
 }
 
+// subscriberClosure recovers the closure context that userData names.
+// It reports false when the context is gone. A failed build releases the context, and a sample
+// that Zenoh already selected can still arrive. The lookup panics on a released handle, and a
+// panic in a callback from C ends the process.
+func subscriberClosure(userData uintptr) (closure *closureContext[[]byte], ok bool) {
+	defer func() {
+		if recover() != nil {
+			closure, ok = nil, false
+		}
+	}()
+	return cgo.Handle(userData).Value().(*closureContext[[]byte]), true
+}
+
 //export goSubscriberCallback
 func goSubscriberCallback(userData C.uintptr_t, data *C.uint8_t, length C.size_t) {
-	// Cast userData back to closureContext pointer
-	closure := cgo.Handle(userData).Value().(*closureContext[[]byte])
+	closure, ok := subscriberClosure(uintptr(userData))
+	if !ok {
+		return
+	}
 
 	// Copy data to Go slice
 	goData := C.GoBytes(unsafe.Pointer(data), C.int(length))
