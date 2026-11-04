@@ -54,7 +54,59 @@ pub fn deserialize_cdr(
 
     let payload = &data[4..];
     let mut reader = CdrReader::<LittleEndian>::new(payload);
-    deserialize_message(schema, &mut reader)
+    let mut budget = ZeroByteBudget::new();
+    deserialize_message(schema, &mut reader, &mut budget)
+}
+
+/// Most elements one decode call may produce without consuming a byte of input.
+///
+/// An element such as an empty message takes no bytes, so the input size does not bound how many
+/// of them a sequence declares. The budget is shared by every sequence and array of one call, so
+/// nesting does not multiply it.
+const MAX_ZERO_BYTE_ELEMENTS: usize = 1 << 20;
+
+/// The zero-byte elements one decode call may still produce.
+struct ZeroByteBudget {
+    left: usize,
+}
+
+impl ZeroByteBudget {
+    fn new() -> Self {
+        Self {
+            left: MAX_ZERO_BYTE_ELEMENTS,
+        }
+    }
+
+    /// Account for one element that consumed no input.
+    fn spend(&mut self) -> Result<(), DynamicError> {
+        self.left = self.left.checked_sub(1).ok_or_else(|| {
+            DynamicError::DeserializationError(format!(
+                "more than {MAX_ZERO_BYTE_ELEMENTS} elements without data in one message"
+            ))
+        })?;
+        Ok(())
+    }
+}
+
+/// Decode `count` elements of `inner` into a vector.
+///
+/// The initial reservation never exceeds the unread input. An element that consumes no input is
+/// charged to `budget`, so a count that the input cannot back runs out of budget and not memory.
+fn deserialize_elements(
+    inner: &FieldType,
+    count: usize,
+    reader: &mut CdrReader<LittleEndian>,
+    budget: &mut ZeroByteBudget,
+) -> Result<Vec<DynamicValue>, DynamicError> {
+    let mut values = Vec::with_capacity(count.min(reader.remaining()));
+    for _ in 0..count {
+        let before = reader.remaining();
+        values.push(deserialize_value(inner, reader, budget)?);
+        if reader.remaining() == before {
+            budget.spend()?;
+        }
+    }
+    Ok(values)
 }
 
 fn serialize_message(
@@ -135,11 +187,12 @@ fn serialize_value(
 fn deserialize_message(
     schema: &Arc<MessageSchema>,
     reader: &mut CdrReader<LittleEndian>,
+    budget: &mut ZeroByteBudget,
 ) -> Result<DynamicMessage, DynamicError> {
     let mut values = Vec::with_capacity(schema.fields.len());
 
     for field in &schema.fields {
-        let value = deserialize_value(&field.field_type, reader)?;
+        let value = deserialize_value(&field.field_type, reader, budget)?;
         values.push(value);
     }
 
@@ -149,6 +202,7 @@ fn deserialize_message(
 fn deserialize_value(
     field_type: &FieldType,
     reader: &mut CdrReader<LittleEndian>,
+    budget: &mut ZeroByteBudget,
 ) -> Result<DynamicValue, DynamicError> {
     match field_type {
         FieldType::Bool => Ok(DynamicValue::Bool(reader.read_bool().map_err(map_cdr_err)?)),
@@ -177,13 +231,9 @@ fn deserialize_value(
         )),
 
         // Fixed-size array
-        FieldType::Array(inner, len) => {
-            let mut values = Vec::with_capacity(*len);
-            for _ in 0..*len {
-                values.push(deserialize_value(inner, reader)?);
-            }
-            Ok(DynamicValue::Array(values))
-        }
+        FieldType::Array(inner, len) => Ok(DynamicValue::Array(deserialize_elements(
+            inner, *len, reader, budget,
+        )?)),
 
         // Sequence
         FieldType::Sequence(inner) => {
@@ -194,11 +244,9 @@ fn deserialize_value(
             }
 
             let len = reader.read_sequence_length().map_err(map_cdr_err)?;
-            let mut values = Vec::with_capacity(len.min(reader.remaining()));
-            for _ in 0..len {
-                values.push(deserialize_value(inner, reader)?);
-            }
-            Ok(DynamicValue::Array(values))
+            Ok(DynamicValue::Array(deserialize_elements(
+                inner, len, reader, budget,
+            )?))
         }
 
         // Bounded sequence
@@ -210,16 +258,14 @@ fn deserialize_value(
             }
 
             let len = reader.read_sequence_length().map_err(map_cdr_err)?;
-            let mut values = Vec::with_capacity(len.min(reader.remaining()));
-            for _ in 0..len {
-                values.push(deserialize_value(inner, reader)?);
-            }
-            Ok(DynamicValue::Array(values))
+            Ok(DynamicValue::Array(deserialize_elements(
+                inner, len, reader, budget,
+            )?))
         }
 
         // Nested message
         FieldType::Message(schema) => {
-            let msg = deserialize_message(schema, reader)?;
+            let msg = deserialize_message(schema, reader, budget)?;
             Ok(DynamicValue::Message(Box::new(msg)))
         }
     }
