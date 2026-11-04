@@ -3,8 +3,10 @@ package hiroz
 import "testing"
 
 func TestABIVersion(t *testing.T) {
-	// Zero means the linked library predates hiroz_abi_version().
-	if v := ABIVersion(); v < 1 {
-		t.Fatalf("ABIVersion() = %d, want >= 1", v)
+	// Update this literal in the same change as any bump of the library's ABI_VERSION.
+	// Zero is reserved and never a real version.
+	const want = 1
+	if v := ABIVersion(); v != want {
+		t.Fatalf("ABIVersion() = %d, want %d", v, want)
 	}
 }

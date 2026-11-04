@@ -104,10 +104,17 @@ mod tests {
     fn messages_are_per_thread() {
         std::thread::spawn(|| {
             set("mine");
-            std::thread::spawn(|| assert_eq!(current(), None))
-                .join()
-                .unwrap();
+            std::thread::spawn(|| {
+                assert_eq!(current(), None);
+                set("theirs");
+                hiroz_last_error_clear();
+                set("theirs again");
+            })
+            .join()
+            .unwrap();
             assert_eq!(current().as_deref(), Some("mine"));
+            hiroz_last_error_clear();
+            assert_eq!(current(), None);
         })
         .join()
         .unwrap();
@@ -118,7 +125,7 @@ mod tests {
         std::thread::spawn(|| {
             set("bad\0byte");
             let msg = current().expect("message must survive an interior NUL");
-            assert!(msg.starts_with("bad") && msg.ends_with("byte"), "{msg}");
+            assert_eq!(msg, "bad?byte");
         })
         .join()
         .unwrap();

@@ -18,13 +18,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn abi_version_matches_constant() {
-        assert_eq!(hiroz_abi_version(), ABI_VERSION);
+    fn abi_version_is_pinned() {
+        // Update this literal in the same change as any bump of `ABI_VERSION`.
+        assert_eq!(hiroz_abi_version(), 1);
+        assert_eq!(ABI_VERSION, 1);
     }
 
     #[test]
-    fn abi_version_starts_at_one() {
-        // Zero means "library predates hiroz_abi_version()", so a real version is never 0.
-        assert!(hiroz_abi_version() >= 1);
+    fn abi_version_is_never_zero() {
+        // Zero is reserved and never a real version.
+        assert_ne!(hiroz_abi_version(), 0);
     }
 }
