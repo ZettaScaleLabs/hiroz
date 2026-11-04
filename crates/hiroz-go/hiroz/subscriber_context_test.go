@@ -252,22 +252,29 @@ func TestSubscriberWithChannelContextDecoderReleasedAfterCancelDropsSample(t *te
 	}
 }
 
-// A callback that starts before the build reports failure must not stay blocked on a channel
-// that nobody can read.
+// A callback that is already running when the build reports failure must not stay blocked on
+// a channel that nobody can read. The creator stub starts a callback and holds it inside
+// DeserializeCDR until the build has failed.
 func TestSubscriberWithChannelContextBuildFailureReleasesCallback(t *testing.T) {
+	b := newBarrier()
+	defer b.free()
+	decodeGate.Store(b)
+	t.Cleanup(func() { decodeGate.Store(nil) })
 	returned := make(chan struct{})
 	original := createSubscriber
 	createSubscriber = func(c subscriberCall) *cSubscriber {
 		call := cgo.Handle(c.userData).Value().(*closureContext[[]byte]).call
 		go func() { call([]byte{1}); close(returned) }()
+		b.waitEntered(t, "the callback")
 		return nil
 	}
 	t.Cleanup(func() { createSubscriber = original })
 
-	sub, ch, err := SubscriberWithChannelContext[*nilSafeMessage](context.Background(), (&Node{}).CreateSubscriber("chatter"), 0)
+	sub, ch, err := SubscriberWithChannelContext[*gateMessage](context.Background(), (&Node{}).CreateSubscriber("chatter"), 0)
 	if sub != nil || ch != nil || !errors.Is(err, ErrBuildFailed) {
 		t.Fatalf("want ErrBuildFailed and no subscriber, got sub=%v ch=%v err=%v", sub, ch, err)
 	}
+	b.free()
 	receiveBounded(t, returned, "the callback to return after the failed build")
 }
 
