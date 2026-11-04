@@ -306,3 +306,61 @@ func TestCallTypedContextOwnsSerialisedBytes(t *testing.T) {
 	}
 	_ = c.Close()
 }
+
+// An ended context wins over a closed client, as it does in the call variants.
+func TestWaitForServiceContextCancelledBeatsClosedClient(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	never := &ServiceClient{service: "/dummy"}
+	if err := never.WaitForServiceContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("client without a handle: want context.Canceled, got %v", err)
+	}
+
+	closed := openTestClient()
+	_ = closed.Close()
+	if err := closed.WaitForServiceContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("closed client: want context.Canceled, got %v", err)
+	}
+}
+
+// Positive control: with a live context a closed client reports that it is closed.
+func TestWaitForServiceContextClosedClientIsNotContextError(t *testing.T) {
+	closed := openTestClient()
+	_ = closed.Close()
+	err := closed.WaitForServiceContext(context.Background())
+	if err == nil {
+		t.Fatal("want an error from a closed client")
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("a closed client must not read as a context error: %v", err)
+	}
+}
+
+// failingReq runs hook inside SerializeCDR and then fails.
+type failingReq struct{ hook func() }
+
+func (r *failingReq) TypeName() string { return "x" }
+func (r *failingReq) TypeHash() string { return "y" }
+func (r *failingReq) SerializeCDR() ([]byte, error) {
+	r.hook()
+	return nil, errors.New("serializer failed")
+}
+func (r *failingReq) DeserializeCDR([]byte) error { return nil }
+
+// A serializer error that follows the end of ctx returns the context error.
+func TestCallTypedContextEndedDuringFailingSerializeReturnsCtxErr(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	err := CallTypedContext(ctx, openTestClient(), &failingReq{hook: cancel}, &MockMessage{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+}
+
+// Positive control: with a live context the serializer error comes back as it is.
+func TestCallTypedContextFailingSerializeReturnsSerializerError(t *testing.T) {
+	err := CallTypedContext(context.Background(), openTestClient(), &failingReq{hook: func() {}}, &MockMessage{})
+	if err == nil || errors.Is(err, context.Canceled) {
+		t.Fatalf("want the serializer error, got %v", err)
+	}
+}

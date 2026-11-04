@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -267,4 +268,91 @@ func TestSendGoalContextEndedDuringSerializeSendsNothing(t *testing.T) {
 	if sends != 0 {
 		t.Errorf("the goal was sent %d times after ctx ended, want 0", sends)
 	}
+}
+
+func stubActionResult(t *testing.T, f func() ([]byte, int32)) {
+	t.Helper()
+	old := actionResult
+	actionResult = func(*cGoalHandleC) ([]byte, int32) { return f() }
+	t.Cleanup(func() { actionResult = old })
+}
+
+// Positive control for the result tests below: a live context reaches the C call.
+func TestGetResultWithContextReturnsResult(t *testing.T) {
+	c := openTestActionClient()
+	h := fakeGoalHandle(c)
+	var calls atomic.Int32
+	stubActionResult(t, func() ([]byte, int32) { calls.Add(1); return []byte{5}, 0 })
+
+	got, err := h.GetResultWithContext(context.Background())
+	if err != nil || len(got) != 1 || got[0] != 5 {
+		t.Fatalf("want [5] and no error, got %v, %v", got, err)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("the C call ran %d times, want 1", calls.Load())
+	}
+	_ = c.Close()
+}
+
+// A context that has ended must not start a C result wait. The wait would hold the client
+// registration, and ActionClient.Close would wait for it.
+func TestGetResultWithContextAlreadyCancelledSkipsCall(t *testing.T) {
+	c := openTestActionClient()
+	h := fakeGoalHandle(c)
+	var calls atomic.Int32
+	stubActionResult(t, func() ([]byte, int32) { calls.Add(1); return []byte{5}, 0 })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := h.GetResultWithContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("GetResultWithContext: want context.Canceled, got %v", err)
+	}
+	if err := GetTypedResultContext(ctx, h, &MockMessage{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("GetTypedResultContext: want context.Canceled, got %v", err)
+	}
+	_ = c.Close() // waits for any worker that started, so calls is final
+	if n := calls.Load(); n != 0 {
+		t.Errorf("the C call ran %d times after ctx ended, want 0", n)
+	}
+}
+
+// An ended context wins over a closed handle, as it does in the service call variants.
+func TestGetResultWithContextCancelledBeatsClosedHandle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := (&GoalHandle{}).GetResultWithContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+}
+
+// failingGoal runs hook inside SerializeCDR and then fails.
+type failingGoal struct{ hook func() }
+
+func (g *failingGoal) TypeName() string { return "x" }
+func (g *failingGoal) TypeHash() string { return "y" }
+func (g *failingGoal) SerializeCDR() ([]byte, error) {
+	g.hook()
+	return nil, errors.New("serializer failed")
+}
+func (g *failingGoal) DeserializeCDR([]byte) error { return nil }
+
+// A serializer error that follows the end of ctx returns the context error.
+func TestSendGoalContextEndedDuringFailingSerializeReturnsCtxErr(t *testing.T) {
+	c := openTestActionClient()
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := c.SendGoalContext(ctx, &failingGoal{hook: cancel})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	_ = c.Close()
+}
+
+// Positive control: with a live context the serializer error comes back as it is.
+func TestSendGoalContextFailingSerializeReturnsSerializerError(t *testing.T) {
+	c := openTestActionClient()
+	_, err := c.SendGoalContext(context.Background(), &failingGoal{hook: func() {}})
+	if err == nil || errors.Is(err, context.Canceled) {
+		t.Fatalf("want the serializer error, got %v", err)
+	}
+	_ = c.Close()
 }
