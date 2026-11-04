@@ -1,7 +1,6 @@
-use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 
-use hiroz::{Builder, Result, context::ZContextBuilder, define_action};
+use hiroz::{Builder, Result, define_action};
 use serde::{Deserialize, Serialize};
 use serial_test::serial;
 
@@ -11,7 +10,7 @@ pub struct TestGoal {
     pub order: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TestResult {
     pub value: i32,
 }
@@ -34,7 +33,7 @@ define_action! {
 
 // Helper function to create test setup
 async fn setup_test_base() -> Result<(hiroz::node::ZNode,)> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_action_client_node").build()?;
 
     // Wait for discovery
@@ -152,7 +151,7 @@ mod tests {
     #[serial]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_action_client_wait_for_server() -> Result<()> {
-        let ctx = ZContextBuilder::default().build()?;
+        let ctx = crate::action::context_builder().build()?;
         let client_node = ctx.create_node("action_wait_client").build()?;
         let client = client_node
             .create_action_client::<TestAction>("/wait_for_action")
@@ -183,7 +182,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_action_client_wait_for_server_no_server() -> Result<()> {
         // No server is ever started — wait_for_server must return false within the timeout.
-        let ctx = ZContextBuilder::default().build()?;
+        let ctx = crate::action::context_builder().build()?;
         let node = ctx.create_node("wait_no_server_client").build()?;
         let client = node
             .create_action_client::<TestAction>("/nonexistent_action")
@@ -205,7 +204,7 @@ mod tests {
         // Verify has_action_server via the graph API directly, without going through
         // wait_for_server. Local action servers are indexed synchronously in add_local_entity,
         // so no discovery delay is needed.
-        let ctx = ZContextBuilder::default().build()?;
+        let ctx = crate::action::context_builder().build()?;
         let node = ctx.create_node("has_server_direct_node").build()?;
 
         assert!(
