@@ -24,8 +24,6 @@
 //! | `the_wire_is_used_when_a_subscriber_is_off_session` | #36 — and the bus is not, so no duplicate |
 //! | `a_sole_receiver_is_given_the_message_to_own` | #36 — the move, not a shared Arc |
 
-#![cfg(feature = "ros-msgs")]
-
 mod common;
 
 use std::{
@@ -1435,18 +1433,17 @@ fn a_channel_no_endpoint_holds_is_reclaimed() -> hiroz::Result<()> {
     let ctx = create_hiroz_context_with_router(&router)?;
     let node = ctx.create_node("reclaim").build()?;
 
-    // Serialised: total_channels() is process-global and sibling tests create
-    // channels of their own, so an unsynchronised delta is not attributable.
-    let before = hiroz::local_bus::total_channels();
+    // Counted per session: the process-wide total is moved by every sibling
+    // test running beside this one, so a delta of it is not attributable.
+    let zid = node.session().zid();
+    let before = hiroz::local_bus::session_channels(zid);
     for i in 0..24 {
         let p = node
             .create_pub::<RosString>(&format!("ephemeral_{i}"))
             .build()?;
         drop(p);
     }
-    let after_ephemeral = hiroz::local_bus::total_channels();
-    // saturating: reclamation triggered by another test can legitimately make
-    // the total fall, and an unsigned underflow would panic on a healthy run.
+    let after_ephemeral = hiroz::local_bus::session_channels(zid);
     assert!(
         after_ephemeral.saturating_sub(before) <= 4,
         "24 publishers were created and dropped; the registry grew by {} channels. \
@@ -1456,14 +1453,31 @@ fn a_channel_no_endpoint_holds_is_reclaimed() -> hiroz::Result<()> {
 
     // The control. Without it this test passes equally well against a registry
     // that reclaims indiscriminately — which would split a live publisher from
-    // a subscriber created afterwards, turning a leak into lost messages.
-    let held = node.create_pub::<RosString>("held_topic").build()?;
-    let with_held = hiroz::local_bus::total_channels();
+    // a subscriber created afterwards, turning a leak into lost messages. So
+    // the control is delivery, not a count: a count can be refilled by the
+    // spacer and hide a deleted channel.
+    let held = node
+        .create_pub::<RosString>("held_topic")
+        .with_intra_process_only()
+        .build()?;
     let _forces_a_reclaim_pass = node.create_pub::<RosString>("spacer_topic").build()?;
-    assert!(
-        hiroz::local_bus::total_channels() >= with_held,
-        "a channel a live publisher still holds must survive a reclamation pass"
+    let got = Arc::new(AtomicUsize::new(0));
+    let g = got.clone();
+    let _sub = node
+        .create_sub::<RosString>("held_topic")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            g.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let outcome = held.publish_shared(Arc::new(RosString {
+        data: "after a reclaim pass".to_owned(),
+    }))?;
+    assert_eq!(
+        outcome,
+        Published::Bus(Delivery::Sent(1)),
+        "a channel a live publisher still holds must survive a reclamation pass, \
+         or a later subscriber is split from it"
     );
+    assert_eq!(got.load(Ordering::SeqCst), 1);
     drop(held);
     Ok(())
 }

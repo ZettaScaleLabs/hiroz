@@ -273,19 +273,20 @@ fn invoke_isolated(site: &'static str, f: impl FnOnce()) -> bool {
                 "[BUS] a subscriber callback panicked during intra-process delivery at {site}; \
                  the panic was contained and delivery continued to the remaining subscribers"
             );
+            // Dropping the payload is user code too: a subscriber can panic
+            // with a value whose destructor panics. Contain that as well, and
+            // leak a second payload rather than drop it outside the guard.
+            if let Err(second) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                drop(_payload)
+            })) {
+                std::mem::forget(second);
+            }
             false
         }
     }
 }
 
 impl Channel {
-    /// Deliver `payload` to every subscriber here whose type matches, returning
-    /// how many were called.
-    ///
-    /// Callbacks are **never** invoked with the lock held. A subscriber callback
-    /// commonly publishes — that is exactly what the pong side of a ping/pong
-    /// does — and re-entering under its own read guard is the deadlock this
-    /// workspace has already fixed three times elsewhere.
     /// How many subscribers of `T` on this channel want the message **by value**.
     ///
     /// A publisher needs this to tell apart two outcomes that both surface as
@@ -309,6 +310,13 @@ impl Channel {
             .count()
     }
 
+    /// Deliver `payload` to every subscriber here whose type matches, returning
+    /// how many were called.
+    ///
+    /// Callbacks are **never** invoked with the lock held. A subscriber callback
+    /// commonly publishes — that is exactly what the pong side of a ping/pong
+    /// does — and re-entering under its own read guard is the deadlock this
+    /// workspace has already fixed three times elsewhere.
     pub fn publish<T>(&self, payload: Arc<T>) -> Delivery
     where
         T: Any + Send + Sync + 'static,
@@ -446,17 +454,16 @@ impl Channel {
 
 /// Registry of channels, keyed by session then topic.
 ///
-/// Channels are created on demand and never removed. One empty `Channel` per
-/// `(session, topic)` ever used is a bounded, trivial cost, and keeping them
-/// means a publisher's handle stays valid across a subscriber coming and going.
+/// Channels are created on demand. A channel that no publisher or subscriber
+/// holds is dropped the next time [`channel`] misses, so the registry is
+/// reclaimed opportunistically rather than the moment the last endpoint goes.
+/// A channel an endpoint still holds is never removed, so a publisher's handle
+/// stays valid across a subscriber coming and going.
 type Registry = HashMap<ZenohId, HashMap<String, Arc<Channel>>>;
 
 static BUS: LazyLock<RwLock<Registry>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
-/// Resolve the channel for `(zid, topic)`, creating it if needed.
-///
-/// Call this once, when a publisher or subscriber is built — not per message.
 /// How many channels the registry currently holds, across every session.
 ///
 /// Exposed so the reclamation in [`channel`] can be observed. Without a way to
@@ -471,6 +478,22 @@ pub fn total_channels() -> usize {
     bus.values().map(|topics| topics.len()).sum()
 }
 
+/// How many channels the registry holds for one session. Diagnostics only.
+///
+/// Unlike [`total_channels`], this is not disturbed by other sessions in the
+/// same process, so a test running beside others can attribute a change to
+/// itself.
+pub fn session_channels(zid: ZenohId) -> usize {
+    let bus = match BUS.read() {
+        Ok(b) => b,
+        Err(e) => e.into_inner(),
+    };
+    bus.get(&zid).map(|topics| topics.len()).unwrap_or(0)
+}
+
+/// Resolve the channel for `(zid, topic)`, creating it if needed.
+///
+/// Call this once, when a publisher or subscriber is built — not per message.
 pub fn channel(zid: ZenohId, topic: &str) -> Arc<Channel> {
     // Fast path: it usually exists, and a read lock lets concurrent builders through.
     {

@@ -316,24 +316,27 @@ impl<T, S> ZPubBuilder<T, S> {
         self
     }
 
-    /// **Prototype.** Restrict [`ZPub::publish_shared`] to the intra-process
-    /// bus: the message is handed to same-session subscribers as an `Arc<T>`
-    /// and never goes near zenoh, so it is neither serialized nor transmitted.
+    /// **Prototype.** Restrict [`ZPub::publish_shared`] and
+    /// [`ZPub::publish_owned`] to the intra-process bus: the message is handed to
+    /// same-session subscribers and never goes near zenoh, so it is neither
+    /// serialized nor transmitted.
     ///
-    /// This affects `publish_shared` only. [`ZPub::publish`] keeps its normal
-    /// wire behaviour whatever this is set to.
+    /// [`ZPub::publish`] keeps its normal wire behaviour whatever this is set to.
     ///
     /// # Why the flag exists, and why it should not
     ///
     /// The caller asserts the audience; it is not inferred. Reading it off the
-/// ROS graph was tried and withdrawn: a plain zenoh subscriber declares no
-/// liveliness token, so the graph cannot see it, and a publisher that
-/// concluded "everyone is local" from the graph dropped that subscriber's
-/// messages with nothing reporting the loss.
-    /// every other process, including `ros2 topic echo`, and to any local
-    /// subscriber that did not register on the bus with
-    /// [`ZSubBuilder::build_with_shared_callback`]. Set it only where both ends
+    /// ROS graph was tried and withdrawn: a plain zenoh subscriber declares no
+    /// liveliness token, so the graph cannot see it, and a publisher that
+    /// concluded "everyone is local" from the graph dropped that subscriber's
+    /// messages with nothing reporting the loss.
+    ///
+    /// With this set, the message is invisible to every other process, including
+    /// `ros2 topic echo`, and to any local subscriber that did not register on
+    /// the bus with [`ZSubBuilder::build_with_shared_callback`] or
+    /// [`ZSubBuilder::build_with_owned_callback`]. Set it only where both ends
     /// are known.
+    ///
     /// # This publisher still appears in the ROS graph
     ///
     /// The liveliness token is declared in `build()` before any locality is
@@ -776,25 +779,11 @@ where
                 if let Some(e) = self.refuse_durable_bus() {
                     return Err(e);
                 }
+                if let Some(e) = self.refuse_unservable_owned() {
+                    return Err(e);
+                }
                 let d = self.local_channel.publish(msg);
                 if d == Delivery::NoTaker {
-                    // Distinguish "nobody is listening" from "somebody is
-                    // listening whom this path cannot serve". The shared path
-                    // filters on is_shared(), so an owned subscriber is skipped
-                    // — and this publisher has no wire to catch the message.
-                    // Reporting Ok here loses it silently.
-                    let owned = self.local_channel.owned_receivers::<T>();
-                    if owned > 0 {
-                        return Err(format!(
-                            "publish_shared on an intra-process-only publisher for {}: \
-                             {owned} subscriber(s) on this topic take the message by value, \
-                             and a shared publish cannot serve them. The message would be \
-                             dropped with no wire behind it. Use publish_owned(), or build \
-                             the subscriber with build_with_shared_callback().",
-                            self.entity.topic
-                        )
-                        .into());
-                    }
                     debug!(
                         "[PUB] intra-process only, no local subscriber on {}: message dropped",
                         self.entity.topic
@@ -808,6 +797,11 @@ where
             // Both audiences, and no subscriber is on both. TRANSIENT_LOCAL is
             // safe here: the wire publish populates the cache as it always did.
             Route::BusAndWire => {
+                // Refuse before the wire runs: an owned subscriber is served by
+                // neither half, and an Err after the wire send is a partial success.
+                if let Some(e) = self.refuse_unservable_owned() {
+                    return Err(e);
+                }
                 // Wire first, matching publish_owned. Bus delivery is
                 // synchronous, so running it first and then failing on the wire
                 // returns Err *after* every local subscriber has already been
@@ -821,6 +815,34 @@ where
                 Ok(Published::Wire)
             }
         }
+    }
+
+    /// Refuse a shared publish while a subscriber that takes the message by
+    /// value is registered on this topic.
+    ///
+    /// The shared path filters on `is_shared()`, so such a subscriber is
+    /// skipped, and the wire half of a `Remote` publisher cannot reach a
+    /// same-session subscriber either. Serving the shared subscribers alone
+    /// would report success over a message that one subscriber never receives.
+    /// It cannot be repaired by handing out a clone: `ZMessage` is not `Clone`.
+    fn refuse_unservable_owned(&self) -> Option<zenoh::Error>
+    where
+        T: Send + Sync + 'static,
+    {
+        let owned = self.local_channel.owned_receivers::<T>();
+        if owned == 0 {
+            return None;
+        }
+        Some(
+            format!(
+                "publish_shared on {}: {owned} subscriber(s) on this topic take the message \
+                 by value, and a shared publish cannot serve them. The message would not \
+                 reach them. Use publish_owned() with a single owning subscriber, or build \
+                 the subscribers with build_with_shared_callback().",
+                self.entity.topic
+            )
+            .into(),
+        )
     }
 
     /// Which routes this publisher's messages take.
@@ -1323,8 +1345,10 @@ where
     ///
     /// Served only by [`ZPub::publish_owned`], and only when this is the sole
     /// subscriber on the topic for this type — with a second receiver the
-    /// message cannot be given away. Otherwise the publisher falls back to a
-    /// shared or wire delivery, which this subscriber does not receive.
+    /// message cannot be given away. Otherwise [`ZPub::publish_shared`] and
+    /// [`ZPub::publish_owned`] refuse to publish on the bus rather than skip this
+    /// subscriber. It also has a wire half, so an ordinary [`ZPub::publish`], from
+    /// this session or another process, reaches it by value after deserializing.
     ///
     /// Use it where the receiver wants to mutate or consume the message, which
     /// the shared path cannot offer.

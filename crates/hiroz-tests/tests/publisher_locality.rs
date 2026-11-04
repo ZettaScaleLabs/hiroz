@@ -24,8 +24,6 @@
 //! Revert `with_locality` (or pass `Locality::Any`) and `local_only` starts
 //! arriving in the other context, which fails the assertion.
 
-#![cfg(feature = "ros-msgs")]
-
 mod common;
 
 use std::{
