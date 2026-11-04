@@ -64,6 +64,16 @@ impl Drop for Guard {
     }
 }
 
+/// A helper command with both operator threshold variables removed. The helper exits when either
+/// is set, and an operator may set them in the environment of the test run. A test that needs
+/// one of them sets it after this call.
+fn probe() -> Command {
+    let mut c = Command::new(PROBE);
+    c.env_remove("MALLOC_TRIM_THRESHOLD_")
+        .env_remove("MALLOC_MMAP_THRESHOLD_");
+    c
+}
+
 /// A loopback endpoint on a port that is free now. The port can be taken before the helper
 /// binds it. The window is short, and a taken port fails the run instead of skewing it.
 fn free_endpoint() -> String {
@@ -92,7 +102,7 @@ fn load_average() -> String {
 fn run_once(arm: &str) -> f64 {
     let endpoint = free_endpoint();
     let _publisher = Guard(
-        Command::new(PROBE)
+        probe()
             .args([
                 "pub",
                 &SIZE.to_string(),
@@ -106,7 +116,7 @@ fn run_once(arm: &str) -> f64 {
             .expect("spawn publisher"),
     );
     let mut receiver = Guard(
-        Command::new(PROBE)
+        probe()
             .args(["recv", arm, &COUNT.to_string()])
             .env("MALLOC_PROBE_ENDPOINT", &endpoint)
             .stdout(Stdio::piped())
@@ -168,7 +178,7 @@ fn operator_threshold_variable_fails_the_probe() {
         ("MALLOC_MMAP_THRESHOLD_", "lib"),
         ("MALLOC_TRIM_THRESHOLD_", "none"),
     ] {
-        let out = Command::new(PROBE)
+        let out = probe()
             .args(["recv", arm, "1"])
             .env("MALLOC_PROBE_ENDPOINT", free_endpoint())
             .env(var, "1048576")
@@ -205,7 +215,7 @@ fn run_id_pair(fault: Option<&str>) -> std::process::Output {
     ];
     args.extend(fault.map(str::to_string));
     let _publisher = Guard(
-        Command::new(PROBE)
+        probe()
             .args(&args)
             .env("MALLOC_PROBE_ENDPOINT", &endpoint)
             .stdout(Stdio::null())
@@ -213,7 +223,7 @@ fn run_id_pair(fault: Option<&str>) -> std::process::Output {
             .spawn()
             .expect("spawn publisher"),
     );
-    Command::new(PROBE)
+    probe()
         .args(["recv", "none", &ID_COUNT.to_string()])
         .env("MALLOC_PROBE_ENDPOINT", &endpoint)
         .output()
@@ -271,7 +281,7 @@ fn receiver_fails_when_the_publisher_repeats_an_id() {
 #[serial]
 fn production_pin_reports_operator_set_under_each_variable() {
     for var in ["MALLOC_TRIM_THRESHOLD_", "MALLOC_MMAP_THRESHOLD_"] {
-        let out = Command::new(PROBE)
+        let out = probe()
             .arg("pin")
             .env(var, "1048576")
             .output()
@@ -284,12 +294,7 @@ fn production_pin_reports_operator_set_under_each_variable() {
         );
     }
     // Control: without a variable the same call pins, so the check above can tell the two apart.
-    let out = Command::new(PROBE)
-        .arg("pin")
-        .env_remove("MALLOC_TRIM_THRESHOLD_")
-        .env_remove("MALLOC_MMAP_THRESHOLD_")
-        .output()
-        .expect("run pin");
+    let out = probe().arg("pin").output().expect("run pin");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         out.status.success() && stdout.contains("PIN outcome=Pinned"),
