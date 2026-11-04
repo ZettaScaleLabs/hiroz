@@ -47,6 +47,24 @@ type cGoalHandle struct{ p *C.hiroz_goal_handle_t }
 type cActionClientHandle struct{ p *C.hiroz_action_client_t }
 type cActionServerHandle struct{ p *C.hiroz_action_server_t }
 
+// cGoalHandleC is the C goal handle type. Tests name it to stub actionResult.
+type cGoalHandleC = C.hiroz_goal_handle_t
+
+// actionResult makes the one blocking C call of a result wait. A test replaces it to run the
+// result path without a Zenoh session. Production code never assigns it.
+var actionResult = func(h *cGoalHandleC) ([]byte, int32) {
+	var resultPtr *C.uint8_t
+	var resultLen C.uintptr_t
+
+	rc := C.hiroz_action_client_get_result(h, &resultPtr, &resultLen)
+	if rc != 0 {
+		return nil, int32(rc)
+	}
+	resultBytes := C.GoBytes(unsafe.Pointer(resultPtr), C.int(resultLen))
+	C.hiroz_free_bytes((*C.uint8_t)(resultPtr), C.uintptr_t(resultLen))
+	return resultBytes, 0
+}
+
 // GoalStatus represents the status of an action goal
 type GoalStatus int8
 
@@ -192,22 +210,11 @@ func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 	go func() {
 		defer h.client.inflight.leave()
 
-		var resultPtr *C.uint8_t
-		var resultLen C.uintptr_t
-
-		result := C.hiroz_action_client_get_result(
-			goalHandle,
-			&resultPtr,
-			&resultLen,
-		)
-
+		resultBytes, result := actionResult(goalHandle)
 		if result != 0 {
 			ch <- ffiResult{nil, newHirozError(ErrorCodeActionResultFailed, fmt.Sprintf("failed to get result with code %d", result))}
 			return
 		}
-
-		resultBytes := C.GoBytes(unsafe.Pointer(resultPtr), C.int(resultLen))
-		C.hiroz_free_bytes((*C.uint8_t)(resultPtr), C.uintptr_t(resultLen))
 		ch <- ffiResult{resultBytes, nil}
 	}()
 
