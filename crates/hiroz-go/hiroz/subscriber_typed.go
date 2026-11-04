@@ -142,9 +142,14 @@ func SubscriberWithHandler[T Message](builder *SubscriberBuilder, handler Handle
 }
 
 // BuildWithTypedCallbackContext is BuildWithTypedCallback with a lifetime bound to ctx.
-// When ctx ends, the subscriber is destroyed through Node.DestroySubscriber and no further
-// callbacks run. If ctx has already ended, the call returns ctx.Err() and creates no
-// subscriber. Closing the subscriber earlier is safe.
+// When ctx ends, a cleanup goroutine destroys the subscriber through Node.DestroySubscriber.
+// Cancelling does not wait for that goroutine, and the destroy does not wait for a callback
+// that is running. A callback can therefore start after ctx.Done is closed, and a handler
+// that is already running keeps running after the destroy returns. Cancelling ctx alone is
+// not permission to release what the handler uses, and there is no completion signal: make
+// the handler safe to run after cancel, for example by guarding shared state with a lock and
+// a flag that the handler checks. If ctx has already ended, the call returns ctx.Err() and
+// creates no subscriber. Closing the subscriber earlier is safe.
 //
 // Example:
 //
@@ -163,9 +168,12 @@ func BuildWithTypedCallbackContext[T Message](ctx context.Context, builder *Subs
 }
 
 // SubscriberWithChannelContext is SubscriberWithChannel with a lifetime bound to ctx, and no
-// cleanup function. When ctx ends, the subscriber is destroyed and then the channel is
-// closed, so a range loop over the channel finishes. If ctx has already ended, the call
-// returns ctx.Err() and creates nothing.
+// cleanup function. When ctx ends, a cleanup goroutine destroys the subscriber and then
+// closes the channel, so a range loop over the channel finishes. A closed channel means that
+// no sample will arrive on it. It does not mean that the message type's DeserializeCDR has
+// returned: a callback that is inside DeserializeCDR when ctx ends runs it to the end, and
+// then drops the sample. If ctx has already ended, the call returns ctx.Err() and creates
+// nothing.
 //
 // A consumer that stops reading does not block the shutdown: a callback that waits on a
 // full channel is released first. The channel stays open until ctx ends, so pass a
