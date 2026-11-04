@@ -7,10 +7,10 @@
 //! min-max ranges. A control arm, the unpinned receive slowed by a deliberate delay, must fail
 //! the same check.
 //!
-//! A second check keeps the gain over the previous pin (`M_MMAP_THRESHOLD` 64 MiB, `M_TRIM_THRESHOLD`
-//! 64 MiB, the arm `raw:64:64`). The pinned median must be below the old-pin median by more than
-//! twice the larger min-max range of those two arms. A second set of the old pin, and the slowed
-//! arm, must fail that check.
+//! A second check keeps the gain over the earlier pin of 64 MiB for both thresholds (the arm
+//! `raw:64:64`). The pinned median must be below the old-pin median by more than twice the
+//! larger min-max range of those two arms. A second set of the old pin, and the old pin slowed
+//! by a deliberate delay, must fail that check.
 //!
 //! Opt-in: the test is `#[ignore]`d and CI does not run it. Its thresholds come from one quiet
 //! host (load average below 0.6). On a shared runner under load the unpinned receive drops
@@ -22,8 +22,8 @@
 //!     --run-ignored only -E 'test(=pinned_32mib_main_thread_receive_is_not_slower_than_unpinned)'
 //! ```
 //!
-//! The run takes about 277 s (25 receives of about 11 s each). The test prints the load average and glibc version first.
-//! Check the printed load before you read the result. CI still compiles this file, and it runs
+//! The run takes about 330 s (30 receives of about 11 s each). The test prints the load average
+//! and the glibc version first. Check the printed load before you read the result. CI still compiles this file, and it runs
 //! `operator_threshold_variable_fails_the_probe`, the id checks, the production override check
 //! and the wiring test in `malloc_pin_wiring.rs`.
 //!
@@ -48,7 +48,7 @@ const HZ: u32 = 10;
 const COUNT: usize = 60;
 const REPEATS: usize = 5;
 const CONTROL_DELAY_MS: u64 = 10;
-/// The pin before this change: `M_MMAP_THRESHOLD` 64 MiB, `M_TRIM_THRESHOLD` 64 MiB.
+/// The earlier pin: `M_MMAP_THRESHOLD` 64 MiB and `M_TRIM_THRESHOLD` 64 MiB.
 const OLD_PIN_ARM: &str = "raw:64:64";
 
 /// Longest wait for the output of one receiver. One receive takes about 11 s.
@@ -195,7 +195,7 @@ fn operator_threshold_variable_fails_the_probe() {
 
 /// Exit status of a receiver whose message ids are not consecutive.
 const EXIT_ID_GATE: i32 = 5;
-/// Messages per helper pair of the id checks. Small, so the check runs in seconds.
+/// Payload size in bytes of the id checks. Small, so each check runs in seconds.
 const ID_SIZE: usize = 64 << 10;
 const ID_HZ: u32 = 50;
 const ID_COUNT: usize = 20;
