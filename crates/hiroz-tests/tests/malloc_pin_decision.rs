@@ -60,3 +60,26 @@ fn rejected_trim_threshold_is_reported() {
         }
     );
 }
+
+#[test]
+fn rejected_mmap_threshold_is_described_without_a_trim_return_code() {
+    let text = PinOutcome::Rejected {
+        mmap_rc: 0,
+        trim_rc: 0,
+    }
+    .to_string();
+    assert!(text.contains("trim not attempted"), "{text}");
+    assert!(!text.contains("trim=0"), "{text}");
+}
+
+#[test]
+fn rejected_trim_threshold_is_described_with_its_return_code() {
+    // Positive control of the test above: a trim call that ran and failed is reported as such.
+    let text = PinOutcome::Rejected {
+        mmap_rc: 1,
+        trim_rc: 0,
+    }
+    .to_string();
+    assert!(text.contains("trim=0"), "{text}");
+    assert!(!text.contains("not attempted"), "{text}");
+}
