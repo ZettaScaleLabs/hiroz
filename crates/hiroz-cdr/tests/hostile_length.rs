@@ -57,6 +57,52 @@ fn limit_address_space() {
     setrlimit(Resource::RLIMIT_CORE, 0, 0).expect("setrlimit RLIMIT_CORE");
 }
 
+/// A child under an inherited hard limit must lower its limit and not raise it.
+#[test]
+fn limit_respects_an_inherited_hard_limit() {
+    if is_child() {
+        limit_address_space();
+        return;
+    }
+    let status = std::fs::read_to_string("/proc/self/status").expect("read /proc/self/status");
+    let kb: u64 = status
+        .lines()
+        .find_map(|l| l.strip_prefix("VmSize:"))
+        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
+        .expect("VmSize in /proc/self/status");
+    // `ulimit -v` sets the soft and the hard limit, in kB. The cap is below the usual request.
+    let inherited_kb = kb + (256 << 10);
+    let out = Command::new("sh")
+        .args([
+            "-c",
+            "ulimit -v \"$1\" && exec \"$0\" --exact limit_respects_an_inherited_hard_limit \
+             --nocapture --test-threads=1",
+            &std::env::current_exe()
+                .expect("current_exe")
+                .to_string_lossy(),
+            &inherited_kb.to_string(),
+        ])
+        .env(CHILD_ENV, "1")
+        .output()
+        .expect("spawn child");
+    assert!(
+        out.status.success(),
+        "the child must work under an inherited hard limit\n{}",
+        describe(&out)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let applied: u64 = stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("address-space limit: "))
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or_else(|| panic!("no applied limit reported\n{}", describe(&out)));
+    assert!(
+        applied <= inherited_kb * 1024,
+        "applied {applied} above the inherited {}",
+        inherited_kb * 1024
+    );
+}
+
 /// Re-run test `name` of this binary as a child with the hostile-length limit.
 fn run_child(name: &str) -> Output {
     Command::new(std::env::current_exe().expect("current_exe"))
