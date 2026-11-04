@@ -479,7 +479,7 @@ pub struct MessageLossTracker {
 /// next sample is a new baseline: it raises no loss, and a gap that fell inside
 /// the eviction goes unreported. The bound is above any realistic number of
 /// live publishers on one topic, so that case needs publisher churn.
-pub const MAX_TRACKED_PUBLISHERS: usize = 1024;
+pub(crate) const MAX_TRACKED_PUBLISHERS: usize = 1024;
 
 /// Last sequence number per publisher, with the tick of the latest arrival.
 struct Baselines {
