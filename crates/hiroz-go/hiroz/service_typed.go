@@ -70,6 +70,11 @@ func CallTypedContext[Resp Message](ctx context.Context, client *ServiceClient, 
 		return err
 	}
 	reqBytes, err := request.SerializeCDR()
+	// ctx may have ended while the serializer ran. The context error wins over a serializer
+	// error.
+	if cerr := ctx.Err(); cerr != nil {
+		return cerr
+	}
 	if err != nil {
 		return fmt.Errorf("failed to serialize request: %w", err)
 	}
