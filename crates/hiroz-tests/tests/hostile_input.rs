@@ -229,6 +229,134 @@ fn dynamic_decoder_decodes_zero_byte_elements() {
     }
 }
 
+fn empty_message() -> std::sync::Arc<MessageSchema> {
+    MessageSchema::builder("test_msgs/msg/Empty")
+        .build()
+        .expect("schema")
+}
+
+/// A sample for `Sequence(Sequence(Message(empty)))`: `outer` inner sequences, each declaring
+/// the hostile count. Every inner count costs four bytes, and no element has any bytes.
+fn nested_hostile_sample(outer: u32) -> Vec<u8> {
+    let mut v = vec![0x00, 0x01, 0x00, 0x00];
+    v.extend_from_slice(&outer.to_le_bytes());
+    for _ in 0..outer {
+        v.extend_from_slice(&HOSTILE_LENGTH.to_le_bytes());
+    }
+    v
+}
+
+/// Zero-byte elements need no payload, so the declared count is the only limit on the work. The
+/// decoder must stop with an error instead of growing its output by the declared count.
+#[test]
+fn dynamic_decoder_survives_a_hostile_zero_byte_sequence() {
+    if is_child() {
+        let schema = MessageSchema::builder("test_msgs/msg/EmptySeq")
+            .field(
+                "items",
+                FieldType::Sequence(Box::new(FieldType::Message(empty_message()))),
+            )
+            .build()
+            .expect("schema");
+        limit_address_space();
+        let err = DynamicMessage::from_cdr(&hostile_sample(), &schema)
+            .expect_err("hostile zero-byte count must be an error");
+        println!("hostile: {err}");
+
+        let mut valid = vec![0x00, 0x01, 0x00, 0x00];
+        valid.extend_from_slice(&3u32.to_le_bytes());
+        let msg = DynamicMessage::from_cdr(&valid, &schema).expect("valid sample");
+        println!("next valid: {} elements", elements(&msg, "items").len());
+        return;
+    }
+    assert_child_survives(
+        "dynamic_decoder_survives_a_hostile_zero_byte_sequence",
+        &["hostile: ", "next valid: 3 elements"],
+    );
+}
+
+/// The budget is per decode call. In a sequence of sequences of zero-byte elements, each inner
+/// count is below the single-sequence maximum, and only the total is hostile.
+#[test]
+fn dynamic_decoder_survives_nested_hostile_zero_byte_sequences() {
+    if is_child() {
+        let inner = FieldType::Sequence(Box::new(FieldType::Message(empty_message())));
+        let schema = MessageSchema::builder("test_msgs/msg/NestedEmptySeq")
+            .field("items", FieldType::Sequence(Box::new(inner)))
+            .build()
+            .expect("schema");
+        limit_address_space();
+        // 250 inner sequences fit in about 1 KB.
+        let err = DynamicMessage::from_cdr(&nested_hostile_sample(250), &schema)
+            .expect_err("nested hostile counts must be an error");
+        println!("hostile: {err}");
+
+        // Honest nesting still decodes: two inner sequences of three elements.
+        let mut valid = vec![0x00, 0x01, 0x00, 0x00];
+        valid.extend_from_slice(&2u32.to_le_bytes());
+        valid.extend_from_slice(&3u32.to_le_bytes());
+        valid.extend_from_slice(&3u32.to_le_bytes());
+        let msg = DynamicMessage::from_cdr(&valid, &schema).expect("valid sample");
+        let outer = elements(&msg, "items");
+        println!(
+            "next valid: {} outer, {} inner",
+            outer.len(),
+            outer[0].as_array().expect("inner array").len()
+        );
+        return;
+    }
+    assert_child_survives(
+        "dynamic_decoder_survives_nested_hostile_zero_byte_sequences",
+        &["hostile: ", "next valid: 2 outer, 3 inner"],
+    );
+}
+
+/// A fixed array takes its length from the schema, which a remote node supplies. A huge length
+/// must be an error from the decoder, never a reservation.
+#[test]
+fn dynamic_decoder_survives_a_hostile_array_length() {
+    if is_child() {
+        let big = MessageSchema::builder("test_msgs/msg/HugeArray")
+            .field(
+                "flags",
+                FieldType::Array(Box::new(FieldType::Bool), 1 << 40),
+            )
+            .build()
+            .expect("schema");
+        let zero_byte = MessageSchema::builder("test_msgs/msg/HugeEmptyArray")
+            .field(
+                "items",
+                FieldType::Array(
+                    Box::new(FieldType::Message(empty_message())),
+                    HOSTILE_LENGTH as usize,
+                ),
+            )
+            .build()
+            .expect("schema");
+        let header = [0x00, 0x01, 0x00, 0x00];
+        limit_address_space();
+        let err = DynamicMessage::from_cdr(&header, &big).expect_err("huge array must be an error");
+        println!("hostile: {err}");
+        let err = DynamicMessage::from_cdr(&header, &zero_byte)
+            .expect_err("huge zero-byte array must be an error");
+        println!("hostile zero-byte: {err}");
+
+        let small = MessageSchema::builder("test_msgs/msg/SmallArray")
+            .field("flags", FieldType::Array(Box::new(FieldType::Bool), 3))
+            .build()
+            .expect("schema");
+        let mut valid = header.to_vec();
+        valid.extend_from_slice(&[1, 0, 1]);
+        let msg = DynamicMessage::from_cdr(&valid, &small).expect("valid sample");
+        println!("next valid: {} elements", elements(&msg, "flags").len());
+        return;
+    }
+    assert_child_survives(
+        "dynamic_decoder_survives_a_hostile_array_length",
+        &["hostile: ", "hostile zero-byte: ", "next valid: 3 elements"],
+    );
+}
+
 /// A sequence length that equals the bytes left decodes (one byte per element).
 #[test]
 fn dynamic_decoder_accepts_a_length_at_the_boundary() {
