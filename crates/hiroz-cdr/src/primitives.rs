@@ -353,7 +353,8 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
     /// # Limits
     /// The maximum count bounds the iteration of one sequence. Nested sequences each get their own
     /// bound, so it does not bound the total work of a decode. It does not prove that the elements
-    /// are present in the input.
+    /// are present in the input. A decoder whose elements can take no bytes must also keep a
+    /// budget for the whole decode call.
     ///
     /// The maximum sequence length is 100 million elements. This validates only
     /// the declared count: it does not compare the count with [`Self::remaining`],
