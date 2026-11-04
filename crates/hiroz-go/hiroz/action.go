@@ -182,6 +182,10 @@ func (h *GoalHandle) GetResult() ([]byte, error) {
 // therefore holds Close for at most 30 seconds, and normally about 10 seconds, and then fails
 // with an error. SendGoalContext registers too, and its C call has a fixed timeout of 10 seconds. It also stays registered while it runs the goal's SerializeCDR, so a slow serializer adds its own time to the hold. SendGoal and Cancel do not register.
 func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
+	// An ended context starts no C wait. The wait would hold the client registration.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if h.handle.Load() == nil || h.client == nil {
 		return nil, fmt.Errorf("goal handle is closed")
 	}
