@@ -116,3 +116,39 @@ func TestBuildWithTypedCallbackContextDeliversForPointerType(t *testing.T) {
 		t.Fatalf("got %q, want hello", v)
 	}
 }
+
+// With the real library, destroying a subscriber returns while a handler is still running.
+func TestBuildWithTypedCallbackContextDestroyDoesNotWaitForRunningHandler(t *testing.T) {
+	node, pub := ctxDeliveryFixture(t, "/ctx_delivery_destroy")
+	b := newBarrier()
+	defer b.free()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sub, err := BuildWithTypedCallbackContext(ctx, node.CreateSubscriber("/ctx_delivery_destroy"), func(*ctxDeliveryMsg) { b.hold() })
+	if err != nil {
+		t.Fatalf("subscriber: %v", err)
+	}
+
+	deadline := time.After(8 * time.Second)
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+entered:
+	for {
+		if err := pub.Publish(&ctxDeliveryMsg{Value: "hello"}); err != nil {
+			t.Fatalf("publish: %v", err)
+		}
+		select {
+		case <-b.entered:
+			break entered
+		case <-deadline:
+			t.Fatal("the handler never ran")
+		case <-tick.C:
+		}
+	}
+
+	closed := make(chan error, 1)
+	go func() { closed <- sub.Close() }()
+	if err := receiveBounded(t, closed, "Close to return while the handler runs"); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+}
