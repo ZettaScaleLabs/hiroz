@@ -8,8 +8,8 @@ import (
 
 // select picks at random when ctx.Done and the result channel are both ready. The finish
 // functions are what the result branch calls, so these tests give them an ended context and
-// a ready result, the state in which select can take either branch. Without the recheck,
-// each call below returned the result.
+// a ready result, the state in which select can take either branch. The ended context must
+// win in every call below.
 
 func TestFinishContextCallEndedContextBeatsSuccess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

@@ -263,7 +263,7 @@ type ActionClient struct {
 	handle    atomic.Pointer[cActionClientHandle]
 	node      *Node
 	action    string
-	inflight  inflightGate // tracks goroutines blocked inside GetResultWithContext, GetResult, GetTypedResult, GetTypedResultContext and SendGoalContext
+	inflight  inflightGate // registers the calls that read the C handles: the result waits and SendGoalContext
 	closeOnce sync.Once
 }
 
@@ -367,7 +367,8 @@ func (c *ActionClient) SendGoal(goal Message) (*GoalHandle, error) {
 	return c.sendGoalBytes(hw.p, goalBytes)
 }
 
-// serializeGoal serialises a goal into bytes that the caller owns.
+// serializeGoal serialises a goal. The slice is what the goal's SerializeCDR returns, so it
+// can be storage that the goal owns.
 func serializeGoal(goal Message) ([]byte, error) {
 	goalBytes, err := goal.SerializeCDR()
 	if err != nil {
@@ -380,7 +381,8 @@ func serializeGoal(goal Message) ([]byte, error) {
 }
 
 // sendGoalBytes makes the blocking C goal send with goal bytes that are already serialised.
-// It never reads a Message, so a caller may change the goal while this call runs.
+// It never reads a Message. It reads goalBytes until it returns, so the caller must not
+// change that storage while the call runs.
 func (c *ActionClient) sendGoalBytes(h *C.hiroz_action_client_t, goalBytes []byte) (*GoalHandle, error) {
 	// Pin the goal data to prevent GC relocation during the C call
 	pinner := &runtime.Pinner{}
@@ -433,15 +435,12 @@ var sendGoal = func(c *ActionClient, goalBytes []byte) (*GoalHandle, error) {
 
 // SendGoalContext sends a goal and returns when the server answers or ctx ends.
 // When ctx ends first, the call returns ctx.Err() and closes the goal handle once the C layer
-// returns. The server may already hold the goal. Cancelling ctx does not cancel the goal.
+// returns. When the server answers first, the call returns the open handle. The server may already hold the goal. Cancelling ctx does not cancel the goal.
 // If ctx has already ended, nothing is sent. SendGoalContext serialises the goal and copies
 // the bytes before it returns, so the caller may reuse or change the goal after any return.
 //
 // Known limit: the goroutine that closes the goal handle after ctx ended first does not
-// register with the client. It can run after ActionClient.Close destroyed the client handle.
-// By reading hiroz_goal_handle_destroy in crates/hiroz/src/ffi/action.rs, the destroy only
-// drops the goal handle box, which holds the goal ID and a raw client pointer, and it does
-// not read the client. No test checks this, so it is not verified at run time.
+// register with the client. It can run after ActionClient.Close has returned.
 func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*GoalHandle, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
