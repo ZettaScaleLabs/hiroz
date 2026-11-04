@@ -99,6 +99,8 @@ func (b *SubscriberBuilder) WithBufferGroup(group BufferGroup) *SubscriberBuilde
 
 // BuildWithCallback creates the subscriber with a custom callback handler.
 // The handler is invoked on a C/Rust thread — avoid long blocking operations.
+// Close does not wait for a handler that is running. It also keeps the handler, and what the
+// handler captures, reachable: a successful build never releases them.
 func (b *SubscriberBuilder) BuildWithCallback(msg Message, handler MessageHandler) (*Subscriber, error) {
 	if handler == nil {
 		return nil, fmt.Errorf("callback handler cannot be nil")

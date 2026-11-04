@@ -129,7 +129,9 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_qos(
 /// # Safety
 /// `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
 /// must be valid C strings. `callback` must be a valid function pointer.
-/// `qos` may be null for default QoS.
+/// `qos` may be null for default QoS. `user_data` is passed through to the callback.
+/// `hiroz_subscriber_destroy` does not wait for a callback that is running, so the caller must
+/// not free what `user_data` names until it knows that no callback is running.
 #[allow(clippy::too_many_arguments)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_subscriber_create_with_group(
@@ -239,6 +241,8 @@ unsafe fn create_subscriber(
 }
 
 /// Destroy a subscriber
+///
+/// The call does not wait for a callback that is running. It can return while one still runs.
 ///
 /// # Safety
 /// `sub` must be a valid subscriber pointer or null.
