@@ -313,7 +313,8 @@ fn connected_nodes(name: &str) -> (ZContext, ZNode, ZContext, ZNode) {
 /// Two plain puts carry timestamps from one clock, the newer one first. A cache that filters
 /// samples by timestamp would drop the second put. Control in the same test: the first message,
 /// from a real publisher, is stored before the puts, so a missing sample is a drop and not a
-/// cache that never received anything.
+/// cache that never received anything. The cache is cleared after the control, so the two puts
+/// are counted alone.
 #[test]
 fn volatile_cache_keeps_reordered_timestamps() {
     const TOPIC: &str = "cache_parity_reorder";
@@ -339,6 +340,10 @@ fn volatile_cache_keeps_reordered_timestamps() {
         .expect("the probe sees the real publication");
     wait_until("the cache to store the real message", || cache.len() == 1);
 
+    // The control only shows that the cache receives. Clearing it leaves the injected pair alone,
+    // so the count cannot depend on whether a key of the pair equals the key of the control.
+    cache.clear();
+
     // The cache indexes a message by its timestamp as a `SystemTime`, which has no room for the
     // logical counter of the clock. Two timestamps from one clock tick differ only in that counter
     // and index the same entry. A coarse system clock produces such a pair, so the test draws
@@ -362,7 +367,7 @@ fn volatile_cache_keeps_reordered_timestamps() {
             .wait()
             .expect("timestamped put");
     }
-    wait_for_len("the cache to store both timestamped samples", &cache, 3);
+    wait_for_len("the cache to store both timestamped samples", &cache, 2);
 }
 
 /// The locality of a cache restricts the buffer-group subscription as well as the topic one.
