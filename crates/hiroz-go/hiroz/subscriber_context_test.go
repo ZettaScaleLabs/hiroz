@@ -65,8 +65,7 @@ func TestBuildWithTypedCallbackContextBuildFailure(t *testing.T) {
 	}
 }
 
-// nilSafeMessage decodes nothing, so a nil receiver is safe. The generic subscriber helpers
-// decode into a zero value of T, which is a nil pointer for a pointer type.
+// nilSafeMessage decodes nothing, so a nil receiver is safe.
 type nilSafeMessage struct{}
 
 func (*nilSafeMessage) TypeName() string              { return "test/NilSafe" }
@@ -141,9 +140,9 @@ func TestSubscriberWithChannelContextCancelDestroysAndCloses(t *testing.T) {
 	}
 }
 
-// A callback that arrives after the channel closed must neither panic nor deliver.
-// Before the teardown waited for senders, the closed channel and the finished done channel
-// were both ready and the select picked either at random.
+// A callback that arrives after the channel closed must neither panic nor deliver. The
+// closed channel and the closed done channel are both ready then, and the callback must not
+// leave the choice to select.
 func TestSubscriberWithChannelContextLateCallbackIsSafe(t *testing.T) {
 	f := stubSubscriber(t)
 	ctx, cancel := context.WithCancel(context.Background())

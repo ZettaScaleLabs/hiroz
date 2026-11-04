@@ -75,7 +75,7 @@ type ServiceClient struct {
 	node      *Node
 	service   string
 	closeOnce sync.Once
-	inflight  inflightGate // tracks calls that run in a goroutine, so Close does not free the handle under them
+	inflight  inflightGate // registers the calls that read the C handle, so Close does not free it under them
 }
 
 // ServiceServer responds to ROS 2 service requests

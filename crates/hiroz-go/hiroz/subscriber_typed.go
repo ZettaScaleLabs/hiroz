@@ -152,7 +152,8 @@ func (s *Subscriber) setOnClose(f func()) { s.onClose.Store(&f) }
 // not permission to release what the handler uses, and there is no completion signal: make
 // the handler safe to run after cancel, for example by guarding shared state with a lock and
 // a flag that the handler checks. If ctx has already ended, the call returns ctx.Err() and
-// creates no subscriber. Closing the subscriber earlier is safe.
+// creates no subscriber. Closing the subscriber earlier is safe: it also releases the
+// registration on ctx.
 //
 // Example:
 //
@@ -178,15 +179,16 @@ func BuildWithTypedCallbackContext[T Message](ctx context.Context, builder *Subs
 
 // SubscriberWithChannelContext is SubscriberWithChannel with a lifetime bound to ctx, and no
 // cleanup function. When ctx ends, a cleanup goroutine destroys the subscriber and then
-// closes the channel, so a range loop over the channel finishes. A closed channel means that
-// no sample will arrive on it. It does not mean that the message type's DeserializeCDR has
-// returned: a callback that is inside DeserializeCDR when ctx ends runs it to the end, and
-// then drops the sample. If ctx has already ended, the call returns ctx.Err() and creates
-// nothing.
+// closes the channel, so a range loop over the channel finishes. Closing the subscriber
+// earlier also closes the channel. A closed channel means that no sample will arrive on it.
+// It does not mean that the message type's DeserializeCDR has returned: a callback that is
+// inside DeserializeCDR when ctx ends runs it to the end, and then drops the sample. A
+// sample that has already passed the check of ctx when ctx ends can still arrive before the
+// channel closes. If ctx has already ended, the call returns ctx.Err() and creates nothing.
 //
 // A consumer that stops reading does not block the shutdown: a callback that waits on a
-// full channel is released first. The channel stays open until ctx ends, so pass a
-// context that you cancel.
+// full channel is released first. The channel stays open until ctx ends or the subscriber
+// closes, so pass a context that you cancel, or close the subscriber.
 //
 // Example:
 //

@@ -2,9 +2,10 @@ package hiroz
 
 import "sync"
 
-// inflightGate counts the calls that use a C handle in a goroutine. A call registers with
-// enter before it reads the handle. shutdown refuses new calls first and then waits for the
-// registered ones, so no call can register after the wait has started.
+// inflightGate counts the calls that use a C handle. A call registers with enter before it
+// reads the handle and leaves when it no longer needs the handle. shutdown refuses new calls
+// first and then waits for the registered ones, so no call can register after the wait has
+// started.
 type inflightGate struct {
 	mu   sync.Mutex
 	shut bool
