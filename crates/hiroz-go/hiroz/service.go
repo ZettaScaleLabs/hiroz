@@ -340,6 +340,9 @@ func waitSliceMs(remaining time.Duration) (timeoutMs uint64, expired bool) {
 // most 250 ms, so a cancelled context returns within one slice. Close also ends the wait
 // within one slice: the call then returns an error that says the client is closed.
 func (c *ServiceClient) WaitForServiceContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !c.inflight.enter() {
 		return fmt.Errorf("service client is closed")
 	}
