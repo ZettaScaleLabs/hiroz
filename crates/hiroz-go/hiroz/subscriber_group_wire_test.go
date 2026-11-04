@@ -19,10 +19,12 @@ func qosPtr(q QosProfile) *QosProfile { return &q }
 
 // topicListed reports whether the graph of ctx lists topic. A subscriber that stays out of the
 // buffer group declares no liveliness token, so with no other endpoint its topic is not listed.
-func topicListed(ctx *Context, topic string) bool {
+// A failed graph query ends the test: an empty result and a failed query must not look alike.
+func topicListed(t *testing.T, ctx *Context, topic string) bool {
+	t.Helper()
 	topics, err := ctx.GetTopicNamesAndTypes()
 	if err != nil {
-		return false
+		t.Fatalf("graph query for %s: %v", topic, err)
 	}
 	for _, info := range topics {
 		if info.Name == topic {
@@ -37,10 +39,13 @@ func topicListed(ctx *Context, topic string) bool {
 // that stays out of the group (transient-local), leaves the topic unlisted. Dropping the group
 // or the explicit QoS anywhere between the builder and the C call changes a listing.
 //
-// The listed cases are the positive control. The test waits until they are all listed before it
-// reads the unlisted ones, so an unlisted topic is not a late token. The graph shows the topic
-// only. It cannot show a QoS other than the transient-local exception, so a dropped best-effort
-// profile goes unseen.
+// The listed cases are the positive control. The test builds every case, listed or not, before
+// it waits for the listed ones. A creator declares its token before it returns, so each token
+// of the test is declared before the wait starts. The wait shows that this session delivers
+// those tokens to the graph. A subscriber that stays out declares no token at all, so an
+// unlisted topic is not a pending one. The wait does not prove an order between the delivery of
+// two tokens. The graph shows the topic only. It cannot show a QoS other than the
+// transient-local exception, so a dropped best-effort profile goes unseen.
 func TestBuiltSubscriberGroupDecidesGraphVisibility(t *testing.T) {
 	ctx, err := NewContext().DisableMulticastScouting().Build()
 	if err != nil {
@@ -79,21 +84,25 @@ func TestBuiltSubscriberGroupDecidesGraphVisibility(t *testing.T) {
 			t.Fatalf("%s: build: %v", tc.name, err)
 		}
 	}
+	// Barrier: every listed topic is in the graph.
 	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		all := true
+	for {
+		var missing []string
 		for _, tc := range cases {
-			if tc.visible && !topicListed(ctx, topics[tc.name]) {
-				all = false
+			if tc.visible && !topicListed(t, ctx, topics[tc.name]) {
+				missing = append(missing, tc.name)
 			}
 		}
-		if all {
+		if len(missing) == 0 {
 			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("positive control: not listed in the graph after 10s: %v", missing)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	for _, tc := range cases {
-		if got := topicListed(ctx, topics[tc.name]); got != tc.visible {
+		if got := topicListed(t, ctx, topics[tc.name]); got != tc.visible {
 			t.Errorf("%s: listed in the graph = %v, want %v", tc.name, got, tc.visible)
 		}
 	}
