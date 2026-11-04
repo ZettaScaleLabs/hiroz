@@ -563,15 +563,17 @@ int32_t hiroz_graph_node_exists(struct hiroz_context_t *ctx,
 /**
  * Return the last error message of the calling thread, or NULL if none is recorded.
  *
- * The message is a hint for logging. Use the return value of a call to learn whether it failed: a negative code, or NULL from a constructor. Two functions return a positive value that is not a failure: `hiroz_graph_node_exists` returns 1 when the node is found, and `hiroz_action_server_is_cancel_requested` returns 1 when a cancel was requested and 0 for a null handle. A NULL message never means that a call succeeded.
+ * The message is a hint for logging. The return value of a call is the only contract for failure: a negative code, or NULL from a constructor. A NULL message never means that a call succeeded.
+ *
+ * Two functions return a positive value that is not a failure. `hiroz_graph_node_exists` returns 1 when the node is found. `hiroz_action_server_is_cancel_requested` returns 1 when a cancel was requested, and 0 for a null handle.
  *
  * The library records a message in two cases only. One is a warning that it routes through its FFI warning macro. The other is a null or non-UTF-8 string argument that a call rejects or skips.
  *
- * Many failures record no message. Examples: a null context or node handle, a `NullPointer` return for a null client or null output pointer, a goal that the action server rejects, and an unknown buffer group in `hiroz_subscriber_create_with_group`.
+ * Many failures record no message. Examples are a null context or node handle, a `NullPointer` return for a null client or null output pointer, and a goal that the action server rejects. Another example is an unknown buffer group in `hiroz_subscriber_create_with_group`.
  *
- * A message can be present after a successful call. For example, `hiroz_context_create_with_config` succeeds and records a message when `json_config` is not a JSON object, when an optional string is invalid, or when an element of `connect_endpoints` or `remap_rules` is NULL or invalid. A successful call never clears the message. Call `hiroz_last_error_clear` to clear it.
+ * A message can be present after a successful call. For example, `hiroz_context_create_with_config` succeeds and records a message when `json_config` is not a JSON object. It does the same when an optional string is invalid, or when an element of `connect_endpoints` or `remap_rules` is NULL or invalid. A successful call never clears the message. Call `hiroz_last_error_clear` to clear it.
  *
- * The message is thread-local. The pointer stays valid until the next call on the same thread that records a message, or until `hiroz_last_error_clear`. Do not free it.
+ * The message is thread-local. The pointer stays valid until one of three events on the same thread: the next call that records a message, a call to `hiroz_last_error_clear`, or the exit of the thread. Copy the message before then. Do not free it.
  */
 const char *hiroz_last_error_message(void);
 

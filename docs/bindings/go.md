@@ -389,14 +389,9 @@ if errors.Is(err, hiroz.ErrTimeout)     { /* no server responded */ }
 ```
 
 A C caller can read a diagnostic message with `hiroz_last_error_message()`, which returns a thread-local string or NULL.
-The message is a hint for logging. The return value of a call is the only contract for failure: a negative code, or NULL from a constructor.
-Two functions return a positive value that is not a failure: `hiroz_graph_node_exists` returns 1 when the node is found, and `hiroz_action_server_is_cancel_requested` returns 1 when a cancel was requested and 0 for a null handle.
-The library records a message in two cases only: a warning that it routes through its FFI warning macro, and a null or non-UTF-8 string argument that a call rejects or skips.
-Many failures record no message. Examples are a null context or node handle, a `NullPointer` return for a null client, a goal that the action server rejects, and an unknown buffer group. So a NULL message never means that a call succeeded.
-A message can be present after a successful call. For example, `hiroz_context_create_with_config` records one for a `json_config` that is not a JSON object, and still succeeds.
-A successful call never clears the message. Call `hiroz_last_error_clear()` to clear it.
-The pointer stays valid until the next call on the same thread that records a message, or until `hiroz_last_error_clear()`. Do not free it.
-The Go package does not expose it, because a goroutine can move to another OS thread between the C call and the read.
+The message is a hint for logging, and the return value of a call stays the only contract for failure.
+The full contract is the comment on `hiroz_last_error_message` in `hiroz_ffi.h`: when a message is recorded, what a NULL message means, and how long the pointer stays valid.
+The Go package does not expose the message, because a goroutine can move to another OS thread between the C call and the read.
 
 !!! warning
     `hiroz_action_client_send_goal`, `hiroz_action_client_get_result` and `hiroz_action_client_cancel_goal` return `-1` for a runtime failure.
