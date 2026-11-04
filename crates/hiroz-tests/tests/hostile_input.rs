@@ -6,7 +6,9 @@
 //! space limit (`RLIMIT_AS`) and checks how the child ended. A cgroup memory
 //! limit does not trigger the abort: the reservation is not charged until touched.
 
-#![cfg(all(target_os = "linux", feature = "ros-msgs"))]
+// The abort needs a reservation above the address space of a 32-bit process, and
+// `setrlimit` takes a narrower type there, so the file runs on 64-bit Linux only.
+#![cfg(all(target_os = "linux", target_pointer_width = "64", feature = "ros-msgs"))]
 
 use std::process::{Command, Output};
 
@@ -164,6 +166,15 @@ fn elements(msg: &DynamicMessage, name: &str) -> Vec<DynamicValue> {
     }
 }
 
+/// The decoded fields of the sample the tests build: one dimension "x" of size 3, data `[1, 2, 3]`.
+fn assert_valid_array(back: &hiroz_msgs::std_msgs::UInt8MultiArray) {
+    assert_eq!(back.layout.dim.len(), 1, "dimensions");
+    assert_eq!(back.layout.dim[0].label, "x", "label");
+    assert_eq!(back.layout.dim[0].size, 3, "size");
+    assert_eq!(back.layout.dim[0].stride, 3, "stride");
+    assert_eq!(back.data, hiroz::ZBuf::from(vec![1u8, 2, 3]), "data");
+}
+
 fn f64_sequence_schema() -> std::sync::Arc<MessageSchema> {
     MessageSchema::builder("test_msgs/msg/F64Seq")
         .field("values", FieldType::Sequence(Box::new(FieldType::Float64)))
@@ -235,6 +246,11 @@ fn dynamic_decoder_survives_a_hostile_sequence_length() {
 
         // The same process decodes the next, valid sample.
         let msg = DynamicMessage::from_cdr(&valid_f64_sample(3), &schema).expect("valid sample");
+        assert_eq!(
+            elements(&msg, "values"),
+            [0.0, 1.0, 2.0].map(DynamicValue::Float64),
+            "decoded values"
+        );
         println!("next valid: {} elements", elements(&msg, "values").len());
         return;
     }
@@ -267,6 +283,11 @@ fn dynamic_decoder_survives_a_hostile_bounded_sequence_length() {
 
         // The same process decodes the next, valid sample.
         let msg = DynamicMessage::from_cdr(&valid_f64_sample(3), &schema).expect("valid sample");
+        assert_eq!(
+            elements(&msg, "values"),
+            [0.0, 1.0, 2.0].map(DynamicValue::Float64),
+            "decoded values"
+        );
         println!("next valid: {} elements", elements(&msg, "values").len());
         return;
     }
@@ -488,6 +509,7 @@ fn generated_decoder_survives_a_hostile_sequence_length() {
         }
 
         let back = UInt8MultiArray::deserialize(&valid[..]).expect("valid sample");
+        assert_valid_array(&back);
         println!(
             "next valid: {} dims, {} bytes",
             back.layout.dim.len(),
@@ -596,6 +618,7 @@ fn typed_subscriber_survives_a_hostile_sample() {
         let back = sub
             .recv_timeout(Duration::from_secs(5))
             .expect("next valid sample");
+        assert_valid_array(&back);
         println!(
             "next valid: {} dims, {} bytes",
             back.layout.dim.len(),
