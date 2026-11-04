@@ -3,6 +3,7 @@ package hiroz
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func stubServiceWait(t *testing.T, f func(timeoutMs uint64) int32) {
 func mockReq() *MockMessage { return &MockMessage{typeName: "x", typeHash: "y", data: []byte{1}} }
 
 func TestCallTypedContextCancelReturnsCanceled(t *testing.T) {
-	release := make(chan struct{})
+	release, free := newRelease(t)
 	started := make(chan struct{})
 	stubServiceCall(t, func([]byte, uint64) ([]byte, int32) {
 		close(started)
@@ -48,7 +49,7 @@ func TestCallTypedContextCancelReturnsCanceled(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() { done <- CallTypedContext(ctx, c, mockReq(), &MockMessage{}) }()
-	<-started
+	receiveBounded(t, started, "the C layer to start")
 	cancel()
 
 	select {
@@ -71,7 +72,7 @@ func TestCallTypedContextCancelReturnsCanceled(t *testing.T) {
 		t.Fatal("Close returned while a call was in flight")
 	case <-time.After(50 * time.Millisecond):
 	}
-	close(release)
+	free()
 	select {
 	case <-closed:
 	case <-time.After(2 * time.Second):
@@ -80,7 +81,7 @@ func TestCallTypedContextCancelReturnsCanceled(t *testing.T) {
 }
 
 func TestCallTypedContextDeadlineIsNotServiceTimeout(t *testing.T) {
-	release := make(chan struct{})
+	release, free := newRelease(t)
 	stubServiceCall(t, func([]byte, uint64) ([]byte, int32) {
 		<-release
 		return nil, int32(ErrorCodeServiceTimeout)
@@ -98,7 +99,7 @@ func TestCallTypedContextDeadlineIsNotServiceTimeout(t *testing.T) {
 	}
 
 	// Let the call that is still in the C layer finish before the stub is restored.
-	close(release)
+	free()
 	_ = c.Close()
 }
 
@@ -191,13 +192,18 @@ func TestWaitForServiceContextReady(t *testing.T) {
 }
 
 func TestWaitForServiceContextCancel(t *testing.T) {
+	var slices atomic.Int32
 	stubServiceWait(t, func(uint64) int32 {
-		time.Sleep(5 * time.Millisecond)
+		slices.Add(1)
+		runtime.Gosched()
 		return int32(ErrorCodeServiceTimeout)
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 	defer cancel()
 	err := openTestClient().WaitForServiceContext(ctx)
+	if slices.Load() == 0 {
+		t.Fatal("the deadline passed before the first wait slice ran, so the test did not exercise a wait")
+	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("want context.DeadlineExceeded, got %v", err)
 	}
@@ -215,31 +221,42 @@ func TestWaitForServiceContextHardError(t *testing.T) {
 	}
 }
 
-// pastDeadlineCtx reports a deadline that is in the future on the first read and in the
-// past after it, while Err stays nil. It models a timer that has not fired yet.
-type pastDeadlineCtx struct {
+// fixedDeadlineCtx has one fixed deadline and an Err that stays nil. It models a timer that
+// has not fired yet when the C call returns.
+type fixedDeadlineCtx struct {
 	context.Context
-	reads atomic.Int32
+	dl time.Time
 }
 
-func (c *pastDeadlineCtx) Deadline() (time.Time, bool) {
-	if c.reads.Add(1) == 1 {
-		return time.Now().Add(time.Hour), true
-	}
-	return time.Now().Add(-time.Second), true
-}
+func (c fixedDeadlineCtx) Deadline() (time.Time, bool) { return c.dl, true }
 
 // A C timeout that returns after the deadline is the context's deadline, not a server timeout.
+// The stub returns the C timeout only after the deadline has passed, while Err is still nil.
+// A slow machine can pass the deadline before the call starts. The test then retries, because
+// only a run in which the stub ran exercises the mapping.
 func TestCallTypedContextTimeoutAfterDeadlineIsDeadlineExceeded(t *testing.T) {
-	stubServiceCall(t, func([]byte, uint64) ([]byte, int32) { return nil, int32(ErrorCodeServiceTimeout) })
-	ctx := &pastDeadlineCtx{Context: context.Background()}
-	err := CallTypedContext(ctx, openTestClient(), mockReq(), &MockMessage{})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("want context.DeadlineExceeded, got %v", err)
+	for attempt := 0; attempt < 3; attempt++ {
+		dl := time.Now().Add(300 * time.Millisecond)
+		var ran atomic.Bool
+		stubServiceCall(t, func([]byte, uint64) ([]byte, int32) {
+			ran.Store(true)
+			time.Sleep(time.Until(dl) + 2*time.Millisecond)
+			return nil, int32(ErrorCodeServiceTimeout)
+		})
+		ctx := fixedDeadlineCtx{Context: context.Background(), dl: dl}
+		err := CallTypedContext(ctx, openTestClient(), mockReq(), &MockMessage{})
+		if !ran.Load() {
+			continue
+		}
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("want context.DeadlineExceeded, got %v", err)
+		}
+		if errors.Is(err, ErrTimeout) {
+			t.Errorf("a passed deadline must not read as ErrTimeout: %v", err)
+		}
+		return
 	}
-	if errors.Is(err, ErrTimeout) {
-		t.Errorf("a passed deadline must not read as ErrTimeout: %v", err)
-	}
+	t.Fatal("the deadline passed before the call started in every attempt")
 }
 
 // A server that becomes visible while the context ends makes the C wait return 0. The
@@ -263,7 +280,7 @@ func TestWaitForServiceContextCloseDuringWaitWinsOverReady(t *testing.T) {
 	closed := make(chan struct{})
 	stubServiceWait(t, func(uint64) int32 {
 		go func() { _ = c.Close(); close(closed) }()
-		<-c.inflight.quitting()
+		receiveBounded(t, c.inflight.quitting(), "Close to start")
 		return 0
 	})
 	err := c.WaitForServiceContext(context.Background())
@@ -273,7 +290,7 @@ func TestWaitForServiceContextCloseDuringWaitWinsOverReady(t *testing.T) {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("close must not read as a context error: %v", err)
 	}
-	<-closed
+	receiveBounded(t, closed, "Close to return")
 }
 
 // A request that returns shared storage must not change what the C layer sends after the call
@@ -282,7 +299,7 @@ func TestCallTypedContextOwnsSerialisedBytes(t *testing.T) {
 	c := openTestClient()
 	req := &sharedGoal{data: []byte{1, 2}}
 	started := make(chan struct{})
-	release := make(chan struct{})
+	release, free := newRelease(t)
 	sent := make(chan []byte, 1)
 	stubServiceCall(t, func(b []byte, _ uint64) ([]byte, int32) {
 		close(started)
@@ -294,14 +311,14 @@ func TestCallTypedContextOwnsSerialisedBytes(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() { done <- CallTypedContext(ctx, c, req, &MockMessage{}) }()
-	<-started
+	receiveBounded(t, started, "the C layer to start")
 	cancel()
-	if err := <-done; !errors.Is(err, context.Canceled) {
+	if err := receiveBounded(t, done, "the call to return"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
 	req.data[0] = 9 // the caller reuses the request storage in place
-	close(release)
-	if got := <-sent; len(got) != 2 || got[0] != 1 || got[1] != 2 {
+	free()
+	if got := receiveBounded(t, sent, "the C layer to send"); len(got) != 2 || got[0] != 1 || got[1] != 2 {
 		t.Errorf("the C layer sent %v, want the request as it was at the call: [1 2]", got)
 	}
 	_ = c.Close()
@@ -362,5 +379,34 @@ func TestCallTypedContextFailingSerializeReturnsSerializerError(t *testing.T) {
 	err := CallTypedContext(context.Background(), openTestClient(), &failingReq{hook: func() {}}, &MockMessage{})
 	if err == nil || errors.Is(err, context.Canceled) {
 		t.Fatalf("want the serializer error, got %v", err)
+	}
+}
+
+// The service client behind the call ends every query after 10 seconds, so a later deadline
+// must not raise the timeout that reaches the C layer. A saturated duration, which time.Until
+// returns for a deadline more than 292 years away, must not overflow on the way.
+func TestCallTypedContextCapsTimeoutAtQueryLimit(t *testing.T) {
+	cases := []struct {
+		name string
+		dl   time.Time
+	}{
+		{"an hour away", time.Now().Add(time.Hour)},
+		{"saturated", time.Unix(1<<40, 0)},
+	}
+	for _, tc := range cases {
+		var got atomic.Uint64
+		stubServiceCall(t, func(_ []byte, timeoutMs uint64) ([]byte, int32) {
+			got.Store(timeoutMs)
+			return []byte{7}, 0
+		})
+		ctx, cancel := context.WithDeadline(context.Background(), tc.dl)
+		err := CallTypedContext(ctx, openTestClient(), mockReq(), &MockMessage{})
+		cancel()
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", tc.name, err)
+		}
+		if ms := got.Load(); ms != 10000 {
+			t.Errorf("%s: timeout passed to C = %d ms, want 10000", tc.name, ms)
+		}
 	}
 }
