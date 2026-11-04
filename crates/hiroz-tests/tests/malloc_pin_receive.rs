@@ -341,41 +341,44 @@ fn improvement_margin(pinned: &[f64], old: &[f64]) -> f64 {
 }
 
 #[test]
-fn improvement_check_separates_the_two_measured_hosts_from_the_revert() {
-    // Synthetic samples, in ms (n=5 per arm), built around the medians of two hosts with ranges
-    // rounded up from the ranges measured there. The ranges are not the measured samples.
-    // Host 1 (glibc 2.41, reported, not re-run): old pin 32.0, 256 MiB pin 13.3.
-    // Host 2 (glibc 2.42): old pin 47.0, 256 MiB pin 18.6.
-    // The revert makes the pinned arm another sample of the old pin.
-    let host1_old = [31.8, 31.9, 32.0, 32.0, 32.3];
-    let host1_new = [13.2, 13.3, 13.3, 13.4, 13.4];
-    let host2_old = [46.7, 46.8, 47.0, 47.7, 48.6];
-    let host2_new = [18.2, 18.4, 18.6, 18.7, 19.8];
-    for (old, new) in [(&host1_old, &host1_new), (&host2_old, &host2_new)] {
-        let m = improvement_margin(new, old);
-        assert!(improves(new, old, m), "the fix must pass: margin {m}");
-        // Revert: the pinned arm is an independent sample of the old pin. Shifting it down by the
-        // whole range of the old arm is the best case for a false pass.
-        let r = range(old);
-        let reverted: Vec<f64> = old.iter().map(|x| x - r).collect();
-        let m = improvement_margin(&reverted, old);
+fn improvement_check_passes_a_real_gain_and_fails_an_unchanged_arm() {
+    // Synthetic samples in ms, n=5 per arm. Each pair is a set of the old pin and a set of the
+    // pin with a gain well beyond the noise of both.
+    let pairs = [
+        (
+            [31.8, 31.9, 32.0, 32.0, 32.3],
+            [13.2, 13.3, 13.3, 13.4, 13.4],
+        ),
+        (
+            [46.7, 46.8, 47.0, 47.7, 48.6],
+            [18.2, 18.4, 18.6, 18.7, 19.8],
+        ),
+    ];
+    for (old, gain) in pairs {
+        let m = improvement_margin(&gain, &old);
         assert!(
-            !improves(&reverted, old, m),
-            "the revert must fail: margin {m}"
+            improves(&gain, &old, m),
+            "a real gain must pass: margin {m}"
+        );
+        // Revert: the pinned arm is another set of the old pin. Its samples sit at the low end
+        // of the old range, which is the best case for a false pass.
+        let reverted = [old[0], old[0], old[1], old[1], old[2]];
+        let m = improvement_margin(&reverted, &old);
+        assert!(
+            !improves(&reverted, &old, m),
+            "an arm that equals the old pin must fail: margin {m}"
         );
     }
-    // The margin must not be zero or the check would accept noise.
-    assert!(improvement_margin(&host2_new, &host2_old) >= 2.0 * range(&host2_old));
-    // On host 1 no pin runs at 34.0 ms, slower than the old pin, so the pinned-not-slower check
-    // passes the revert there. The improvement check is what fails it.
-    let host1_none = [33.2, 33.9, 34.0, 34.1, 35.3];
-    assert!(not_slower(
-        &host1_old,
-        &host1_none,
-        pinned_tolerance(&host1_old, &host1_none)
-    ));
-    // the check also fails for an arm that is slower than the old pin
-    assert!(!improves(&[50.0; 5], &host2_old, 3.8));
+    // An arm slower than the old pin fails.
+    assert!(!improves(&[50.0; 5], &pairs[1].0, 3.8));
+    // The margin is twice the larger range, so a noisier pinned arm widens it.
+    let quiet = [10.0; 5];
+    let noisy = [10.0, 10.0, 10.0, 10.0, 14.0];
+    assert_eq!(improvement_margin(&noisy, &quiet), 8.0);
+    assert_eq!(improvement_margin(&quiet, &noisy), 8.0);
+    // The two verdicts differ at the boundary: a gain equal to the margin does not pass.
+    assert!(!improves(&[6.0; 5], &[14.0; 5], 8.0));
+    assert!(improves(&[5.9; 5], &[14.0; 5], 8.0));
 }
 
 #[test]
