@@ -208,6 +208,12 @@ def check-ffi-header [] {
     print $"Generated FFI header matches the Rust FFI surface."
 }
 
+def test-ffi-last-error [] {
+    log-step "FFI last-error integration test"
+    # An integration test links the library once, so it runs where the `--lib` test binary of the `ffi` feature does not link.
+    run-cmd "cargo test -j4 -p hiroz --features ffi --test ffi_last_error"
+}
+
 def check-examples [] {
     log-step "Check all examples (cargo check --examples)"
     run-cmd "cargo check --examples"
@@ -257,6 +263,7 @@ def get-test-map [] {
         check-rustdoc-links: { check-rustdoc-links }
         check-python-stubs: { check-python-stubs }
         check-ffi-header: { check-ffi-header }
+        test-ffi-last-error: { test-ffi-last-error }
         check-distro-features: { check-distro-features }
         clippy-hiroz-py: { clippy-hiroz-py }
         clippy-tests: { clippy-tests }
@@ -274,6 +281,7 @@ def get-test-pipeline [] {
         "check-rustdoc-links"
         "check-python-stubs"
         "check-ffi-header"
+        "test-ffi-last-error"
         "check-distro-features"
         "clippy-hiroz-py"
         "clippy-tests"
