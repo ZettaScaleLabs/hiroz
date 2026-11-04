@@ -1,8 +1,9 @@
 //! The decision of the allocator pin, driven with an injected `mallopt`.
 //!
 //! A glibc that rejects the mmap threshold is not available in CI, so the test replaces the call.
-//! A rejected mmap threshold must leave the earlier allocator settings unchanged: the trim call
-//! must not run, and a `trim_rc` of 0 means the call was not attempted.
+//!
+//! A rejected mmap threshold must leave the earlier allocator settings unchanged. The trim call
+//! must not run. A `trim_rc` of 0 then means the call was not attempted.
 
 use hiroz::malloc_pin::{MMAP_THRESHOLD, PinOutcome, TRIM_THRESHOLD, pin_with};
 

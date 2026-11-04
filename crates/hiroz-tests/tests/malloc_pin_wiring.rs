@@ -2,24 +2,31 @@
 //!
 //! `rmw-zenoh-rs` needs ROS headers to build, so this test reads its source instead of calling
 //! `rmw_init`. It counts the lines of `context.rs` that contain the full path
-//! `hiroz::malloc_pin::pin_large_message_thresholds()`, and asserts that exactly one line
-//! matches. The test fails when the call is removed, when it is commented out on its own line
-//! with `//` or inside `/* */`, when it occurs more than once, or when it is written under a
-//! shortened path (for example after a `use` import). A trailing comment after code on the
-//! same line does not hide the call: that line still counts as the call.
+//! `hiroz::malloc_pin::pin_large_message_thresholds()`. It asserts that exactly one line
+//! matches.
 //!
-//! The match is file-wide in `context.rs`. It is not scoped to `rmw_init`, so a call in any
-//! other function satisfies it. It does not fail when the call is present but unreachable,
-//! when it sits in a string literal, when it is inside a `#[cfg(test)]` block, or when it is
-//! behind a `cfg` that is off.
+//! The test fails in these cases:
+//! - The call is removed.
+//! - The call is commented out on its own line with `//` or inside `/* */`.
+//! - The call occurs more than once.
+//! - The call is written under a shortened path, for example after a `use` import.
+//!
+//! A trailing comment after code on the same line does not hide the call.
+//!
+//! The match is file-wide in `context.rs`, not scoped to `rmw_init`. A call in any other
+//! function satisfies it. The test does not fail in these cases:
+//! - The call is present but unreachable.
+//! - The call sits in a string literal.
+//! - The call is inside a `#[cfg(test)]` block.
+//! - The call is behind a `cfg` that is off.
 
 use std::path::Path;
 
 const CONTEXT_RS: &str = "../rmw-zenoh-rs/src/context.rs";
 const CALL: &str = "hiroz::malloc_pin::pin_large_message_thresholds()";
 
-/// `src` with every block comment, nested ones included, replaced by spaces. Newlines stay, so
-/// line numbers do not move. A `/*` inside a string literal is not told apart from a comment.
+/// `src` without its block comments, nested ones included. Newlines stay, so line numbers do not
+/// move. A `/*` inside a string literal is not told apart from a comment.
 fn strip_block_comments(src: &str) -> String {
     let b = src.as_bytes();
     let mut out = String::with_capacity(src.len());

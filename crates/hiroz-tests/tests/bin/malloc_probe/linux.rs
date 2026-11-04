@@ -139,9 +139,10 @@ fn pin_gate(outcome: PinOutcome) -> Result<(), String> {
 
 /// Apply the arm and return the text of the pin outcome for the RESULT line.
 ///
-/// Exits with `EXIT_PIN_GATE` and the marker `PINGATE` when an operator variable of glibc is
-/// set (it changes every arm) or when the `lib` arm does not end up pinned. A comparison of
-/// two unpinned arms would pass without measuring the pin.
+/// Exits with `EXIT_PIN_GATE` and the marker `PINGATE` in two cases. One case is an operator
+/// variable of glibc that is set, because it changes every arm. The other is a `lib` arm that
+/// does not end up pinned. A comparison of two unpinned arms would pass without measuring the
+/// pin.
 fn apply_arm(arm: &str) -> String {
     for var in ["MALLOC_TRIM_THRESHOLD_", "MALLOC_MMAP_THRESHOLD_"] {
         if std::env::var_os(var).is_some() {
@@ -268,8 +269,8 @@ fn receive(arm_full: &str, count: usize) {
 }
 
 /// Call the production pin once, with no other setup, and print its outcome. A test runs this
-/// under each operator variable, so the checks inside the library function run, which the
-/// `recv` arms never reach (`apply_arm` exits first when a variable is set).
+/// under each operator variable, so the checks inside the library function run. The `recv` arms
+/// never reach them, because `apply_arm` exits first when a variable is set.
 fn pin() {
     let outcome = hiroz::malloc_pin::pin_large_message_thresholds();
     println!("PIN outcome={outcome:?}");
