@@ -141,6 +141,9 @@ func SubscriberWithHandler[T Message](builder *SubscriberBuilder, handler Handle
 	return sub, ch, drop, nil
 }
 
+// setOnClose sets the function that Close runs once the subscriber is destroyed.
+func (s *Subscriber) setOnClose(f func()) { s.onClose.Store(&f) }
+
 // BuildWithTypedCallbackContext is BuildWithTypedCallback with a lifetime bound to ctx.
 // When ctx ends, a cleanup goroutine destroys the subscriber through Node.DestroySubscriber.
 // Cancelling does not wait for that goroutine, and the destroy does not wait for a callback
@@ -163,7 +166,13 @@ func BuildWithTypedCallbackContext[T Message](ctx context.Context, builder *Subs
 	if err != nil {
 		return nil, err
 	}
-	context.AfterFunc(ctx, func() { _ = sub.node.DestroySubscriber(sub) })
+	stop := context.AfterFunc(ctx, func() { _ = sub.node.DestroySubscriber(sub) })
+	// An early Close stops the registration, which a long-lived ctx would otherwise keep, and
+	// drops the node's reference.
+	sub.setOnClose(func() {
+		stop()
+		sub.node.disown(sub)
+	})
 	return sub, nil
 }
 
@@ -232,13 +241,26 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 
 	// Order matters: release blocked callbacks, undeclare so none can start, wait for the
 	// callbacks that are still running, then close.
-	context.AfterFunc(ctx, func() {
-		close(done)
-		_ = sub.node.DestroySubscriber(sub)
+	finish := func() {
 		senders.Lock()
 		closed = true
 		senders.Unlock()
 		close(outCh)
+	}
+	stop := context.AfterFunc(ctx, func() {
+		close(done)
+		_ = sub.node.DestroySubscriber(sub)
+		finish()
+	})
+	// An early Close stops the registration, which a long-lived ctx would otherwise keep. The
+	// teardown then has to run here, because nothing else closes the channel before ctx ends.
+	// When stop reports false, the teardown above has started and closes the channel itself.
+	sub.setOnClose(func() {
+		if stop() {
+			sub.node.disown(sub)
+			close(done)
+			finish()
+		}
 	})
 	return sub, outCh, nil
 }
