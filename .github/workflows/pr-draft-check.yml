@@ -1,8 +1,12 @@
 name: PR Draft Check
 
+# Read-only policy check. It reports the verdict as a check result and never
+# posts comments: on a fork pull request this event gets a read-only token.
+# Comments come from pr-draft-notify.yml, which runs in a trusted context.
+
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, synchronize]
+    types: [opened, reopened, ready_for_review, converted_to_draft, synchronize]
     branches: [main]
   pull_request_review:
     types: [submitted]
@@ -27,4 +31,21 @@ jobs:
         with:
           script: |
             const { run } = require('./.github/scripts/pr-draft-check.js');
-            await run({ github, context, core });
+            await run({ github, context, core }, { notify: false, failOnViolation: true });
+
+  script-tests:
+    name: Policy Script Tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out the policy script and its tests
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Run the policy script tests with mocked GitHub objects
+        run: node --test .github/scripts/test/pr-draft-check.test.js
