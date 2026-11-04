@@ -203,6 +203,78 @@ fn cache_reports_message_loss() {
     );
 }
 
+/// A cache keeps its message count and its loss baselines within bounds under publisher churn.
+///
+/// The test puts one sample for each of 1100 forged publisher GIDs into a cache of capacity 2. That
+/// is more than the loss tracker keeps. The first GID has lost its baseline by then, so its next
+/// sample, far ahead of the first, is a new baseline and raises no loss. Control in the same
+/// test: a sample that skips 3 and 4 from the most recent GID, whose baseline is kept, raises a
+/// loss of 2.
+#[test]
+fn cache_loss_tracking_survives_publisher_churn() {
+    const TOPIC: &str = "cache_parity_loss_churn";
+    const PUBLISHERS: u32 = 1100;
+    let (_ctx, node) = isolated_node("cache_loss_churn");
+    let cache = node
+        .create_cache::<RosString>(&format!("/{TOPIC}"), 2)
+        .build()
+        .expect("cache");
+    let publisher = node
+        .create_pub::<RosString>(&format!("/{TOPIC}"))
+        .build()
+        .expect("publisher");
+    let probe = node
+        .session()
+        .declare_subscriber(format!("**/{TOPIC}/**"))
+        .wait()
+        .expect("probe");
+
+    publisher.publish(&message("real")).expect("publish");
+    let sample = probe
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the probe receive")
+        .expect("the probe sees the real publication");
+    wait_until("the cache to store the real message", || cache.len() == 1);
+
+    let gid_for = |n: u32| {
+        let mut gid = [7u8; 16];
+        gid[..4].copy_from_slice(&n.to_le_bytes());
+        gid
+    };
+    let put = |sn: i64, gid: [u8; 16]| {
+        node.session()
+            .put(sample.key_expr().clone(), sample.payload().clone())
+            .attachment(Attachment::new(sn, gid))
+            .wait()
+            .expect("forged put");
+    };
+    let lost = || {
+        cache
+            .events_mgr()
+            .lock()
+            .unwrap()
+            .take_event_status(ZenohEventType::MessageLost)
+            .total_count
+    };
+    for n in 0..PUBLISHERS {
+        put(0, gid_for(n));
+    }
+    // Puts on one session arrive in order, so the last one is the last to be stored.
+    put(1, gid_for(PUBLISHERS - 1));
+    std::thread::sleep(Duration::from_secs(1));
+    assert!(cache.len() <= 2, "the cache holds {} messages", cache.len());
+    assert_eq!(lost(), 0, "churn alone is not loss");
+
+    put(1_000, gid_for(0));
+    put(4, gid_for(PUBLISHERS - 1));
+    std::thread::sleep(Duration::from_secs(1));
+    assert_eq!(
+        lost(),
+        2,
+        "the evicted GID starts a new baseline, and the kept GID reports its gap"
+    );
+}
+
 /// Two peer sessions on one machine: the second connects to the first.
 fn connected_nodes(name: &str) -> (ZContext, ZNode, ZContext, ZNode) {
     let port = TcpListener::bind("127.0.0.1:0")
