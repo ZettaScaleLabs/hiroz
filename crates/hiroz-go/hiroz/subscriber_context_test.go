@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"runtime/cgo"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -342,6 +343,132 @@ func TestBuildWithTypedCallbackContextEarlyCloseThenCancel(t *testing.T) {
 		defer node.subsMu.Unlock()
 		return len(node.ownedSubs) == 0
 	})
+	if n := f.destroys.Load(); n != 1 {
+		t.Errorf("destroys = %d, want 1", n)
+	}
+}
+
+// countingCtx is a context that counts how often an AfterFunc is registered on it and how
+// often that registration is stopped. context.AfterFunc calls the AfterFunc method of a
+// parent that has one. The own done channel keeps the standard library from registering
+// the child on a wrapped parent instead.
+type countingCtx struct {
+	context.Context
+	done       chan struct{}
+	once       sync.Once
+	mu         sync.Mutex
+	entries    []*afterEntry
+	registered atomic.Int32
+	stopped    atomic.Int32
+}
+
+type afterEntry struct {
+	f       func()
+	settled bool
+}
+
+func newCountingCtx() *countingCtx {
+	return &countingCtx{Context: context.Background(), done: make(chan struct{})}
+}
+
+func (c *countingCtx) Done() <-chan struct{} { return c.done }
+
+func (c *countingCtx) Err() error {
+	select {
+	case <-c.done:
+		return context.Canceled
+	default:
+		return nil
+	}
+}
+
+func (c *countingCtx) AfterFunc(f func()) func() bool {
+	c.registered.Add(1)
+	e := &afterEntry{f: f}
+	c.mu.Lock()
+	c.entries = append(c.entries, e)
+	c.mu.Unlock()
+	return func() bool {
+		c.stopped.Add(1)
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if e.settled {
+			return false
+		}
+		e.settled = true
+		return true
+	}
+}
+
+func (c *countingCtx) cancel() {
+	c.once.Do(func() {
+		close(c.done)
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		for _, e := range c.entries {
+			if !e.settled {
+				e.settled = true
+				go e.f()
+			}
+		}
+	})
+}
+
+// A subscriber that closes early must not stay registered on a context that lives on. The
+// registration holds the subscriber, its node and its closure until the context ends.
+func TestBuildWithTypedCallbackContextEarlyCloseReleasesRegistration(t *testing.T) {
+	stubSubscriber(t)
+	node := &Node{}
+	ctx := newCountingCtx()
+	defer ctx.cancel()
+	sub, err := BuildWithTypedCallbackContext(ctx, node.CreateSubscriber("chatter"), func(*nilSafeMessage) {})
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	// Positive control: the build registered once, and nothing stopped it yet.
+	if r, s := ctx.registered.Load(), ctx.stopped.Load(); r != 1 || s != 0 {
+		t.Fatalf("after build: registered=%d stopped=%d, want 1 and 0", r, s)
+	}
+	if err := sub.Close(); err != nil {
+		t.Fatalf("early Close: %v", err)
+	}
+	if s := ctx.stopped.Load(); s != 1 {
+		t.Errorf("stopped = %d after an early Close, want 1: the context still holds the subscriber", s)
+	}
+	node.subsMu.Lock()
+	owned := len(node.ownedSubs)
+	node.subsMu.Unlock()
+	if owned != 0 {
+		t.Errorf("the node still owns %d subscribers after an early Close, want 0", owned)
+	}
+}
+
+// An early Close of the channel variant releases the registration and closes the channel,
+// because nothing else would close it before the context ends.
+func TestSubscriberWithChannelContextEarlyCloseReleasesAndCloses(t *testing.T) {
+	f := stubSubscriber(t)
+	ctx := newCountingCtx()
+	defer ctx.cancel()
+	sub, ch, err := SubscriberWithChannelContext[*nilSafeMessage](ctx, (&Node{}).CreateSubscriber("chatter"), 1)
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if r, s := ctx.registered.Load(), ctx.stopped.Load(); r != 1 || s != 0 {
+		t.Fatalf("after build: registered=%d stopped=%d, want 1 and 0", r, s)
+	}
+	if err := sub.Close(); err != nil {
+		t.Fatalf("early Close: %v", err)
+	}
+	if s := ctx.stopped.Load(); s != 1 {
+		t.Errorf("stopped = %d after an early Close, want 1: the context still holds the subscriber", s)
+	}
+	drained := make(chan struct{})
+	go func() {
+		for range ch {
+		}
+		close(drained)
+	}()
+	receiveBounded(t, drained, "the channel to close after an early Close")
 	if n := f.destroys.Load(); n != 1 {
 		t.Errorf("destroys = %d, want 1", n)
 	}
