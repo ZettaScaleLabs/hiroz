@@ -3784,7 +3784,7 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 </span></code></pre></div>
 <h4 id="client-lifecycle">Client Lifecycle<a class="headerlink" href="#client-lifecycle" title="Permanent link">&para;</a></h4>
 <ol>
-<li><code>client.send_goal(goal)</code> → <code>ActionGoalHandle</code> — blocks until accepted. It raises on rejection. It raises <code>RuntimeError</code> when no server answers: the goal query ends after at most 10 seconds, and a hard limit of 11 seconds applies on top. It never raises <code>TimeoutError</code></li>
+<li><code>client.send_goal(goal)</code> → <code>ActionGoalHandle</code> — blocks until accepted. It raises on rejection. It raises <code>RuntimeError</code> when no server answers. The goal query has a 10 second timeout, and an 11 second timeout applies while the call waits for the goal to be accepted. Neither covers the encoding of the goal. It never raises <code>TimeoutError</code></li>
 <li><code>handle.recv_feedback(timeout)</code> — receive next feedback; returns <code>None</code> on timeout or when the feedback channel closes</li>
 <li><code>handle.get_result(timeout)</code> — block until terminal state; returns <code>None</code> on timeout. Without <code>timeout</code> it has no time limit. The first call consumes the handle, so a timeout cannot be retried: a second call always raises <code>RuntimeError</code></li>
 <li><code>handle.cancel()</code> — request cancellation (the server decides when to honour it)</li>
@@ -3891,7 +3891,7 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 </span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="n">sub</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">create_subscriber</span><span class="p">(</span><span class="s2">&quot;/topic&quot;</span><span class="p">,</span> <span class="n">std_msgs</span><span class="o">.</span><span class="n">String</span><span class="p">,</span> <span class="n">qos</span><span class="o">=</span><span class="n">hiroz_py</span><span class="o">.</span><span class="n">QosProfile</span><span class="o">.</span><span class="n">sensor_data</span><span class="p">())</span>
 </span></code></pre></div>
 <h3 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h3>
-<p>After <code>import hiroz_py</code>, the constants <code>hiroz_py.QOS_DEFAULT</code>, <code>QOS_SENSOR_DATA</code>, <code>QOS_PARAMETERS</code> and <code>QOS_SERVICES</code> are <code>QosProfile</code> objects. The package replaces the native module values with <code>QosProfile.default()</code>, <code>sensor_data()</code>, <code>parameters()</code> and <code>services()</code>. The native module <code>hiroz_py._native</code> holds the same four names as plain <code>dict</code> objects. Pass either form as the <code>qos</code> argument, because <code>qos</code> accepts both.</p>
+<p>After <code>import hiroz_py</code>, the constants <code>hiroz_py.QOS_DEFAULT</code>, <code>QOS_SENSOR_DATA</code>, <code>QOS_PARAMETERS</code> and <code>QOS_SERVICES</code> are <code>QosProfile</code> objects. They equal <code>QosProfile.default()</code>, <code>sensor_data()</code>, <code>parameters()</code> and <code>services()</code>. Pass a preset or a <code>dict</code> as the <code>qos</code> argument, because <code>qos</code> accepts both.</p>
 <table>
 <thead>
 <tr>
@@ -3982,13 +3982,13 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 </tr>
 </tbody>
 </table>
-<p>A string outside the listed values raises <code>ValueError</code>. With <code>keep_last</code>, a <code>depth</code> of 0 raises <code>ValueError</code>. A negative <code>depth</code> raises <code>OverflowError</code> when Python converts the argument, before the profile checks it.</p>
+<p>A string outside the listed values raises <code>ValueError</code>. With <code>keep_last</code>, a <code>depth</code> of 0 raises <code>ValueError</code>. A negative <code>depth</code> raises <code>OverflowError</code> when Python converts the argument, before the profile checks it. A dictionary converts <code>depth</code> only when it has a <code>history</code> key; see Dictionaries below.</p>
 <p>A profile has read-only properties <code>reliability</code>, <code>durability</code>, <code>history</code> and <code>depth</code>. <code>depth</code> is 0 for <code>keep_all</code>. There are no properties for the other fields.</p>
 <h3 id="dictionaries">Dictionaries<a class="headerlink" href="#dictionaries" title="Permanent link">&para;</a></h3>
 <p><code>qos</code> also accepts a <code>dict</code> with the same keys as the constructor arguments, for example <code>{"reliability": "best_effort", "history": "keep_last", "depth": 5}</code>. Any other object raises <code>TypeError</code>.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>A dictionary key that is not in the table above is ignored without an error, so a misspelled key leaves that field at its default. A <code>depth</code> key with no <code>history</code> key is also ignored in a dictionary. Use <code>QosProfile(...)</code> when you want these mistakes to fail early.</p>
+<p>A dictionary key that is not in the table above is ignored without an error, so a misspelled key leaves that field at its default. A <code>depth</code> key with no <code>history</code> key is also ignored in a dictionary, so <code>{"depth": -1}</code> keeps the default depth and raises no error. When a <code>history</code> key is present, the dictionary converts <code>depth</code> too, so <code>{"history": "keep_last", "depth": -1}</code> raises <code>OverflowError</code>. Use <code>QosProfile(...)</code> when you want these mistakes to fail early.</p>
 </div>
 <h2 id="shared-memory">Shared Memory<a class="headerlink" href="#shared-memory" title="Permanent link">&para;</a></h2>
 <p>Shared memory (SHM) is a property of the context. Enable it on the <code>ZContextBuilder</code> before you call <code>build()</code>:</p>
@@ -4104,7 +4104,7 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 </tbody>
 </table>
 <p><code>hiroz_py.TimeoutError</code> is not the built-in <code>TimeoutError</code>. Catch it as <code>hiroz_py.TimeoutError</code>.</p>
-<p>Every service client query ends after 10 seconds. A call has no way to wait longer for a reply, so the default <code>timeout</code> of one hour is never reached. The call raises <code>hiroz_py.TimeoutError</code> when the <code>timeout</code> ends first, so only a <code>timeout</code> below 10 seconds can raise it. The call raises <code>RuntimeError</code> when the query ends first with no reply. The message is <code>Failed to call service: Service call ended before any response was received</code>. The query can end before the <code>timeout</code>, for example when no server matches: the test in <code>crates/hiroz-py/tests/test_service.py</code> with <code>timeout=1.0</code> and no server expects <code>RuntimeError</code>. A <code>timeout</code> above 10 seconds always ends after the query, so it raises <code>RuntimeError</code>. At exactly 10 seconds either error may happen, because the <code>timeout</code> and the 10 second query limit end at the same moment.</p>
+<p>Every service client query has a configured timeout of 10 seconds. The <code>timeout</code> argument of <code>call</code> is a separate, outer timeout that wraps the whole call, including the creation of the query. Its default is one hour. The call raises <code>hiroz_py.TimeoutError</code> when the outer <code>timeout</code> ends. The call raises <code>RuntimeError</code> when the query completes without a reply, for example when no server matches or when the 10 second query timeout ends. The two timeouts do not start at the same moment, so a <code>timeout</code> near 10 seconds can produce either error. Neither timeout covers the conversion of the request or the response, so neither is a limit on the elapsed time of the whole method.</p>
 <p>A negative, NaN, infinite or overflowing <code>timeout</code> is not supported. An overflowing <code>timeout</code> is a value too large for a <code>Duration</code>. It does not raise a normal exception: the binding panics and Python raises <code>pyo3_runtime.PanicException</code>, which derives from <code>BaseException</code>, so <code>except Exception</code> does not catch it. Every <code>timeout</code> argument that is a float behaves this way.</p>
 <h3 id="what-raises-what">What raises what<a class="headerlink" href="#what-raises-what" title="Permanent link">&para;</a></h3>
 <table>
@@ -4116,23 +4116,15 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 </thead>
 <tbody>
 <tr>
-<td><code>ZClient.call(..., timeout=t)</code> with <code>t</code> below 10 seconds, and the <code>timeout</code> ends before the query does</td>
+<td>the outer <code>timeout</code> of <code>ZClient.call</code> ends</td>
 <td><code>hiroz_py.TimeoutError</code></td>
 </tr>
 <tr>
-<td><code>ZClient.call(..., timeout=t)</code> with <code>t</code> below 10 seconds, and the query ends first with no reply, for example when no server matches</td>
+<td>the query of <code>ZClient.call</code> completes with no reply, for example when no server matches or the 10 second query timeout ends</td>
 <td><code>RuntimeError</code></td>
 </tr>
 <tr>
-<td><code>ZClient.call(...)</code> with no <code>timeout</code>, or with <code>t</code> above 10 seconds, and no response arrives</td>
-<td><code>RuntimeError</code>, after at most 10 seconds</td>
-</tr>
-<tr>
-<td><code>ZClient.call(..., timeout=10.0)</code> and no response arrives</td>
-<td><code>hiroz_py.TimeoutError</code> or <code>RuntimeError</code>: either may happen</td>
-</tr>
-<tr>
-<td>a server answers a <code>ZClient.call</code> after the 10 second query has ended</td>
+<td>a server answers a <code>ZClient.call</code> after its query has ended</td>
 <td><code>RuntimeError</code>. The late reply is dropped</td>
 </tr>
 <tr>
@@ -4145,7 +4137,7 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 </tr>
 <tr>
 <td><code>ZActionClient.send_goal(...)</code> gets no answer from a server</td>
-<td><code>RuntimeError</code>, after at most 11 seconds</td>
+<td><code>RuntimeError</code>. The goal query has a 10 second timeout, and an 11 second timeout applies while the call waits for the goal to be accepted</td>
 </tr>
 <tr>
 <td><code>ZServer.take_request()</code> or <code>send_response(...)</code> fails in the core</td>
@@ -4164,8 +4156,8 @@ they are not compatible with <a href="https://github.com/ros2/rmw_zenoh"><code>r
 <td><code>ValueError</code></td>
 </tr>
 <tr>
-<td>a negative <code>depth</code></td>
-<td><code>OverflowError</code>, raised by the argument conversion</td>
+<td>a negative <code>depth</code> passed to <code>QosProfile(...)</code>, or in a dictionary that has a <code>history</code> key</td>
+<td><code>OverflowError</code>, raised by the conversion of <code>depth</code>. A dictionary without <code>history</code> does not convert <code>depth</code></td>
 </tr>
 <tr>
 <td>a message field holds an integer outside the range of its type</td>
