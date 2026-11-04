@@ -186,6 +186,10 @@ func (c *ServiceClient) invoke(h *cServiceClient, requestBytes []byte, timeoutMs
 	return resp, nil
 }
 
+// serviceQueryCap is the longest a service client query runs. The client behind the C call
+// ends every query after this time, whatever timeout the caller passes.
+const serviceQueryCap = 10 * time.Second
+
 // callRawContext makes a service call that ends when ctx ends.
 // A context with a deadline sets the timeout of the call, up to 10 seconds. The service
 // client behind it ends every query after 10 seconds, so a later deadline does not extend
@@ -216,6 +220,8 @@ func (c *ServiceClient) callRawContext(ctx context.Context, requestBytes []byte)
 		if remaining <= 0 {
 			return nil, context.DeadlineExceeded
 		}
+		// Cap before the rounding: a saturated duration would overflow the addition.
+		remaining = min(remaining, serviceQueryCap)
 		timeoutMs = uint64((remaining + time.Millisecond - 1) / time.Millisecond)
 	}
 
