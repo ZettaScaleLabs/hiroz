@@ -3,6 +3,7 @@ package hiroz
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -88,7 +89,7 @@ func TestSendGoalContextCancelInFlightClosesHandle(t *testing.T) {
 	c := openTestActionClient()
 	late := fakeGoalHandle(c)
 	started := make(chan struct{})
-	release := make(chan struct{})
+	release, free := newRelease(t)
 	stubSendGoal(t, func(*ActionClient, []byte) (*GoalHandle, error) {
 		close(started)
 		<-release
@@ -102,10 +103,10 @@ func TestSendGoalContextCancelInFlightClosesHandle(t *testing.T) {
 	}
 	done := make(chan out, 1)
 	go func() { h, err := c.SendGoalContext(ctx, goalMsg()); done <- out{h, err} }()
-	<-started
+	receiveBounded(t, started, "the C layer to start")
 	cancel()
 
-	r := <-done
+	r := receiveBounded(t, done, "the call to return")
 	if r.h != nil || !errors.Is(r.err, context.Canceled) {
 		t.Fatalf("want context.Canceled and no handle, got h=%v err=%v", r.h, r.err)
 	}
@@ -116,9 +117,9 @@ func TestSendGoalContextCancelInFlightClosesHandle(t *testing.T) {
 	closed := make(chan struct{})
 	go func() { _ = c.Close(); close(closed) }()
 
-	close(release)
+	free()
 	waitUntil(t, "the late goal handle to close", func() bool { return late.handle.Load() == nil })
-	<-closed
+	receiveBounded(t, closed, "Close to return")
 }
 
 // ownedGoal is a goal whose bytes the caller may change after a call returns. It counts the
@@ -155,7 +156,7 @@ func TestSendGoalContextSerialisesBeforeReturn(t *testing.T) {
 	c := openTestActionClient()
 	goal := &ownedGoal{data: []byte{1}}
 	started := make(chan struct{})
-	release := make(chan struct{})
+	release, free := newRelease(t)
 	sent := make(chan []byte, 1)
 	stubSendGoal(t, func(_ *ActionClient, b []byte) (*GoalHandle, error) {
 		close(started)
@@ -167,17 +168,17 @@ func TestSendGoalContextSerialisesBeforeReturn(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() { _, err := c.SendGoalContext(ctx, goal); done <- err }()
-	<-started
+	receiveBounded(t, started, "the C layer to start")
 	cancel()
-	if err := <-done; !errors.Is(err, context.Canceled) {
+	if err := receiveBounded(t, done, "the call to return"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
 	if n := goal.serialisations(); n != 1 {
 		t.Errorf("the goal was serialised %d times before the call returned, want 1", n)
 	}
 	goal.set([]byte{9}) // the caller reuses the goal
-	close(release)
-	if got := <-sent; len(got) != 1 || got[0] != 1 {
+	free()
+	if got := receiveBounded(t, sent, "the C layer to send"); len(got) != 1 || got[0] != 1 {
 		t.Errorf("the C layer sent %v, want the goal as it was at the call: [1]", got)
 	}
 	_ = c.Close()
@@ -198,7 +199,7 @@ func TestSendGoalContextOwnsSerialisedBytes(t *testing.T) {
 	c := openTestActionClient()
 	goal := &sharedGoal{data: []byte{1, 2}}
 	started := make(chan struct{})
-	release := make(chan struct{})
+	release, free := newRelease(t)
 	sent := make(chan []byte, 1)
 	stubSendGoal(t, func(_ *ActionClient, b []byte) (*GoalHandle, error) {
 		close(started)
@@ -210,14 +211,14 @@ func TestSendGoalContextOwnsSerialisedBytes(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() { _, err := c.SendGoalContext(ctx, goal); done <- err }()
-	<-started
+	receiveBounded(t, started, "the C layer to start")
 	cancel()
-	if err := <-done; !errors.Is(err, context.Canceled) {
+	if err := receiveBounded(t, done, "the call to return"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
 	goal.data[0] = 9 // the caller reuses the goal storage in place
-	close(release)
-	if got := <-sent; len(got) != 2 || got[0] != 1 || got[1] != 2 {
+	free()
+	if got := receiveBounded(t, sent, "the C layer to send"); len(got) != 2 || got[0] != 1 || got[1] != 2 {
 		t.Errorf("the C layer sent %v, want the goal as it was at the call: [1 2]", got)
 	}
 	_ = c.Close()
@@ -355,4 +356,90 @@ func TestSendGoalContextFailingSerializeReturnsSerializerError(t *testing.T) {
 		t.Fatalf("want the serializer error, got %v", err)
 	}
 	_ = c.Close()
+}
+
+// After a cancel the caller may drop its last reference to the goal handle while the C result
+// wait still runs. The wait must keep the handle alive, because the handle finalizer destroys
+// the C goal handle that the wait reads.
+func TestGetResultWithContextKeepsGoalHandleAliveDuringWait(t *testing.T) {
+	c := openTestActionClient()
+	started := make(chan struct{})
+	release, free := newRelease(t)
+	stubActionResult(t, func() ([]byte, int32) {
+		close(started)
+		<-release
+		return nil, 1
+	})
+	var finalized atomic.Bool
+	func() {
+		h := fakeGoalHandle(c)
+		runtime.SetFinalizer(h, func(*GoalHandle) { finalized.Store(true) })
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { _, err := h.GetResultWithContext(ctx); done <- err }()
+		receiveBounded(t, started, "the C wait to start")
+		cancel()
+		if err := receiveBounded(t, done, "the call to return"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("want context.Canceled, got %v", err)
+		}
+	}()
+
+	for i := 0; i < 50; i++ {
+		runtime.GC()
+		time.Sleep(time.Millisecond)
+	}
+	if finalized.Load() {
+		t.Fatal("the goal handle was finalized while the C result wait was still running")
+	}
+
+	// Positive control: once the wait has returned, the same handle is collected.
+	free()
+	_ = c.Close() // waits for the wait to return
+	waitUntil(t, "the goal handle to be finalized after the wait", func() bool {
+		runtime.GC()
+		return finalized.Load()
+	})
+}
+
+// gateGoal holds SerializeCDR at a barrier.
+type gateGoal struct {
+	MockMessage
+	b *barrier
+}
+
+func (g *gateGoal) SerializeCDR() ([]byte, error) { g.b.hold(); return []byte{1}, nil }
+
+// Cancelling while the goal is serialised does not end the call: serialisation runs on the
+// caller's goroutine before the worker starts. The call returns when the serializer returns,
+// with the context error, and nothing is sent.
+func TestSendGoalContextCancelDuringSerializeWaitsForSerializer(t *testing.T) {
+	c := openTestActionClient()
+	var sends atomic.Int32
+	stubSendGoal(t, func(*ActionClient, []byte) (*GoalHandle, error) {
+		sends.Add(1)
+		return nil, errors.New("stub")
+	})
+	b := newBarrier()
+	defer b.free()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { _, err := c.SendGoalContext(ctx, &gateGoal{b: b}); done <- err }()
+	b.waitEntered(t, "the serializer")
+	cancel()
+	select {
+	case err := <-done:
+		t.Fatalf("the call returned %v while the serializer was blocked", err)
+	default:
+	}
+
+	b.free()
+	if err := receiveBounded(t, done, "the call to return"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	_ = c.Close() // waits for any worker that started, so sends is final
+	if n := sends.Load(); n != 0 {
+		t.Errorf("the goal was sent %d times for a call cancelled in the serializer, want 0", n)
+	}
 }
