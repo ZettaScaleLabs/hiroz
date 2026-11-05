@@ -814,8 +814,9 @@ int32_t hiroz_publisher_destroy(struct hiroz_publisher_t *pub_handle);
  * them as they were, so the program must set the fields that are new to it. The creator ignores
  * the bytes beyond the struct that it knows.
  *
- * Returns 0 on success, `ErrorCode::NullPointer` if `out` is null, and `ErrorCode::Unknown` if
- * `size` is below 4, which cannot hold `struct_size`. A failed call writes nothing.
+ * Returns 0 on success, -1 if `out` is null, and -100 if `size` is below 4, which cannot hold
+ * `struct_size`, or above `UINT32_MAX`, which `struct_size` cannot store. A failed call writes
+ * nothing.
  *
  * # Safety
  * `out` must be null or point to writable memory of `size` bytes.
