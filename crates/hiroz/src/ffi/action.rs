@@ -161,7 +161,7 @@ pub unsafe extern "C" fn hiroz_action_client_create_with_qos_v2(
                 qos,
             ),
             Err(e) => {
-                tracing::warn!("hiroz: Invalid QoS struct for an action client: {:?}", e);
+                ffi_warn!("hiroz: Invalid QoS struct for an action client: {:?}", e);
                 std::ptr::null_mut()
             }
         }
@@ -496,7 +496,7 @@ pub unsafe extern "C" fn hiroz_action_server_create_with_qos_v2(
                 qos,
             ),
             Err(e) => {
-                tracing::warn!("hiroz: Invalid QoS struct for an action server: {:?}", e);
+                ffi_warn!("hiroz: Invalid QoS struct for an action server: {:?}", e);
                 std::ptr::null_mut()
             }
         }

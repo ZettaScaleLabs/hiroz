@@ -110,7 +110,7 @@ pub unsafe extern "C" fn hiroz_publisher_create_with_qos_v2(
         match CQosProfileV2::to_qos_profile(qos) {
             Ok(qos_profile) => create_publisher(node, topic, type_name, type_hash, qos_profile),
             Err(e) => {
-                tracing::warn!("hiroz: Invalid QoS struct for a publisher: {:?}", e);
+                ffi_warn!("hiroz: Invalid QoS struct for a publisher: {:?}", e);
                 std::ptr::null_mut()
             }
         }

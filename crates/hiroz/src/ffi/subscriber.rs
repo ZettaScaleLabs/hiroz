@@ -149,7 +149,7 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_qos_v2(
                 None,
             ),
             Err(e) => {
-                tracing::warn!("hiroz: Invalid QoS struct for a subscriber: {:?}", e);
+                ffi_warn!("hiroz: Invalid QoS struct for a subscriber: {:?}", e);
                 std::ptr::null_mut()
             }
         }

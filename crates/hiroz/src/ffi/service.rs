@@ -223,7 +223,7 @@ pub unsafe extern "C" fn hiroz_service_client_create_with_qos_v2(
                 qos_profile,
             ),
             Err(e) => {
-                tracing::warn!("hiroz: Invalid QoS struct for a service client: {:?}", e);
+                ffi_warn!("hiroz: Invalid QoS struct for a service client: {:?}", e);
                 std::ptr::null_mut()
             }
         }
@@ -422,7 +422,7 @@ pub unsafe extern "C" fn hiroz_service_server_create_with_qos_v2(
                 qos_profile,
             ),
             Err(e) => {
-                tracing::warn!("hiroz: Invalid QoS struct for a service server: {:?}", e);
+                ffi_warn!("hiroz: Invalid QoS struct for a service server: {:?}", e);
                 std::ptr::null_mut()
             }
         }
