@@ -181,6 +181,11 @@ pub struct CServiceServer {
 }
 
 /// Create a service client
+///
+/// # Safety
+/// `node` must be a pointer returned by `hiroz_node_create`, or null.
+/// Every string argument must be a valid null-terminated C string, or null.
+/// The returned pointer must be freed with `hiroz_service_client_destroy`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_service_client_create(
     node: *mut CNode,
@@ -225,6 +230,13 @@ pub unsafe extern "C" fn hiroz_service_client_create(
 
 /// Call a service (synchronous with timeout).
 /// Response bytes are allocated via Rust and must be freed with hiroz_free_bytes.
+///
+/// # Safety
+/// `client_handle` must be a pointer returned by `hiroz_service_client_create`, or null.
+/// `request_data` must be valid for reads of `request_len` bytes.
+/// `response_data` and `response_len` must each be valid for writes.
+/// On success, the buffer written to `*response_data` must be freed with
+/// `hiroz_free_bytes(*response_data, *response_len)`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_service_client_call(
     client_handle: *mut CServiceClient,
@@ -267,6 +279,10 @@ pub unsafe extern "C" fn hiroz_service_client_call(
 }
 
 /// Destroy a service client
+///
+/// # Safety
+/// `client` must be a pointer returned by `hiroz_service_client_create`, or null.
+/// It must not be used again afterwards.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_service_client_destroy(client: *mut CServiceClient) -> i32 {
     if client.is_null() {
@@ -282,6 +298,9 @@ pub unsafe extern "C" fn hiroz_service_client_destroy(client: *mut CServiceClien
 /// Wait until at least one matching service server is visible in the graph,
 /// or `timeout_ms` elapses. Returns `Success` (0) if ready, `ServiceTimeout`
 /// (-10) on timeout, `NullPointer` (-1) if `client` is null.
+///
+/// # Safety
+/// `client_handle` must be a pointer returned by `hiroz_service_client_create`, or null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_service_client_wait_for_service(
     client_handle: *mut CServiceClient,
@@ -308,6 +327,14 @@ unsafe extern "C" {
 /// Create a service server.
 /// The server spawns a background thread that polls for incoming requests,
 /// invokes the callback for each one, and sends the response.
+///
+/// # Safety
+/// `node` must be a pointer returned by `hiroz_node_create`, or null.
+/// Every string argument must be a valid null-terminated C string, or null.
+/// `callback` must remain callable for the lifetime of the server; a background
+/// thread invokes it from a thread the caller does not own. `user_data` is passed
+/// back to it unchanged and is not dereferenced here.
+/// The returned pointer must be freed with `hiroz_service_server_destroy`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_service_server_create(
     node: *mut CNode,
@@ -426,6 +453,10 @@ pub unsafe extern "C" fn hiroz_service_server_create(
 }
 
 /// Destroy a service server
+///
+/// # Safety
+/// `server` must be a pointer returned by `hiroz_service_server_create`, or null.
+/// It must not be used again afterwards.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_service_server_destroy(server: *mut CServiceServer) -> i32 {
     if server.is_null() {
