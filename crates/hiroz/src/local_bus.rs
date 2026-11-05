@@ -1,23 +1,18 @@
-//! Intra-process message bus — **prototype**.
+//! Intra-process message bus (prototype).
 //!
-//! Zenoh's payload is bytes by definition, so every hiroz message is CDR-encoded
-//! on publish and decoded on receive even when both endpoints live in the same
-//! process. [`Locality::SessionLocal`](zenoh::sample::Locality) removes the
-//! transport underneath that, but not the encoding.
+//! Zenoh payloads are bytes, so every hiroz message is CDR-encoded on publish and
+//! decoded on receive, even when both endpoints share a process.
+//! [`Locality::SessionLocal`](zenoh::sample::Locality) removes the transport but
+//! not the encoding. This module removes the encoding when the publisher and the
+//! subscriber are in the same zenoh session and use the same concrete Rust type.
+//! The publisher hands out an `Arc<T>` and each matching subscriber gets a
+//! refcount bump. Nothing is serialized or copied.
 //!
-//! This module removes the encoding, for the one case where it is safe to: the
-//! publisher and the subscriber are in the same zenoh session and agree on the
-//! exact same concrete Rust type. The publisher hands out an `Arc<T>` and every
-//! matching local subscriber gets a refcount bump. Nothing is serialized and the
-//! payload is never copied.
+//! # Why this is not the default
 //!
-//! # Why this cannot be the default
-//!
-//! Bytes are what buy ROS its late binding: a topic is a name, and the peer is
-//! discovered at run time and may be another process, another language, another
-//! ROS version or another host. An `Arc<T>` survives none of that. So this is an
-//! opt-in fast path beside the wire path, never a replacement for it — the same
-//! shape as rclcpp's intra-process comm.
+//! Bytes give ROS late binding: the peer may be another process, language, ROS
+//! version or host, and an `Arc<T>` survives none of that. This is an opt-in fast
+//! path beside the wire path, not a replacement for it.
 //!
 //! # Scope
 //!
@@ -28,34 +23,25 @@
 //! | mutability | shared `Arc<T>`, or moved to a sole receiver | a receiver mutating a payload others still hold |
 //! | choosing the path | the caller asserts the audience | inferring it |
 //!
-//! The last row is the one that has been tried and withdrawn. A publisher does
-//! not ask whether anyone remote is listening, because the question has no
-//! answer: a plain zenoh subscriber declares no ROS liveliness token, so the
-//! graph cannot see it and there is no count to subtract our own from. Taking
-//! the bus on a wrong inference loses that subscriber's messages silently. So
-//! the caller says, with `with_intra_process_only()` or a `Locality`, and the
-//! bus is taken only when that assertion makes the wire redundant.
+//! The audience is never inferred. A plain zenoh subscriber declares no ROS
+//! liveliness token, so the graph cannot see it, and a wrong inference would lose
+//! its messages silently. The caller asserts the audience with
+//! `with_intra_process_only()` or a `Locality`. The bus replaces the wire only
+//! when that assertion makes the wire redundant.
 //!
-//! # Keying, and why a publisher resolves it once
+//! # Keying
 //!
-//! Channels are keyed by `(session zid, topic key expression)`. The zid is what
-//! makes "same session" true rather than merely "same process" — two
+//! Channels are keyed by `(session zid, topic key expression)`. The zid makes
+//! "same session" true rather than "same process": two
 //! [`ZContext`](crate::context::ZContext)s in one process open two sessions and
-//! must not see each other's traffic. Both `ZPub` and `ZSub` already hold an
-//! `Arc<Session>`, so this needs no plumbing through the node tree.
-//!
-//! A publisher takes its [`crate::local_bus::Channel`] handle when it is built and never touches
-//! the registry again. Resolving per message would mean hashing a
-//! fully-qualified ROS key expression on every publish, which at small payloads
-//! is a visible share of the whole path.
+//! do not see each other's traffic. A publisher resolves its [`Channel`] once, at
+//! build time, and never touches the registry again.
 //!
 //! # Locking
 //!
-//! Callbacks are **never** invoked with the registry lock held. A subscriber
-//! callback commonly publishes — that is exactly what the pong side of a
-//! ping/pong does — and re-entering the bus under its own read guard is the
-//! deadlock this workspace has already fixed three times elsewhere. The list is
-//! cloned out, the guard dropped, and only then are the callbacks called.
+//! Delivery never invokes a callback while holding a lock. A callback may
+//! publish, and re-entering the bus under a held guard would deadlock. Each
+//! publish reads a snapshot of the subscriber list.
 
 use std::{
     any::{Any, TypeId},
@@ -79,44 +65,27 @@ use zenoh::session::ZenohId;
 /// How deep a chain of callback-driven publishes may go before the bus refuses.
 ///
 /// Delivery runs inline on the publishing thread, so a callback that publishes
-/// re-enters `Channel::publish` on the same stack. A pong that publishes to a
-/// *different* topic is the motivating case and terminates. A callback that
-/// publishes to its **own** topic does not: on the wire that loop passes through
-/// zenoh's queues and shows up as an endless stream of messages, but here it is
-/// direct recursion and ends in a stack overflow.
+/// re-enters `Channel::publish` on the same stack. A callback that publishes to
+/// its own topic would recurse until the stack overflows. Past this depth the bus
+/// drops the message and logs an error. Eight is far above any legitimate chain.
 ///
-/// Eight is chosen to be far above any legitimate chain — a pipeline of eight
-/// nodes each publishing from the previous one's callback, on one thread — and
-/// far below the depth at which the stack is in danger.
-/// Public so a test can assert the exact bound rather than a loose ceiling:
-/// a hand-copied constant lets a change to this value slip past unnoticed.
+/// Public so a test can assert the exact bound.
 ///
 /// # What this does not bound
 ///
-/// It bounds the **stack**, on **one thread**. Two things escape it, and both
-/// are inherent rather than oversights:
+/// - A callback that spawns a thread and publishes there starts at depth zero,
+///   because the counter is thread-local.
+/// - A topic cycle across the wire. A `Locality::Remote` publisher runs both
+///   routes, so a nested delivery emits one wire message per nesting level.
+///   Suppressing the wire half would drop a message the callback chose to send.
 ///
-/// - **A callback that spawns a thread and publishes there** starts at depth
-///   zero, because the counter is thread-local. Unbounded recursion then
-///   exhausts threads rather than the stack, and this guard never trips.
-/// - **A topic cycle across the wire is not bounded at all.** A
-///   `Locality::Remote` publisher runs both routes, so a nested delivery emits
-///   a wire message per nesting level; a peer that echoes amplifies again. That
-///   is a property of publish/subscribe — any ROS 2 node that publishes to a
-///   topic it subscribes to does the same, and no client library prevents it.
-///   Suppressing the wire half for nested deliveries was considered and
-///   rejected: a nested publish is a distinct message the callback chose to
-///   send, so dropping it would trade a loud problem for a silent one.
-///
-/// The guard exists to turn a stack overflow into a dropped message and a
-/// greppable log. It is not a cycle detector.
+/// The guard is not a cycle detector.
 ///
 /// cbindgen:ignore
 pub const MAX_DELIVERY_DEPTH: u32 = 8;
 
 thread_local! {
-    /// Delivery depth for the current thread. Not per channel: a cycle across
-    /// two topics recurses just as fatally as one topic into itself.
+    /// Delivery depth for the current thread, shared by all channels.
     static DELIVERY_DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
@@ -132,19 +101,13 @@ impl Drop for DepthGuard {
 /// An erased payload. Always an `Arc<T>` for the `T` named by `type_id`.
 pub type ErasedPayload = Arc<dyn Any + Send + Sync>;
 
-/// Takes the payload **by value**, so the single-subscriber case can move it.
-///
-/// With a `&ErasedPayload` the callback had to clone before downcasting, which
-/// is a refcount pair on every message. One subscriber is the overwhelmingly
-/// common case, and it can be handed the only reference instead.
+/// Takes the payload **by value**, so a sole subscriber can move it instead of cloning.
 type LocalCallback = Arc<dyn Fn(ErasedPayload) + Send + Sync>;
 
-/// A callback that takes the message **owned and mutable**.
+/// A callback that takes the message owned.
 ///
-/// The shared path hands every receiver the same read-only `Arc`, which is
-/// right when several of them want it and wrong when exactly one does: a sole
-/// receiver could have been given the value itself, free to mutate or consume
-/// it. This is that path.
+/// Served only to a sole receiver. The shared path hands every receiver a
+/// read-only `Arc`.
 type OwnedCallback = Arc<dyn Fn(Box<dyn Any + Send>) + Send + Sync>;
 
 #[derive(Clone)]
@@ -176,36 +139,21 @@ impl Entry {
     }
 }
 
-/// The subscriber list for one `(session, topic)`, resolved once.
+/// The subscriber list for one `(session, topic)`.
 ///
-/// A publisher takes an `Arc<Channel>` when it is built and never consults the
-/// registry again. That matters: looking a topic up per message means hashing a
-/// fully-qualified ROS key expression — a long string — on every publish, which
-/// at 64 B payloads is a visible share of the whole path.
+/// A publisher resolves it once, at build time. See the module docs.
 pub struct Channel {
-    /// Read on every publish, written only when a subscriber comes or goes.
-    ///
-    /// This was an `RwLock<Vec<Entry>>`, and the publish path paid for it twice:
-    /// the lock itself, and an `Arc` clone of each matching callback so the
-    /// guard could be dropped before any callback ran. That clone was not
-    /// optional — invoking a callback under the guard is the re-entrancy
-    /// deadlock this workspace has fixed repeatedly, because a subscriber
-    /// callback that publishes is the normal case rather than the exotic one.
-    ///
-    /// A snapshot removes both. A publisher loads the current list and calls
-    /// straight through it; a subscriber coming or going swaps in a new list and
-    /// leaves any publish already in flight running against the old one. That is
-    /// the same visibility the clone gave, without the atomics, and it cannot
-    /// deadlock because nothing is held.
+    /// Snapshot of the subscribers. A publish loads it and calls straight through.
+    /// A subscriber coming or going swaps in a new list, and a publish already in
+    /// flight keeps the old one. No lock is held during a callback.
     entries: ArcSwap<Vec<Entry>>,
 }
 
 /// What one intra-process publish did.
 ///
-/// `NoTaker` and `DepthExceeded` both mean nothing was delivered, and they must
-/// not be conflated: a caller may fall back to the wire on `NoTaker`, but doing
-/// so on `DepthExceeded` re-enters the same callback on a zenoh thread with a
-/// fresh depth counter and loops forever.
+/// `NoTaker` and `DepthExceeded` both mean nothing was delivered. A caller may
+/// fall back to the wire on `NoTaker` but must not on `DepthExceeded`: the
+/// fallback re-enters the same callback with a fresh depth counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Delivery {
     /// Handed to this many subscribers.
@@ -219,9 +167,8 @@ pub enum Delivery {
 
 /// Which routes one publish took, and what the bus did on its route.
 ///
-/// A caller cannot reconstruct this from a delivered count: zero means "no
-/// taker", "refused at depth" and "there is no bus on this publisher", and the
-/// first two must stay distinct — see [`Delivery`].
+/// A delivered count cannot say this: zero covers "no taker", "refused at depth"
+/// and "no bus on this publisher".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Published {
@@ -234,40 +181,23 @@ pub enum Published {
     BusAndWire(Delivery),
 }
 
-/// Invoke one subscriber callback, isolated.
+/// Invoke one subscriber callback, isolated. Returns whether it returned normally.
 ///
-/// Two things happen here that must happen at every user-code call site.
+/// Debug builds check that no tracked lock is held; see [`crate::reentrancy`].
 ///
-/// The crate contract in [`crate::reentrancy`] says every invocation of user
-/// code is routed through `invoke_user_callback!`, so that calling out while a
-/// tracked lock is held is caught in debug builds. Bus delivery is synchronous
-/// on the publishing thread, which makes that hazard *more* reachable than the
-/// wire path, not less.
-///
-/// And a panic is contained — **under `panic = "unwind"`, which is the
-/// default**. A build that sets `panic = "abort"` cannot catch anything: the
-/// process ends at the panic and this isolation is inert. That is worth knowing
-/// before relying on it in an embedded or abort-configured deployment.
-///
-/// A panic is contained. On the wire, a panicking callback kills one zenoh
-/// task. Here it would unwind into the application's publishing thread and skip
-/// every subscriber after it in the snapshot. Delivery order is snapshot order,
-/// so which siblings got censored would vary run to run.
+/// A panic is contained, so one panicking subscriber neither skips the rest of
+/// the snapshot nor unwinds into the publisher. Containment needs
+/// `panic = "unwind"`. With `panic = "abort"` the process ends at the panic.
 fn invoke_isolated(site: &'static str, f: impl FnOnce()) -> bool {
     crate::reentrancy::assert_no_guards_held(site);
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(()) => true,
         Err(_payload) => {
-            // Re-raise the crate's own re-entrancy violation instead of
-            // logging it. `assert_no_guards_held` reports by panicking, and a
-            // *nested* delivery runs inside this catch_unwind — so without
-            // this, the detector built to catch "a user callback ran while a
-            // lock was held" is silently downgraded to a log line in exactly
-            // the case the bus makes most reachable: a callback that publishes.
+            // Re-raise the crate's own re-entrancy violation. A nested delivery runs
+            // inside this `catch_unwind`, and logging it would hide the detector.
             #[cfg(debug_assertions)]
-            // A type, not a message prefix: a subscriber can panic with any
-            // string it likes, so matching text would let user code force a
-            // re-raise and defeat the isolation this function provides.
+            // Match the type, not a message string: a subscriber could panic with any
+            // string and force a re-raise.
             if _payload.downcast_ref::<ReentrancyViolation>().is_some() {
                 std::panic::resume_unwind(_payload);
             }
@@ -275,9 +205,8 @@ fn invoke_isolated(site: &'static str, f: impl FnOnce()) -> bool {
                 "[BUS] a subscriber callback panicked during intra-process delivery at {site}; \
                  the panic was contained and delivery continued to the remaining subscribers"
             );
-            // Dropping the payload is user code too: a subscriber can panic
-            // with a value whose destructor panics. Contain that as well, and
-            // leak a second payload rather than drop it outside the guard.
+            // Dropping the payload is user code too, and its destructor may panic.
+            // Contain that, and leak the second payload rather than drop it unguarded.
             if let Err(second) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
                 drop(_payload)
             })) {
@@ -291,15 +220,10 @@ fn invoke_isolated(site: &'static str, f: impl FnOnce()) -> bool {
 impl Channel {
     /// How many subscribers of `T` on this channel want the message **by value**.
     ///
-    /// A publisher needs this to tell apart two outcomes that both surface as
-    /// [`Delivery::NoTaker`]: nobody is listening, and somebody is listening
-    /// whom the shared path structurally cannot serve. [`Channel::publish`]
-    /// filters on `is_shared`, so an owned subscriber is invisible to it — and
-    /// an `intra_process_only` publisher has no wire behind the bus to catch the
-    /// message. Without this, that difference is a silent drop reported as success.
-    ///
-    /// It cannot be repaired by handing them a clone: `ZMessage` is
-    /// `Send + Sync + Sized`, not `Clone`.
+    /// Lets a publisher tell "nobody is listening" from "an owned subscriber is
+    /// listening that [`Channel::publish`] skips". Without it, an
+    /// `intra_process_only` publisher would drop the message and report success.
+    /// A clone cannot serve them: `ZMessage` is not `Clone`.
     pub fn owned_receivers<T>(&self) -> usize
     where
         T: Any + 'static,
@@ -312,21 +236,16 @@ impl Channel {
             .count()
     }
 
-    /// Deliver `payload` to every subscriber here whose type matches, returning
-    /// how many were called.
+    /// Deliver `payload` to every shared subscriber of type `T`.
     ///
-    /// Callbacks are **never** invoked with the lock held. A subscriber callback
-    /// commonly publishes — that is exactly what the pong side of a ping/pong
-    /// does — and re-entering under its own read guard is the deadlock this
-    /// workspace has already fixed three times elsewhere.
+    /// Returns how many callbacks returned normally. No callback runs with a lock
+    /// held. [`MAX_DELIVERY_DEPTH`] bounds the nesting.
     pub fn publish<T>(&self, payload: Arc<T>) -> Delivery
     where
         T: Any + Send + Sync + 'static,
     {
-        // Refuse to recurse without bound. A callback that publishes back onto
-        // its own topic would otherwise overflow the stack; returning here turns
-        // that into a dropped message and a loud log, which is recoverable and
-        // greppable.
+        // Refuse unbounded recursion: drop the message and log, instead of
+        // overflowing the stack.
         let depth = DELIVERY_DEPTH.with(|d| d.get());
         if depth >= MAX_DELIVERY_DEPTH {
             tracing::error!(
@@ -355,20 +274,17 @@ impl Channel {
 
         let erased: ErasedPayload = payload;
         match second {
-            // One subscriber is the overwhelmingly common case: call straight
-            // through the snapshot, hand over the only reference, and touch no
-            // refcount at all beyond the one the caller already holds.
+            // One subscriber: call through the snapshot and hand over the only
+            // reference, with no refcount traffic.
             None => {
                 if invoke_isolated("local_bus::publish", || first.call_shared(erased)) {
                     Delivery::Sent(1)
                 } else {
-                    // The only subscriber panicked. Reporting Sent(1) here told
-                    // the caller a message was delivered when none was.
+                    // The only subscriber panicked, so nothing was delivered.
                     Delivery::NoTaker
                 }
             }
-            // More than one receiver genuinely needs a reference each, so the
-            // clones start here and not before.
+            // Two or more receivers need a reference each, so cloning starts here.
             Some(second) => {
                 let e1 = erased.clone();
                 let e2 = erased.clone();
@@ -379,13 +295,9 @@ impl Channel {
                     let ec = erased.clone();
                     count += invoke_isolated("local_bus::publish", || entry.call_shared(ec)) as usize;
                 }
-                // The count is subscribers that returned normally, not
-                // subscribers invoked. A panicking one is logged above.
-                //
-                // Zero is NoTaker, never Sent(0): the sole-subscriber arm above
-                // already reports NoTaker for the same outcome, and two spellings
-                // of "nothing was delivered" mean a caller that branches on
-                // NoTaker silently misses one of them.
+                // Count callbacks that returned normally. Zero is NoTaker, never
+                // Sent(0), as in the sole-subscriber arm: two spellings of "nothing
+                // delivered" would make a caller that branches on NoTaker miss one.
                 if count == 0 {
                     Delivery::NoTaker
                 } else {
@@ -397,12 +309,10 @@ impl Channel {
 
     /// Hand `payload` to a sole owning subscriber, by value.
     ///
-    /// Returns the payload back as `Err` when it cannot be delivered that way,
-    /// so the caller still owns it and can fall back rather than lose it. That
-    /// happens when no owning subscriber of this type is registered, or when
-    /// anything else is subscribed as well: with a second receiver the message
-    /// cannot be given away, and silently downgrading to a shared delivery
-    /// would defeat the point of having asked for ownership.
+    /// Returns the payload as `Err` when it cannot go that way: no owning subscriber
+    /// of this type is registered, or another subscriber of the type is. The caller
+    /// keeps the payload and can fall back. The bus does not downgrade to a shared
+    /// delivery, because that would defeat the request for ownership.
     pub fn publish_owned<T>(&self, payload: T) -> core::result::Result<Delivery, T>
     where
         T: Any + Send + 'static,
@@ -428,18 +338,15 @@ impl Channel {
                 max = MAX_DELIVERY_DEPTH,
                 "intra-process delivery nested too deeply; refusing to recurse further"
             );
-            // Deliberately NOT Err(payload): the caller treats that as "no
-            // owning receiver" and falls back, which re-enters this callback on
-            // a zenoh thread with a fresh depth counter and loops forever. The
-            // message is dropped, and `DepthExceeded` says so — reporting it as
-            // a delivery would hide a dropped message behind a success.
+            // Not Err(payload): the caller would treat that as "no owning receiver"
+            // and fall back, re-entering this callback with a fresh depth counter.
+            // Drop the message and report DepthExceeded.
             return Ok(Delivery::DepthExceeded);
         }
         DELIVERY_DEPTH.with(|d| d.set(depth + 1));
         let _depth_guard = DepthGuard;
 
-        // Mirror the shared path: a callback that panicked delivered nothing, so
-        // reporting Sent(1) would tell the caller a message landed when none did.
+        // A panicked callback delivered nothing, as on the shared path.
         if invoke_isolated("local_bus::publish_owned", || cb(Box::new(payload))) {
             Ok(Delivery::Sent(1))
         } else {
@@ -447,8 +354,7 @@ impl Channel {
         }
     }
 
-    /// How many subscribers this channel has, regardless of type. Diagnostics
-    /// only; the publish path does not use it.
+    /// How many subscribers this channel has, of any type. Diagnostics only.
     pub fn subscriber_count(&self) -> usize {
         self.entries.load().len()
     }
@@ -456,22 +362,16 @@ impl Channel {
 
 /// Registry of channels, keyed by session then topic.
 ///
-/// Channels are created on demand. A channel that no publisher or subscriber
-/// holds is dropped the next time [`channel`] misses, so the registry is
-/// reclaimed opportunistically rather than the moment the last endpoint goes.
-/// A channel an endpoint still holds is never removed, so a publisher's handle
-/// stays valid across a subscriber coming and going.
+/// A channel that no endpoint holds is dropped the next time [`channel`]
+/// misses, not when the last endpoint goes.
 type Registry = HashMap<ZenohId, HashMap<String, Arc<Channel>>>;
 
 static BUS: LazyLock<RwLock<Registry>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
-/// How many channels the registry currently holds, across every session.
+/// How many channels the registry holds, across every session.
 ///
-/// Exposed so the reclamation in [`channel`] can be observed. Without a way to
-/// read this, "the registry no longer grows without bound" is a claim no test
-/// can make: the leak is invisible from the outside, which is why it survived
-/// this long.
+/// Lets a test observe the reclamation in [`channel`].
 pub fn total_channels() -> usize {
     let bus = match BUS.read() {
         Ok(b) => b,
@@ -482,9 +382,7 @@ pub fn total_channels() -> usize {
 
 /// How many channels the registry holds for one session. Diagnostics only.
 ///
-/// Unlike [`total_channels`], this is not disturbed by other sessions in the
-/// same process, so a test running beside others can attribute a change to
-/// itself.
+/// Unlike [`total_channels`], other sessions in the process do not disturb it.
 pub fn session_channels(zid: ZenohId) -> usize {
     let bus = match BUS.read() {
         Ok(b) => b,
@@ -513,19 +411,12 @@ pub fn channel(zid: ZenohId, topic: &str) -> Arc<Channel> {
         Err(e) => e.into_inner(),
     };
 
-    // Reclaim while we already hold the write lock. A channel is removable only
-    // when the registry is its sole owner and it has no subscribers: every
-    // `ZPub` and `ZSub` holds its own `Arc<Channel>`, so a strong count of one
-    // proves no endpoint can still reach it, and a later builder gets a fresh
-    // channel that nobody is split from.
-    //
-    // Without this the map only ever grows. It is not merely one entry per
-    // `ZContext` — `channel()` runs in *every* `ZPubBuilder::build()`, so a
-    // process that publishes on dynamically-named topics accumulates an entry
-    // per topic, for its lifetime, even after every publisher is dropped.
-    // Sweep every session, not just this one. Scoping it to `zid` left each
-    // retired session holding its final channel for the process lifetime, which
-    // is the session-churn half of the leak rather than a fix for it.
+    // Reclaim while holding the write lock. A channel is removable when the
+    // registry is its sole owner and it has no subscribers: every `ZPub` and
+    // `ZSub` holds its own `Arc<Channel>`, so a strong count of one means no
+    // endpoint can reach it. Sweep every session, because `channel()` runs in
+    // every `ZPubBuilder::build()` and a retired session would otherwise keep
+    // its last channel.
     bus.retain(|_, topics| {
         topics.retain(|_, ch| Arc::strong_count(ch) > 1 || !ch.entries.load().is_empty());
         !topics.is_empty()
@@ -544,13 +435,12 @@ pub fn channel(zid: ZenohId, topic: &str) -> Arc<Channel> {
 
 /// Keeps a local subscription alive. Dropping it unregisters.
 ///
-/// `ZSub` holds one, so the registration follows the subscriber's lifetime and a
-/// dropped subscriber receives no *further* deliveries.
-/// It does not quiesce: a delivery already in flight on another thread runs to
-/// completion against the snapshot it loaded, so the callback can still run after
-/// `drop` has returned. That is memory-safe, because the snapshot owns the closure
-/// and everything it captured. It is not a barrier, so do not tear down a resource
-/// the callback merely observes on the strength of having dropped the subscriber.
+/// `ZSub` holds one, so a dropped subscriber receives no further deliveries.
+/// It does not quiesce: a delivery in flight on another thread runs to
+/// completion against the snapshot it loaded, so the callback can run after
+/// `drop` returns. That is memory-safe, because the snapshot owns the closure
+/// and its captures. Do not tear down a resource the callback observes on the
+/// strength of having dropped the subscriber.
 pub struct LocalSubscription {
     channel: Arc<Channel>,
     id: u64,
@@ -558,9 +448,7 @@ pub struct LocalSubscription {
 
 impl Drop for LocalSubscription {
     fn drop(&mut self) {
-        // Swap in a list without this entry. A publish already in flight keeps
-        // running against the snapshot it loaded, exactly as it did when the
-        // list was cloned out from under a lock.
+        // Swap in a list without this entry. A publish in flight keeps its snapshot.
         let id = self.id;
         self.channel.entries.rcu(|current| {
             current
@@ -580,9 +468,9 @@ where
 {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let erased: LocalCallback = Arc::new(move |payload: ErasedPayload| {
-        // The publisher already matched on TypeId, so this downcast holds. It is
-        // still checked rather than assumed — an unchecked cast here would turn
-        // a bookkeeping bug into undefined behaviour.
+        // The publisher matched on TypeId, so this holds. The downcast stays
+        // checked: an unchecked cast would turn a bookkeeping bug into undefined
+        // behaviour.
         match payload.downcast::<T>() {
             Ok(typed) => callback(typed),
             Err(_) => tracing::error!(
@@ -591,9 +479,8 @@ where
         }
     });
 
-    // Copy on write: rare, and it keeps the publish path free of locks. `rcu`
-    // may run this closure more than once under contention, so it clones rather
-    // than moving what it needs.
+    // Copy on write: rare, and it keeps the publish path lock-free. `rcu` may
+    // rerun the closure, so it clones.
     let type_id = TypeId::of::<T>();
     channel.entries.rcu(|current| {
         let mut next = Vec::with_capacity(current.len() + 1);
@@ -624,10 +511,9 @@ pub fn subscriber_count(zid: ZenohId, topic: &str) -> usize {
 
 /// Register `callback` to receive messages of type `T` **by value**.
 ///
-/// It is served only when it is the sole subscriber on the channel for that
-/// type; see [`Channel::publish_owned`]. Registering one alongside a shared
-/// subscriber is allowed, and simply means the owned path cannot give anything
-/// away, so the publisher falls back to the shared or wire path.
+/// Served only when it is the sole subscriber of that type on the channel; see
+/// [`Channel::publish_owned`]. Registering one beside a shared subscriber is
+/// allowed, but then the owned path cannot give anything away.
 pub fn subscribe_owned<T, F>(channel: Arc<Channel>, callback: F) -> LocalSubscription
 where
     T: Any + Send + 'static,
@@ -635,9 +521,9 @@ where
 {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let erased: OwnedCallback = Arc::new(move |payload: Box<dyn Any + Send>| {
-        // The publisher matched on TypeId, so this downcast holds. It is still
-        // checked: an unchecked cast would turn a bookkeeping bug into
-        // undefined behaviour.
+        // The publisher matched on TypeId, so this holds. The downcast stays
+        // checked: an unchecked cast would turn a bookkeeping bug into undefined
+        // behaviour.
         match payload.downcast::<T>() {
             Ok(typed) => callback(*typed),
             Err(_) => tracing::error!(

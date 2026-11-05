@@ -89,16 +89,13 @@ pub fn live_guards() -> usize {
 
 /// The payload of a re-entrancy violation panic.
 ///
-/// [`local_bus`](crate::local_bus) contains subscriber panics so one bad
-/// callback cannot censor its siblings. That containment must not swallow
-/// *this* panic: it is the crate reporting its own contract violation, and a
-/// nested delivery raises it from inside that `catch_unwind`.
+/// [`local_bus`](crate::local_bus) contains subscriber panics, but it re-raises
+/// this one: it reports the crate's own contract violation, and a nested
+/// delivery raises it inside the containment.
 ///
-/// It is a type rather than a message prefix because the alternative is
-/// forgeable: a subscriber that panicked with a `String` beginning with the
-/// prefix would be re-raised as though it were a violation, breaking the very
-/// isolation guarantee the containment exists to provide. The private field
-/// means no code outside this crate can construct one.
+/// The bus matches this type, not a message prefix. A subscriber that panicked
+/// with a matching `String` would otherwise be re-raised as a violation.
+/// `#[non_exhaustive]` stops code outside this crate from constructing one.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ReentrancyViolation {
@@ -297,11 +294,8 @@ mod tests {
 
     /// A tripwire that never fires is indistinguishable from a clean codebase.
     ///
-    /// The payload is asserted by **type**, not by message. `should_panic` can
-    /// only match a string, and matching the message is exactly what made the
-    /// old classifier forgeable: a subscriber panicking with the same words
-    /// would have been mistaken for a violation. Testing the type is both
-    /// stronger and the thing the containment in `local_bus` actually keys on.
+    /// The payload is asserted by type, not by message, because the containment
+    /// in `local_bus` matches the type.
     #[test]
     fn assert_fires_while_a_guard_is_live() {
         let fired = std::panic::catch_unwind(|| {
