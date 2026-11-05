@@ -28,7 +28,7 @@ type cServiceServerHandle struct{ p *C.hiroz_service_server_t }
 type cServiceClient = C.hiroz_service_client_t
 
 // serviceCall makes the one blocking C call of a service request. A test replaces it to
-// run the call paths without a Zenoh session. Production code never assigns it.
+// run the call paths without a Zenoh session.
 var serviceCall = func(h *cServiceClient, req []byte, timeoutMs uint64) ([]byte, int32) {
 	// Pin the request data to prevent GC relocation during the C call
 	pinner := &runtime.Pinner{}

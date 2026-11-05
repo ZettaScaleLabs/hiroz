@@ -323,19 +323,17 @@ The calls in this table have a variant that ends when a `context.Context` ends. 
 
 A context deadline sets the timeout of `CallTypedContext`, up to 10 seconds. The service client behind it ends every query after 10 seconds, so a later deadline does not extend the call: it returns `hiroz.ErrTimeout` after about 10 seconds. Without a deadline the call uses `DefaultServiceTimeout` (5 s). When the context ends first, the error wraps `context.Canceled` or `context.DeadlineExceeded`. A call whose C timeout ends after the context deadline has passed also returns `context.DeadlineExceeded`, not `hiroz.ErrTimeout`. `ErrTimeout` means the server did not answer within the call timeout while the context deadline was still in the future. `WaitForServiceContext` waits in slices of at most 250 ms, so it returns within one slice of a cancel.
 
-A cancel does not stop work that the C layer already started. `Close` waits for that work and not for the context, and nothing aborts it. A call that starts after `Close` has begun returns a closed-client error and does not reach the C layer. A call whose context has already ended returns the context error first, even when the client or the goal handle is closed.
+A cancel does not stop work that the C layer already started. `Close` waits for that work and not for the context, and the cancel does not interrupt it. A call that starts after `Close` has begun returns a closed-client error and does not reach the C layer. A call whose context has already ended returns the context error first, even when the client or the goal handle is closed.
 
 | Call | `Close` waits for | Longest hold |
 |---|---|---|
 | `CallTypedContext` | the registered C call, not `SerializeCDR` before it or `DeserializeCDR` after it | its call timeout: the context deadline up to 10 s, or `DefaultServiceTimeout` (5 s) without a deadline |
 | `WaitForServiceContext` | the wait, which `Close` ends and which returns a closed-client error | one wait slice (250 ms) |
-| `SendGoalContext` | the goal's `SerializeCDR`, then the C call | the serializer time plus 10 s, the fixed timeout of the C call |
+| `SendGoalContext` | the C call, not the goal's `SerializeCDR` before it | 10 s, the fixed timeout of the C call |
 | `GetResultWithContext`, `GetResult`, `GetTypedResult`, `GetTypedResultContext` | the C call | 30 s, the fixed timeout of the C call, and normally about 10 s because the service client behind it ends its query after 10 s |
 | `SendGoal`, `GoalHandle.Cancel` | nothing | do not call them concurrently with `Close` |
 
 `ServiceClient.Close` does not wait for your encoder or decoder. A `CallTypedContext` can still be inside `DeserializeCDR` when `Close` returns, so do not assume that your response state is no longer in use.
-
-A `SerializeCDR` that calls `Close` deadlocks `SendGoalContext`.
 
 `GoalHandle.Close` is not gated by the client. Do not close a goal handle while a result wait on it is running: the C call reads the handle that `Close` frees. A result wait that returned on a cancel keeps the goal handle reachable until its C call returns, so dropping the last reference is safe.
 
@@ -350,11 +348,13 @@ A context bounds the wait for a result or the lifetime of a subscriber. It does 
 | Call | When the context ends | Not guaranteed | How to know it is done |
 |---|---|---|---|
 | `BuildWithTypedCallbackContext` | A cleanup goroutine destroys the subscriber. Cancel does not wait for it. Closing the subscriber first releases the registration on the context. | A callback can start after `ctx.Done` closes. A running handler keeps running after the destroy returns. | There is no completion signal. Make the handler safe to run after the cancel, for example with a lock and a flag that it checks, and do not free what it uses on cancel alone. |
-| `SubscriberWithChannelContext` | The subscriber is destroyed, then the channel closes. | A closed channel does not mean that `DeserializeCDR` has returned for a sample in flight. That sample is dropped. A sample that has passed the check of the context before it ends can still arrive before the channel closes. | The closed channel shows that no sample arrives. Keep the message type's decoder free of state that you release on close. |
+| `SubscriberWithChannelContext` | The subscriber is destroyed, then the channel closes. | A closed channel does not mean that `DeserializeCDR` has returned for a sample in flight. That sample is dropped. A sample that is already in the send when the context ends can still arrive before the channel closes. | The closed channel shows that no sample arrives. Keep the message type's decoder free of state that you release on close. |
 | `CallTypedContext`, in `SerializeCDR` | Nothing: the call is not waiting for a result yet. | The call returns only when the serializer returns. It then returns the context error and makes no C call. | The return of `CallTypedContext`. |
 | `CallTypedContext`, in `DeserializeCDR` | Nothing: the result has arrived. | `DeserializeCDR` is not interrupted. The call returns `nil`, and the response holds the decoded value. | The return of `CallTypedContext`. |
 
-`SendGoalContext` serializes the goal in the same way, so a slow `SerializeCDR` there delays its return and holds `ActionClient.Close`.
+`SendGoalContext` serializes the goal in the same way: a slow `SerializeCDR` delays its return and does not hold `ActionClient.Close`, because the call registers after it has serialized the goal.
+
+**Known limit:** neither a cancel nor `Close` releases the callback of a successfully built subscriber. The underlying subscriber keeps it reachable until the process ends, together with what it captures: for `SubscriberWithChannelContext` its channels, for `BuildWithTypedCallbackContext` your handler's state. The channel callback does not keep the context. Releasing the callback after the running callbacks finish is not implemented.
 
 ### Action
 
