@@ -1271,6 +1271,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Buffer messages from Lyrical publishers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#join-only-on-buffer-topics-a-raw-subscriber-that-knows-its-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Join only on buffer topics: a raw subscriber that knows its type
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -2481,6 +2498,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Buffer messages from Lyrical publishers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#join-only-on-buffer-topics-a-raw-subscriber-that-knows-its-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Join only on buffer topics: a raw subscriber that knows its type
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -2629,7 +2663,7 @@ See <a href="../../reference/troubleshooting/">Troubleshooting</a> for diagnosis
 <li>A subscriber with no message schema joins on every topic, not only on buffer topics. The feedback subscriber of an action client and the Python bindings have no message schema.</li>
 <li>The Python <code>create_subscriber(..., buffer_group=...)</code> takes <code>'auto'</code>, <code>'cpu'</code> or <code>'off'</code>. <code>'auto'</code> and <code>'cpu'</code> do the same in Python. Any other string raises <code>ValueError</code>.</li>
 <li>The status subscriber of an action client always stays out, because its message has no buffer. The feedback subscriber of a typed action client follows the node default, which <code>ZNodeBuilder::with_subscriber_options</code> sets. A node default of <code>BufferGroup::Off</code> keeps it out. The action client has no switch of its own.</li>
-<li>A raw subscriber has no message schema, so <code>Auto</code> joins it. <code>create_raw_subscriber</code> and <code>create_raw_subscriber_with_qos</code> follow the node default, so they join unless the node default says otherwise. <code>create_raw_subscriber_with_group</code> takes <code>Auto</code>, <code>Cpu</code> or <code>Off</code> and replaces the node default. It exists only with the <code>ffi</code> feature. The feedback subscriber of a raw action client reads nothing and stays out.</li>
+<li>A raw subscriber has no message schema, so <code>Auto</code> joins it unless the caller says what the type is (see the next section). <code>create_raw_subscriber</code> and <code>create_raw_subscriber_with_qos</code> follow the node default, so they join unless the node default says otherwise. <code>create_raw_subscriber_with_group</code> takes <code>Auto</code>, <code>Cpu</code> or <code>Off</code> and replaces the node default. It exists only with the <code>ffi</code> feature. The feedback subscriber of a raw action client reads nothing and stays out.</li>
 <li>In C, <code>hiroz_subscriber_create</code> and <code>hiroz_subscriber_create_with_qos</code> join. <code>hiroz_subscriber_create_with_group</code> takes <code>group</code> <code>0</code> (<code>Off</code>), <code>1</code> (<code>Cpu</code>) or <code>2</code> (<code>Auto</code>). Any other value returns null, with a warning in the log when logging is on. A subscriber with a transient-local QoS stays out under every value. A C node has no setting for the node default, so it always has <code>Auto</code>.</li>
 <li>In Go, <code>SubscriberBuilder.WithBufferGroup</code> takes <code>BufferGroupOff</code>, <code>BufferGroupCpu</code> or <code>BufferGroupAuto</code>, and the default is <code>BufferGroupAuto</code>. The last two join in the same way. Go calls <code>hiroz_subscriber_create_with_group</code> for every subscriber. An unknown value fails the build before any callback state exists.</li>
 <li>A subscriber that stays out subscribes to the base key only. A typed or Python subscriber that stays out keeps its liveliness token, without the <code>backends:cpu:</code> part. A raw subscriber that stays out declares no token, so ROS tools do not list it and a publisher does not learn that it exists. This holds for <code>Off</code> and for a transient-local QoS, in C and in Go too.</li>
@@ -2659,6 +2693,98 @@ See <a href="../../reference/troubleshooting/">Troubleshooting</a> for diagnosis
 </tbody>
 </table>
 <p>No hiroz test covers this limit, and hiroz code does not change for it.</p>
+<h3 id="join-only-on-buffer-topics-a-raw-subscriber-that-knows-its-type">Join only on buffer topics: a raw subscriber that knows its type<a class="headerlink" href="#join-only-on-buffer-topics-a-raw-subscriber-that-knows-its-type" title="Permanent link">&para;</a></h3>
+<p>A caller that knows its message type can tell a raw subscriber whether the type has a buffer field. The subscriber then joins only on buffer topics, as <code>rmw_zenoh_cpp</code> decides. With the <code>ffi</code> feature, call <code>ZNode::create_raw_subscriber_with_buffer_fields(topic, type_name, type_hash, callback, qos, group, has_buffer_fields)</code>. The last argument is an <code>Option&lt;bool&gt;</code>:</p>
+<table>
+<thead>
+<tr>
+<th><code>group</code></th>
+<th><code>has_buffer_fields</code></th>
+<th>the subscriber joins</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Auto</code></td>
+<td><code>None</code></td>
+<td>yes: the same as <code>create_raw_subscriber_with_group</code></td>
+</tr>
+<tr>
+<td><code>Auto</code></td>
+<td><code>Some(true)</code></td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>Auto</code></td>
+<td><code>Some(false)</code></td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>Cpu</code></td>
+<td>any</td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>Off</code></td>
+<td>any</td>
+<td>no</td>
+</tr>
+</tbody>
+</table>
+<p>A transient-local QoS and a key format other than <code>rmw_zenoh</code>'s never join, under every setting. A caller with a <code>MessageSchema</code> can pass <code>Some(schema.has_buffer_fields())</code>. That method also counts an unbounded <code>byte[]</code>, which <code>rmw_zenoh_cpp</code> does not, and the rule may change. Pass your own flag when you need the exact <code>rmw_zenoh_cpp</code> rule.</p>
+<p>hiroz cannot check the flag. The two wrong answers differ:</p>
+<table>
+<thead>
+<tr>
+<th>Wrong flag</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Some(true)</code> on a type with no buffer field</td>
+<td>one extra join, no data lost</td>
+</tr>
+<tr>
+<td><code>Some(false)</code> on a type with a buffer field</td>
+<td>the subscriber receives nothing on that topic, without an error</td>
+</tr>
+</tbody>
+</table>
+<p>The second row follows from one fact: a raw subscriber that stays out declares no liveliness token. ROS tools do not list such a subscriber, and no publisher learns that it exists. A buffer-aware publisher writes a buffer message only for a subscriber whose token ends in <code>backends:cpu:</code>, so it never writes to this one. A typed <code>Off</code> subscriber declares a token without <code>backends:</code>, and a buffer-aware publisher does not write buffer messages to it until a release carries <a href="https://github.com/ros2/rmw_zenoh/pull/1078">ros2/rmw_zenoh#1078</a>. Pass <code>Cpu</code> when you are not sure.</p>
+<p>The C library has <code>hiroz_subscriber_create_with_buffer_fields</code>. It takes the arguments of <code>hiroz_subscriber_create_with_qos</code> and a last <code>int32_t buffer_fields</code>. It uses the node default for the group, which is always <code>Auto</code> for a C node. A subscriber with a transient-local QoS stays out under every value:</p>
+<table>
+<thead>
+<tr>
+<th><code>buffer_fields</code></th>
+<th>constant</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td><code>hiroz_BUFFER_FIELDS_UNKNOWN</code></td>
+<td><code>None</code>: join, except under a transient-local QoS</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td><code>hiroz_BUFFER_FIELDS_ABSENT</code></td>
+<td><code>Some(false)</code>: stay out</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>hiroz_BUFFER_FIELDS_PRESENT</code></td>
+<td><code>Some(true)</code>: join, except under a transient-local QoS</td>
+</tr>
+<tr>
+<td>any other value</td>
+<td></td>
+<td>the call logs a warning and returns null</td>
+</tr>
+</tbody>
+</table>
+<p>The Go bindings do not call this function. Go calls <code>hiroz_subscriber_create_with_group</code>, and Go does not yet supply the flag. Python subscribers pass no schema, so with <code>'auto'</code> they join on every topic, and this entry point does not change that.</p>
 
 
 
