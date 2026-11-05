@@ -1950,6 +1950,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "tokio",
+ "toml 0.8.23",
  "tracing-subscriber",
  "zenoh",
  "zenoh-buffers",

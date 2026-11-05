@@ -1,0 +1,733 @@
+# API parity across entities and bindings, as of v0.2.2.
+#
+# One row per builder option. One cell per binding: rust, python, c, go.
+# A cell has one of three states:
+#   present  the binding offers the option. `symbol` names the Rust method, Python method, C symbol or Go method.
+#   absent   the binding does not offer the option. `reason` says why.
+#   planned  the binding does not offer the option yet. `reason` says why and `release` names the release that adds it.
+#
+# The rule: an option that ships as a public Rust `with_*` builder method has a row here. The row states, for each binding, whether it offers the option.
+# A pull request that adds a public `with_*` builder method adds its row in the same change.
+#
+# crates/hiroz-tests/tests/api_parity.rs checks this file:
+#   - every row and cell has the required fields
+#   - every public `with_*` method of a builder type found by the scan of crates/hiroz/src has a row (see Limits)
+#   - a `present` Rust cell names a public method of a builder type found by that scan
+#   - each identifier of a `present` Python, C or Go symbol is defined in the source of that binding, outside comments and strings
+#     A definition is a `fn`, `struct`, `enum`, `union`, `trait`, `type`, `const` or `static` item, a parameter `name: Type` of a `fn`, a field `name: Type` of a `struct` or `union`, a PyO3 `signature` parameter or rename attribute (Python only), or a Go `func` or `type` line.
+#     A call, a struct literal, a `let` binding, a closure parameter or a format argument does not count.
+#     The check does not tie a method to its type or a parameter to its function: a parameter or field name counts when any function or struct of the binding has it.
+#     It does not check enum variants, `impl` blocks, macro-generated items, Go struct fields or Go parameters.
+#
+# Limits of the file:
+#   - It has no entity of its own for parameters or lifecycle nodes. Only their builder options appear, under `node`. It has no rows for events.
+#   - The scan reads only `impl` headers that start a line, and the one macro `impl_with_type_info!`. A `with_*` method that another macro or an indented `impl` header defines is not found, so the test does not demand a row for it.
+#   - It demands rows only for Rust `with_*` builder methods. An option that exists only as a C field, a Python keyword argument or a Go method needs no row.
+#   - It does not compare behaviour. A `present` cell says that each identifier of the symbol is defined in the binding, as above. It does not say that the symbol behaves like the Rust one, and the check does not run the binding.
+#   - The Rust check covers builder types whose name ends in `Builder` and that map to an entity.
+#     `RouterConfigBuilder` and `SessionConfigBuilder` configure zenoh sessions and are not entities, so they have no rows.
+#   - Python symbols are `Class.method`. The Python builders take options as methods, and the node takes options as keyword arguments.
+#   - C symbols are `Struct.field` for the context and node configuration structs, and function names for the rest.
+#   - Go symbols are `Type.Method`.
+
+# ---------------------------------------------------------------- context
+
+[[row]]
+id = "context.domain_id"
+entity = "context"
+option = "domain id"
+rust = { status = "present", symbol = "ZContextBuilder::with_domain_id" }
+python = { status = "present", symbol = "ZContextBuilder.with_domain_id" }
+c = { status = "present", symbol = "CContextConfig.domain_id" }
+go = { status = "present", symbol = "ContextBuilder.WithDomainID" }
+
+[[row]]
+id = "context.namespace"
+entity = "context"
+option = "default namespace for nodes"
+rust = { status = "present", symbol = "ZContextBuilder::with_namespace" }
+python = { status = "present", symbol = "ZContextBuilder.with_namespace" }
+c = { status = "present", symbol = "CContextConfig.namespace" }
+go = { status = "planned", reason = "The Go context builder has no namespace setter, although the C configuration struct has the field.", release = "0.3.0" }
+
+[[row]]
+id = "context.enclave"
+entity = "context"
+option = "enclave name"
+rust = { status = "present", symbol = "ZContextBuilder::with_enclave" }
+python = { status = "present", symbol = "ZContextBuilder.with_enclave" }
+c = { status = "absent", reason = "The C configuration struct has no enclave field." }
+go = { status = "absent", reason = "The Go context builder has no enclave setter." }
+
+[[row]]
+id = "context.config_file"
+entity = "context"
+option = "zenoh config file"
+rust = { status = "present", symbol = "ZContextBuilder::with_config_file" }
+python = { status = "present", symbol = "ZContextBuilder.with_config_file" }
+c = { status = "present", symbol = "CContextConfig.config_file" }
+go = { status = "present", symbol = "ContextBuilder.WithConfigFile" }
+
+[[row]]
+id = "context.json"
+entity = "context"
+option = "zenoh config override as JSON"
+rust = { status = "present", symbol = "ZContextBuilder::with_json" }
+python = { status = "present", symbol = "ZContextBuilder.with_json" }
+c = { status = "present", symbol = "CContextConfig.json_config" }
+go = { status = "present", symbol = "ContextBuilder.WithJSON" }
+
+[[row]]
+id = "context.connect_endpoints"
+entity = "context"
+option = "connect endpoints"
+rust = { status = "present", symbol = "ZContextBuilder::with_connect_endpoints" }
+python = { status = "present", symbol = "ZContextBuilder.with_connect_endpoints" }
+c = { status = "present", symbol = "CContextConfig.connect_endpoints" }
+go = { status = "present", symbol = "ContextBuilder.WithConnectEndpoints" }
+
+[[row]]
+id = "context.listen_endpoints"
+entity = "context"
+option = "listen endpoints"
+rust = { status = "present", symbol = "ZContextBuilder::with_listen_endpoints" }
+python = { status = "absent", reason = "The Python context builder has no listen endpoint setter. A JSON override sets the same zenoh key." }
+c = { status = "absent", reason = "The C configuration struct has no listen endpoint field. A JSON override sets the same zenoh key." }
+go = { status = "absent", reason = "The Go context builder has no listen endpoint setter. A JSON override sets the same zenoh key." }
+
+[[row]]
+id = "context.mode"
+entity = "context"
+option = "zenoh mode"
+rust = { status = "present", symbol = "ZContextBuilder::with_mode" }
+python = { status = "present", symbol = "ZContextBuilder.with_mode" }
+c = { status = "present", symbol = "CContextConfig.mode" }
+go = { status = "present", symbol = "ContextBuilder.WithMode" }
+
+[[row]]
+id = "context.zenoh_config"
+entity = "context"
+option = "zenoh config object"
+rust = { status = "present", symbol = "ZContextBuilder::with_zenoh_config" }
+python = { status = "absent", reason = "The option takes a Rust zenoh config object. The Python builder takes a config file or JSON instead." }
+c = { status = "absent", reason = "The option takes a Rust zenoh config object. The C struct takes a config file or JSON instead." }
+go = { status = "absent", reason = "The option takes a Rust zenoh config object. The Go builder takes a config file or JSON instead." }
+
+[[row]]
+id = "context.router_endpoint"
+entity = "context"
+option = "router endpoint"
+rust = { status = "present", symbol = "ZContextBuilder::with_router_endpoint" }
+python = { status = "present", symbol = "ZContextBuilder.with_router_endpoint" }
+c = { status = "absent", reason = "The C configuration struct has no single router endpoint field. It names endpoints through connect_endpoints, which has its own row." }
+go = { status = "absent", reason = "The Go context builder has no WithRouterEndpoint method. It names endpoints through WithConnectEndpoints, which has its own row." }
+
+[[row]]
+id = "context.remap_rule"
+entity = "context"
+option = "one remap rule"
+rust = { status = "present", symbol = "ZContextBuilder::with_remap_rule" }
+python = { status = "present", symbol = "ZContextBuilder.with_remap_rule" }
+c = { status = "present", symbol = "CContextConfig.remap_rules" }
+go = { status = "present", symbol = "ContextBuilder.WithRemapRules" }
+
+[[row]]
+id = "context.remap_rules"
+entity = "context"
+option = "list of remap rules"
+rust = { status = "present", symbol = "ZContextBuilder::with_remap_rules" }
+python = { status = "present", symbol = "ZContextBuilder.with_remap_rules" }
+c = { status = "present", symbol = "CContextConfig.remap_rules" }
+go = { status = "present", symbol = "ContextBuilder.WithRemapRules" }
+
+[[row]]
+id = "context.logging"
+entity = "context"
+option = "logging"
+rust = { status = "present", symbol = "ZContextBuilder::with_logging_enabled" }
+python = { status = "present", symbol = "ZContextBuilder.with_logging_enabled" }
+c = { status = "present", symbol = "CContextConfig.enable_logging" }
+go = { status = "present", symbol = "ContextBuilder.WithLogging" }
+
+[[row]]
+id = "context.clock_kind"
+entity = "context"
+option = "clock kind"
+rust = { status = "present", symbol = "ZContextBuilder::with_clock_kind" }
+python = { status = "absent", reason = "The Python context builder has no clock option." }
+c = { status = "absent", reason = "The C configuration struct has no clock field." }
+go = { status = "absent", reason = "The Go context builder has no clock option." }
+
+[[row]]
+id = "context.clock"
+entity = "context"
+option = "clock object"
+rust = { status = "present", symbol = "ZContextBuilder::with_clock" }
+python = { status = "absent", reason = "The option takes a Rust clock object. The Python builder has no clock option." }
+c = { status = "absent", reason = "The option takes a Rust clock object. The C struct has no clock field." }
+go = { status = "absent", reason = "The option takes a Rust clock object. The Go builder has no clock option." }
+
+[[row]]
+id = "context.shm_enabled"
+entity = "context"
+option = "shared memory on"
+rust = { status = "present", symbol = "ZContextBuilder::with_shm_enabled" }
+python = { status = "present", symbol = "ZContextBuilder.with_shm_enabled" }
+c = { status = "absent", reason = "The C configuration struct has no shared memory field." }
+go = { status = "absent", reason = "The Go context builder has no shared memory option." }
+
+[[row]]
+id = "context.shm_pool_size"
+entity = "context"
+option = "shared memory pool size"
+rust = { status = "present", symbol = "ZContextBuilder::with_shm_pool_size" }
+python = { status = "present", symbol = "ZContextBuilder.with_shm_pool_size" }
+c = { status = "absent", reason = "The C configuration struct has no shared memory field." }
+go = { status = "absent", reason = "The Go context builder has no shared memory option." }
+
+[[row]]
+id = "context.shm_config"
+entity = "context"
+option = "shared memory config object"
+rust = { status = "present", symbol = "ZContextBuilder::with_shm_config" }
+python = { status = "absent", reason = "The Python builder sets the pool size and the threshold one by one. It has no config object." }
+c = { status = "absent", reason = "The C configuration struct has no shared memory field." }
+go = { status = "absent", reason = "The Go context builder has no shared memory option." }
+
+[[row]]
+id = "context.shm_threshold"
+entity = "context"
+option = "shared memory threshold"
+rust = { status = "present", symbol = "ZContextBuilder::with_shm_threshold" }
+python = { status = "present", symbol = "ZContextBuilder.with_shm_threshold" }
+c = { status = "absent", reason = "The C configuration struct has no shared memory field." }
+go = { status = "absent", reason = "The Go context builder has no shared memory option." }
+
+[[row]]
+id = "context.keyexpr_format"
+entity = "context"
+option = "key expression format"
+rust = { status = "present", symbol = "ZContextBuilder::keyexpr_format" }
+python = { status = "absent", reason = "The Python context builder has no key expression format option." }
+c = { status = "absent", reason = "The C configuration struct has no key expression format field." }
+go = { status = "absent", reason = "The Go context builder has no key expression format option." }
+
+[[row]]
+id = "context.disable_multicast_scouting"
+entity = "context"
+option = "multicast scouting off"
+rust = { status = "present", symbol = "ZContextBuilder::disable_multicast_scouting" }
+python = { status = "present", symbol = "ZContextBuilder.disable_multicast_scouting" }
+c = { status = "present", symbol = "CContextConfig.disable_multicast_scouting" }
+go = { status = "present", symbol = "ContextBuilder.DisableMulticastScouting" }
+
+[[row]]
+id = "context.connect_to_local_zenohd"
+entity = "context"
+option = "connect to the local router"
+rust = { status = "present", symbol = "ZContextBuilder::connect_to_local_zenohd" }
+python = { status = "present", symbol = "ZContextBuilder.connect_to_local_zenohd" }
+c = { status = "present", symbol = "CContextConfig.connect_to_local_zenohd" }
+go = { status = "present", symbol = "ContextBuilder.ConnectToLocalZenohd" }
+
+# ---------------------------------------------------------------- node
+
+[[row]]
+id = "node.namespace"
+entity = "node"
+option = "namespace"
+rust = { status = "present", symbol = "ZNodeBuilder::with_namespace" }
+python = { status = "present", symbol = "ZNodeBuilder.with_namespace" }
+c = { status = "present", symbol = "CNodeConfig.namespace" }
+go = { status = "present", symbol = "NodeBuilder.WithNamespace" }
+
+[[row]]
+id = "node.subscriber_options"
+entity = "node"
+option = "default subscriber options (buffer group)"
+rust = { status = "present", symbol = "ZNodeBuilder::with_subscriber_options" }
+python = { status = "absent", reason = "The Python node takes no default subscriber options. Each subscriber takes its own buffer group." }
+c = { status = "absent", reason = "The C node has no setting for the node default, so it always has Auto." }
+go = { status = "absent", reason = "The Go node builder has no subscriber options." }
+
+[[row]]
+id = "node.shm_config"
+entity = "node"
+option = "shared memory config object"
+rust = { status = "present", symbol = "ZNodeBuilder::with_shm_config" }
+python = { status = "absent", reason = "The Python node builder has no shared memory option. The context sets it." }
+c = { status = "absent", reason = "The C node configuration struct has no shared memory field." }
+go = { status = "absent", reason = "The Go node builder has no shared memory option." }
+
+[[row]]
+id = "node.type_description_service"
+entity = "node"
+option = "type description service"
+rust = { status = "present", symbol = "ZNodeBuilder::with_type_description_service" }
+python = { status = "absent", reason = "The Python node builder has no type description service option." }
+c = { status = "present", symbol = "CNodeConfig.enable_type_description_service" }
+go = { status = "present", symbol = "NodeBuilder.WithTypeDescriptionService" }
+
+[[row]]
+id = "node.parameter_overrides"
+entity = "node"
+option = "parameter overrides"
+rust = { status = "present", symbol = "ZNodeBuilder::with_parameter_overrides" }
+python = { status = "absent", reason = "The Python binding has no parameter API." }
+c = { status = "absent", reason = "The C ABI has no parameter API." }
+go = { status = "absent", reason = "The Go binding has no parameter API." }
+
+[[row]]
+id = "node.parameter_file"
+entity = "node"
+option = "parameter file"
+rust = { status = "present", symbol = "ZNodeBuilder::with_parameter_file" }
+python = { status = "absent", reason = "The Python binding has no parameter API." }
+c = { status = "absent", reason = "The C ABI has no parameter API." }
+go = { status = "absent", reason = "The Go binding has no parameter API." }
+
+[[row]]
+id = "node.without_parameters"
+entity = "node"
+option = "parameter service off"
+rust = { status = "present", symbol = "ZNodeBuilder::without_parameters" }
+python = { status = "absent", reason = "The Python binding has no parameter API." }
+c = { status = "absent", reason = "The C ABI has no parameter API." }
+go = { status = "absent", reason = "The Go binding has no parameter API." }
+
+[[row]]
+id = "node.lifecycle_namespace"
+entity = "node"
+option = "lifecycle node namespace"
+rust = { status = "present", symbol = "ZLifecycleNodeBuilder::with_namespace" }
+python = { status = "absent", reason = "The Python binding has no lifecycle node." }
+c = { status = "absent", reason = "The C ABI has no lifecycle node." }
+go = { status = "absent", reason = "The Go binding has no lifecycle node." }
+
+[[row]]
+id = "node.lifecycle_type_description_service"
+entity = "node"
+option = "lifecycle node type description service"
+rust = { status = "present", symbol = "ZLifecycleNodeBuilder::with_type_description_service" }
+python = { status = "absent", reason = "The Python binding has no lifecycle node." }
+c = { status = "absent", reason = "The C ABI has no lifecycle node." }
+go = { status = "absent", reason = "The Go binding has no lifecycle node." }
+
+[[row]]
+id = "node.lifecycle_disable_communication_interface"
+entity = "node"
+option = "lifecycle node communication interface off"
+rust = { status = "present", symbol = "ZLifecycleNodeBuilder::disable_communication_interface" }
+python = { status = "absent", reason = "The Python binding has no lifecycle node." }
+c = { status = "absent", reason = "The C ABI has no lifecycle node." }
+go = { status = "absent", reason = "The Go binding has no lifecycle node." }
+
+# ---------------------------------------------------------------- publisher
+
+[[row]]
+id = "publisher.qos"
+entity = "publisher"
+option = "QoS profile"
+rust = { status = "present", symbol = "ZPubBuilder::with_qos" }
+python = { status = "present", symbol = "ZNode.create_publisher(qos)" }
+c = { status = "present", symbol = "hiroz_publisher_create_with_qos" }
+go = { status = "present", symbol = "PublisherBuilder.WithQoS" }
+
+[[row]]
+id = "publisher.attachment"
+entity = "publisher"
+option = "attachment on each sample"
+rust = { status = "present", symbol = "ZPubBuilder::with_attachment" }
+python = { status = "absent", reason = "The Python publisher has no attachment option." }
+c = { status = "absent", reason = "The C publisher has no attachment option." }
+go = { status = "absent", reason = "The Go publisher builder has no attachment option." }
+
+[[row]]
+id = "publisher.shm_config"
+entity = "publisher"
+option = "shared memory config object"
+rust = { status = "present", symbol = "ZPubBuilder::with_shm_config" }
+python = { status = "absent", reason = "The Python publisher has no per-publisher shared memory option. The context sets it." }
+c = { status = "absent", reason = "The C publisher has no shared memory option." }
+go = { status = "absent", reason = "The Go publisher builder has no shared memory option." }
+
+[[row]]
+id = "publisher.without_shm"
+entity = "publisher"
+option = "shared memory off"
+rust = { status = "present", symbol = "ZPubBuilder::without_shm" }
+python = { status = "absent", reason = "The Python publisher has no per-publisher shared memory option." }
+c = { status = "absent", reason = "The C publisher has no shared memory option." }
+go = { status = "absent", reason = "The Go publisher builder has no shared memory option." }
+
+[[row]]
+id = "publisher.serdes"
+entity = "publisher"
+option = "serialization type"
+rust = { status = "present", symbol = "ZPubBuilder::with_serdes" }
+python = { status = "absent", reason = "The Python publisher always sends CDR bytes, so it has no choice of serialization type." }
+c = { status = "absent", reason = "The C publisher sends the bytes that the caller supplies, so it has no choice of serialization type." }
+go = { status = "absent", reason = "The Go publisher sends CDR bytes, so it has no choice of serialization type." }
+
+[[row]]
+id = "publisher.encoding"
+entity = "publisher"
+option = "encoding"
+rust = { status = "present", symbol = "ZPubBuilder::with_encoding" }
+python = { status = "absent", reason = "The Python publisher has no encoding option." }
+c = { status = "absent", reason = "The C publisher has no encoding option." }
+go = { status = "absent", reason = "The Go publisher builder has no encoding option." }
+
+[[row]]
+id = "publisher.locality"
+entity = "publisher"
+option = "locality"
+rust = { status = "present", symbol = "ZPubBuilder::with_locality" }
+python = { status = "absent", reason = "The Python publisher has no locality option." }
+c = { status = "absent", reason = "The C publisher has no locality option." }
+go = { status = "absent", reason = "The Go publisher builder has no locality option." }
+
+[[row]]
+id = "publisher.dyn_schema"
+entity = "publisher"
+option = "dynamic message schema"
+rust = { status = "present", symbol = "ZPubBuilder::with_dyn_schema" }
+python = { status = "absent", reason = "The Python binding has no dynamic message API." }
+c = { status = "absent", reason = "The C ABI has no dynamic message API." }
+go = { status = "absent", reason = "The Go binding has no dynamic message API." }
+
+[[row]]
+id = "publisher.type_info"
+entity = "publisher"
+option = "message type name and hash"
+rust = { status = "present", symbol = "ZPubBuilder::with_type_info" }
+python = { status = "present", symbol = "ZNode.create_publisher(msg_type)" }
+c = { status = "present", symbol = "hiroz_publisher_create" }
+go = { status = "present", symbol = "PublisherBuilder.Build" }
+
+# ---------------------------------------------------------------- subscriber
+
+[[row]]
+id = "subscriber.qos"
+entity = "subscriber"
+option = "QoS profile"
+rust = { status = "present", symbol = "ZSubBuilder::with_qos" }
+python = { status = "present", symbol = "ZNode.create_subscriber(qos)" }
+c = { status = "present", symbol = "hiroz_subscriber_create_with_qos" }
+go = { status = "present", symbol = "SubscriberBuilder.WithQoS" }
+
+[[row]]
+id = "subscriber.buffer_group"
+entity = "subscriber"
+option = "buffer group"
+rust = { status = "present", symbol = "ZSubBuilder::with_buffer_group" }
+python = { status = "present", symbol = "ZNode.create_subscriber(buffer_group)" }
+c = { status = "present", symbol = "hiroz_subscriber_create_with_group" }
+go = { status = "present", symbol = "SubscriberBuilder.WithBufferGroup" }
+
+[[row]]
+id = "subscriber.locality"
+entity = "subscriber"
+option = "locality"
+rust = { status = "present", symbol = "ZSubBuilder::with_locality" }
+python = { status = "absent", reason = "The Python subscriber has no locality option." }
+c = { status = "absent", reason = "The C subscriber has no locality option." }
+go = { status = "absent", reason = "The Go subscriber builder has no locality option." }
+
+[[row]]
+id = "subscriber.serdes"
+entity = "subscriber"
+option = "serialization type"
+rust = { status = "present", symbol = "ZSubBuilder::with_serdes" }
+python = { status = "absent", reason = "The Python subscriber always receives CDR bytes, so it has no choice of serialization type." }
+c = { status = "absent", reason = "The C subscriber hands the received bytes to the callback, so it has no choice of serialization type." }
+go = { status = "absent", reason = "The Go subscriber hands the received bytes to the handler, so it has no choice of serialization type." }
+
+[[row]]
+id = "subscriber.encoding"
+entity = "subscriber"
+option = "encoding"
+rust = { status = "present", symbol = "ZSubBuilder::with_encoding" }
+python = { status = "absent", reason = "The Python subscriber has no encoding option." }
+c = { status = "absent", reason = "The C subscriber has no encoding option." }
+go = { status = "absent", reason = "The Go subscriber builder has no encoding option." }
+
+[[row]]
+id = "subscriber.dyn_schema"
+entity = "subscriber"
+option = "dynamic message schema"
+rust = { status = "present", symbol = "ZSubBuilder::with_dyn_schema" }
+python = { status = "absent", reason = "The Python binding has no dynamic message API." }
+c = { status = "absent", reason = "The C ABI has no dynamic message API." }
+go = { status = "absent", reason = "The Go binding has no dynamic message API." }
+
+[[row]]
+id = "subscriber.type_info"
+entity = "subscriber"
+option = "message type name and hash"
+rust = { status = "present", symbol = "ZSubBuilder::with_type_info" }
+python = { status = "present", symbol = "ZNode.create_subscriber(msg_type)" }
+c = { status = "present", symbol = "hiroz_subscriber_create" }
+go = { status = "present", symbol = "SubscriberBuilder.BuildWithCallback" }
+
+# ---------------------------------------------------------------- cache
+
+[[row]]
+id = "cache.stamp"
+entity = "cache"
+option = "timestamp extractor"
+rust = { status = "present", symbol = "ZCacheBuilder::with_stamp" }
+python = { status = "absent", reason = "The Python binding has no message cache." }
+c = { status = "absent", reason = "The C ABI has no message cache." }
+go = { status = "absent", reason = "The Go binding has no message cache." }
+
+[[row]]
+id = "cache.capacity"
+entity = "cache"
+option = "capacity"
+rust = { status = "present", symbol = "ZCacheBuilder::with_capacity" }
+python = { status = "absent", reason = "The Python binding has no message cache." }
+c = { status = "absent", reason = "The C ABI has no message cache." }
+go = { status = "absent", reason = "The Go binding has no message cache." }
+
+[[row]]
+id = "cache.qos"
+entity = "cache"
+option = "QoS profile"
+rust = { status = "present", symbol = "ZCacheBuilder::with_qos" }
+python = { status = "absent", reason = "The Python binding has no message cache." }
+c = { status = "absent", reason = "The C ABI has no message cache." }
+go = { status = "absent", reason = "The Go binding has no message cache." }
+
+[[row]]
+id = "cache.buffer_group"
+entity = "cache"
+option = "buffer group"
+rust = { status = "present", symbol = "ZCacheBuilder::with_buffer_group" }
+python = { status = "absent", reason = "The Python binding has no message cache." }
+c = { status = "absent", reason = "The C ABI has no message cache." }
+go = { status = "absent", reason = "The Go binding has no message cache." }
+
+[[row]]
+id = "cache.locality"
+entity = "cache"
+option = "locality"
+rust = { status = "present", symbol = "ZCacheBuilder::with_locality" }
+python = { status = "absent", reason = "The Python binding has no message cache." }
+c = { status = "absent", reason = "The C ABI has no message cache." }
+go = { status = "absent", reason = "The Go binding has no message cache." }
+
+[[row]]
+id = "cache.encoding"
+entity = "cache"
+option = "expected encoding"
+rust = { status = "present", symbol = "ZCacheBuilder::with_encoding" }
+python = { status = "absent", reason = "The Python binding has no message cache." }
+c = { status = "absent", reason = "The C ABI has no message cache." }
+go = { status = "absent", reason = "The Go binding has no message cache." }
+
+# ---------------------------------------------------------------- service client
+
+[[row]]
+id = "service_client.qos"
+entity = "service_client"
+option = "QoS profile"
+rust = { status = "present", symbol = "ZClientBuilder::with_qos" }
+python = { status = "absent", reason = "The Python service client has no QoS option." }
+c = { status = "present", symbol = "hiroz_service_client_create_with_qos_v2" }
+go = { status = "absent", reason = "The Go service client builder has no QoS option." }
+
+[[row]]
+id = "service_client.type_info"
+entity = "service_client"
+option = "service type name and hash"
+rust = { status = "present", symbol = "ZClientBuilder::with_type_info" }
+python = { status = "present", symbol = "ZNode.create_client(srv_type)" }
+c = { status = "present", symbol = "hiroz_service_client_create" }
+go = { status = "present", symbol = "ServiceClientBuilder.Build" }
+
+# ---------------------------------------------------------------- service server
+
+[[row]]
+id = "service_server.qos"
+entity = "service_server"
+option = "QoS profile"
+rust = { status = "present", symbol = "ZServerBuilder::with_qos" }
+python = { status = "absent", reason = "The Python service server has no QoS option." }
+c = { status = "present", symbol = "hiroz_service_server_create_with_qos_v2" }
+go = { status = "absent", reason = "The Go service server builder has no QoS option." }
+
+[[row]]
+id = "service_server.type_info"
+entity = "service_server"
+option = "service type name and hash"
+rust = { status = "present", symbol = "ZServerBuilder::with_type_info" }
+python = { status = "present", symbol = "ZNode.create_server(srv_type)" }
+c = { status = "present", symbol = "hiroz_service_server_create" }
+go = { status = "present", symbol = "ServiceServerBuilder.Build" }
+
+# ---------------------------------------------------------------- action client
+
+[[row]]
+id = "action_client.goal_service_qos"
+entity = "action_client"
+option = "goal service QoS"
+rust = { status = "present", symbol = "ZActionClientBuilder::with_goal_service_qos" }
+python = { status = "absent", reason = "The Python action client has no QoS options." }
+c = { status = "present", symbol = "hiroz_action_client_create_with_qos_v2(CActionQosV2.goal_service)" }
+go = { status = "absent", reason = "The Go action client builder has no QoS options." }
+
+[[row]]
+id = "action_client.result_service_qos"
+entity = "action_client"
+option = "result service QoS"
+rust = { status = "present", symbol = "ZActionClientBuilder::with_result_service_qos" }
+python = { status = "absent", reason = "The Python action client has no QoS options." }
+c = { status = "present", symbol = "hiroz_action_client_create_with_qos_v2(CActionQosV2.result_service)" }
+go = { status = "absent", reason = "The Go action client builder has no QoS options." }
+
+[[row]]
+id = "action_client.cancel_service_qos"
+entity = "action_client"
+option = "cancel service QoS"
+rust = { status = "present", symbol = "ZActionClientBuilder::with_cancel_service_qos" }
+python = { status = "absent", reason = "The Python action client has no QoS options." }
+c = { status = "present", symbol = "hiroz_action_client_create_with_qos_v2(CActionQosV2.cancel_service)" }
+go = { status = "absent", reason = "The Go action client builder has no QoS options." }
+
+[[row]]
+id = "action_client.feedback_topic_qos"
+entity = "action_client"
+option = "feedback topic QoS"
+rust = { status = "present", symbol = "ZActionClientBuilder::with_feedback_topic_qos" }
+python = { status = "absent", reason = "The Python action client has no QoS options." }
+c = { status = "present", symbol = "hiroz_action_client_create_with_qos_v2(CActionQosV2.feedback_topic)" }
+go = { status = "absent", reason = "The Go action client builder has no QoS options." }
+
+[[row]]
+id = "action_client.status_topic_qos"
+entity = "action_client"
+option = "status topic QoS"
+rust = { status = "present", symbol = "ZActionClientBuilder::with_status_topic_qos" }
+python = { status = "absent", reason = "The Python action client has no QoS options." }
+c = { status = "present", symbol = "hiroz_action_client_create_with_qos_v2(CActionQosV2.status_topic)" }
+go = { status = "absent", reason = "The Go action client builder has no QoS options." }
+
+[[row]]
+id = "action_client.goal_type_info"
+entity = "action_client"
+option = "goal type name and hash"
+rust = { status = "present", symbol = "ZActionClientBuilder::with_goal_type_info" }
+python = { status = "present", symbol = "ZNode.create_action_client(goal_type)" }
+c = { status = "present", symbol = "hiroz_action_client_create" }
+go = { status = "present", symbol = "ActionClientBuilder.Build" }
+
+[[row]]
+id = "action_client.result_type_info"
+entity = "action_client"
+option = "result type name and hash"
+rust = { status = "present", symbol = "ZActionClientBuilder::with_result_type_info" }
+python = { status = "present", symbol = "ZNode.create_action_client(result_type)" }
+c = { status = "present", symbol = "hiroz_action_client_create" }
+go = { status = "present", symbol = "ActionClientBuilder.Build" }
+
+[[row]]
+id = "action_client.feedback_type_info"
+entity = "action_client"
+option = "feedback type name and hash"
+rust = { status = "present", symbol = "ZActionClientBuilder::with_feedback_type_info" }
+python = { status = "present", symbol = "ZNode.create_action_client(feedback_type)" }
+c = { status = "present", symbol = "hiroz_action_client_create" }
+go = { status = "present", symbol = "ActionClientBuilder.Build" }
+
+# ---------------------------------------------------------------- action server
+
+[[row]]
+id = "action_server.result_timeout"
+entity = "action_server"
+option = "result timeout"
+rust = { status = "present", symbol = "ZActionServerBuilder::with_result_timeout" }
+python = { status = "absent", reason = "The Python action server has no timeout options." }
+c = { status = "absent", reason = "The C action server has no timeout arguments." }
+go = { status = "absent", reason = "The Go action server builder has no timeout options." }
+
+[[row]]
+id = "action_server.goal_timeout"
+entity = "action_server"
+option = "goal timeout"
+rust = { status = "present", symbol = "ZActionServerBuilder::with_goal_timeout" }
+python = { status = "absent", reason = "The Python action server has no timeout options." }
+c = { status = "absent", reason = "The C action server has no timeout arguments." }
+go = { status = "absent", reason = "The Go action server builder has no timeout options." }
+
+[[row]]
+id = "action_server.goal_service_qos"
+entity = "action_server"
+option = "goal service QoS"
+rust = { status = "present", symbol = "ZActionServerBuilder::with_goal_service_qos" }
+python = { status = "absent", reason = "The Python action server has no QoS options." }
+c = { status = "present", symbol = "hiroz_action_server_create_with_qos_v2(CActionQosV2.goal_service)" }
+go = { status = "absent", reason = "The Go action server builder has no QoS options." }
+
+[[row]]
+id = "action_server.result_service_qos"
+entity = "action_server"
+option = "result service QoS"
+rust = { status = "present", symbol = "ZActionServerBuilder::with_result_service_qos" }
+python = { status = "absent", reason = "The Python action server has no QoS options." }
+c = { status = "present", symbol = "hiroz_action_server_create_with_qos_v2(CActionQosV2.result_service)" }
+go = { status = "absent", reason = "The Go action server builder has no QoS options." }
+
+[[row]]
+id = "action_server.cancel_service_qos"
+entity = "action_server"
+option = "cancel service QoS"
+rust = { status = "present", symbol = "ZActionServerBuilder::with_cancel_service_qos" }
+python = { status = "absent", reason = "The Python action server has no QoS options." }
+c = { status = "present", symbol = "hiroz_action_server_create_with_qos_v2(CActionQosV2.cancel_service)" }
+go = { status = "absent", reason = "The Go action server builder has no QoS options." }
+
+[[row]]
+id = "action_server.feedback_topic_qos"
+entity = "action_server"
+option = "feedback topic QoS"
+rust = { status = "present", symbol = "ZActionServerBuilder::with_feedback_topic_qos" }
+python = { status = "absent", reason = "The Python action server has no QoS options." }
+c = { status = "present", symbol = "hiroz_action_server_create_with_qos_v2(CActionQosV2.feedback_topic)" }
+go = { status = "absent", reason = "The Go action server builder has no QoS options." }
+
+[[row]]
+id = "action_server.status_topic_qos"
+entity = "action_server"
+option = "status topic QoS"
+rust = { status = "present", symbol = "ZActionServerBuilder::with_status_topic_qos" }
+python = { status = "absent", reason = "The Python action server has no QoS options." }
+c = { status = "present", symbol = "hiroz_action_server_create_with_qos_v2(CActionQosV2.status_topic)" }
+go = { status = "absent", reason = "The Go action server builder has no QoS options." }
+
+[[row]]
+id = "action_server.goal_type_info"
+entity = "action_server"
+option = "goal type name and hash"
+rust = { status = "present", symbol = "ZActionServerBuilder::with_goal_type_info" }
+python = { status = "present", symbol = "ZNode.create_action_server(goal_type)" }
+c = { status = "present", symbol = "hiroz_action_server_create" }
+go = { status = "present", symbol = "ActionServerBuilder.Build" }
+
+[[row]]
+id = "action_server.result_type_info"
+entity = "action_server"
+option = "result type name and hash"
+rust = { status = "present", symbol = "ZActionServerBuilder::with_result_type_info" }
+python = { status = "present", symbol = "ZNode.create_action_server(result_type)" }
+c = { status = "present", symbol = "hiroz_action_server_create" }
+go = { status = "present", symbol = "ActionServerBuilder.Build" }
+
+[[row]]
+id = "action_server.feedback_type_info"
+entity = "action_server"
+option = "feedback type name and hash"
+rust = { status = "present", symbol = "ZActionServerBuilder::with_feedback_type_info" }
+python = { status = "present", symbol = "ZNode.create_action_server(feedback_type)" }
+c = { status = "present", symbol = "hiroz_action_server_create" }
+go = { status = "present", symbol = "ActionServerBuilder.Build" }
