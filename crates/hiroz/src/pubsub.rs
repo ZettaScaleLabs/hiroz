@@ -12,6 +12,7 @@ use crate::common::DataHandler;
 use crate::entity::{EndpointEntity, EndpointKind};
 use crate::event::{EventsManager, MessageLossTracker};
 use crate::graph::Graph;
+use crate::local_bus::{Delivery, Published};
 use crate::impl_with_type_info;
 use crate::queue::BoundedQueue;
 use crate::topic_name;
@@ -117,6 +118,18 @@ pub(crate) fn apply_transient_local_sub<'a, 'b, 'c, H>(
     builder
 }
 
+/// Which routes a publisher's messages take, resolved from what the caller has
+/// asserted about the audience. See [`ZPub::route`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Route {
+    /// The bus alone. The publisher has declared it has no wire.
+    BusOnly,
+    /// Both, to disjoint audiences: the bus for this session, the wire for the rest.
+    BusAndWire,
+    /// The wire alone. The bus is not consulted.
+    WireOnly,
+}
+
 /// A typed ROS 2-style publisher. Send messages with [`publish`](ZPub::publish)
 /// (synchronous) or [`async_publish`](ZPub::async_publish) (async).
 ///
@@ -139,6 +152,15 @@ pub struct ZPub<T: ZMessage, S: ZSerializer> {
     /// If set, this encoding will be used for all published messages.
     encoding: Option<Arc<zenoh::bytes::Encoding>>,
     graph: Arc<Graph>,
+    /// Intra-process bus channel for this topic, resolved once at build time.
+    local_channel: Arc<crate::local_bus::Channel>,
+    /// When set, `publish_shared` and `publish_owned` use the bus alone and never
+    /// touch zenoh. The caller asserts this; it is not inferred.
+    intra_process_only: bool,
+    /// The locality restriction on the wire half, if any. A `Locality::Remote`
+    /// wire half cannot reach this session, so the bus and the wire address
+    /// disjoint audiences and both run. Otherwise both would deliver twice.
+    locality: Option<zenoh::sample::Locality>,
     _phantom_data: PhantomData<(T, S)>,
 }
 
@@ -165,6 +187,12 @@ pub struct ZPubBuilder<T, S = SerdeCdrSerdes<T>> {
     /// Encoding format for this publisher.
     /// If set, all published messages will use this encoding.
     pub(crate) encoding: Option<crate::encoding::Encoding>,
+    /// Locality restriction for published samples.
+    /// `None` leaves zenoh's default (`Locality::Any`) in place.
+    pub(crate) locality: Option<zenoh::sample::Locality>,
+    /// Restrict `publish_shared` to the intra-process bus. See
+    /// [`ZPubBuilder::with_intra_process_only`].
+    pub(crate) intra_process_only: bool,
     pub(crate) _phantom_data: PhantomData<(T, S)>,
 }
 
@@ -233,6 +261,80 @@ impl<T, S> ZPubBuilder<T, S> {
         self
     }
 
+    /// Set the locality restriction for this publisher.
+    ///
+    /// The restriction selects which matching subscribers receive the samples:
+    /// those in the same session, those in other sessions, or both (the default).
+    ///
+    /// [`Locality::SessionLocal`](zenoh::sample::Locality::SessionLocal) skips the
+    /// transport and hands the payload to the matching callbacks in this session.
+    /// Every node created from one [`ZContext`] shares one session, so this
+    /// reaches sibling nodes in the same process.
+    ///
+    /// [`ZContext`]: crate::context::ZContext
+    ///
+    /// # This makes the publisher invisible off-process
+    ///
+    /// A [`Locality::SessionLocal`](zenoh::sample::Locality::SessionLocal)
+    /// publisher is not reachable from any other process, including
+    /// `ros2 topic echo`. Set it only where the subscriber is in the same context.
+    ///
+    /// # Serialization still happens
+    ///
+    /// The message is still CDR-encoded on publish and decoded on receive. This
+    /// setting removes the transport, not the serialization. Publisher SHM is
+    /// wasted work under it, so pair it with [`without_shm`](Self::without_shm).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use zenoh::sample::Locality;
+    /// use hiroz::Builder;
+    ///
+    /// # fn main() -> zenoh::Result<()> {
+    /// # let ctx = hiroz::context::ZContextBuilder::default().build()?;
+    /// # let node = ctx.create_node("test").build()?;
+    /// let publisher = node
+    ///     .create_pub::<hiroz_msgs::std_msgs::String>("topic")
+    ///     .with_locality(Locality::SessionLocal)
+    ///     .without_shm()
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_locality(mut self, locality: zenoh::sample::Locality) -> Self {
+        self.locality = Some(locality);
+        self
+    }
+
+    /// **Prototype.** Restrict [`ZPub::publish_shared`] and [`ZPub::publish_owned`]
+    /// to the intra-process bus. The message goes to same-session subscribers and
+    /// never to zenoh, so it is neither serialized nor transmitted.
+    ///
+    /// [`ZPub::publish`] keeps its wire behaviour whatever this is set to.
+    ///
+    /// The caller asserts the audience; it is not inferred. A plain zenoh
+    /// subscriber declares no liveliness token, so the graph cannot see it, and a
+    /// wrong inference would drop its messages with no report.
+    ///
+    /// With this set, the message is invisible to every other process, including
+    /// `ros2 topic echo`. It is also invisible to any local subscriber that did
+    /// not register on the bus with [`ZSubBuilder::build_with_shared_callback`] or
+    /// [`ZSubBuilder::build_with_owned_callback`]. Set it only where both ends
+    /// are known.
+    ///
+    /// # This publisher still appears in the ROS graph
+    ///
+    /// `build()` declares the liveliness token before it consults the locality.
+    /// A publisher that reaches nothing outside this process therefore still
+    /// advertises itself as an ordinary ROS 2 endpoint. Other nodes count it in
+    /// `ros2 topic info -v`, `ros2 node info`, matched-publisher events and
+    /// `Graph::count`, and `ros2 topic echo` shows the topic and never a message.
+    pub fn with_intra_process_only(mut self) -> Self {
+        self.intra_process_only = true;
+        self
+    }
+
     pub fn with_serdes<S2>(self) -> ZPubBuilder<T, S2> {
         ZPubBuilder {
             entity: self.entity,
@@ -244,6 +346,8 @@ impl<T, S> ZPubBuilder<T, S> {
             keyexpr_format: self.keyexpr_format.clone(),
             dyn_schema: self.dyn_schema,
             encoding: self.encoding,
+            locality: self.locality,
+            intra_process_only: self.intra_process_only,
             _phantom_data: PhantomData,
         }
     }
@@ -350,6 +454,13 @@ where
             }
         }
 
+        // Set the locality before `.advanced()`: `AdvancedPublisher` forwards its
+        // own destination onto this builder, so only this setting survives.
+        if let Some(locality) = self.locality {
+            pub_builder = pub_builder.allowed_destination(locality);
+            debug!("[PUB] Locality restriction: {:?}", locality);
+        }
+
         // Build an AdvancedPublisher and apply TransientLocal config if needed.
         let pub_builder = pub_builder.advanced();
         debug!(
@@ -378,6 +489,8 @@ where
             debug!("[PUB] Using encoding: {}", enc);
         }
 
+        let local_channel = crate::local_bus::channel(self.session.zid(), &qualified_topic);
+
         Ok(ZPub {
             entity: self.entity,
             sn: AtomicUsize::new(0),
@@ -391,6 +504,9 @@ where
             dyn_schema: self.dyn_schema,
             encoding,
             graph: self.graph,
+            local_channel,
+            intra_process_only: self.intra_process_only,
+            locality: self.locality,
             _phantom_data: Default::default(),
         })
     }
@@ -574,6 +690,220 @@ where
         }
         put_builder.await
     }
+
+    /// **Prototype.** Publish an already-shared message without serializing it.
+    ///
+    /// Every subscriber in the same zenoh session that registered through
+    /// [`ZSubBuilder::build_with_shared_callback`] for this exact `T` receives a
+    /// clone of the `Arc`. The payload is not encoded or copied.
+    ///
+    /// Returns a [`Published`] that says which routes ran.
+    ///
+    /// # Which path a message takes
+    ///
+    /// The route follows what the caller asserted about the audience. It is never
+    /// inferred from the graph.
+    ///
+    /// | the publisher says | route | returns |
+    /// |---|---|---|
+    /// | `with_intra_process_only()` | the bus alone; nothing goes on the wire | `Bus(Sent(n))`, or `Bus(NoTaker)` when nobody is listening |
+    /// | `with_locality(Remote)` | both, to disjoint audiences | `BusAndWire(..)` |
+    /// | neither | the wire alone; the bus is not consulted | `Wire` |
+    ///
+    /// Row three is the default. A subscriber the ROS graph cannot see, such as a
+    /// plain `z_sub` or a recorder, is reachable only over the wire. A publisher
+    /// that was not told the audience therefore takes the wire.
+    ///
+    /// `Bus(NoTaker)` is a distinct outcome, not a silent drop: no callback
+    /// returned normally. Either no local subscriber matched, or every callback
+    /// that ran panicked. A panicked callback may have had effects, so do not
+    /// retry or fall back to the wire on `NoTaker`. See [`Delivery`].
+    ///
+    /// # Ordering against [`publish`](Self::publish)
+    ///
+    /// Bus delivery is synchronous: the callbacks have run when this returns. A
+    /// message sent with `publish` travels the wire and arrives later. The two
+    /// have no ordering guarantee between them on one topic.
+    ///
+    /// # QoS is not carried on the intra-process path
+    ///
+    /// A message on the bus does not enter the wire publisher's cache and carries
+    /// no attachment.
+    ///
+    /// - **`TRANSIENT_LOCAL` is refused.** The bus keeps no durability cache, so a
+    ///   late joiner would be served the surviving samples as if they were a
+    ///   complete history. A transient-local publisher with no wire gets an `Err`.
+    /// - `RELIABLE` / `BEST_EFFORT` and `KEEP_LAST(n)` have no meaning here:
+    ///   delivery is an inline call with no queue.
+    /// - The attachment (source gid, sequence number, source timestamp) is absent.
+    pub fn publish_shared(&self, msg: Arc<T>) -> Result<Published>
+    where
+        T: Send + Sync + 'static,
+    {
+        match self.route() {
+            Route::BusOnly => {
+                // TRANSIENT_LOCAL lives in the wire publisher's cache, and this
+                // publisher has no wire. Refuse rather than serve a partial history.
+                if let Some(e) = self.refuse_durable_bus() {
+                    return Err(e);
+                }
+                if let Some(e) = self.refuse_unservable_owned() {
+                    return Err(e);
+                }
+                let d = self.local_channel.publish(msg);
+                if d == Delivery::NoTaker {
+                    debug!(
+                        "[PUB] intra-process only, no callback returned normally on {}: message dropped",
+                        self.entity.topic
+                    );
+                }
+                // Keep `DepthExceeded` distinct from `NoTaker`; see [`Delivery`].
+                Ok(Published::Bus(d))
+            }
+            // The audiences are disjoint. TRANSIENT_LOCAL is safe here: the wire
+            // publish fills the cache.
+            Route::BusAndWire => {
+                // Refuse before the wire runs: neither half serves an owned
+                // subscriber, and an `Err` after the wire send is a partial success.
+                if let Some(e) = self.refuse_unservable_owned() {
+                    return Err(e);
+                }
+                // Wire first, as in `publish_owned`. Bus delivery is synchronous, so
+                // a wire failure after it would return `Err` after the local
+                // subscribers ran, and a retry would deliver twice locally.
+                self.publish(&msg)?;
+                Ok(Published::BusAndWire(self.local_channel.publish(msg)))
+            }
+            Route::WireOnly => {
+                self.publish(&msg)?;
+                Ok(Published::Wire)
+            }
+        }
+    }
+
+    /// Refuse a shared publish while a by-value subscriber is registered on this
+    /// topic.
+    ///
+    /// The shared path skips that subscriber, and the wire half of a `Remote`
+    /// publisher cannot reach a same-session subscriber. Serving the shared
+    /// subscribers alone would report success over a message one subscriber never
+    /// receives. A clone cannot serve it: `ZMessage` is not `Clone`.
+    fn refuse_unservable_owned(&self) -> Option<zenoh::Error>
+    where
+        T: Send + Sync + 'static,
+    {
+        let owned = self.local_channel.owned_receivers::<T>();
+        if owned == 0 {
+            return None;
+        }
+        Some(
+            format!(
+                "publish_shared on {}: {owned} subscriber(s) on this topic take the message \
+                 by value, and a shared publish cannot serve them. The message would not \
+                 reach them. Use publish_owned() with a single owning subscriber, or build \
+                 the subscribers with build_with_shared_callback().",
+                self.entity.topic
+            )
+            .into(),
+        )
+    }
+
+    /// Which routes this publisher's messages take.
+    ///
+    /// Every publishing method reads this one decision, so they cannot disagree
+    /// on the route.
+    ///
+    /// `with_intra_process_only()` wins over a locality: it asserts that this
+    /// publisher has no wire at all.
+    fn route(&self) -> Route {
+        if self.intra_process_only {
+            Route::BusOnly
+        } else if self.locality == Some(zenoh::sample::Locality::Remote) {
+            // The wire half cannot reach this session, so both halves must run.
+            Route::BusAndWire
+        } else {
+            Route::WireOnly
+        }
+    }
+
+    /// Refuse a durable publisher the bus, which has no durability cache.
+    ///
+    /// Every route onto the bus must call this.
+    fn refuse_durable_bus(&self) -> Option<zenoh::Error> {
+        if !self.intra_process_only {
+            // A `Locality::Remote` publisher still sends every message on the
+            // wire, so its durability cache is filled.
+            return None;
+        }
+        if !matches!(self.entity.qos.durability, QosDurability::TransientLocal) {
+            return None;
+        }
+        Some(
+            format!(
+                "publish on a TRANSIENT_LOCAL, intra-process-only publisher for {}: \
+                 the intra-process path has no durability cache, so a late-joining \
+                 subscriber would be served a history this message is missing from. \
+                 Use publish(), or drop the transient-local durability.",
+                self.entity.topic
+            )
+            .into(),
+        )
+    }
+
+    /// Publish `msg` by value, giving it away when exactly one receiver wants it.
+    ///
+    /// [`publish_shared`](Self::publish_shared) gives every receiver the same
+    /// read-only `Arc`. This gives a sole owning subscriber the value itself, so
+    /// it can mutate or consume it.
+    ///
+    /// The route is the one [`publish_shared`](Self::publish_shared) documents.
+    /// On a bus route, a sole owning subscriber gets the value. Otherwise the
+    /// message is shared, and the shared path refuses when an owned subscriber is
+    /// registered.
+    ///
+    /// On a `Locality::Remote` publisher that refusal does not apply: the wire
+    /// runs, the shared subscribers receive, and an owned subscriber receives
+    /// nothing unless it is the only subscriber of the type. The result carries
+    /// no error. See [`ZSubBuilder::build_with_owned_callback`].
+    ///
+    /// An `intra_process_only` publisher with no listener returns
+    /// `Bus(Delivery::NoTaker)` and drops the message. It has no wire to fall
+    /// back to.
+    pub fn publish_owned(&self, msg: T) -> Result<Published>
+    where
+        T: Send + Sync + 'static,
+    {
+        match self.route() {
+            // The wire serializes from a reference and the bus takes ownership,
+            // so the wire goes first and the value is given away afterwards.
+            Route::BusAndWire => {
+                self.publish(&msg)?;
+                Ok(Published::BusAndWire(
+                    match self.local_channel.publish_owned(msg) {
+                        Ok(d) => d,
+                        // No sole owning receiver: share it.
+                        Err(returned) => self.local_channel.publish(Arc::new(returned)),
+                    },
+                ))
+            }
+            Route::BusOnly => {
+                if let Some(e) = self.refuse_durable_bus() {
+                    return Err(e);
+                }
+                match self.local_channel.publish_owned(msg) {
+                    Ok(d) => Ok(Published::Bus(d)),
+                    // Not exactly one owning receiver: share it. `publish_shared`
+                    // refuses when only owned subscribers exist.
+                    Err(returned) => self.publish_shared(Arc::new(returned)),
+                }
+            }
+            Route::WireOnly => {
+                self.publish(&msg)?;
+                Ok(Published::Wire)
+            }
+        }
+    }
+
 
     /// Publish pre-serialized data directly
     ///
@@ -960,8 +1290,113 @@ where
             graph: self.graph,
             dyn_schema: self.dyn_schema,
             expected_encoding: self.expected_encoding,
+            _local_sub: None,
             _phantom_data: Default::default(),
         })
+    }
+
+    /// Build a subscriber whose callback receives the message **by value**.
+    ///
+    /// The bus serves it only through [`ZPub::publish_owned`], and only when it is
+    /// the sole subscriber of this type on the topic. It also has a wire half, so
+    /// an ordinary [`ZPub::publish`] reaches it after deserializing.
+    ///
+    /// When the bus cannot serve it, the publisher refuses with `Err` on two
+    /// routes only: [`ZPub::publish_shared`] on any bus route, and
+    /// [`ZPub::publish_owned`] on an intra-process-only publisher.
+    ///
+    /// # Known limit on a `Locality::Remote` publisher
+    ///
+    /// [`ZPub::publish_owned`] does not refuse there. If a shared subscriber is
+    /// also registered, the shared subscriber receives the message and this
+    /// subscriber receives nothing. If only owned subscribers are registered and
+    /// there are two or more, none receives it and the result is
+    /// `BusAndWire(NoTaker)`. Neither case returns an error.
+    ///
+    /// Use it where the receiver mutates or consumes the message.
+    pub fn build_with_owned_callback<F>(self, callback: F) -> Result<ZSub<T, (), S>>
+    where
+        T: Send + Sync + 'static,
+        F: Fn(T) + Send + Sync + 'static,
+        S: for<'a> ZDeserializer<Input<'a> = &'a [u8], Output = T> + 'static,
+    {
+        let zid = self.session.zid();
+        // Both halves run the same callback. Without the wire half this
+        // subscriber would miss every message that does not arrive by
+        // `publish_owned` on the bus, including all remote traffic.
+        //
+        // It cannot deliver twice: a publisher uses the bus or the wire for one
+        // message, unless its wire half is `Remote`-restricted and the audiences
+        // are disjoint.
+        let callback = Arc::new(callback);
+        let wire_half = callback.clone();
+        let bus_is_excluded = self.locality == Some(zenoh::sample::Locality::Remote);
+        let mut sub = self.build_with_callback(move |m: T| wire_half(m))?;
+        // A `Locality::Remote` subscriber excludes same-session traffic, and the
+        // bus is same-session. Skip the bus registration so the bus does not
+        // deliver what the wire half's `allowed_origin` filter excludes.
+        if bus_is_excluded {
+            return Ok(sub);
+        }
+
+        let topic = sub.entity.topic.clone();
+        let channel = crate::local_bus::channel(zid, &topic);
+        sub._local_sub = Some(crate::local_bus::subscribe_owned::<T, _>(
+            channel,
+            move |m: T| callback(m),
+        ));
+        Ok(sub)
+    }
+
+    /// **Prototype.** Build a subscriber that receives an `Arc<T>` from a
+    /// same-session publisher without serialization, and still receives remote
+    /// traffic over the wire.
+    ///
+    /// Two registrations are made:
+    ///
+    /// | path | source | cost |
+    /// |---|---|---|
+    /// | intra-process bus | a same-session [`ZPub::publish_shared`] for this exact `T` | a refcount bump |
+    /// | zenoh subscriber, no origin filter | anything on the wire, near or far | the usual CDR decode |
+    ///
+    /// The wire half applies no origin filter. A publisher uses the bus or the
+    /// wire for one message, unless its wire half is `Locality::Remote` and the
+    /// audiences are disjoint, so no subscriber sees a message twice. The
+    /// publisher avoids the duplicate because only it knows which routes it used.
+    ///
+    /// The type match is exact. A publisher of a different Rust type on the same
+    /// topic is not delivered here, even if the ROS type name agrees. See
+    /// [`crate::local_bus`].
+    pub fn build_with_shared_callback<F>(self, callback: F) -> Result<ZSub<T, (), S>>
+    where
+        T: Send + Sync + 'static,
+        F: Fn(Arc<T>) + Send + Sync + 'static,
+        S: for<'a> ZDeserializer<Input<'a> = &'a [u8], Output = T> + 'static,
+    {
+        let zid = self.session.zid();
+
+        let callback = Arc::new(callback);
+        let wire_cb = callback.clone();
+        let bus_is_excluded = self.locality == Some(zenoh::sample::Locality::Remote);
+        let mut sub = self.build_with_callback(move |msg: T| (*wire_cb)(Arc::new(msg)))?;
+
+        // `build_with_callback` qualified the topic. Read it back: the publisher
+        // keys the bus on its qualified topic, and the two must match exactly.
+        // A `Locality::Remote` subscriber excludes same-session traffic, and the
+        // bus is same-session. Skip the bus registration so the bus does not
+        // deliver what the wire half's `allowed_origin` filter excludes.
+        if bus_is_excluded {
+            return Ok(sub);
+        }
+
+        let topic = sub.entity.topic.clone();
+        let channel = crate::local_bus::channel(zid, &topic);
+        sub._local_sub = Some(crate::local_bus::subscribe::<T, _>(
+            channel,
+            move |arc: Arc<T>| (*callback)(arc),
+        ));
+        debug!("[SUB] intra-process bus registered: topic={topic}");
+        Ok(sub)
     }
 
     /// Build a subscriber with a callback that processes deserialized messages directly.
@@ -1078,6 +1513,12 @@ pub struct ZSub<T: ZMessage, Q, S: ZDeserializer> {
     pub dyn_schema: Option<Arc<crate::dynamic::schema::MessageSchema>>,
     /// Expected encoding for validation.
     pub expected_encoding: Option<crate::encoding::Encoding>,
+    /// Registration on the intra-process bus, when built with
+    /// [`ZSubBuilder::build_with_shared_callback`] or
+    /// [`ZSubBuilder::build_with_owned_callback`]. Dropping it unregisters, so a
+    /// dropped subscriber receives no further deliveries. It does not quiesce: see
+    /// [`LocalSubscription`](crate::local_bus::LocalSubscription).
+    _local_sub: Option<crate::local_bus::LocalSubscription>,
     _phantom_data: PhantomData<(T, Q, S)>,
 }
 

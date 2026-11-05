@@ -358,6 +358,8 @@ impl ParameterService {
                 keyexpr_format: keyexpr_format.clone(),
                 dyn_schema: None,
                 encoding: None,
+                locality: None,
+                intra_process_only: false,
                 _phantom_data: Default::default(),
             };
 

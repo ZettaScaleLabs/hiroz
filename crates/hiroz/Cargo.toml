@@ -30,6 +30,8 @@ zenoh = { workspace = true, default-features = false, features = [
 ] }
 zenoh-ext = { workspace = true }
 zenoh-buffers = { workspace = true }
+# Lock-free snapshot of the intra-process subscriber list.
+arc-swap = "1.7"
 strum = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
 parking_lot = { workspace = true }
