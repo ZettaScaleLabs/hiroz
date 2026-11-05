@@ -1,6 +1,10 @@
 package hiroz
 
-import "reflect"
+import (
+	"context"
+	"reflect"
+	"sync"
+)
 
 // newMessage returns a usable value of T. For a pointer type such as *std_msgs.String it
 // allocates the pointee, because the zero value is a nil pointer and DeserializeCDR on a nil
@@ -135,4 +139,142 @@ func SubscriberWithHandler[T Message](builder *SubscriberBuilder, handler Handle
 	}
 
 	return sub, ch, drop, nil
+}
+
+// setOnClose sets the function that Close runs once the subscriber is destroyed.
+func (s *Subscriber) setOnClose(f func()) { s.onClose.Store(&f) }
+
+// BuildWithTypedCallbackContext is BuildWithTypedCallback with a lifetime bound to ctx.
+// When ctx ends, a cleanup goroutine destroys the subscriber through Node.DestroySubscriber.
+// Cancelling does not wait for that goroutine, and the destroy does not wait for a callback
+// that is running. A callback can therefore start after ctx.Done is closed, and a handler
+// that is already running keeps running after the destroy returns. Cancelling ctx alone is
+// not permission to release what the handler uses, and there is no completion signal: make
+// the handler safe to run after cancel, for example by guarding shared state with a lock and
+// a flag that the handler checks. If ctx has already ended, the call returns ctx.Err() and
+// creates no subscriber. Closing the subscriber earlier is safe: it also releases the
+// registration on ctx.
+//
+// Known limit: neither cancel nor Close releases the handler. The underlying subscriber keeps
+// it reachable until the process ends, together with what it captures. Releasing it after the
+// running callbacks finish is not implemented.
+//
+// Example:
+//
+//	sub, err := hiroz.BuildWithTypedCallbackContext(ctx, node.CreateSubscriber("chatter"),
+//	    func(msg *std_msgs.String) { log.Printf("Received: %s", msg.Data) })
+func BuildWithTypedCallbackContext[T Message](ctx context.Context, builder *SubscriberBuilder, handler TypedMessageHandler[T]) (*Subscriber, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sub, err := BuildWithTypedCallback(builder, handler)
+	if err != nil {
+		return nil, err
+	}
+	stop := context.AfterFunc(ctx, func() { _ = sub.node.DestroySubscriber(sub) })
+	// An early Close stops the registration, which a long-lived ctx would otherwise keep, and
+	// drops the node's reference.
+	sub.setOnClose(func() {
+		stop()
+		sub.node.disown(sub)
+	})
+	return sub, nil
+}
+
+// SubscriberWithChannelContext is SubscriberWithChannel with a lifetime bound to ctx, and no
+// cleanup function. When ctx ends, a cleanup goroutine destroys the subscriber and then
+// closes the channel, so a range loop over the channel finishes. Closing the subscriber
+// earlier also closes the channel. A closed channel means that no sample will arrive on it.
+// It does not mean that the message type's DeserializeCDR has returned: a callback that is
+// inside DeserializeCDR when ctx ends runs it to the end, and then drops the sample. A
+// sample that is already in the send when ctx ends can still arrive before the channel
+// closes. If ctx has already ended, the call returns ctx.Err() and creates nothing.
+//
+// Known limit: neither cancel nor Close releases the callback. The underlying subscriber keeps
+// it reachable until the process ends, together with its channels and the message type.
+// It does not keep ctx. Releasing the callback after the running callbacks finish is not
+// implemented.
+//
+// A consumer that stops reading does not block the shutdown: a callback that waits on a
+// full channel is released first. The channel stays open until ctx ends or the subscriber
+// closes, so pass a context that you cancel, or close the subscriber.
+//
+// Example:
+//
+//	sub, ch, err := hiroz.SubscriberWithChannelContext[*std_msgs.String](
+//	    ctx, node.CreateSubscriber("chatter"), 10)
+//	for msg := range ch {
+//	    log.Printf("Received: %s", msg.Data)
+//	}
+func SubscriberWithChannelContext[T Message](ctx context.Context, builder *SubscriberBuilder, bufferSize int) (*Subscriber, <-chan T, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	msgTemplate := newMessage[T]()
+	outCh := make(chan T, bufferSize)
+	done := make(chan struct{})
+	// senders holds a read lock while a callback may send. The teardown takes the write lock
+	// before it closes outCh, so no callback sends on a closed channel.
+	var senders sync.RWMutex
+	closed := false
+
+	rawHandler := func(data []byte) {
+		msg := newMessage[T]()
+		if err := msg.DeserializeCDR(data); err != nil {
+			return // drop malformed messages
+		}
+		senders.RLock()
+		defer senders.RUnlock()
+		if closed {
+			return
+		}
+		// The handler does not capture ctx, which the subscriber would keep reachable for ever.
+		// Cancellation reaches it through done, which closes before the destroy runs. When both
+		// arms of the send below are ready, select picks either, so drop the sample first.
+		select {
+		case <-done:
+			return
+		default:
+		}
+		select {
+		case outCh <- msg:
+		case <-done:
+		}
+	}
+
+	sub, err := builder.BuildWithCallback(msgTemplate, rawHandler)
+	if err != nil {
+		// The C layer may have started the subscription before it failed, so a callback can
+		// already wait on the full channel. Release it. Leave outCh open: that callback may
+		// still send.
+		close(done)
+		return nil, nil, err
+	}
+
+	// Order matters: release blocked callbacks, undeclare so none can start, wait for the
+	// callbacks that are in their sending section, then close. A callback still decoding
+	// has not taken the sending lock, so it is not waited for. It finds the channel closed
+	// and drops its sample.
+	finish := func() {
+		senders.Lock()
+		closed = true
+		senders.Unlock()
+		close(outCh)
+	}
+	stop := context.AfterFunc(ctx, func() {
+		close(done)
+		_ = sub.node.DestroySubscriber(sub)
+		finish()
+	})
+	// An early Close stops the registration, which a long-lived ctx would otherwise keep. The
+	// teardown then has to run here, because nothing else closes the channel before ctx ends.
+	// When stop reports false, the teardown above has started and closes the channel itself.
+	sub.setOnClose(func() {
+		if stop() {
+			sub.node.disown(sub)
+			close(done)
+			finish()
+		}
+	})
+	return sub, outCh, nil
 }

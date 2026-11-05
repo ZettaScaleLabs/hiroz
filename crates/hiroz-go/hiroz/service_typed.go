@@ -1,6 +1,7 @@
 package hiroz
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -33,6 +34,44 @@ func CallTyped[Resp Message](client *ServiceClient, request Message, response Re
 //	err := hiroz.CallTypedWithTimeout(client, req, resp, 10*time.Second)
 func CallTypedWithTimeout[Resp Message](client *ServiceClient, request Message, response Resp, timeout time.Duration) error {
 	respBytes, err := client.callWithTimeout(request, timeout)
+	if err != nil {
+		return err
+	}
+	if err := response.DeserializeCDR(respBytes); err != nil {
+		return newHirozError(ErrorCodeDeserializationFailed, fmt.Sprintf("failed to deserialize response: %v", err))
+	}
+	return nil
+}
+
+// CallTypedContext calls the service, allowing ctx to cancel the wait for its response.
+// Serialization and decoding run synchronously and are not interrupted. Cancellation does not
+// stop the underlying C call; ServiceClient.Close waits for that call.
+//
+// A context deadline sets the timeout of the call, up to 10 seconds, the limit of every query
+// of the service client. Without a deadline the call uses DefaultServiceTimeout. When ctx ends
+// first, the error wraps ctx.Err() and does not match ErrTimeout. A call timeout that ends
+// after the context deadline has passed also returns context.DeadlineExceeded. ErrTimeout
+// means the server did not answer within the call timeout while the deadline was still ahead.
+//
+// A call whose ctx ended during request.SerializeCDR returns the context error when the
+// serializer returns, and does not reach the C layer. ctx is checked once after the C result
+// arrives, before response.DeserializeCDR runs. If ctx ends during decoding, the call returns
+// nil and response holds the decoded value.
+func CallTypedContext[Resp Message](ctx context.Context, client *ServiceClient, request Message, response Resp) error {
+	// Check before the user's serializer runs, so a cancelled call does not wait for it.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	reqBytes, err := request.SerializeCDR()
+	// ctx may have ended while the serializer ran. The context error wins over a serializer
+	// error.
+	if cerr := ctx.Err(); cerr != nil {
+		return cerr
+	}
+	if err != nil {
+		return fmt.Errorf("failed to serialize request: %w", err)
+	}
+	respBytes, err := client.callRawContext(ctx, reqBytes)
 	if err != nil {
 		return err
 	}

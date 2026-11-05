@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"runtime/cgo"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -23,6 +24,9 @@ type Subscriber struct {
 	handle    *C.hiroz_subscriber_t
 	node      *Node
 	closeOnce sync.Once
+	// onClose runs once, after Close has destroyed the subscriber. The context variants set
+	// it to release their registration on the context.
+	onClose atomic.Pointer[func()]
 }
 
 // BufferGroup selects whether a subscriber joins the CPU buffer group of rmw_zenoh.
@@ -59,7 +63,7 @@ type subscriberCall struct {
 }
 
 // createSubscriber makes the one C call that creates a subscriber. A test replaces it to see
-// the arguments that reach the C layer. Production code never assigns it.
+// the arguments that reach the C layer.
 var createSubscriber = func(c subscriberCall) *cSubscriber {
 	return C.hiroz_subscriber_create_with_group(
 		c.node,
@@ -72,6 +76,9 @@ var createSubscriber = func(c subscriberCall) *cSubscriber {
 		C.int32_t(c.group),
 	)
 }
+
+// destroySubscriber makes the one C call that destroys a subscriber. A test replaces it.
+var destroySubscriber = func(h *cSubscriber) int32 { return int32(C.hiroz_subscriber_destroy(h)) }
 
 // SubscriberBuilder builds a Subscriber
 type SubscriberBuilder struct {
@@ -170,10 +177,17 @@ func (b *SubscriberBuilder) BuildWithCallback(msg Message, handler MessageHandle
 func (s *Subscriber) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
+		defer func() {
+			// Swap, not Load: the hook refers to the subscriber, and a subscriber that keeps its
+			// own hook is a cycle through a finalizer, which the collector never frees.
+			if f := s.onClose.Swap(nil); f != nil {
+				(*f)()
+			}
+		}()
 		if s.handle == nil {
 			return
 		}
-		result := C.hiroz_subscriber_destroy(s.handle)
+		result := destroySubscriber(s.handle)
 		s.handle = nil
 		if result != 0 {
 			err = fmt.Errorf("subscriber close failed (rc=%d): %w", result, ErrCloseFailed)
