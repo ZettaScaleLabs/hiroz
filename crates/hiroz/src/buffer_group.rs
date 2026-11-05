@@ -40,6 +40,8 @@ pub enum BufferGroup {
     /// Join when the message can carry a buffer: an unbounded `uint8[]` or `char[]`, directly or
     /// nested, or hiroz has no message schema. A typed message also counts an unbounded
     /// `byte[]`, which `rmw_zenoh_cpp` does not: one extra join, no data lost. This is the default.
+    /// A raw subscriber has no message schema, so it joins, unless the caller passes its answer to
+    /// `ZNode::create_raw_subscriber_with_buffer_fields` (feature `ffi`).
     #[default]
     Auto,
     /// Join whatever the message is, except for a transient-local subscriber or a key format other

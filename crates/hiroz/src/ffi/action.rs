@@ -147,7 +147,7 @@ pub unsafe extern "C" fn hiroz_action_client_create(
                 }))
             }
             Err(e) => {
-                tracing::warn!("hiroz: Failed to create action client: {}", e);
+                ffi_warn!("hiroz: Failed to create action client: {}", e);
                 std::ptr::null_mut()
             }
         }
@@ -215,7 +215,7 @@ pub unsafe extern "C" fn hiroz_action_client_send_goal(
                 ErrorCode::Success as i32
             }
             Err(e) => {
-                tracing::warn!("hiroz: Send goal failed: {}", e);
+                ffi_warn!("hiroz: Send goal failed: {}", e);
                 -1
             }
         }
@@ -265,7 +265,7 @@ pub unsafe extern "C" fn hiroz_action_client_get_result(
                 ErrorCode::Success as i32
             }
             Err(e) => {
-                tracing::warn!("hiroz: Get result failed: {}", e);
+                ffi_warn!("hiroz: Get result failed: {}", e);
                 -1
             }
         }
@@ -290,7 +290,7 @@ pub unsafe extern "C" fn hiroz_action_client_cancel_goal(goal_handle: *mut CGoal
         {
             Ok(_) => ErrorCode::Success as i32,
             Err(e) => {
-                tracing::warn!("hiroz: Cancel goal failed: {}", e);
+                ffi_warn!("hiroz: Cancel goal failed: {}", e);
                 -1
             }
         }
@@ -386,7 +386,7 @@ pub unsafe extern "C" fn hiroz_action_server_create(
         ) {
             Ok(s) => s,
             Err(e) => {
-                tracing::warn!("hiroz: Failed to create action server: {}", e);
+                ffi_warn!("hiroz: Failed to create action server: {}", e);
                 return std::ptr::null_mut();
             }
         };
@@ -655,7 +655,7 @@ pub unsafe extern "C" fn hiroz_action_server_publish_feedback(
         match server.feedback_pub.publish_bytes(&msg) {
             Ok(_) => ErrorCode::Success as i32,
             Err(e) => {
-                tracing::warn!("hiroz: Publish feedback failed: {}", e);
+                ffi_warn!("hiroz: Publish feedback failed: {}", e);
                 ErrorCode::PublishFailed as i32
             }
         }

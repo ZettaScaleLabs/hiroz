@@ -11,6 +11,21 @@
 #define hiroz_ZENOH_EVENT_ID_MAX 11
 
 /**
+ * `buffer_fields` value: the caller does not know whether the message type has a buffer field.
+ */
+#define hiroz_BUFFER_FIELDS_UNKNOWN 0
+
+/**
+ * `buffer_fields` value: the message type has no unbounded `uint8[]` or `char[]` field.
+ */
+#define hiroz_BUFFER_FIELDS_ABSENT 1
+
+/**
+ * `buffer_fields` value: the message type has an unbounded `uint8[]` or `char[]` field.
+ */
+#define hiroz_BUFFER_FIELDS_PRESENT 2
+
+/**
  * Default depth for `KeepLast` when SYSTEM_DEFAULT (depth=0) is used.
  * Matches rclcpp's default of 10. Note this is distinct from
  * [`KEEP_ALL_CACHE_DEPTH`] below, which is the rmw_zenoh-aligned cap
@@ -346,6 +361,13 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Return the breaking-change counter of the C ABI this library exports.
+ *
+ * The value changes only when an existing C symbol, struct layout or error code value changes incompatibly. It never changes for an addition. Probe for an added symbol instead of comparing numbers.
+ */
+uint32_t hiroz_abi_version(void);
+
+/**
  * Create an action client
  */
 struct hiroz_action_client_t *hiroz_action_client_create(struct hiroz_node_t *node,
@@ -554,6 +576,28 @@ void hiroz_graph_free_services(struct hiroz_service_info_t *services, uintptr_t 
 int32_t hiroz_graph_node_exists(struct hiroz_context_t *ctx,
                                 const char *name,
                                 const char *namespace_);
+
+/**
+ * Return the last error message of the calling thread, or NULL if none is recorded.
+ *
+ * The message is a hint for logging. A call signals failure only through its return value: a negative code, or NULL from a constructor. A NULL message never means success.
+ *
+ * Two functions return a positive value that is not a failure. `hiroz_graph_node_exists` returns 1 when the node exists. `hiroz_action_server_is_cancel_requested` returns 1 when a cancel was requested, and 0 for a null handle.
+ *
+ * The library records a message in two cases only. One is a warning routed through its FFI warning macro. The other is a null or non-UTF-8 string argument that a call rejects or skips.
+ *
+ * Many failures record no message, such as a null context or node handle, a `NullPointer` return, or a goal that the action server rejects. An unknown buffer group in `hiroz_subscriber_create_with_group` also records none.
+ *
+ * A message can remain after a successful call. For example, `hiroz_context_create_with_config` succeeds yet records a message when `json_config` is not a JSON object. It does the same when an optional string is invalid, or an element of `connect_endpoints` or `remap_rules` is NULL or invalid. A successful call never clears the message. Call `hiroz_last_error_clear` to clear it.
+ *
+ * The message is thread-local. The pointer stays valid until one of three events on the same thread. These are the next call that records a message, a call to `hiroz_last_error_clear`, and the exit of the thread. Copy the message before then. Do not free it.
+ */
+const char *hiroz_last_error_message(void);
+
+/**
+ * Discard the last error message of the calling thread.
+ */
+void hiroz_last_error_clear(void);
 
 /**
  * Create a new node (simple API)
@@ -773,6 +817,37 @@ struct hiroz_subscriber_t *hiroz_subscriber_create_with_group(struct hiroz_node_
                                                               uintptr_t user_data,
                                                               const struct hiroz_qos_profile_t *qos,
                                                               int32_t group);
+
+/**
+ * Create a subscriber with callback and QoS profile, telling hiroz whether the message type
+ * has a buffer field.
+ *
+ * `buffer_fields` is one of `hiroz_BUFFER_FIELDS_UNKNOWN` (0), `hiroz_BUFFER_FIELDS_ABSENT` (1)
+ * and `hiroz_BUFFER_FIELDS_PRESENT` (2). Any other value makes the call log a warning and return
+ * null. The subscriber uses the node default for the buffer group, as
+ * `hiroz_subscriber_create_with_qos` does, and a C node has the default `Auto`. Under `Auto`,
+ * `UNKNOWN` and `PRESENT` join the CPU buffer group. `ABSENT` stays out: it declares the base
+ * key only and no liveliness token, so ROS tools do not list it. A subscriber with a
+ * transient-local QoS stays out under every value. Pass `ABSENT` only when the type has no
+ * unbounded `uint8[]` or `char[]` field, directly or nested. On a buffer topic the subscriber
+ * then receives nothing, without an error, and no token form fixes that on a released
+ * `rmw_zenoh_cpp`.
+ *
+ * # Safety
+ * `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
+ * must be valid C strings. `callback` must be a valid function pointer.
+ * `qos` may be null for default QoS. `user_data` is passed through to the callback.
+ * `hiroz_subscriber_destroy` does not wait for a callback that is running, so the caller must
+ * not free what `user_data` names until it knows that no callback is running.
+ */
+struct hiroz_subscriber_t *hiroz_subscriber_create_with_buffer_fields(struct hiroz_node_t *node,
+                                                                      const char *topic,
+                                                                      const char *type_name,
+                                                                      const char *type_hash,
+                                                                      hiroz_MessageCallback callback,
+                                                                      uintptr_t user_data,
+                                                                      const struct hiroz_qos_profile_t *qos,
+                                                                      int32_t buffer_fields);
 
 /**
  * Destroy a subscriber
