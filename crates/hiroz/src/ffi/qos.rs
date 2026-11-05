@@ -256,8 +256,9 @@ impl CQosProfileV2 {
 /// them as they were, so the program must set the fields that are new to it. The creator ignores
 /// the bytes beyond the struct that it knows.
 ///
-/// Returns 0 on success, `ErrorCode::NullPointer` if `out` is null, and `ErrorCode::Unknown` if
-/// `size` is below 4, which cannot hold `struct_size`. A failed call writes nothing.
+/// Returns 0 on success, -1 if `out` is null, and -100 if `size` is below 4, which cannot hold
+/// `struct_size`, or above `UINT32_MAX`, which `struct_size` cannot store. A failed call writes
+/// nothing.
 ///
 /// # Safety
 /// `out` must be null or point to writable memory of `size` bytes.
@@ -266,11 +267,15 @@ pub unsafe extern "C" fn hiroz_qos_profile_v2_init(out: *mut CQosProfileV2, size
     if out.is_null() {
         return super::ErrorCode::NullPointer as i32;
     }
-    if size < CQosProfileV2::MIN_SIZE as usize {
+    // `struct_size` is a `uint32_t`, so a larger size cannot be stored as the caller gave it.
+    let Ok(size) = u32::try_from(size) else {
+        return super::ErrorCode::Unknown as i32;
+    };
+    if size < CQosProfileV2::MIN_SIZE {
         return super::ErrorCode::Unknown as i32;
     }
     let defaults = CQosProfileV2::defaults();
-    let covered = size.min(CQosProfileV2::SIZE as usize);
+    let covered = size.min(CQosProfileV2::SIZE) as usize;
     unsafe {
         CQosProfileV2::copy_whole_members(
             &defaults as *const CQosProfileV2 as *const u8,
@@ -278,7 +283,7 @@ pub unsafe extern "C" fn hiroz_qos_profile_v2_init(out: *mut CQosProfileV2, size
             covered,
         );
         // The caller's size, which may be smaller or larger than this library's struct.
-        std::ptr::write_unaligned(out as *mut u32, size.min(u32::MAX as usize) as u32);
+        std::ptr::write_unaligned(out as *mut u32, size);
     }
     super::ErrorCode::Success as i32
 }
