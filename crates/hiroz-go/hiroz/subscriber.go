@@ -63,7 +63,7 @@ type subscriberCall struct {
 }
 
 // createSubscriber makes the one C call that creates a subscriber. A test replaces it to see
-// the arguments that reach the C layer. Production code never assigns it.
+// the arguments that reach the C layer.
 var createSubscriber = func(c subscriberCall) *cSubscriber {
 	return C.hiroz_subscriber_create_with_group(
 		c.node,
@@ -78,7 +78,6 @@ var createSubscriber = func(c subscriberCall) *cSubscriber {
 }
 
 // destroySubscriber makes the one C call that destroys a subscriber. A test replaces it.
-// Production code never assigns it.
 var destroySubscriber = func(h *cSubscriber) int32 { return int32(C.hiroz_subscriber_destroy(h)) }
 
 // SubscriberBuilder builds a Subscriber

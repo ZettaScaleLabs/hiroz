@@ -51,7 +51,7 @@ type cActionServerHandle struct{ p *C.hiroz_action_server_t }
 type cGoalHandleC = C.hiroz_goal_handle_t
 
 // actionResult makes the one blocking C call of a result wait. A test replaces it to run the
-// result path without a Zenoh session. Production code never assigns it.
+// result path without a Zenoh session.
 var actionResult = func(h *cGoalHandleC) ([]byte, int32) {
 	var resultPtr *C.uint8_t
 	var resultLen C.uintptr_t
@@ -175,13 +175,9 @@ func (h *GoalHandle) GetResult() ([]byte, error) {
 // the C call: it keeps running in a goroutine until the server answers or the call times out.
 // It does not cancel server-side execution either.
 //
-// This call registers with the client, and so does every wrapper of it: GetResult,
-// GetTypedResult and GetTypedResultContext. ActionClient.Close waits for the C call, not for
-// ctx. The C call of a result wait has a fixed timeout of 30 seconds, and the service client
-// behind it ends its query after 10 seconds. A call without a deadline, such as GetResult,
-// therefore holds Close for at most 30 seconds, and normally about 10 seconds, and then fails
-// with an error. SendGoalContext registers too, after it has serialised the goal, and its C
-// call has a fixed timeout of 10 seconds. SendGoal and Cancel do not register.
+// The call registers with the client, as do GetResult, GetTypedResult and
+// GetTypedResultContext. ActionClient.Close waits for the C call, not for ctx.
+// SendGoalContext registers too, once the goal is serialised.
 func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 	// An ended context starts no C wait. The wait would hold the client registration.
 	if err := ctx.Err(); err != nil {
