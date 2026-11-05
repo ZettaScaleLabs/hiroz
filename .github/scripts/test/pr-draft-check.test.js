@@ -135,3 +135,16 @@ test('welcome body has no indented lines (no code-block rendering)', () => {
   const { WELCOME_BODY } = require('../pr-draft-check.js');
   assert.ok(WELCOME_BODY.split('\n').every((line) => !/^ {4}/.test(line)));
 });
+
+test('welcome does not tell the contributor to mark ready before a maintainer review', () => {
+  const { WELCOME_BODY } = require('../pr-draft-check.js');
+  const lines = WELCOME_BODY.split('\n');
+  const readyLine = lines.find((line) => /ready for review/i.test(line));
+  assert.ok(readyLine, 'welcome must say when to mark the PR ready');
+  assert.match(readyLine, /maintainer/i, 'the ready step must depend on a maintainer review');
+  assert.doesNotMatch(
+    WELCOME_BODY,
+    /Mark as "Ready for review" when complete/,
+    'ready must not follow local checks alone',
+  );
+});
