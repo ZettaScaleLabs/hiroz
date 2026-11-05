@@ -1,8 +1,12 @@
 name: PR Draft Check
 
+# Read-only policy check. It reports the verdict as a check result and posts
+# no comments: a fork pull request gets a read-only token here.
+# pr-draft-notify.yml posts the comments.
+
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, synchronize]
+    types: [opened, reopened, ready_for_review, converted_to_draft, synchronize]
     branches: [main]
   pull_request_review:
     types: [submitted]
@@ -12,110 +16,36 @@ jobs:
     name: Verify PR Status for External Contributors
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: read
 
     steps:
-      - name: Check PR author association
-        id: check-author
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7
+      - name: Check out the policy script
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
-          script: |
-            const pr = context.payload.pull_request;
-            const authorAssociation = pr.author_association;
-
-            // Author associations that don't require draft status
-            const trustedAssociations = ['OWNER', 'MEMBER', 'COLLABORATOR'];
-
-            core.setOutput('is-external', !trustedAssociations.includes(authorAssociation));
-            core.setOutput('is-draft', pr.draft);
-            core.setOutput('author-association', authorAssociation);
-
-            console.log(`Author: ${pr.user.login}`);
-            console.log(`Association: ${authorAssociation}`);
-            console.log(`Is Draft: ${pr.draft}`);
-            console.log(`Is External: ${!trustedAssociations.includes(authorAssociation)}`);
+          sparse-checkout: .github/scripts
+          persist-credentials: false
 
       - name: Verify external PR is draft or reviewed
-        if: steps.check-author.outputs.is-external == 'true'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7
         with:
           script: |
-            const isDraft = '${{ steps.check-author.outputs.is-draft }}' === 'true';
-            const prNumber = context.payload.pull_request.number;
+            const { run } = require('./.github/scripts/pr-draft-check.js');
+            await run({ github, context, core }, { notify: false, failOnViolation: true });
 
-            if (isDraft) {
-              core.notice('✓ PR is a draft - this is the recommended workflow for external contributors.');
-              return;
-            }
+  script-tests:
+    name: Policy Script Tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
-            // Check if PR has been reviewed by a maintainer
-            const reviews = await github.rest.pulls.listReviews({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber
-            });
-
-            const maintainerReviews = reviews.data.filter(review => {
-              const association = review.author_association;
-              return ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association);
-            });
-
-            if (maintainerReviews.length > 0) {
-              core.notice('✓ PR has been reviewed by a maintainer.');
-              return;
-            }
-
-            // PR is not draft and has no maintainer reviews
-            core.setFailed(
-              '❌ External contributor PRs should be opened as DRAFT until ready for final review.\n\n' +
-              'Please either:\n' +
-              '1. Convert this PR to a draft (see "Convert to draft" in the PR sidebar)\n' +
-              '2. Wait for a maintainer to review before marking as ready\n\n' +
-              'This helps us manage CI workflow approvals and prioritize reviews.\n' +
-              'See CONTRIBUTING.md for details.'
-            );
-
-      - name: Post helpful comment for first-time contributors
-        if: |
-          steps.check-author.outputs.is-external == 'true' &&
-          steps.check-author.outputs.is-draft == 'false' &&
-          steps.check-author.outputs.author-association == 'FIRST_TIME_CONTRIBUTOR'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7
+    steps:
+      - name: Check out the policy script and its tests
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
-          script: |
-            const prNumber = context.payload.pull_request.number;
+          sparse-checkout: .github/scripts
+          persist-credentials: false
 
-            // Check if we already commented
-            const comments = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber
-            });
-
-            const botCommented = comments.data.some(comment =>
-              comment.user.type === 'Bot' &&
-              comment.body.includes('Welcome to hiroz!')
-            );
-
-            if (!botCommented) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body: `👋 Welcome to hiroz! Thank you for your contribution.
-
-            **For external contributors**, we recommend opening PRs as **drafts**
-            initially. This helps us manage CI workflow approvals efficiently.
-
-            **To convert this PR to draft:**
-            1. Click "Convert to draft" in the sidebar →
-            2. Ensure all local checks pass (\`./scripts/check-local.sh\`)
-            3. Mark as "Ready for review" when complete
-
-            See [CONTRIBUTING.md][1] for details.
-
-            A maintainer will review your PR soon!
-
-            [1]: https://github.com/ZettaScaleLabs/hiroz/blob/main/CONTRIBUTING.md`
-              });
-            }
+      - name: Run the policy script tests with mocked GitHub objects
+        run: node --test .github/scripts/test/pr-draft-check.test.js

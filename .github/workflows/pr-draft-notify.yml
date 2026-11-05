@@ -1,0 +1,44 @@
+name: PR Draft Notify
+
+# Posts the warning and welcome comments on external pull requests, forks included.
+#
+# Trust boundary: this job holds a write token, so no PR-controlled code may run.
+#   - The only checkout is the base commit, sparse, without credentials.
+#     Never check out the head or the merge ref.
+#   - The script reads the PR only from context.payload, as data.
+#   - No event expression is interpolated into a script or command.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
+    branches: [main]
+
+# One run per pull request at a time, so two runs cannot both find no warning.
+concurrency:
+  group: pr-draft-notify-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    name: Notify External Contributor
+    runs-on: ubuntu-latest
+    # createComment on a pull request needs this write permission.
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Check out the policy script from the base commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Post the warning and welcome comments
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7
+        with:
+          script: |
+            const { run } = require('./.github/scripts/pr-draft-check.js');
+            // pr-draft-check.yml owns the verdict. A failed post is only a warning.
+            await run({ github, context, core }, { notify: true, failOnViolation: false });
