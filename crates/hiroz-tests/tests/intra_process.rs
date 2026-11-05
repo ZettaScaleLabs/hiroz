@@ -36,6 +36,29 @@ const DELIVERY_DEADLINE: Duration = Duration::from_secs(5);
 /// assertion instead of running forever. Far above the delivery-depth bound.
 const ECHO_CAP: usize = 64;
 
+/// Silences the default panic hook for readable output, and restores the
+/// previous hook on drop, so a failing assertion cannot leave a silent hook.
+/// Tests that hold one must carry `#[serial_test::serial(panic_hook)]`.
+type PanicHook = Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send + 'static>;
+
+struct SilentPanicHook(Option<PanicHook>);
+
+impl SilentPanicHook {
+    fn install() -> Self {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        Self(Some(prev))
+    }
+}
+
+impl Drop for SilentPanicHook {
+    fn drop(&mut self) {
+        if let Some(prev) = self.0.take() {
+            std::panic::set_hook(prev);
+        }
+    }
+}
+
 fn wait_until(f: impl Fn() -> bool) -> bool {
     let start = Instant::now();
     while start.elapsed() < DELIVERY_DEADLINE {
@@ -880,12 +903,11 @@ fn a_panicking_subscriber_does_not_stop_delivery_to_the_others() -> hiroz::Resul
         .build()?;
 
     // Silence the default panic hook for readable output, and restore it after.
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
+    let hook = SilentPanicHook::install();
     let delivered = publisher.publish_shared(Arc::new(RosString {
         data: "one of you will panic".to_owned(),
     }));
-    std::panic::set_hook(prev);
+    drop(hook);
 
     // The publisher returned at all: the panic did not unwind into this thread.
     let delivered = delivered.expect("the panic escaped into the publishing thread");
@@ -931,12 +953,11 @@ fn a_panicking_sole_subscriber_does_not_reach_the_publisher() -> hiroz::Result<(
         .with_intra_process_only()
         .build()?;
 
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
+    let hook = SilentPanicHook::install();
     let delivered = publisher.publish_shared(Arc::new(RosString {
         data: "boom".to_owned(),
     }));
-    std::panic::set_hook(prev);
+    drop(hook);
 
     let delivered = delivered.expect("the panic escaped into the publishing thread");
     assert_eq!(
@@ -995,7 +1016,7 @@ fn publish_owned_on_a_remote_publisher_still_reaches_the_wire() -> hiroz::Result
 
     assert!(
         wait_until(|| far.load(Ordering::SeqCst) >= 1),
-        "the off-session subscriber never received it — this is B1"
+        "the off-session subscriber never received it"
     );
     thread::sleep(Duration::from_millis(300));
     assert_eq!(
@@ -1447,6 +1468,7 @@ fn publish_owned_refuses_when_an_owned_and_a_shared_subscriber_coexist() -> hiro
 /// Dropping the payload is user code running outside the guard. The first
 /// subscriber panics with such a payload, and the second is still called.
 #[test]
+#[serial_test::serial(panic_hook)]
 fn a_panic_payload_that_panics_on_drop_does_not_stop_delivery() -> hiroz::Result<()> {
     struct Bomb;
     impl Drop for Bomb {
@@ -1476,14 +1498,13 @@ fn a_panic_payload_that_panics_on_drop_does_not_stop_delivery() -> hiroz::Result
         .with_intra_process_only()
         .build()?;
 
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
+    let hook = SilentPanicHook::install();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         publisher.publish_shared(Arc::new(RosString {
             data: "armed".to_owned(),
         }))
     }));
-    std::panic::set_hook(prev);
+    drop(hook);
 
     assert!(
         result.is_ok(),
@@ -1493,6 +1514,193 @@ fn a_panic_payload_that_panics_on_drop_does_not_stop_delivery() -> hiroz::Result
         after.load(Ordering::SeqCst),
         1,
         "the sibling after the bomb must still be called"
+    );
+    Ok(())
+}
+
+/// `NoTaker` is not proof that no callback ran.
+///
+/// A callback that keeps the `Arc` and then panics has had an effect, yet the
+/// bus reports `NoTaker`. A caller that retried on `NoTaker` would repeat the
+/// effect. The test pins the documented outcome on both call sites of
+/// `Channel::publish`, and the recorded effect is the positive control.
+#[test]
+#[serial_test::serial(panic_hook)]
+fn no_taker_is_reported_although_a_panicking_callback_had_an_effect() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("effect_then_panic").build()?;
+
+    let kept: Arc<Mutex<Vec<Arc<RosString>>>> = Arc::new(Mutex::new(Vec::new()));
+    let kept_more: Arc<Mutex<Vec<Arc<RosString>>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let sink = kept.clone();
+    let _solo = node
+        .create_sub::<RosString>("effect_solo")
+        .build_with_shared_callback(move |m: Arc<RosString>| {
+            sink.lock().expect("poisoned").push(m);
+            panic!("the callback records its effect, then panics");
+        })?;
+    let (first, second) = (kept_more.clone(), kept_more.clone());
+    let _fan1 = node
+        .create_sub::<RosString>("effect_fan")
+        .build_with_shared_callback(move |m: Arc<RosString>| {
+            first.lock().expect("poisoned").push(m);
+            panic!("the first callback records its effect, then panics");
+        })?;
+    let _fan2 = node
+        .create_sub::<RosString>("effect_fan")
+        .build_with_shared_callback(move |m: Arc<RosString>| {
+            second.lock().expect("poisoned").push(m);
+            panic!("the second callback records its effect, then panics");
+        })?;
+
+    let solo = node
+        .create_pub::<RosString>("effect_solo")
+        .with_intra_process_only()
+        .build()?;
+    let fan = node
+        .create_pub::<RosString>("effect_fan")
+        .with_intra_process_only()
+        .build()?;
+
+    let hook = SilentPanicHook::install();
+    let solo_result = solo.publish_shared(Arc::new(RosString {
+        data: "sole".to_owned(),
+    }));
+    let fan_result = fan.publish_shared(Arc::new(RosString {
+        data: "fan-out".to_owned(),
+    }));
+    drop(hook);
+
+    assert_eq!(
+        solo_result.expect("the panic escaped into the publisher"),
+        Published::Bus(Delivery::NoTaker),
+        "a sole callback that panicked is reported as NoTaker"
+    );
+    assert_eq!(
+        kept.lock().expect("poisoned").len(),
+        1,
+        "the effect was not recorded, so NoTaker here would be accurate"
+    );
+    assert_eq!(
+        fan_result.expect("the panic escaped into the publisher"),
+        Published::Bus(Delivery::NoTaker),
+        "when every callback panicked the fan-out reports NoTaker too"
+    );
+    assert_eq!(
+        kept_more.lock().expect("poisoned").len(),
+        2,
+        "both callbacks ran and recorded an effect"
+    );
+    Ok(())
+}
+
+/// Known limit, pinned as it is: on a `Locality::Remote` publisher
+/// `publish_owned` does not refuse a mix of shared and owned receivers.
+///
+/// The shared receiver gets the message, the owned receiver gets nothing, and
+/// the result carries no error. `publish_shared` on the same publisher refuses,
+/// which shows that the owned receiver is registered and counted. If the
+/// behaviour changes, update the documented limit on
+/// `ZSubBuilder::build_with_owned_callback` with it.
+#[test]
+fn remote_publisher_owned_publish_serves_only_the_shared_receiver_of_a_mix() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("remote_mix").build()?;
+
+    let shared = Arc::new(AtomicUsize::new(0));
+    let owned = Arc::new(AtomicUsize::new(0));
+    let (s, o) = (shared.clone(), owned.clone());
+    let _shared_sub = node
+        .create_sub::<RosString>("remote_mix")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            s.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let _owned_sub = node
+        .create_sub::<RosString>("remote_mix")
+        .build_with_owned_callback(move |_m: RosString| {
+            o.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let publisher = node
+        .create_pub::<RosString>("remote_mix")
+        .with_locality(zenoh::sample::Locality::Remote)
+        .build()?;
+
+    let outcome = publisher.publish_owned(RosString {
+        data: "mixed receivers".to_owned(),
+    })?;
+    assert_eq!(
+        outcome,
+        Published::BusAndWire(Delivery::Sent(1)),
+        "the shared receiver is the only one served, and nothing reports the omission"
+    );
+    assert_eq!(
+        shared.load(Ordering::SeqCst),
+        1,
+        "the shared receiver got it"
+    );
+    assert_eq!(
+        owned.load(Ordering::SeqCst),
+        0,
+        "known limit: the owned receiver gets nothing on a Remote publisher"
+    );
+
+    assert!(
+        publisher
+            .publish_shared(Arc::new(RosString {
+                data: "control".to_owned(),
+            }))
+            .is_err(),
+        "control: publish_shared refuses this mix, so the owned receiver is registered"
+    );
+    Ok(())
+}
+
+/// Known limit, pinned as it is: two owned receivers on a `Locality::Remote`
+/// publisher receive nothing from `publish_owned`, and the result carries no
+/// error. See the companion test for the mixed case.
+#[test]
+fn remote_publisher_owned_publish_reaches_no_one_of_two_owned_receivers() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx = create_hiroz_context_with_router(&router)?;
+    let node = ctx.create_node("remote_two_owned").build()?;
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let (a, b) = (hits.clone(), hits.clone());
+    let _o1 = node
+        .create_sub::<RosString>("remote_two_owned")
+        .build_with_owned_callback(move |_m: RosString| {
+            a.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let _o2 = node
+        .create_sub::<RosString>("remote_two_owned")
+        .build_with_owned_callback(move |_m: RosString| {
+            b.fetch_add(1, Ordering::SeqCst);
+        })?;
+    let publisher = node
+        .create_pub::<RosString>("remote_two_owned")
+        .with_locality(zenoh::sample::Locality::Remote)
+        .build()?;
+
+    let outcome = publisher.publish_owned(RosString {
+        data: "two owners".to_owned(),
+    })?;
+    assert_eq!(
+        outcome,
+        Published::BusAndWire(Delivery::NoTaker),
+        "known limit: no owned receiver is served, and nothing reports it"
+    );
+    assert_eq!(hits.load(Ordering::SeqCst), 0, "no owned receiver got it");
+
+    assert!(
+        publisher
+            .publish_shared(Arc::new(RosString {
+                data: "control".to_owned(),
+            }))
+            .is_err(),
+        "control: publish_shared refuses, so the owned receivers are registered"
     );
     Ok(())
 }
