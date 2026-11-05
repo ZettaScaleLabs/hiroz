@@ -5,6 +5,10 @@
 //! case re-executes this test binary as a child process under a lowered address
 //! space limit (`RLIMIT_AS`) and checks how the child ended. A cgroup memory
 //! limit does not trigger the abort: the reservation is not charged until touched.
+//!
+//! A child that inherits a hard limit leaving under 128 MiB cannot run the case. The test then
+//! prints `SKIPPED` on stderr and returns, which cargo counts as a pass. Set
+//! `HIROZ_REQUIRE_HOSTILE` to make that a failure; CI sets it.
 
 // The abort needs a reservation above the address space of a 32-bit process, and
 // `setrlimit` takes a narrower type there, so the file runs on 64-bit Linux only.
@@ -52,12 +56,20 @@ fn limit_address_space() {
     setrlimit(Resource::RLIMIT_CORE, 0, 0).expect("setrlimit RLIMIT_CORE");
 }
 
-/// The child ended because it could not lower its limit, so the case did not run. This is
-/// reported on stderr and is not a pass.
+/// The child ended because it could not lower its limit, so the case did not run.
+///
+/// By default this prints `SKIPPED` on stderr and returns `true`; the test then returns, and
+/// cargo counts it as a pass. When `HIROZ_REQUIRE_HOSTILE` is set it panics, so a run that must
+/// exercise the allocation failure fails when it cannot.
 fn skipped(out: &Output) -> bool {
     if out.status.code() != Some(SKIP_STATUS) {
         return false;
     }
+    assert!(
+        std::env::var_os(REQUIRE_ENV).is_none(),
+        "{REQUIRE_ENV} is set, but the inherited address-space hard limit leaves no room to run the case\n{}",
+        describe(out)
+    );
     eprintln!(
         "SKIPPED: the inherited address-space hard limit leaves no room to test\n{}",
         describe(out)
