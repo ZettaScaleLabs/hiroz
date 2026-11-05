@@ -210,7 +210,7 @@ def check-ffi-header [] {
 
 def test-ffi-last-error [] {
     log-step "FFI last-error integration test"
-    # An integration test links the library once, so it runs where the `--lib` test binary of the `ffi` feature does not link.
+    # An integration test links the library once, so it runs where the `--lib` test binary does not link.
     run-cmd "cargo test -j4 -p hiroz --features ffi --test ffi_last_error"
 }
 

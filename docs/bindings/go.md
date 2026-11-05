@@ -96,13 +96,11 @@ Callbacks flow in reverse: Rust invokes C function pointers → dispatched to Go
 
 ### ABI version
 
-The library exports `hiroz_abi_version()`, an integer that changes only when an exported function, struct layout or error code is removed or altered.
-Adding a function does not change it.
-The first value is 1. The function never returns 0.
-Go needs a library that exports `hiroz_abi_version`. Linking against a library that lacks it fails with an undefined symbol.
-Go exposes it as `hiroz.ABIVersion()`.
-Hiroz does not yet compare it with the version the header declares, and CI does not yet check ABI changes against the last release.
-So a mismatch between `hiroz_ffi.h` and `libhiroz` is still not detected automatically.
+The library exports `hiroz_abi_version()`, an integer that changes when an exported function, struct layout or error code is removed or altered. Adding a function does not change it. The first value is 1, and the function never returns 0.
+
+Go exposes it as `hiroz.ABIVersion()`. Linking against a library that lacks `hiroz_abi_version` fails with an undefined symbol.
+
+Nothing compares it with a version that the binding was built against, and CI does not check ABI changes against the last release. A mismatch between `hiroz_ffi.h` and `libhiroz` is therefore not detected automatically. It is open whether the integer should count only breaking changes, or whether the header also needs a constant for the built-against version.
 
 ---
 
@@ -388,16 +386,10 @@ if errors.Is(err, hiroz.ErrBuildFailed) { /* construction failed */ }
 if errors.Is(err, hiroz.ErrTimeout)     { /* no server responded */ }
 ```
 
-A C caller can read a diagnostic message with `hiroz_last_error_message()`, which returns a thread-local string or NULL.
-The message is a hint for logging, and the return value of a call stays the only contract for failure.
-The full contract is the comment on `hiroz_last_error_message` in `hiroz_ffi.h`: when a message is recorded, what a NULL message means, and how long the pointer stays valid.
-The Go package does not expose the message, because a goroutine can move to another OS thread between the C call and the read.
+A C caller can read a diagnostic message with `hiroz_last_error_message()`, which returns a thread-local string or NULL. The message is a hint for logging, and the return value of a call stays the only contract for failure. The comment on `hiroz_last_error_message` in `hiroz_ffi.h` is the full contract. The Go package does not expose the message, because a goroutine can move to another OS thread between the C call and the read.
 
 !!! warning
-    `hiroz_action_client_send_goal`, `hiroz_action_client_get_result` and `hiroz_action_client_cancel_goal` return `-1` for a runtime failure.
-    The same value means `ErrorCodeNullPointer`, so the code alone does not tell the two apart.
-    A C caller must not rely on `hiroz_last_error_message()` to tell them apart, because the message is only a hint and can be NULL.
-    The Go package maps these paths to `ErrorCodeActionCancelFailed` and `ErrorCodeActionResultFailed`, but `SendGoal` passes the raw code through.
+    `hiroz_action_client_send_goal`, `hiroz_action_client_get_result` and `hiroz_action_client_cancel_goal` return `-1` for a runtime failure. The same value means `ErrorCodeNullPointer`, so the code alone does not separate the two. A C caller must not use the message to separate them, because it can be NULL. The Go package maps these paths to `ErrorCodeActionCancelFailed` and `ErrorCodeActionResultFailed`, but `SendGoal` passes the raw code through.
 
 Inspect the error code directly when you need fine-grained handling:
 

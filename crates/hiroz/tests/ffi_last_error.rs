@@ -1,6 +1,6 @@
 //! A warning that goes through the FFI warning macro must reach `hiroz_last_error_message`.
 //!
-//! This is an integration test, so it links the library once and does not depend on the lib unit-test binary.
+//! An integration test links the library once, so it runs where the lib unit-test binary does not link.
 
 use std::ffi::CStr;
 

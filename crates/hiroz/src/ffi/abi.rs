@@ -2,12 +2,12 @@
 
 /// Version of the C ABI this library exports.
 ///
-/// Bump this integer whenever a change removes or alters an exported function, struct layout or error code.
+/// Bump it when a change removes or alters an exported function, struct layout or error code.
 /// Adding a function does not change it.
-/// This function never returns 0. A library that predates it does not export the symbol.
+/// Zero is never a version: a library without `hiroz_abi_version` does not export the symbol.
 const ABI_VERSION: u32 = 1;
 
-/// Return the version of the C ABI this library exports. A binding compares it with the version it was built against.
+/// Return the version of the C ABI this library exports.
 #[unsafe(no_mangle)]
 pub extern "C" fn hiroz_abi_version() -> u32 {
     ABI_VERSION
