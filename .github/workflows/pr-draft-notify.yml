@@ -3,7 +3,7 @@ name: PR Draft Notify
 # Posts the warning and welcome comments on external pull requests, forks included.
 #
 # Trust boundary: this job holds a write token, so no PR-controlled code may run.
-#   - The only checkout is the base commit, sparse, without credentials.
+#   - The only checkout is the base branch tip, sparse, without credentials.
 #     Never check out the head or the merge ref.
 #   - The script reads the PR only from context.payload, as data.
 #   - No event expression is interpolated into a script or command.
@@ -28,10 +28,10 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Check out the policy script from the base commit
+      - name: Check out the policy script from the base branch tip
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.sha }}
           sparse-checkout: .github/scripts
           persist-credentials: false
 
