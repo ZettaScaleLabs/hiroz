@@ -111,7 +111,7 @@ pub unsafe extern "C" fn hiroz_publisher_create_with_qos(
                 inner: Box::new(pub_inner),
             })),
             Err(e) => {
-                tracing::warn!("hiroz: Failed to create publisher: {}", e);
+                ffi_warn!("hiroz: Failed to create publisher: {}", e);
                 std::ptr::null_mut()
             }
         }

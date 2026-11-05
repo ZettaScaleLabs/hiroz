@@ -112,6 +112,9 @@ no-rolling = []
 no-kilted = []
 no-lyrical = []
 
+[[test]]
+name = "ffi_last_error"
+required-features = ["ffi"]
 
 # NOTE: Examples that use hiroz-msgs must be built from workspace root
 # since hiroz-msgs depends on hiroz (circular dependency prevents direct dependency)

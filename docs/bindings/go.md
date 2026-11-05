@@ -94,6 +94,14 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 
 Callbacks flow in reverse: Rust invokes C function pointers → dispatched to Go via `//export` functions.
 
+### ABI version
+
+The library exports `hiroz_abi_version()`, a counter of breaking changes only. It changes when an existing C symbol, struct layout or error code value changes incompatibly. An addition never changes it. The first value is 1, and the function never returns 0.
+
+A binding detects an added symbol by probing for it, with `dlsym` or at link time, and not by comparing numbers. Go exposes the counter as `hiroz.ABIVersion()`. Linking against a library that lacks `hiroz_abi_version` fails with an undefined symbol.
+
+Nothing compares the counter with a value that the binding expects, and CI does not check ABI changes against the last release. A breaking mismatch between `hiroz_ffi.h` and `libhiroz` is therefore not detected automatically.
+
 ---
 
 ## Context
@@ -377,6 +385,11 @@ All `Build()` calls and operations return `error`. Use `errors.Is()` with sentin
 if errors.Is(err, hiroz.ErrBuildFailed) { /* construction failed */ }
 if errors.Is(err, hiroz.ErrTimeout)     { /* no server responded */ }
 ```
+
+A C caller can read a diagnostic message with `hiroz_last_error_message()`, which returns a thread-local string or NULL. The message is a hint for logging, and the return value of a call stays the only contract for failure. The comment on `hiroz_last_error_message` in `hiroz_ffi.h` is the full contract. The Go package does not expose the message, because a goroutine can move to another OS thread between the C call and the read.
+
+!!! warning
+    `hiroz_action_client_send_goal`, `hiroz_action_client_get_result` and `hiroz_action_client_cancel_goal` return `-1` for a runtime failure. The same value means `ErrorCodeNullPointer`, so the code alone does not separate the two. A C caller must not use the message to separate them, because it can be NULL. The Go package maps these paths to `ErrorCodeActionCancelFailed` and `ErrorCodeActionResultFailed`, but `SendGoal` passes the raw code through.
 
 Inspect the error code directly when you need fine-grained handling:
 

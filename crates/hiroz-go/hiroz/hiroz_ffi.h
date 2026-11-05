@@ -361,6 +361,13 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Return the breaking-change counter of the C ABI this library exports.
+ *
+ * The value changes only when an existing C symbol, struct layout or error code value changes incompatibly. It never changes for an addition. Probe for an added symbol instead of comparing numbers.
+ */
+uint32_t hiroz_abi_version(void);
+
+/**
  * Create an action client
  */
 struct hiroz_action_client_t *hiroz_action_client_create(struct hiroz_node_t *node,
@@ -569,6 +576,28 @@ void hiroz_graph_free_services(struct hiroz_service_info_t *services, uintptr_t 
 int32_t hiroz_graph_node_exists(struct hiroz_context_t *ctx,
                                 const char *name,
                                 const char *namespace_);
+
+/**
+ * Return the last error message of the calling thread, or NULL if none is recorded.
+ *
+ * The message is a hint for logging. A call signals failure only through its return value: a negative code, or NULL from a constructor. A NULL message never means success.
+ *
+ * Two functions return a positive value that is not a failure. `hiroz_graph_node_exists` returns 1 when the node exists. `hiroz_action_server_is_cancel_requested` returns 1 when a cancel was requested, and 0 for a null handle.
+ *
+ * The library records a message in two cases only. One is a warning routed through its FFI warning macro. The other is a null or non-UTF-8 string argument that a call rejects or skips.
+ *
+ * Many failures record no message, such as a null context or node handle, a `NullPointer` return, or a goal that the action server rejects. An unknown buffer group in `hiroz_subscriber_create_with_group` also records none.
+ *
+ * A message can remain after a successful call. For example, `hiroz_context_create_with_config` succeeds yet records a message when `json_config` is not a JSON object. It does the same when an optional string is invalid, or an element of `connect_endpoints` or `remap_rules` is NULL or invalid. A successful call never clears the message. Call `hiroz_last_error_clear` to clear it.
+ *
+ * The message is thread-local. The pointer stays valid until one of three events on the same thread. These are the next call that records a message, a call to `hiroz_last_error_clear`, and the exit of the thread. Copy the message before then. Do not free it.
+ */
+const char *hiroz_last_error_message(void);
+
+/**
+ * Discard the last error message of the calling thread.
+ */
+void hiroz_last_error_clear(void);
 
 /**
  * Create a new node (simple API)
