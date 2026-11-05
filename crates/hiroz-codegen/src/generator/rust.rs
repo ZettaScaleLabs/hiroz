@@ -1017,7 +1017,8 @@ fn generate_schema_base_field_type_tokens(
 ) -> TokenStream {
     match field_type.base_type.as_str() {
         "bool" => quote! { ::hiroz::dynamic::FieldType::Bool },
-        "byte" | "uint8" | "char" => quote! { ::hiroz::dynamic::FieldType::Uint8 },
+        "byte" => quote! { ::hiroz::dynamic::FieldType::Byte },
+        "uint8" | "char" => quote! { ::hiroz::dynamic::FieldType::Uint8 },
         "int8" => quote! { ::hiroz::dynamic::FieldType::Int8 },
         "uint16" | "wchar" => quote! { ::hiroz::dynamic::FieldType::Uint16 },
         "int16" => quote! { ::hiroz::dynamic::FieldType::Int16 },

@@ -19,6 +19,8 @@ pub enum FieldType {
     Int16,
     Int32,
     Int64,
+    /// ROS byte (octet): same CDR representation as uint8, distinct type identity.
+    Byte,
     Uint8,
     Uint16,
     Uint32,
@@ -46,7 +48,7 @@ impl FieldType {
     /// CDR size in bytes (None for variable-size types).
     pub fn fixed_size(&self) -> Option<usize> {
         match self {
-            FieldType::Bool | FieldType::Int8 | FieldType::Uint8 => Some(1),
+            FieldType::Bool | FieldType::Int8 | FieldType::Byte | FieldType::Uint8 => Some(1),
             FieldType::Int16 | FieldType::Uint16 => Some(2),
             FieldType::Int32 | FieldType::Uint32 | FieldType::Float32 => Some(4),
             FieldType::Int64 | FieldType::Uint64 | FieldType::Float64 => Some(8),
@@ -60,7 +62,7 @@ impl FieldType {
     /// CDR alignment requirement in bytes.
     pub fn alignment(&self) -> usize {
         match self {
-            FieldType::Bool | FieldType::Int8 | FieldType::Uint8 => 1,
+            FieldType::Bool | FieldType::Int8 | FieldType::Byte | FieldType::Uint8 => 1,
             FieldType::Int16 | FieldType::Uint16 => 2,
             FieldType::Int32 | FieldType::Uint32 | FieldType::Float32 => 4,
             FieldType::Int64 | FieldType::Uint64 | FieldType::Float64 => 8,
@@ -80,6 +82,7 @@ impl FieldType {
                 | FieldType::Int16
                 | FieldType::Int32
                 | FieldType::Int64
+                | FieldType::Byte
                 | FieldType::Uint8
                 | FieldType::Uint16
                 | FieldType::Uint32
@@ -99,6 +102,7 @@ impl FieldType {
                 | FieldType::Int16
                 | FieldType::Int32
                 | FieldType::Int64
+                | FieldType::Byte
                 | FieldType::Uint8
                 | FieldType::Uint16
                 | FieldType::Uint32
