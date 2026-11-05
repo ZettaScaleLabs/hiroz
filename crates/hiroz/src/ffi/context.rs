@@ -54,7 +54,7 @@ pub unsafe extern "C" fn hiroz_context_create(domain_id: u32) -> *mut CContext {
             inner: Box::new(ctx),
         })),
         Err(e) => {
-            tracing::warn!("hiroz: Failed to create context: {}", e);
+            ffi_warn!("hiroz: Failed to create context: {}", e);
             std::ptr::null_mut()
         }
     }
@@ -72,7 +72,7 @@ pub unsafe extern "C" fn hiroz_context_create_with_config(
     config: *const CContextConfig,
 ) -> *mut CContext {
     if config.is_null() {
-        tracing::warn!("hiroz: Null config pointer");
+        ffi_warn!("hiroz: Null config pointer");
         return std::ptr::null_mut();
     }
 
@@ -130,7 +130,7 @@ pub unsafe extern "C" fn hiroz_context_create_with_config(
                     builder = builder.with_json(key, value);
                 }
             } else {
-                tracing::warn!("hiroz: Failed to parse json_config as JSON object");
+                ffi_warn!("hiroz: Failed to parse json_config as JSON object");
             }
         }
 
@@ -151,7 +151,7 @@ pub unsafe extern "C" fn hiroz_context_create_with_config(
                 match builder.with_remap_rules(rules) {
                     Ok(b) => builder = b,
                     Err(e) => {
-                        tracing::warn!("hiroz: Invalid remap rules: {}", e);
+                        ffi_warn!("hiroz: Invalid remap rules: {}", e);
                         return std::ptr::null_mut();
                     }
                 }
@@ -163,7 +163,7 @@ pub unsafe extern "C" fn hiroz_context_create_with_config(
                 inner: Box::new(ctx),
             })),
             Err(e) => {
-                tracing::warn!("hiroz: Failed to create context with config: {}", e);
+                ffi_warn!("hiroz: Failed to create context with config: {}", e);
                 std::ptr::null_mut()
             }
         }

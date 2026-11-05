@@ -30,6 +30,8 @@ zenoh = { workspace = true, default-features = false, features = [
 ] }
 zenoh-ext = { workspace = true }
 zenoh-buffers = { workspace = true }
+# Lock-free snapshot of the intra-process subscriber list.
+arc-swap = "1.7"
 strum = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
 parking_lot = { workspace = true }
@@ -112,6 +114,9 @@ no-rolling = []
 no-kilted = []
 no-lyrical = []
 
+[[test]]
+name = "ffi_last_error"
+required-features = ["ffi"]
 
 # NOTE: Examples that use hiroz-msgs must be built from workspace root
 # since hiroz-msgs depends on hiroz (circular dependency prevents direct dependency)

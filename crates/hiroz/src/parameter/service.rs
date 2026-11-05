@@ -359,6 +359,7 @@ impl ParameterService {
                 dyn_schema: None,
                 encoding: None,
                 locality: None,
+                intra_process_only: false,
                 _phantom_data: Default::default(),
             };
 

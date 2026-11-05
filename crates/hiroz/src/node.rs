@@ -95,8 +95,9 @@ pub struct ZNodeBuilder {
 impl ZNodeBuilder {
     /// Set the defaults for every subscriber that this node creates, cache and raw subscribers
     /// included. A setting on a subscriber builder replaces the default for that subscriber. A
-    /// subscriber that the node creates for itself, such as the status subscriber of an action
-    /// client, keeps the choice that the node makes for it.
+    /// subscriber that the node creates for itself keeps the choice that the node makes for it:
+    /// the status subscriber of an action client always stays out, and the feedback subscriber of
+    /// a typed action client follows the default.
     ///
     /// See [`SubscriberOptions`](crate::SubscriberOptions) for the options.
     pub fn with_subscriber_options(mut self, options: crate::SubscriberOptions) -> Self {
@@ -378,6 +379,7 @@ impl ZNode {
             dyn_schema: None,
             encoding: None,
             locality: None,
+            intra_process_only: false,
             _phantom_data: Default::default(),
         }
     }
@@ -701,7 +703,8 @@ impl ZNode {
     /// A raw subscriber has no message schema, so `Auto` and `Cpu` both join: two exact
     /// subscriptions, the base key and `<key>/_buf_cpu`, then a token ending `backends:cpu:`. One
     /// callback serves both keys. `Off`, a transient-local QoS and a custom key expression format
-    /// stay out: the base key only, and no token.
+    /// stay out: the base key only, and no token. A caller that knows its message type can join
+    /// only on buffer topics with [`ZNode::create_raw_subscriber_with_buffer_fields`].
     #[cfg(feature = "ffi")]
     pub fn create_raw_subscriber_with_group<F>(
         &self,
@@ -711,6 +714,46 @@ impl ZNode {
         callback: F,
         qos: Option<crate::qos::QosProfile>,
         group: crate::BufferGroup,
+    ) -> Result<crate::ffi::subscriber::RawSubscriber>
+    where
+        F: Fn(&[u8]) + Send + Sync + 'static,
+    {
+        self.create_raw_subscriber_with_buffer_fields(
+            topic, type_name, type_hash, callback, qos, group, None,
+        )
+    }
+
+    /// Create a raw subscriber for FFI that joins rmw_zenoh's CPU buffer group when `group` and
+    /// `has_buffer_fields` ask for it.
+    ///
+    /// `has_buffer_fields` is the caller's claim about the message type. `Some(true)` means the type
+    /// has an unbounded `uint8[]` or `char[]` field, directly or nested. `Some(false)` means it has
+    /// none. `None` means the caller does not know. hiroz cannot check the claim. A caller that
+    /// has a [`MessageSchema`](crate::dynamic::MessageSchema) can pass
+    /// `Some(schema.has_buffer_fields())`. That method also counts an unbounded `byte[]`, which
+    /// `rmw_zenoh_cpp` does not, so pass your own flag for an exact answer.
+    ///
+    /// Only `BufferGroup::Auto` reads the flag. `Auto` with `None` or `Some(true)` joins, as
+    /// [`ZNode::create_raw_subscriber_with_group`] does. `Auto` with `Some(false)` stays out: it
+    /// declares the base key only and no token, so ROS tools do not list it. `Cpu` joins and `Off`
+    /// stays out whatever the flag says. A transient-local QoS or a custom key expression format
+    /// stays out under every setting.
+    ///
+    /// A wrong `Some(true)` costs one extra join and loses no data. A wrong `Some(false)` on a
+    /// buffer topic is the dangerous direction: the subscriber declares no token, so a
+    /// buffer-aware publisher never writes to it, and it receives nothing on that topic without an
+    /// error. Pass `Cpu` when you are not sure.
+    #[cfg(feature = "ffi")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_raw_subscriber_with_buffer_fields<F>(
+        &self,
+        topic: &str,
+        type_name: &str,
+        type_hash: &str,
+        callback: F,
+        qos: Option<crate::qos::QosProfile>,
+        group: crate::BufferGroup,
+        has_buffer_fields: Option<bool>,
     ) -> Result<crate::ffi::subscriber::RawSubscriber>
     where
         F: Fn(&[u8]) + Send + Sync + 'static,
@@ -745,7 +788,7 @@ impl ZNode {
 
         let group_key = crate::buffer_group::joined_group_key(
             group,
-            None,
+            has_buffer_fields,
             &self.keyexpr_format,
             &entity,
             key_expr.as_str(),

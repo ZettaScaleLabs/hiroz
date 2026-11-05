@@ -879,6 +879,11 @@ jobs:
           source /tmp/nix-dev-env.sh
           nu scripts/test-pure-rust.nu check-ffi-header
 
+      - name: FFI last-error test
+        run: |
+          source /tmp/nix-dev-env.sh
+          nu scripts/test-pure-rust.nu test-ffi-last-error
+
   go-tests:
     name: Go Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

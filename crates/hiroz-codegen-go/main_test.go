@@ -589,6 +589,7 @@ func TestMinCDRSize(t *testing.T) {
 		{"sequence of strings", []FieldDefinition{seq(FieldType{Kind: "String"})}, 4},
 		{"sequence of nested", []FieldDefinition{seq(custom("Pair"))}, 4},
 		{"nested", []FieldDefinition{scalar(custom("Outer"))}, 13},
+		{"fixed nested array", []FieldDefinition{{Name: "f", FieldType: custom("Pair"), IsArray: true, ArrayKind: "fixed", ArraySize: n(2)}}, 24},
 		{"nested empty", []FieldDefinition{scalar(custom("Empty"))}, 0},
 		{"nested unknown", []FieldDefinition{scalar(custom("Missing"))}, 0},
 		{"cycle counts the cycle as zero", []FieldDefinition{scalar(custom("SelfA"))}, 6},
