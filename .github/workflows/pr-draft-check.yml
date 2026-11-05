@@ -44,7 +44,9 @@ jobs:
       - name: Check out the policy script and its tests
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
-          sparse-checkout: .github/scripts
+          sparse-checkout: |
+            .github/scripts
+            .github/workflows
           persist-credentials: false
 
       - name: Run the policy script tests with mocked GitHub objects
