@@ -51,6 +51,9 @@ pub struct CSubscriber {
 
 /// Create a subscriber with callback (default QoS)
 ///
+/// The subscriber joins rmw_zenoh's CPU buffer group, as `hiroz_subscriber_create_with_qos`
+/// does. Use `hiroz_subscriber_create_with_group` to choose.
+///
 /// # Safety
 /// `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
 /// must be valid C strings. `callback` must be a valid function pointer.
@@ -79,6 +82,11 @@ pub unsafe extern "C" fn hiroz_subscriber_create(
 
 /// Create a subscriber with callback and QoS profile
 ///
+/// The subscriber uses the node default for rmw_zenoh's CPU buffer group. A C node always has
+/// the default, `BufferGroup::Auto`, so the subscriber joins. The exception is a QoS that
+/// rmw_zenoh does not serve on the group key (transient-local): that subscriber stays out. Use
+/// `hiroz_subscriber_create_with_group` to choose.
+///
 /// # Safety
 /// `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
 /// must be valid C strings. `callback` must be a valid function pointer.
@@ -92,6 +100,159 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_qos(
     callback: MessageCallback,
     user_data: usize,
     qos: *const CQosProfile,
+) -> *mut CSubscriber {
+    unsafe {
+        create_subscriber(
+            node,
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            user_data,
+            qos,
+            None,
+            None,
+        )
+    }
+}
+
+/// Create a subscriber with callback, QoS profile and a buffer group choice
+///
+/// `group` is `0` to stay out of rmw_zenoh's CPU buffer group, `1` to join it, or `2` to
+/// join it as `hiroz_subscriber_create_with_qos` does. A subscriber has no message
+/// definition here, so `1` and `2` join the same way. A subscriber that joins announces
+/// `backends:cpu:` and receives from both the base key and the group key. Any other value is an
+/// error: the function returns null, with a warning in the log when logging is on. A QoS that
+/// rmw_zenoh does not serve on the group key (transient-local) stays out whatever `group` says.
+/// A subscriber that stays out declares no liveliness token, so ROS tools do not list it and a
+/// publisher does not learn that it exists.
+///
+/// # Safety
+/// `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
+/// must be valid C strings. `callback` must be a valid function pointer.
+/// `qos` may be null for default QoS. `user_data` is passed through to the callback.
+/// `hiroz_subscriber_destroy` does not wait for a callback that is running, so the caller must
+/// not free what `user_data` names until it knows that no callback is running.
+#[allow(clippy::too_many_arguments)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hiroz_subscriber_create_with_group(
+    node: *mut CNode,
+    topic: *const c_char,
+    type_name: *const c_char,
+    type_hash: *const c_char,
+    callback: MessageCallback,
+    user_data: usize,
+    qos: *const CQosProfile,
+    group: i32,
+) -> *mut CSubscriber {
+    let group = match group {
+        0 => crate::BufferGroup::Off,
+        1 => crate::BufferGroup::Cpu,
+        2 => crate::BufferGroup::Auto,
+        other => {
+            tracing::warn!(
+                "hiroz: Unknown buffer group {} for subscriber (expected 0, 1 or 2)",
+                other
+            );
+            return std::ptr::null_mut();
+        }
+    };
+    unsafe {
+        create_subscriber(
+            node,
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            user_data,
+            qos,
+            Some(group),
+            None,
+        )
+    }
+}
+
+/// `buffer_fields` value: the caller does not know whether the message type has a buffer field.
+pub const BUFFER_FIELDS_UNKNOWN: i32 = 0;
+/// `buffer_fields` value: the message type has no unbounded `uint8[]` or `char[]` field.
+pub const BUFFER_FIELDS_ABSENT: i32 = 1;
+/// `buffer_fields` value: the message type has an unbounded `uint8[]` or `char[]` field.
+pub const BUFFER_FIELDS_PRESENT: i32 = 2;
+
+/// Create a subscriber with callback and QoS profile, telling hiroz whether the message type
+/// has a buffer field.
+///
+/// `buffer_fields` is one of `hiroz_BUFFER_FIELDS_UNKNOWN` (0), `hiroz_BUFFER_FIELDS_ABSENT` (1)
+/// and `hiroz_BUFFER_FIELDS_PRESENT` (2). Any other value makes the call log a warning and return
+/// null. The subscriber uses the node default for the buffer group, as
+/// `hiroz_subscriber_create_with_qos` does, and a C node has the default `Auto`. Under `Auto`,
+/// `UNKNOWN` and `PRESENT` join the CPU buffer group. `ABSENT` stays out: it declares the base
+/// key only and no liveliness token, so ROS tools do not list it. A subscriber with a
+/// transient-local QoS stays out under every value. Pass `ABSENT` only when the type has no
+/// unbounded `uint8[]` or `char[]` field, directly or nested. On a buffer topic the subscriber
+/// then receives nothing, without an error, and no token form fixes that on a released
+/// `rmw_zenoh_cpp`.
+///
+/// # Safety
+/// `node` must be a valid node pointer. `topic`, `type_name`, and `type_hash`
+/// must be valid C strings. `callback` must be a valid function pointer.
+/// `qos` may be null for default QoS. `user_data` is passed through to the callback.
+/// `hiroz_subscriber_destroy` does not wait for a callback that is running, so the caller must
+/// not free what `user_data` names until it knows that no callback is running.
+#[allow(clippy::too_many_arguments)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hiroz_subscriber_create_with_buffer_fields(
+    node: *mut CNode,
+    topic: *const c_char,
+    type_name: *const c_char,
+    type_hash: *const c_char,
+    callback: MessageCallback,
+    user_data: usize,
+    qos: *const CQosProfile,
+    buffer_fields: i32,
+) -> *mut CSubscriber {
+    let has_buffer_fields = match buffer_fields {
+        BUFFER_FIELDS_UNKNOWN => None,
+        BUFFER_FIELDS_ABSENT => Some(false),
+        BUFFER_FIELDS_PRESENT => Some(true),
+        other => {
+            tracing::warn!(
+                "hiroz: buffer_fields {other} is not 0 (unknown), 1 (absent) or 2 (present)"
+            );
+            return std::ptr::null_mut();
+        }
+    };
+    unsafe {
+        create_subscriber(
+            node,
+            topic,
+            type_name,
+            type_hash,
+            callback,
+            user_data,
+            qos,
+            None,
+            has_buffer_fields,
+        )
+    }
+}
+
+/// The body shared by the `with_` creators. `group` is `None` to follow the node default.
+/// `has_buffer_fields` is the caller's claim about the message type, or `None` when unknown.
+///
+/// # Safety
+/// The same as `hiroz_subscriber_create_with_qos`.
+#[allow(clippy::too_many_arguments)]
+unsafe fn create_subscriber(
+    node: *mut CNode,
+    topic: *const c_char,
+    type_name: *const c_char,
+    type_hash: *const c_char,
+    callback: MessageCallback,
+    user_data: usize,
+    qos: *const CQosProfile,
+    group: Option<crate::BufferGroup>,
+    has_buffer_fields: Option<bool>,
 ) -> *mut CSubscriber {
     unsafe {
         let node_ref = match get_node_ref(node) {
@@ -115,21 +276,26 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_qos(
         };
 
         let qos_profile = CQosProfile::to_qos_profile(qos);
+        let on_message = move |data: &[u8]| {
+            callback(user_data, data.as_ptr(), data.len());
+        };
 
-        match node_ref.create_raw_subscriber_with_qos(
+        let group = group.unwrap_or(node_ref.subscriber_options.buffer_group);
+        let created = node_ref.create_raw_subscriber_with_buffer_fields(
             topic_str,
             type_name_str,
             type_hash_str,
-            move |data: &[u8]| {
-                callback(user_data, data.as_ptr(), data.len());
-            },
+            on_message,
             qos_profile,
-        ) {
+            group,
+            has_buffer_fields,
+        );
+        match created {
             Ok(raw_sub) => Box::into_raw(Box::new(CSubscriber {
                 inner: Box::new(raw_sub),
             })),
             Err(e) => {
-                tracing::warn!("hiroz: Failed to create subscriber: {}", e);
+                ffi_warn!("hiroz: Failed to create subscriber: {}", e);
                 std::ptr::null_mut()
             }
         }
@@ -137,6 +303,8 @@ pub unsafe extern "C" fn hiroz_subscriber_create_with_qos(
 }
 
 /// Destroy a subscriber
+///
+/// The call does not wait for a callback that is running. It can return while one still runs.
 ///
 /// # Safety
 /// `sub` must be a valid subscriber pointer or null.

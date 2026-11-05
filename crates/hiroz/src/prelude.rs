@@ -23,6 +23,7 @@ pub use crate::Builder;
 /// Core runtime types.
 pub use crate::context::{ZContext, ZContextBuilder};
 pub use crate::node::ZNode;
+pub use crate::local_bus::{Delivery, Published};
 pub use crate::pubsub::{ZPub, ZSub};
 pub use crate::service::{RequestId, ServiceReply, ServiceRequest, ZClient, ZServer};
 
@@ -55,6 +56,8 @@ pub use crate::parameter::{
 
 /// The `Result` alias used throughout hiroz (equivalent to `zenoh::Result`).
 pub use zenoh::Result;
+/// Locality restriction for publishers and subscribers, re-exported from zenoh.
+pub use zenoh::sample::Locality;
 
 /// Lifecycle node support.
 pub use crate::lifecycle::{

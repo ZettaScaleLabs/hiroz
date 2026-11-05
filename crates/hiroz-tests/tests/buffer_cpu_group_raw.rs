@@ -30,7 +30,10 @@ use common::{
 use hiroz::{
     BufferGroup, Builder,
     context::{ZContext, ZContextBuilder},
-    ffi::subscriber::RawSubscriber,
+    dynamic::{FieldType, MessageSchema},
+    ffi::subscriber::{
+        BUFFER_FIELDS_ABSENT, BUFFER_FIELDS_PRESENT, BUFFER_FIELDS_UNKNOWN, RawSubscriber,
+    },
     node::ZNode,
     qos::{QosDurability, QosProfile},
 };
@@ -765,4 +768,804 @@ fn raw_create_and_teardown_cycles_leave_no_token_and_no_callback() {
         }
         assert_torn_down(&name, &f.raw, TOPIC, &count);
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The C ABI: `hiroz_subscriber_create_with_group`
+// ---------------------------------------------------------------------------------------------
+
+/// The C callback of the ABI tests. `user_data` is the address of a leaked `Tally`. It tallies a
+/// payload as `counter` does, so a test can tell a group-key delivery from a base-key one.
+extern "C" fn c_count(user_data: usize, data: *const u8, len: usize) {
+    let tally = unsafe { &*(user_data as *const Tally) };
+    let payload = unsafe { std::slice::from_raw_parts(data, len) };
+    if payload == GROUP_PAYLOAD {
+        tally.group.fetch_add(1, Ordering::Relaxed);
+    } else {
+        tally.base.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// A tally that outlives the test, and the `user_data` that names it. The C callback can run until
+/// its subscriber is destroyed, so the tally is never freed.
+fn c_tally() -> (&'static Tally, usize) {
+    let tally: &'static Tally = Box::leak(Box::new(Tally {
+        group: AtomicUsize::new(0),
+        base: AtomicUsize::new(0),
+    }));
+    (tally, tally as *const Tally as usize)
+}
+
+/// A context and a node made through the C ABI, as a C caller makes them.
+struct CFixture {
+    ctx: *mut hiroz::ffi::context::CContext,
+    node: *mut hiroz::ffi::node::CNode,
+}
+
+impl CFixture {
+    fn new(endpoint: &str, name: &str) -> Self {
+        use std::ffi::CString;
+        let endpoint = CString::new(endpoint).unwrap();
+        let endpoints = [endpoint.as_ptr()];
+        let mode = CString::new("client").unwrap();
+        let config = hiroz::ffi::context::CContextConfig {
+            domain_id: 0,
+            config_file: std::ptr::null(),
+            connect_endpoints: endpoints.as_ptr(),
+            connect_endpoints_count: 1,
+            mode: mode.as_ptr(),
+            disable_multicast_scouting: true,
+            connect_to_local_zenohd: false,
+            json_config: std::ptr::null(),
+            remap_rules: std::ptr::null(),
+            remap_rules_count: 0,
+            enable_logging: false,
+            namespace: std::ptr::null(),
+        };
+        let name = CString::new(name).unwrap();
+        unsafe {
+            let ctx = hiroz::ffi::context::hiroz_context_create_with_config(&config);
+            assert!(!ctx.is_null(), "the C context was not created");
+            let node = hiroz::ffi::node::hiroz_node_create(ctx, name.as_ptr(), std::ptr::null());
+            assert!(!node.is_null(), "the C node was not created");
+            Self { ctx, node }
+        }
+    }
+
+    /// `hiroz_subscriber_create_with_group` on `/topic`. Null on failure.
+    fn with_group(
+        &self,
+        topic: &str,
+        user_data: usize,
+        group: i32,
+    ) -> *mut hiroz::ffi::subscriber::CSubscriber {
+        use std::ffi::CString;
+        let topic = CString::new(format!("/{topic}")).unwrap();
+        let type_name = CString::new(TYPE_NAME).unwrap();
+        let type_hash = CString::new(TYPE_HASH).unwrap();
+        unsafe {
+            hiroz::ffi::subscriber::hiroz_subscriber_create_with_group(
+                self.node,
+                topic.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                c_count,
+                user_data,
+                std::ptr::null(),
+                group,
+            )
+        }
+    }
+
+    /// `hiroz_subscriber_create` on `/topic`: no group choice. Null on failure.
+    fn plain(&self, topic: &str, user_data: usize) -> *mut hiroz::ffi::subscriber::CSubscriber {
+        use std::ffi::CString;
+        let topic = CString::new(format!("/{topic}")).unwrap();
+        let type_name = CString::new(TYPE_NAME).unwrap();
+        let type_hash = CString::new(TYPE_HASH).unwrap();
+        unsafe {
+            hiroz::ffi::subscriber::hiroz_subscriber_create(
+                self.node,
+                topic.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                c_count,
+                user_data,
+            )
+        }
+    }
+
+    /// `hiroz_subscriber_create_with_qos` on `/topic` with the default QoS. Null on failure.
+    fn with_qos(&self, topic: &str, user_data: usize) -> *mut hiroz::ffi::subscriber::CSubscriber {
+        use std::ffi::CString;
+        let topic = CString::new(format!("/{topic}")).unwrap();
+        let type_name = CString::new(TYPE_NAME).unwrap();
+        let type_hash = CString::new(TYPE_HASH).unwrap();
+        unsafe {
+            hiroz::ffi::subscriber::hiroz_subscriber_create_with_qos(
+                self.node,
+                topic.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                c_count,
+                user_data,
+                std::ptr::null(),
+            )
+        }
+    }
+}
+
+impl Drop for CFixture {
+    fn drop(&mut self) {
+        unsafe {
+            hiroz::ffi::node::hiroz_node_destroy(self.node);
+            hiroz::ffi::context::hiroz_context_destroy(self.ctx);
+        }
+    }
+}
+
+fn c_destroy(sub: *mut hiroz::ffi::subscriber::CSubscriber) {
+    unsafe { hiroz::ffi::subscriber::hiroz_subscriber_destroy(sub) };
+}
+
+/// Groups `1` (`Cpu`) and `2` (`Auto`) join: the token announces `backends:cpu:` and one callback
+/// serves the base key and the group key. Group `0` on the same node is the control that the token
+/// query tells joined and not joined apart.
+#[test]
+fn c_abi_groups_cpu_and_auto_join() {
+    const NAME: &str = "c_abi_groups_cpu_and_auto_join";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_abi_join");
+    let (_off_tally, off_data) = c_tally();
+    let (cpu_tally, cpu_data) = c_tally();
+    let (auto_tally, auto_data) = c_tally();
+    let off = c.with_group("c_abi_join_off", off_data, 0);
+    let cpu = c.with_group("c_abi_join_cpu", cpu_data, 1);
+    let auto = c.with_group("c_abi_join_auto", auto_data, 2);
+    assert!(
+        !off.is_null() && !cpu.is_null() && !auto.is_null(),
+        "{NAME}: a creator returned null"
+    );
+
+    assert_joins(
+        NAME,
+        &raw,
+        "c_abi_join_cpu",
+        "the C subscriber with group 1",
+    );
+    assert_joins(
+        NAME,
+        &raw,
+        "c_abi_join_auto",
+        "the C subscriber with group 2",
+    );
+    let off_tokens = tokens_of(&raw, "c_abi_join_off");
+    assert!(
+        off_tokens.iter().all(|t| !t.contains("backends:")),
+        "{NAME}: the group 0 control announced backends: {off_tokens:?}"
+    );
+    assert_delivers_on_both_keys(
+        NAME,
+        &raw,
+        "c_abi_join_cpu",
+        cpu_tally,
+        "the group 1 callback",
+    );
+    assert_delivers_on_both_keys(
+        NAME,
+        &raw,
+        "c_abi_join_auto",
+        auto_tally,
+        "the group 2 callback",
+    );
+
+    for sub in [off, cpu, auto] {
+        c_destroy(sub);
+    }
+}
+
+/// Group `0` stays out: no group key, no `backends:` field. A C subscriber with group `1` on the
+/// same node is the control.
+#[test]
+fn c_abi_group_off_stays_out() {
+    const NAME: &str = "c_abi_group_off_stays_out";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_abi_off");
+    let (_control_tally, control_data) = c_tally();
+    let (tally, data) = c_tally();
+    let control = c.with_group("c_abi_off_control", control_data, 1);
+    let subject = c.with_group("c_abi_off_subject", data, 0);
+    assert!(
+        !control.is_null() && !subject.is_null(),
+        "{NAME}: a creator returned null"
+    );
+
+    assert_stays_out(NAME, &raw, "c_abi_off_control", "c_abi_off_subject", tally);
+
+    c_destroy(subject);
+    c_destroy(control);
+}
+
+/// `hiroz_subscriber_create` and `hiroz_subscriber_create_with_qos` make no group choice. They
+/// follow the node default, which is `Auto` when nothing sets it, so they join. Group `0` on the
+/// same node is the control.
+#[test]
+fn c_abi_creators_without_a_group_join_by_default() {
+    const NAME: &str = "c_abi_creators_without_a_group_join_by_default";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_abi_def");
+    let (_off_tally, off_data) = c_tally();
+    let (plain_tally, plain_data) = c_tally();
+    let (qos_tally, qos_data) = c_tally();
+    let off = c.with_group("c_abi_def_off", off_data, 0);
+    let plain = c.plain("c_abi_def_plain", plain_data);
+    let qos = c.with_qos("c_abi_def_qos", qos_data);
+    assert!(
+        !off.is_null() && !plain.is_null() && !qos.is_null(),
+        "{NAME}: a creator returned null"
+    );
+
+    assert_joins(NAME, &raw, "c_abi_def_plain", "hiroz_subscriber_create");
+    assert_joins(
+        NAME,
+        &raw,
+        "c_abi_def_qos",
+        "hiroz_subscriber_create_with_qos",
+    );
+    let off_tokens = tokens_of(&raw, "c_abi_def_off");
+    assert!(
+        off_tokens.iter().all(|t| !t.contains("backends:")),
+        "{NAME}: the group 0 control announced backends: {off_tokens:?}"
+    );
+    assert_delivers_on_both_keys(
+        NAME,
+        &raw,
+        "c_abi_def_plain",
+        plain_tally,
+        "the plain callback",
+    );
+    assert_delivers_on_both_keys(NAME, &raw, "c_abi_def_qos", qos_tally, "the QoS callback");
+
+    for sub in [qos, plain, off] {
+        c_destroy(sub);
+    }
+}
+
+/// A group other than `0`, `1` and `2` is an error: the function returns null and declares
+/// nothing. Group `1` on the same node is the control that the node and the arguments are valid.
+#[test]
+fn c_abi_unknown_group_returns_null_and_declares_nothing() {
+    const NAME: &str = "c_abi_unknown_group_returns_null_and_declares_nothing";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_abi_bad");
+    let (_tally, data) = c_tally();
+
+    let control = c.with_group("c_abi_bad_control", data, 1);
+    assert!(
+        !control.is_null(),
+        "{NAME}: the control with group 1 returned null, so a null below proves nothing"
+    );
+    let bad = [3, -1, 99, i32::MIN];
+    for (i, group) in bad.into_iter().enumerate() {
+        let sub = c.with_group(&format!("c_abi_bad_{i}"), data, group);
+        let accepted = !sub.is_null();
+        if accepted {
+            c_destroy(sub);
+        }
+        assert!(!accepted, "{NAME}: group {group} was accepted");
+    }
+    // Let a token that a rejected call wrongly declared become visible.
+    std::thread::sleep(QUIET);
+    for i in 0..bad.len() {
+        let left = tokens_of(&raw, &format!("c_abi_bad_{i}"));
+        assert!(
+            left.is_empty(),
+            "{NAME}: a rejected group left tokens behind: {left:?}"
+        );
+    }
+
+    c_destroy(control);
+}
+
+/// Every cycle of create and destroy on one topic declares one token, removes it, and leaves no
+/// callback on the group key or the base key.
+#[test]
+fn c_abi_create_and_destroy_cycles_leave_no_token_and_no_callback() {
+    const NAME: &str = "c_abi_create_and_destroy_cycles_leave_no_token_and_no_callback";
+    const CYCLES: usize = 5;
+    const TOPIC: &str = "c_abi_cycle_topic";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_abi_cycle");
+
+    for cycle in 0..CYCLES {
+        let name = format!("{NAME}: cycle {cycle}");
+        let (tally, data) = c_tally();
+        let sub = c.with_group(TOPIC, data, 2);
+        assert!(!sub.is_null(), "{name}: the creator returned null");
+        // Positive controls: the token is visible and the callback fires before the destroy.
+        assert_joins(&name, &raw, TOPIC, "the C subscriber");
+        assert_delivers_on_both_keys(&name, &raw, TOPIC, tally, "the C callback");
+
+        c_destroy(sub);
+        assert_torn_down(&name, &raw, TOPIC, tally);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// A caller that knows whether the message type has a buffer field
+// ---------------------------------------------------------------------------------------------
+
+/// A raw subscriber on `topic` (no leading slash) built with the buffer-field entry point, and its
+/// call count.
+fn subscribe_with_flag(
+    node: &ZNode,
+    topic: &str,
+    group: BufferGroup,
+    has_buffer_fields: Option<bool>,
+) -> (Arc<Tally>, RawSubscriber) {
+    subscribe_with_flag_qos(node, topic, group, has_buffer_fields, None)
+}
+
+/// `subscribe_with_flag` with an explicit QoS.
+fn subscribe_with_flag_qos(
+    node: &ZNode,
+    topic: &str,
+    group: BufferGroup,
+    has_buffer_fields: Option<bool>,
+    qos: Option<QosProfile>,
+) -> (Arc<Tally>, RawSubscriber) {
+    let (count, callback) = counter();
+    let sub = node
+        .create_raw_subscriber_with_buffer_fields(
+            &format!("/{topic}"),
+            TYPE_NAME,
+            TYPE_HASH,
+            callback,
+            qos,
+            group,
+            has_buffer_fields,
+        )
+        .expect("raw subscriber with a buffer-field flag");
+    (count, sub)
+}
+
+/// `assert_stays_out`, after the control has proved that puts on the group key route: the control
+/// is delivered on both keys. Without that, "a put on the group key never reaches the subject"
+/// also holds when puts on the group key do not route at all.
+fn assert_stays_out_with_control(
+    name: &str,
+    raw: &zenoh::Session,
+    control_topic: &str,
+    control: &Tally,
+    subject_topic: &str,
+    subject: &Tally,
+) {
+    assert_joins(name, raw, control_topic, "the control");
+    assert_delivers_on_both_keys(name, raw, control_topic, control, "the control callback");
+    assert_stays_out(name, raw, control_topic, subject_topic, subject);
+}
+
+/// `Auto` with `Some(false)` stays out and declares no token. A `Cpu` control and an `Auto` with
+/// `Some(true)` twin join and are delivered on both keys, so the subject differs from the twin by
+/// the flag alone.
+#[test]
+fn raw_buffer_fields_absent_with_auto_stays_out() {
+    const NAME: &str = "raw_buffer_fields_absent_with_auto_stays_out";
+    let f = Fixture::new("raw_flag_absent");
+    let (control, _c) =
+        subscribe_with_flag(&f.node, "raw_flag_absent_control", BufferGroup::Cpu, None);
+    let (twin, _t) = subscribe_with_flag(
+        &f.node,
+        "raw_flag_absent_twin",
+        BufferGroup::Auto,
+        Some(true),
+    );
+    let (subject, _s) = subscribe_with_flag(
+        &f.node,
+        "raw_flag_absent_subject",
+        BufferGroup::Auto,
+        Some(false),
+    );
+    assert_joins(NAME, &f.raw, "raw_flag_absent_twin", "the Some(true) twin");
+    assert_delivers_on_both_keys(
+        NAME,
+        &f.raw,
+        "raw_flag_absent_twin",
+        &twin,
+        "the twin callback",
+    );
+    assert_stays_out_with_control(
+        NAME,
+        &f.raw,
+        "raw_flag_absent_control",
+        &control,
+        "raw_flag_absent_subject",
+        &subject,
+    );
+    // A raw subscriber that stays out declares no token at all.
+    let tokens = tokens_of(&f.raw, "raw_flag_absent_subject");
+    assert!(
+        tokens.is_empty(),
+        "{NAME}: the subject declared a token: {tokens:?}"
+    );
+}
+
+/// `Cpu` joins whatever the flag says.
+#[test]
+fn raw_buffer_fields_do_not_override_cpu() {
+    const NAME: &str = "raw_buffer_fields_do_not_override_cpu";
+    let f = Fixture::new("raw_flag_cpu");
+    let (count, _s) = subscribe_with_flag(&f.node, "raw_flag_cpu", BufferGroup::Cpu, Some(false));
+    assert_joins(
+        NAME,
+        &f.raw,
+        "raw_flag_cpu",
+        "the Cpu subscriber with Some(false)",
+    );
+    assert_delivers_on_both_keys(NAME, &f.raw, "raw_flag_cpu", &count, "the callback");
+}
+
+/// `Off` stays out whatever the flag says.
+#[test]
+fn raw_buffer_fields_do_not_override_off() {
+    const NAME: &str = "raw_buffer_fields_do_not_override_off";
+    let f = Fixture::new("raw_flag_off");
+    let (control, _c) =
+        subscribe_with_flag(&f.node, "raw_flag_off_control", BufferGroup::Cpu, None);
+    let (subject, _s) = subscribe_with_flag(
+        &f.node,
+        "raw_flag_off_subject",
+        BufferGroup::Off,
+        Some(true),
+    );
+    assert_stays_out_with_control(
+        NAME,
+        &f.raw,
+        "raw_flag_off_control",
+        &control,
+        "raw_flag_off_subject",
+        &subject,
+    );
+}
+
+/// A transient-local QoS and a custom key expression format stay out when the flag says
+/// `Some(true)`: the flag cannot override either. A `Cpu` control joins first, so the empty
+/// answers below are not a dead setup.
+#[test]
+fn raw_buffer_fields_do_not_override_the_exclusions() {
+    const NAME: &str = "raw_buffer_fields_do_not_override_the_exclusions";
+    let f = Fixture::new("raw_flag_excl");
+    let (control, _c) =
+        subscribe_with_flag(&f.node, "raw_flag_excl_control", BufferGroup::Cpu, None);
+    let (_custom_ctx, custom_node) = f.custom_format_node("raw_flag_excl_custom");
+    let (tl, _tl_sub) = subscribe_with_flag_qos(
+        &f.node,
+        "raw_flag_excl_tl",
+        BufferGroup::Auto,
+        Some(true),
+        transient_local(),
+    );
+    let (fmt, _fmt_sub) = subscribe_with_flag(
+        &custom_node,
+        "raw_flag_excl_fmt",
+        BufferGroup::Auto,
+        Some(true),
+    );
+    assert_joins(NAME, &f.raw, "raw_flag_excl_control", "the Cpu control");
+    assert_delivers_on_both_keys(
+        NAME,
+        &f.raw,
+        "raw_flag_excl_control",
+        &control,
+        "the control callback",
+    );
+    for (topic, count) in [("raw_flag_excl_tl", &tl), ("raw_flag_excl_fmt", &fmt)] {
+        assert_stays_out(
+            &format!("{NAME}: {topic}"),
+            &f.raw,
+            "raw_flag_excl_control",
+            topic,
+            count,
+        );
+    }
+}
+
+/// A one-field message schema.
+fn one_field(field_type: FieldType) -> Arc<MessageSchema> {
+    MessageSchema::builder("pkg/msg/M")
+        .field("f", field_type)
+        .build()
+        .unwrap()
+}
+
+/// The flag of a schema decides the join. The expectations are literals: the flag of a `uint8[]`
+/// schema makes the subscriber join and the flag of a `float64[]` schema keeps it out. Both
+/// subscribers use the same type name and hash, so the test shows that the flag reaches the join
+/// decision. It does not send a `float64[]` message.
+#[test]
+fn raw_flag_from_a_schema_decides_the_join() {
+    const NAME: &str = "raw_flag_from_a_schema_decides_the_join";
+    let bytes = one_field(FieldType::Sequence(Box::new(FieldType::Uint8)));
+    let floats = one_field(FieldType::Sequence(Box::new(FieldType::Float64)));
+    assert!(
+        bytes.has_buffer_fields(),
+        "{NAME}: a uint8[] schema has a buffer field"
+    );
+    assert!(
+        !floats.has_buffer_fields(),
+        "{NAME}: a float64[] schema has none"
+    );
+    let f = Fixture::new("raw_schema");
+    let (bytes_count, _b) = subscribe_with_flag(
+        &f.node,
+        "raw_schema_bytes",
+        BufferGroup::Auto,
+        Some(bytes.has_buffer_fields()),
+    );
+    let (floats_count, _fl) = subscribe_with_flag(
+        &f.node,
+        "raw_schema_floats",
+        BufferGroup::Auto,
+        Some(floats.has_buffer_fields()),
+    );
+    assert_stays_out_with_control(
+        NAME,
+        &f.raw,
+        "raw_schema_bytes",
+        &bytes_count,
+        "raw_schema_floats",
+        &floats_count,
+    );
+}
+
+impl CFixture {
+    /// `hiroz_subscriber_create_with_buffer_fields` on `/topic` with the default QoS. Null on
+    /// failure.
+    fn with_buffer_fields(
+        &self,
+        topic: &str,
+        user_data: usize,
+        buffer_fields: i32,
+    ) -> *mut hiroz::ffi::subscriber::CSubscriber {
+        use std::ffi::CString;
+        let topic = CString::new(format!("/{topic}")).unwrap();
+        let type_name = CString::new(TYPE_NAME).unwrap();
+        let type_hash = CString::new(TYPE_HASH).unwrap();
+        unsafe {
+            hiroz::ffi::subscriber::hiroz_subscriber_create_with_buffer_fields(
+                self.node,
+                topic.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                c_count,
+                user_data,
+                std::ptr::null(),
+                buffer_fields,
+            )
+        }
+    }
+}
+
+impl CFixture {
+    /// `hiroz_subscriber_create_with_buffer_fields` on `/topic` with a transient-local QoS. Null
+    /// on failure.
+    fn with_buffer_fields_transient_local(
+        &self,
+        topic: &str,
+        user_data: usize,
+        buffer_fields: i32,
+    ) -> *mut hiroz::ffi::subscriber::CSubscriber {
+        use std::ffi::CString;
+        let topic = CString::new(format!("/{topic}")).unwrap();
+        let type_name = CString::new(TYPE_NAME).unwrap();
+        let type_hash = CString::new(TYPE_HASH).unwrap();
+        let qos = hiroz::ffi::qos::CQosProfile {
+            reliability: 0,
+            durability: 1,
+            history: 0,
+            history_depth: 10,
+            deadline_sec: 0,
+            deadline_nsec: 0,
+            lifespan_sec: 0,
+            lifespan_nsec: 0,
+            liveliness: 0,
+            liveliness_lease_sec: 0,
+            liveliness_lease_nsec: 0,
+        };
+        unsafe {
+            hiroz::ffi::subscriber::hiroz_subscriber_create_with_buffer_fields(
+                self.node,
+                topic.as_ptr(),
+                type_name.as_ptr(),
+                type_hash.as_ptr(),
+                c_count,
+                user_data,
+                &qos,
+                buffer_fields,
+            )
+        }
+    }
+}
+
+/// The ABI numbers are `0`, `1` and `2`, written here as literals: the other tests read the
+/// constants back from the Rust source, so a swap of two constants would move them together. `1`
+/// stays out and `0` and `2` join. A `Cpu` subscriber made with group `1` is the control.
+#[test]
+fn c_abi_buffer_fields_numbers_are_pinned() {
+    const NAME: &str = "c_abi_buffer_fields_numbers_are_pinned";
+    assert_eq!(BUFFER_FIELDS_UNKNOWN, 0, "{NAME}");
+    assert_eq!(BUFFER_FIELDS_ABSENT, 1, "{NAME}");
+    assert_eq!(BUFFER_FIELDS_PRESENT, 2, "{NAME}");
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_flag_lit");
+    let (_control_tally, control_data) = c_tally();
+    let (zero_tally, zero_data) = c_tally();
+    let (one_tally, one_data) = c_tally();
+    let (two_tally, two_data) = c_tally();
+    let control = c.with_group("c_flag_lit_control", control_data, 1);
+    let zero = c.with_buffer_fields("c_flag_lit_zero", zero_data, 0);
+    let one = c.with_buffer_fields("c_flag_lit_one", one_data, 1);
+    let two = c.with_buffer_fields("c_flag_lit_two", two_data, 2);
+    assert!(
+        !control.is_null() && !zero.is_null() && !one.is_null() && !two.is_null(),
+        "{NAME}: a creator returned null"
+    );
+
+    assert_joins(NAME, &raw, "c_flag_lit_zero", "the subscriber with 0");
+    assert_delivers_on_both_keys(NAME, &raw, "c_flag_lit_zero", zero_tally, "the 0 callback");
+    assert_joins(NAME, &raw, "c_flag_lit_two", "the subscriber with 2");
+    assert_delivers_on_both_keys(NAME, &raw, "c_flag_lit_two", two_tally, "the 2 callback");
+    assert_stays_out(
+        NAME,
+        &raw,
+        "c_flag_lit_control",
+        "c_flag_lit_one",
+        one_tally,
+    );
+
+    for sub in [one, two, zero, control] {
+        c_destroy(sub);
+    }
+}
+
+/// A transient-local QoS through the C entry stays out under `UNKNOWN` and `PRESENT`: neither
+/// value overrides it. The same two values with the default QoS join, on the same node.
+#[test]
+fn c_abi_buffer_fields_do_not_override_a_transient_local_qos() {
+    const NAME: &str = "c_abi_buffer_fields_do_not_override_a_transient_local_qos";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_flag_tl");
+    let (control_tally, control_data) = c_tally();
+    let (unknown_tally, unknown_data) = c_tally();
+    let (present_tally, present_data) = c_tally();
+    let control = c.with_buffer_fields("c_flag_tl_control", control_data, BUFFER_FIELDS_PRESENT);
+    let unknown = c.with_buffer_fields_transient_local(
+        "c_flag_tl_unknown",
+        unknown_data,
+        BUFFER_FIELDS_UNKNOWN,
+    );
+    let present = c.with_buffer_fields_transient_local(
+        "c_flag_tl_present",
+        present_data,
+        BUFFER_FIELDS_PRESENT,
+    );
+    assert!(
+        !control.is_null() && !unknown.is_null() && !present.is_null(),
+        "{NAME}: a creator returned null"
+    );
+
+    assert_joins(NAME, &raw, "c_flag_tl_control", "the default-QoS control");
+    assert_delivers_on_both_keys(
+        NAME,
+        &raw,
+        "c_flag_tl_control",
+        control_tally,
+        "the control callback",
+    );
+    assert_stays_out(
+        NAME,
+        &raw,
+        "c_flag_tl_control",
+        "c_flag_tl_unknown",
+        unknown_tally,
+    );
+    assert_stays_out(
+        NAME,
+        &raw,
+        "c_flag_tl_control",
+        "c_flag_tl_present",
+        present_tally,
+    );
+
+    for sub in [present, unknown, control] {
+        c_destroy(sub);
+    }
+}
+
+/// Through the C entry, `UNKNOWN` and `PRESENT` join and `ABSENT` stays out. The first two are
+/// delivered on both keys before the `ABSENT` subscriber is judged.
+#[test]
+fn c_abi_buffer_fields_value_decides_the_join() {
+    const NAME: &str = "c_abi_buffer_fields_value_decides_the_join";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_flag");
+    let (unknown_tally, unknown_data) = c_tally();
+    let (present_tally, present_data) = c_tally();
+    let (absent_tally, absent_data) = c_tally();
+    let unknown = c.with_buffer_fields("c_flag_unknown", unknown_data, BUFFER_FIELDS_UNKNOWN);
+    let present = c.with_buffer_fields("c_flag_present", present_data, BUFFER_FIELDS_PRESENT);
+    let absent = c.with_buffer_fields("c_flag_absent", absent_data, BUFFER_FIELDS_ABSENT);
+    assert!(
+        !unknown.is_null() && !present.is_null() && !absent.is_null(),
+        "{NAME}: a creator returned null"
+    );
+
+    assert_joins(NAME, &raw, "c_flag_unknown", "the UNKNOWN subscriber");
+    assert_delivers_on_both_keys(
+        NAME,
+        &raw,
+        "c_flag_unknown",
+        unknown_tally,
+        "the UNKNOWN callback",
+    );
+    assert_stays_out_with_control(
+        NAME,
+        &raw,
+        "c_flag_present",
+        present_tally,
+        "c_flag_absent",
+        absent_tally,
+    );
+
+    for sub in [absent, present, unknown] {
+        c_destroy(sub);
+    }
+}
+
+/// A value other than the three constants returns null and declares nothing. A valid value on the
+/// same node returns a handle and declares a token, so the null answers the value and not a
+/// broken setup.
+#[test]
+fn c_abi_rejects_an_unknown_buffer_fields_value() {
+    const NAME: &str = "c_abi_rejects_an_unknown_buffer_fields_value";
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_flag_bad");
+    let (_tally, data) = c_tally();
+
+    let control = c.with_buffer_fields("c_flag_bad_control", data, BUFFER_FIELDS_PRESENT);
+    assert!(
+        !control.is_null(),
+        "{NAME}: a valid value returned null, so a null below proves nothing"
+    );
+    assert_joins(NAME, &raw, "c_flag_bad_control", "the valid control");
+
+    let bad = [-2, 3, i32::MIN, i32::MAX];
+    for (i, value) in bad.into_iter().enumerate() {
+        let sub = c.with_buffer_fields(&format!("c_flag_bad_{i}"), data, value);
+        let accepted = !sub.is_null();
+        if accepted {
+            c_destroy(sub);
+        }
+        assert!(!accepted, "{NAME}: the value {value} was accepted");
+    }
+    // Let a token that a rejected call wrongly declared become visible.
+    std::thread::sleep(QUIET);
+    for i in 0..bad.len() {
+        let left = tokens_of(&raw, &format!("c_flag_bad_{i}"));
+        assert!(
+            left.is_empty(),
+            "{NAME}: a rejected value left tokens behind: {left:?}"
+        );
+    }
+
+    c_destroy(control);
 }

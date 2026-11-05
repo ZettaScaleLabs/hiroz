@@ -68,6 +68,8 @@ This runs:
 
 This helps us manage CI workflow approvals.
 
+The `PR Draft Check` fails on a non-draft PR from an external contributor until a maintainer reviews it. A bot comment on the PR explains the failure. Converting the PR to a draft re-runs the check and clears the failure. The comments come from a separate workflow, `PR Draft Notify`, which runs from the `main` branch, so a change to it takes effect only after it merges.
+
 ### For All Contributors
 
 - Write clear PR descriptions
