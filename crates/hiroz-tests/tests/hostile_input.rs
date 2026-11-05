@@ -412,6 +412,41 @@ fn dynamic_decoder_survives_nested_hostile_zero_byte_sequences() {
     );
 }
 
+/// A sample for `Sequence(Sequence(Message(empty)))` with the given inner counts.
+fn nested_sample(inner_counts: &[u32]) -> Vec<u8> {
+    let mut v = vec![0x00, 0x01, 0x00, 0x00];
+    v.extend_from_slice(&(inner_counts.len() as u32).to_le_bytes());
+    for count in inner_counts {
+        v.extend_from_slice(&count.to_le_bytes());
+    }
+    v
+}
+
+/// The zero-byte budget covers the whole decode call. Each inner sequence below stays under the
+/// budget of 1,048,576 on its own, so a decoder that gave every sequence a fresh budget would
+/// accept the sample. Only the shared budget rejects the total.
+#[test]
+fn dynamic_decoder_shares_the_zero_byte_budget_across_sequences() {
+    let inner = FieldType::Sequence(Box::new(FieldType::Message(empty_message())));
+    let schema = MessageSchema::builder("test_msgs/msg/SharedBudget")
+        .field("items", FieldType::Sequence(Box::new(inner)))
+        .build()
+        .expect("schema");
+
+    // Control: three inner sequences of 300,000 elements (900,000 in all) fit the budget.
+    let fits = DynamicMessage::from_cdr(&nested_sample(&[300_000; 3]), &schema)
+        .expect("a total below the budget must decode");
+    assert_eq!(elements(&fits, "items").len(), 3);
+
+    // Four inner sequences of 300,000 elements (1,200,000 in all) exceed it.
+    let err = DynamicMessage::from_cdr(&nested_sample(&[300_000; 4]), &schema)
+        .expect_err("a total above the budget must be an error");
+    assert!(
+        err.to_string().contains("elements without data"),
+        "the error must name the budget: {err}"
+    );
+}
+
 /// A fixed array takes its length from the schema, which a remote node supplies. A huge length
 /// must be an error from the decoder, never a reservation.
 #[test]
