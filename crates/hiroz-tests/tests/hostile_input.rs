@@ -101,8 +101,8 @@ fn limit_respects_an_inherited_hard_limit() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     let applied: u64 = stdout
         .lines()
-        .find_map(|l| l.strip_prefix("address-space limit: "))
-        .and_then(|v| v.trim().parse().ok())
+        .find_map(|l| l.split_once("address-space limit: "))
+        .and_then(|(_, v)| v.trim().parse().ok())
         .unwrap_or_else(|| panic!("no applied limit reported\n{}", describe(&out)));
     assert!(
         applied <= inherited_kb * 1024,
