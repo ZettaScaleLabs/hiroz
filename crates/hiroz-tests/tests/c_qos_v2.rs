@@ -28,6 +28,7 @@ use hiroz::{
         context::{
             CContext, CContextConfig, hiroz_context_create_with_config, hiroz_context_destroy,
         },
+        last_error::{hiroz_last_error_clear, hiroz_last_error_message},
         node::{CNode, hiroz_node_create, hiroz_node_destroy},
         publisher::{
             CPublisher, hiroz_publisher_create_with_qos, hiroz_publisher_create_with_qos_v2,
@@ -1458,4 +1459,87 @@ fn c_abi_action_qos_v2_null_cancel_member_means_default() {
     assert_ne!(expected_cancel(), encoded(&QosProfile::default()));
 
     unsafe { hiroz_action_client_destroy(client) };
+}
+
+/// The message that the library holds as the last error of this thread, or `None`.
+fn last_error() -> Option<String> {
+    let message = hiroz_last_error_message();
+    (!message.is_null()).then(|| {
+        unsafe { std::ffi::CStr::from_ptr(message) }
+            .to_string_lossy()
+            .into_owned()
+    })
+}
+
+/// Run `create`, which must return true for a rejection, and require a last-error message.
+fn rejects(name: &str, create: impl FnOnce() -> bool) {
+    hiroz_last_error_clear();
+    assert!(create(), "the {name} creator accepted struct_size 0");
+    let message = last_error().unwrap_or_default();
+    assert!(
+        message.contains("Invalid QoS struct"),
+        "the {name} creator recorded {message:?}"
+    );
+}
+
+/// A creator that rejects a bad `struct_size` records a last-error message, as the other
+/// creators do when they warn. The message is cleared before each call, and the call must set it.
+/// The valid structs are the control: they leave the message cleared.
+#[test]
+fn c_abi_qos_v2_creators_record_a_last_error_on_a_bad_size() {
+    let router = TestRouter::new();
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_last_error");
+
+    let valid = init_v2();
+    let mut bad = init_v2();
+    bad.struct_size = 0;
+    let profiles = ActionProfiles::new();
+    let action_ok = profiles.as_struct();
+    let mut bad_action = profiles.as_struct();
+    bad_action.struct_size = 0;
+
+    hiroz_last_error_clear();
+    let publisher = c.publisher_v2("c_qos_v2_last_error_ok_pub", &valid);
+    let subscriber = c.subscriber_v2("c_qos_v2_last_error_ok_sub", &valid);
+    let client = c.service_client_v2("c_qos_v2_last_error_ok_cli", &valid);
+    let server = c.service_server_v2("c_qos_v2_last_error_ok_srv", &valid);
+    let action_client = c.action_client_v2("c_qos_v2_last_error_ok_acli", &action_ok);
+    let action_server = c.action_server_v2("c_qos_v2_last_error_ok_asrv", &action_ok);
+    assert!(
+        ![
+            publisher.is_null(),
+            subscriber.is_null(),
+            client.is_null(),
+            server.is_null(),
+            action_client.is_null(),
+            action_server.is_null()
+        ]
+        .contains(&true),
+        "a creator returned null for a valid struct"
+    );
+    assert_eq!(last_error(), None, "a valid struct recorded a message");
+
+    rejects("publisher", || c.publisher_v2("le_pub", &bad).is_null());
+    rejects("subscriber", || c.subscriber_v2("le_sub", &bad).is_null());
+    rejects("service client", || {
+        c.service_client_v2("le_cli", &bad).is_null()
+    });
+    rejects("service server", || {
+        c.service_server_v2("le_srv", &bad).is_null()
+    });
+    rejects("action client", || {
+        c.action_client_v2("le_acli", &bad_action).is_null()
+    });
+    rejects("action server", || {
+        c.action_server_v2("le_asrv", &bad_action).is_null()
+    });
+
+    unsafe {
+        hiroz_publisher_destroy(publisher);
+        hiroz_subscriber_destroy(subscriber);
+        hiroz_service_client_destroy(client);
+        hiroz_service_server_destroy(server);
+        hiroz_action_client_destroy(action_client);
+        hiroz_action_server_destroy(action_server);
+    }
 }
