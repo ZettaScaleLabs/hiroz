@@ -252,6 +252,24 @@ func TestSendGoalContextPanicInSerializeReleasesClient(t *testing.T) {
 	}
 }
 
+// A SerializeCDR that closes the client must not deadlock: the call registers with the client
+// only after the goal is serialised. The call then finds the client closed.
+func TestSendGoalContextSerializerMayCloseClient(t *testing.T) {
+	c := openTestActionClient()
+	stubSendGoal(t, func(*ActionClient, []byte) (*GoalHandle, error) {
+		t.Error("a goal was sent for a client that its serializer closed")
+		return nil, errors.New("stub")
+	})
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.SendGoalContext(context.Background(), &hookGoal{hook: func() { _ = c.Close() }})
+		done <- err
+	}()
+	if err := receiveBounded(t, done, "the call to return"); err == nil {
+		t.Error("want an error for the closed client, got nil")
+	}
+}
+
 // If ctx ends while the goal is serialised, nothing is sent.
 func TestSendGoalContextEndedDuringSerializeSendsNothing(t *testing.T) {
 	c := openTestActionClient()
