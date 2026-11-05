@@ -327,11 +327,13 @@ A cancel does not stop work that the C layer already started. `Close` waits for 
 
 | Call | `Close` waits for | Longest hold |
 |---|---|---|
-| `CallTypedContext` | the C call | its call timeout: the context deadline up to 10 s, or `DefaultServiceTimeout` (5 s) without a deadline |
+| `CallTypedContext` | the registered C call, not `SerializeCDR` before it or `DeserializeCDR` after it | its call timeout: the context deadline up to 10 s, or `DefaultServiceTimeout` (5 s) without a deadline |
 | `WaitForServiceContext` | the wait, which `Close` ends and which returns a closed-client error | one wait slice (250 ms) |
 | `SendGoalContext` | the goal's `SerializeCDR`, then the C call | the serializer time plus 10 s, the fixed timeout of the C call |
 | `GetResultWithContext`, `GetResult`, `GetTypedResult`, `GetTypedResultContext` | the C call | 30 s, the fixed timeout of the C call, and normally about 10 s because the service client behind it ends its query after 10 s |
 | `SendGoal`, `GoalHandle.Cancel` | nothing | do not call them concurrently with `Close` |
+
+`ServiceClient.Close` does not wait for your encoder or decoder. A `CallTypedContext` can still be inside `DeserializeCDR` when `Close` returns, so do not assume that your response state is no longer in use.
 
 A `SerializeCDR` that calls `Close` deadlocks `SendGoalContext`.
 
