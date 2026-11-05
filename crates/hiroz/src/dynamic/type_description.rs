@@ -336,6 +336,13 @@ fn field_description_to_schema(
     })
 }
 
+/// Largest fixed-array length the importer accepts, in elements.
+///
+/// A remote node supplies the type description, and the array length decides how much a default
+/// value allocates. One array of this length holds at most 32 MiB of 32-byte values. The limit
+/// counts elements, not bytes, and it does not bound arrays nested in messages.
+pub(crate) const MAX_ARRAY_CAPACITY: usize = 1 << 20;
+
 /// Convert a FieldTypeDescription back to a FieldType.
 fn field_type_description_to_type(
     ftd: &FieldTypeDescription,
@@ -385,7 +392,16 @@ fn field_type_description_to_type(
 
     // Apply array/sequence modifiers
     if is_array {
-        Ok(FieldType::Array(Box::new(base_type), ftd.capacity as usize))
+        let len = usize::try_from(ftd.capacity)
+            .ok()
+            .filter(|len| *len <= MAX_ARRAY_CAPACITY)
+            .ok_or_else(|| {
+                DynamicError::SerializationError(format!(
+                    "array capacity {} exceeds the maximum of {MAX_ARRAY_CAPACITY}",
+                    ftd.capacity
+                ))
+            })?;
+        Ok(FieldType::Array(Box::new(base_type), len))
     } else if is_bounded_seq {
         Ok(FieldType::BoundedSequence(
             Box::new(base_type),
@@ -644,8 +660,8 @@ mod tests {
             );
         }
         // The boundary: the maximum imports and one more does not.
-        assert!(import(1u64 << 20).is_ok());
-        assert!(import((1u64 << 20) + 1).is_err());
+        assert!(import(MAX_ARRAY_CAPACITY as u64).is_ok());
+        assert!(import(MAX_ARRAY_CAPACITY as u64 + 1).is_err());
         for capacity in [u64::MAX, 1 << 40, u64::from(u32::MAX) + 1] {
             assert!(import(capacity).is_err(), "{capacity} must be rejected");
         }
