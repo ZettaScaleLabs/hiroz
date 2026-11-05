@@ -159,7 +159,7 @@ unsafe fn create_publisher(
                 inner: Box::new(pub_inner),
             })),
             Err(e) => {
-                tracing::warn!("hiroz: Failed to create publisher: {}", e);
+                ffi_warn!("hiroz: Failed to create publisher: {}", e);
                 std::ptr::null_mut()
             }
         }

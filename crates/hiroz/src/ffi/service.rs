@@ -272,7 +272,7 @@ unsafe fn create_service_client(
                 inner: Box::new(raw_client),
             })),
             Err(e) => {
-                tracing::warn!("hiroz: Failed to create service client: {}", e);
+                ffi_warn!("hiroz: Failed to create service client: {}", e);
                 std::ptr::null_mut()
             }
         }
@@ -311,11 +311,11 @@ pub unsafe extern "C" fn hiroz_service_client_call(
                 ErrorCode::Success as i32
             }
             Err(crate::error::Error::Timeout(elapsed)) => {
-                tracing::warn!("hiroz: Service call timed out after {:?}", elapsed);
+                ffi_warn!("hiroz: Service call timed out after {:?}", elapsed);
                 ErrorCode::ServiceTimeout as i32
             }
             Err(e) => {
-                tracing::warn!("hiroz: Service call failed: {}", e);
+                ffi_warn!("hiroz: Service call failed: {}", e);
                 ErrorCode::ServiceCallFailed as i32
             }
         }
@@ -471,7 +471,7 @@ unsafe fn create_service_server(
         ) {
             Ok(s) => s,
             Err(e) => {
-                tracing::warn!("hiroz: Failed to create service server: {}", e);
+                ffi_warn!("hiroz: Failed to create service server: {}", e);
                 return std::ptr::null_mut();
             }
         };

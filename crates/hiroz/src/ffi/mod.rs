@@ -1,8 +1,21 @@
 //! C-compatible FFI layer for Go/Python/etc. bindings
 
+/// Log a warning and record it as this thread's last error (see `last_error`).
+///
+/// Defined before the `mod` declarations so every FFI submodule can use it.
+macro_rules! ffi_warn {
+    ($($arg:tt)*) => {{
+        let msg = format!($($arg)*);
+        tracing::warn!("{}", msg);
+        $crate::ffi::last_error::set(&msg);
+    }};
+}
+
+pub mod abi;
 pub mod action;
 pub mod context;
 pub mod graph;
+pub mod last_error;
 pub mod node;
 pub mod publisher;
 pub mod qos;
@@ -38,12 +51,14 @@ pub enum ErrorCode {
 /// Convert C string to Rust &str safely
 pub(crate) unsafe fn cstr_to_str<'a>(ptr: *const c_char) -> Result<&'a str, ErrorCode> {
     if ptr.is_null() {
+        last_error::set("null pointer passed for a string argument");
         return Err(ErrorCode::NullPointer);
     }
     unsafe {
-        CStr::from_ptr(ptr)
-            .to_str()
-            .map_err(|_| ErrorCode::InvalidUtf8)
+        CStr::from_ptr(ptr).to_str().map_err(|_| {
+            last_error::set("string argument is not valid UTF-8");
+            ErrorCode::InvalidUtf8
+        })
     }
 }
 
