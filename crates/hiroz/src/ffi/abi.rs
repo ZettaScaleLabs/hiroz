@@ -2,12 +2,14 @@
 
 /// Version of the C ABI this library exports.
 ///
-/// Bump it when a change removes or alters an exported function, struct layout or error code.
-/// Adding a function does not change it.
+/// This integer counts breaking changes only. It changes when an existing C symbol, struct layout or error code value changes incompatibly.
+/// An addition never changes it. A binding detects an added symbol by probing for it, with `dlsym` or at link time, and not by comparing numbers.
 /// Zero is never a version: a library without `hiroz_abi_version` does not export the symbol.
 const ABI_VERSION: u32 = 1;
 
-/// Return the version of the C ABI this library exports.
+/// Return the breaking-change counter of the C ABI this library exports.
+///
+/// The value changes only when an existing C symbol, struct layout or error code value changes incompatibly. It never changes for an addition. Probe for an added symbol instead of comparing numbers.
 #[unsafe(no_mangle)]
 pub extern "C" fn hiroz_abi_version() -> u32 {
     ABI_VERSION

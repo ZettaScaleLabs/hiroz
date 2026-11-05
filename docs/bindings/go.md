@@ -96,11 +96,11 @@ Callbacks flow in reverse: Rust invokes C function pointers → dispatched to Go
 
 ### ABI version
 
-The library exports `hiroz_abi_version()`, an integer that changes when an exported function, struct layout or error code is removed or altered. Adding a function does not change it. The first value is 1, and the function never returns 0.
+The library exports `hiroz_abi_version()`, a counter of breaking changes only. It changes when an existing C symbol, struct layout or error code value changes incompatibly. An addition never changes it. The first value is 1, and the function never returns 0.
 
-Go exposes it as `hiroz.ABIVersion()`. Linking against a library that lacks `hiroz_abi_version` fails with an undefined symbol.
+A binding detects an added symbol by probing for it, with `dlsym` or at link time, and not by comparing numbers. Go exposes the counter as `hiroz.ABIVersion()`. Linking against a library that lacks `hiroz_abi_version` fails with an undefined symbol.
 
-Nothing compares it with a version that the binding was built against, and CI does not check ABI changes against the last release. A mismatch between `hiroz_ffi.h` and `libhiroz` is therefore not detected automatically. It is open whether the integer should count only breaking changes, or whether the header also needs a constant for the built-against version.
+Nothing compares the counter with a value that the binding expects, and CI does not check ABI changes against the last release. A breaking mismatch between `hiroz_ffi.h` and `libhiroz` is therefore not detected automatically.
 
 ---
 
