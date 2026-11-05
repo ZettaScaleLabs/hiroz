@@ -34,8 +34,9 @@
 //! Channels are keyed by `(session zid, topic key expression)`. The zid makes
 //! "same session" true rather than "same process": two
 //! [`ZContext`](crate::context::ZContext)s in one process open two sessions and
-//! do not see each other's traffic. A publisher resolves its [`Channel`] once, at
-//! build time, and never touches the registry again.
+//! do not see each other's traffic. A publisher resolves its
+//! [`crate::local_bus::Channel`] once, at build time, and never touches the
+//! registry again.
 //!
 //! # Locking
 //!
