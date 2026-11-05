@@ -43,27 +43,20 @@ func CallTypedWithTimeout[Resp Message](client *ServiceClient, request Message, 
 	return nil
 }
 
-// CallTypedContext makes a typed service call that ends when ctx ends.
-// A context deadline sets the timeout of the call, up to 10 seconds. The service client
-// behind it ends every query after 10 seconds, so a later deadline does not extend the call:
-// it returns ErrTimeout after about 10 seconds. Without a deadline the call uses
-// DefaultServiceTimeout. When ctx ends first, the error wraps ctx.Err()
-// (context.Canceled or context.DeadlineExceeded) and does not match ErrTimeout.
-// A call timeout that ends after the context deadline has passed also returns
-// context.DeadlineExceeded. ErrTimeout means the server did not answer within the call
-// timeout while the context deadline was still in the future.
+// CallTypedContext calls the service, allowing ctx to cancel the wait for its response.
+// Serialization and decoding run synchronously and are not interrupted. Cancellation does not
+// stop the underlying C call; ServiceClient.Close waits for that call.
 //
-// Cancelling ctx does not abort the call in the C layer. The call ends at its timeout,
-// and ServiceClient.Close waits for it.
+// A context deadline sets the timeout of the call, up to 10 seconds, the limit of every query
+// of the service client. Without a deadline the call uses DefaultServiceTimeout. When ctx ends
+// first, the error wraps ctx.Err() and does not match ErrTimeout. A call timeout that ends
+// after the context deadline has passed also returns context.DeadlineExceeded. ErrTimeout
+// means the server did not answer within the call timeout while the deadline was still ahead.
 //
-// The context bounds the wait for the C result and nothing else. request.SerializeCDR and
-// response.DeserializeCDR are your code, they run synchronously on the calling goroutine,
-// and cancelling ctx cannot interrupt them:
-//   - A call that ends in SerializeCDR returns only when the serializer returns. It then
-//     returns the context error and does not reach the C layer.
-//   - ctx is checked once after the C result arrives and before DeserializeCDR runs. If ctx
-//     ends while DeserializeCDR runs, the call still returns nil, and response holds the
-//     decoded value.
+// A call whose ctx ended during request.SerializeCDR returns the context error when the
+// serializer returns, and does not reach the C layer. ctx is checked once after the C result
+// arrives, before response.DeserializeCDR runs. If ctx ends during decoding, the call returns
+// nil and response holds the decoded value.
 func CallTypedContext[Resp Message](ctx context.Context, client *ServiceClient, request Message, response Resp) error {
 	// Check before the user's serializer runs, so a cancelled call does not wait for it.
 	if err := ctx.Err(); err != nil {
