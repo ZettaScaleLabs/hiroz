@@ -155,6 +155,10 @@ func (s *Subscriber) setOnClose(f func()) { s.onClose.Store(&f) }
 // creates no subscriber. Closing the subscriber earlier is safe: it also releases the
 // registration on ctx.
 //
+// Known limit: neither cancel nor Close releases the handler. The underlying subscriber keeps
+// it reachable until the process ends, together with what it captures. Releasing it after the
+// running callbacks finish is not implemented.
+//
 // Example:
 //
 //	sub, err := hiroz.BuildWithTypedCallbackContext(ctx, node.CreateSubscriber("chatter"),
@@ -183,8 +187,13 @@ func BuildWithTypedCallbackContext[T Message](ctx context.Context, builder *Subs
 // earlier also closes the channel. A closed channel means that no sample will arrive on it.
 // It does not mean that the message type's DeserializeCDR has returned: a callback that is
 // inside DeserializeCDR when ctx ends runs it to the end, and then drops the sample. A
-// sample that has already passed the check of ctx when ctx ends can still arrive before the
-// channel closes. If ctx has already ended, the call returns ctx.Err() and creates nothing.
+// sample that is already in the send when ctx ends can still arrive before the channel
+// closes. If ctx has already ended, the call returns ctx.Err() and creates nothing.
+//
+// Known limit: neither cancel nor Close releases the callback. The underlying subscriber keeps
+// it reachable until the process ends, together with its channels and the message type.
+// It does not keep ctx. Releasing the callback after the running callbacks finish is not
+// implemented.
 //
 // A consumer that stops reading does not block the shutdown: a callback that waits on a
 // full channel is released first. The channel stays open until ctx ends or the subscriber
@@ -216,11 +225,12 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 		}
 		senders.RLock()
 		defer senders.RUnlock()
-		if closed || ctx.Err() != nil {
+		if closed {
 			return
 		}
-		// done closes before the destroy runs. When both arms of the send below are ready,
-		// select picks either, so drop the sample first.
+		// The handler does not capture ctx, which the subscriber would keep reachable for ever.
+		// Cancellation reaches it through done, which closes before the destroy runs. When both
+		// arms of the send below are ready, select picks either, so drop the sample first.
 		select {
 		case <-done:
 			return
