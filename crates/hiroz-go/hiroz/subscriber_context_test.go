@@ -479,3 +479,56 @@ func TestSubscriberWithChannelContextEarlyCloseReleasesAndCloses(t *testing.T) {
 		t.Errorf("destroys = %d, want 1", n)
 	}
 }
+
+type ctxPayloadKey struct{}
+
+// The callback of a channel subscriber stays reachable through the subscriber for ever. It
+// must not keep the context, and what the context carries, reachable with it.
+func TestSubscriberWithChannelContextCallbackDoesNotRetainContext(t *testing.T) {
+	stubSubscriber(t)
+	var finalized atomic.Bool
+	func() {
+		payload := new([64]byte)
+		runtime.SetFinalizer(payload, func(*[64]byte) { finalized.Store(true) })
+		ctx, cancel := context.WithCancel(context.WithValue(context.Background(), ctxPayloadKey{}, payload))
+		_, ch, err := SubscriberWithChannelContext[*nilSafeMessage](ctx, (&Node{}).CreateSubscriber("chatter"), 4)
+		if err != nil {
+			t.Fatalf("build failed: %v", err)
+		}
+		cancel()
+		finished := make(chan struct{})
+		go func() {
+			for range ch {
+			}
+			close(finished)
+		}()
+		receiveBounded(t, finished, "the channel to close")
+	}()
+	waitUntil(t, "the context payload to be collected", func() bool {
+		runtime.GC()
+		return finalized.Load()
+	})
+}
+
+// Positive control for the test above: a callback that does capture the context keeps its
+// payload alive, so the test can tell the two cases apart.
+func TestCallbackThatCapturesContextRetainsPayload(t *testing.T) {
+	stubSubscriber(t)
+	var finalized atomic.Bool
+	func() {
+		payload := new([64]byte)
+		runtime.SetFinalizer(payload, func(*[64]byte) { finalized.Store(true) })
+		ctx := context.WithValue(context.Background(), ctxPayloadKey{}, payload)
+		_, err := (&Node{}).CreateSubscriber("chatter").BuildWithCallback(&nilSafeMessage{}, func([]byte) { _ = ctx.Err() })
+		if err != nil {
+			t.Fatalf("build failed: %v", err)
+		}
+	}()
+	for i := 0; i < 50; i++ {
+		runtime.GC()
+		time.Sleep(time.Millisecond)
+	}
+	if finalized.Load() {
+		t.Fatal("the payload was collected although a retained callback captures its context")
+	}
+}
