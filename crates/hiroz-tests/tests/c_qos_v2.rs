@@ -42,7 +42,7 @@ use hiroz::{
         },
         subscriber::{CSubscriber, hiroz_subscriber_create_with_qos_v2, hiroz_subscriber_destroy},
     },
-    qos::{QosDurability, QosHistory, QosProfile, QosReliability},
+    qos::{QosDurability, QosDuration, QosHistory, QosLiveliness, QosProfile, QosReliability},
 };
 
 const RECV: Duration = Duration::from_secs(3);
@@ -1106,4 +1106,354 @@ fn c_abi_qos_v2_init_rejects_a_size_below_the_size_field() {
             "a rejected init wrote bytes for size {size}"
         );
     }
+}
+
+/// The profile fields that a creator reads from a struct whose `struct_size` ends after `whole`
+/// members: reliability, durability, history, history depth. The struct asks for best effort,
+/// transient-local and depth 7. A field outside the size keeps the default. Each size is a
+/// boundary: a field that ends exactly at `struct_size` is read, and the next one is not.
+#[test]
+fn c_abi_qos_v2_reads_each_prefix_up_to_the_boundary() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_bound");
+
+    let ten = std::num::NonZeroUsize::new(10).unwrap();
+    let seven = std::num::NonZeroUsize::new(7).unwrap();
+    let cases = [
+        // Only the size field is whole.
+        (4, QosReliability::Reliable, QosDurability::Volatile, ten),
+        (
+            std::mem::offset_of!(CQosProfileV2, durability) + 4,
+            QosReliability::BestEffort,
+            QosDurability::TransientLocal,
+            ten,
+        ),
+        (
+            std::mem::offset_of!(CQosProfileV2, history) + 4,
+            QosReliability::BestEffort,
+            QosDurability::TransientLocal,
+            ten,
+        ),
+        (
+            std::mem::offset_of!(CQosProfileV2, history_depth) + 4,
+            QosReliability::BestEffort,
+            QosDurability::TransientLocal,
+            seven,
+        ),
+    ];
+    let default = encoded(&QosProfile::default());
+    for (i, (size, reliability, durability, depth)) in cases.into_iter().enumerate() {
+        let mut qos = v2_non_default();
+        qos.struct_size = size as u32;
+        let topic = format!("c_qos_v2_bound_{i}");
+        let publisher = c.publisher_v2(&topic, &qos);
+        assert!(!publisher.is_null(), "struct_size {size} was rejected");
+        let expected = encoded(&QosProfile {
+            reliability,
+            durability,
+            history: QosHistory::KeepLast(depth),
+            ..Default::default()
+        });
+        assert_eq!(qos_text(&raw, &topic), expected, "struct_size {size}");
+        if i > 0 {
+            assert_ne!(expected, default, "the control for {size} is the default");
+        }
+        unsafe { hiroz_publisher_destroy(publisher) };
+    }
+}
+
+/// A v2 struct with a finite deadline, lifespan and lease, and manual-by-topic liveliness.
+fn timed_v2() -> CQosProfileV2 {
+    let mut qos = init_v2();
+    qos.deadline_sec = 5;
+    qos.deadline_nsec = 6;
+    qos.lifespan_sec = 7;
+    qos.lifespan_nsec = 8;
+    qos.liveliness = 2;
+    qos.liveliness_lease_sec = 9;
+    qos.liveliness_lease_nsec = 10;
+    qos
+}
+
+/// The deadline, lifespan, liveliness and lease reach the token. Every other test leaves them at
+/// the default, so a creator that drops them would pass. The first struct is whole. The second
+/// ends after `deadline_sec`: the deadline is cut in two, so its nanoseconds keep the default.
+#[test]
+fn c_abi_qos_v2_durations_and_liveliness_reach_the_token() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_durations");
+
+    let timed = QosProfile {
+        deadline: QosDuration { sec: 5, nsec: 6 },
+        lifespan: QosDuration { sec: 7, nsec: 8 },
+        liveliness: QosLiveliness::ManualByTopic,
+        liveliness_lease_duration: QosDuration { sec: 9, nsec: 10 },
+        ..Default::default()
+    };
+    let qos = timed_v2();
+
+    // The init round trip: a struct that init wrote and the caller edited converts to `timed`.
+    let converted = unsafe { CQosProfileV2::to_qos_profile(&qos) }
+        .expect("a whole struct is valid")
+        .expect("a non-null pointer gives a profile");
+    assert_eq!(converted, timed);
+
+    assert_ne!(encoded(&timed), encoded(&QosProfile::default()));
+    let publisher = c.publisher_v2("c_qos_v2_durations_pub", &qos);
+    assert!(!publisher.is_null(), "the creator returned null");
+    assert_eq!(qos_text(&raw, "c_qos_v2_durations_pub"), encoded(&timed));
+
+    // The size that ends after `deadline_sec` cuts the deadline: the seconds are whole and are
+    // read, the nanoseconds are not and keep the default.
+    let mut cut = timed_v2();
+    cut.struct_size = std::mem::offset_of!(CQosProfileV2, deadline_nsec) as u32;
+    let converted = unsafe { CQosProfileV2::to_qos_profile(&cut) }
+        .expect("a short struct is valid")
+        .expect("a non-null pointer gives a profile");
+    assert_eq!(
+        converted,
+        QosProfile {
+            deadline: QosDuration {
+                sec: 5,
+                nsec: QosDuration::INFINITE.nsec
+            },
+            ..Default::default()
+        }
+    );
+
+    unsafe { hiroz_publisher_destroy(publisher) };
+}
+
+/// The init function returns the documented codes: `-1` for a null pointer and `-100` for a size
+/// that cannot hold `struct_size`. A size of exactly 4 is valid and writes the size field only.
+/// A size above `UINT32_MAX` cannot be stored in `struct_size`, so it is rejected and writes
+/// nothing.
+#[test]
+fn c_abi_qos_v2_init_returns_the_documented_codes() {
+    let null = unsafe { hiroz_qos_profile_v2_init(std::ptr::null_mut(), 4) };
+    assert_eq!(null, -1, "a null pointer");
+
+    for size in [0usize, 1, 3] {
+        let (buffer, rc) = init_into_canary(size);
+        assert_eq!(rc, -100, "size {size}");
+        assert!(buffer.0.iter().all(|b| *b == 0xCC), "size {size} wrote");
+    }
+
+    let (buffer, rc) = init_into_canary(4);
+    assert_eq!(rc, 0);
+    assert_eq!(word(&buffer, 0), 4);
+    assert!(
+        buffer.0[4..].iter().all(|b| *b == 0xCC),
+        "a size of 4 wrote past the size field"
+    );
+
+    let (buffer, rc) = init_into_canary(u32::MAX as usize);
+    assert_eq!(rc, 0);
+    assert_eq!(
+        word(&buffer, 0),
+        u32::MAX,
+        "the largest size is stored whole"
+    );
+
+    #[cfg(target_pointer_width = "64")]
+    {
+        // The buffer is 128 bytes: a rejected call must not touch it.
+        let (buffer, rc) = init_into_canary(u32::MAX as usize + 1);
+        assert_eq!(rc, -100, "a size above UINT32_MAX");
+        assert!(
+            buffer.0.iter().all(|b| *b == 0xCC),
+            "a rejected size above UINT32_MAX wrote bytes"
+        );
+    }
+}
+
+/// A subscriber creator rejects a `struct_size` below the size field and creates no entity. The
+/// creator that gets exactly 4 is the control: it accepts and announces the default.
+#[test]
+fn c_abi_subscriber_qos_v2_rejects_a_short_struct_size() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_sub_short");
+
+    for size in [0u32, 3] {
+        let mut qos = v2_non_default();
+        qos.struct_size = size;
+        let topic = format!("c_qos_v2_sub_short_{size}");
+        let sub = c.subscriber_v2(&topic, &qos);
+        assert!(sub.is_null(), "struct_size {size} must be rejected");
+        assert!(
+            tokens_of(&raw, &topic).is_empty(),
+            "a rejected creator left a token for {topic}"
+        );
+    }
+
+    let mut qos = v2_non_default();
+    qos.struct_size = 4;
+    let sub = c.subscriber_v2("c_qos_v2_sub_short_ok", &qos);
+    assert!(!sub.is_null(), "struct_size 4 must be accepted");
+    assert_eq!(
+        qos_text(&raw, "c_qos_v2_sub_short_ok"),
+        encoded(&QosProfile::default())
+    );
+    unsafe { hiroz_subscriber_destroy(sub) };
+}
+
+/// The cut points of an action struct. A server announces all five profiles, so each cut shows
+/// which members were read: those whole inside the size carry their value, the others the
+/// default. A size of 4 holds the size field only, and every member counts as null.
+#[test]
+fn c_abi_action_qos_v2_reads_each_prefix_up_to_the_boundary() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_act_bound");
+
+    let profiles = ActionProfiles::new();
+    let default = encoded(&QosProfile::default());
+    let values = [
+        expected_goal(),
+        expected_result(),
+        expected_cancel(),
+        expected_feedback(),
+        expected_status(),
+    ];
+    let members = [
+        "send_goal",
+        "get_result",
+        "cancel_goal",
+        "feedback",
+        "status",
+    ];
+    let offsets = [
+        std::mem::offset_of!(CActionQosV2, goal_service),
+        std::mem::offset_of!(CActionQosV2, result_service),
+        std::mem::offset_of!(CActionQosV2, cancel_service),
+        std::mem::offset_of!(CActionQosV2, feedback_topic),
+        std::mem::offset_of!(CActionQosV2, status_topic),
+    ];
+    let pointer = std::mem::size_of::<*const CQosProfileV2>();
+    // (struct_size, members whole inside it)
+    let mut cases = vec![(4usize, 0usize)];
+    for (i, offset) in offsets.iter().enumerate() {
+        cases.push((*offset, i));
+        cases.push((offset + pointer, i + 1));
+    }
+    for (n, (size, whole)) in cases.into_iter().enumerate() {
+        let mut qos = profiles.as_struct();
+        qos.struct_size = size as u32;
+        let action = format!("c_qos_v2_act_bound_{n}");
+        let server = c.action_server_v2(&action, &qos);
+        assert!(!server.is_null(), "struct_size {size} was rejected");
+        for (i, member) in members.iter().enumerate() {
+            let expected = if i < whole { &values[i] } else { &default };
+            assert_eq!(
+                &qos_text(&raw, &format!("{action}/_action/{member}")),
+                expected,
+                "struct_size {size}, member {member}"
+            );
+        }
+        unsafe { hiroz_action_server_destroy(server) };
+    }
+}
+
+/// An action creator rejects any malformed profile, whichever member holds it, and any outer
+/// `struct_size` below the size field. The same struct with a valid size is the control.
+#[test]
+fn c_abi_action_qos_v2_rejects_each_malformed_member() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_act_bad");
+
+    let ok = ActionProfiles::new();
+    let control_qos = ok.as_struct();
+    let control_client = c.action_client_v2("c_qos_v2_act_bad_ok_client", &control_qos);
+    let control_server = c.action_server_v2("c_qos_v2_act_bad_ok_server", &control_qos);
+    assert!(
+        !control_client.is_null() && !control_server.is_null(),
+        "the valid struct was rejected"
+    );
+
+    let mut names = Vec::new();
+    for member in 0..5 {
+        let mut profiles = ActionProfiles::new();
+        match member {
+            0 => profiles.goal.struct_size = 0,
+            1 => profiles.result.struct_size = 0,
+            2 => profiles.cancel.struct_size = 3,
+            3 => profiles.feedback.struct_size = 0,
+            _ => profiles.status.struct_size = 3,
+        }
+        let qos = profiles.as_struct();
+        let client = c.action_client_v2(&format!("c_qos_v2_act_bad_m{member}_client"), &qos);
+        let server = c.action_server_v2(&format!("c_qos_v2_act_bad_m{member}_server"), &qos);
+        assert!(
+            client.is_null(),
+            "the client accepted a bad member {member}"
+        );
+        assert!(
+            server.is_null(),
+            "the server accepted a bad member {member}"
+        );
+        names.push(format!("c_qos_v2_act_bad_m{member}_client"));
+        names.push(format!("c_qos_v2_act_bad_m{member}_server"));
+    }
+    for size in [1u32, 2, 3] {
+        let mut outer = ok.as_struct();
+        outer.struct_size = size;
+        let client = c.action_client_v2(&format!("c_qos_v2_act_bad_o{size}_client"), &outer);
+        let server = c.action_server_v2(&format!("c_qos_v2_act_bad_o{size}_server"), &outer);
+        assert!(client.is_null(), "the client accepted an outer size {size}");
+        assert!(server.is_null(), "the server accepted an outer size {size}");
+        names.push(format!("c_qos_v2_act_bad_o{size}_client"));
+        names.push(format!("c_qos_v2_act_bad_o{size}_server"));
+    }
+
+    // The control is alive, so an absent token below is a rejection and not a dead router.
+    assert_eq!(
+        qos_text(&raw, "c_qos_v2_act_bad_ok_server/_action/send_goal"),
+        expected_goal()
+    );
+    for name in names {
+        assert!(
+            tokens_of(&raw, &format!("{name}/_action/send_goal")).is_empty(),
+            "a rejected creator left a token for {name}"
+        );
+    }
+    unsafe {
+        hiroz_action_client_destroy(control_client);
+        hiroz_action_server_destroy(control_server);
+    }
+}
+
+/// A null `cancel_service` next to set members asks for the default cancel profile. It does not
+/// take the profile of a neighbour.
+#[test]
+fn c_abi_action_qos_v2_null_cancel_member_means_default() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_act_nullcancel");
+
+    let profiles = ActionProfiles::new();
+    let mut qos = profiles.as_struct();
+    qos.cancel_service = std::ptr::null();
+    let client = c.action_client_v2("c_qos_v2_act_nullcancel_name", &qos);
+    assert!(!client.is_null(), "the creator returned null");
+
+    let name = "c_qos_v2_act_nullcancel_name/_action";
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/send_goal")),
+        expected_goal()
+    );
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/get_result")),
+        expected_result()
+    );
+    assert_eq!(
+        qos_text(&raw, &format!("{name}/cancel_goal")),
+        encoded(&QosProfile::default())
+    );
+    assert_ne!(expected_cancel(), encoded(&QosProfile::default()));
+
+    unsafe { hiroz_action_client_destroy(client) };
 }
