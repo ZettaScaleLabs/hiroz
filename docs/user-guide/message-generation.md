@@ -61,24 +61,19 @@ hiroz-codegen's orchestration capabilities:
 
 ```mermaid
 sequenceDiagram
-accTitle: Package discovery sequence checking system then bundled message sources
-accDescr: build.rs asks the discovery layer to find packages, which checks AMENT_PREFIX_PATH then standard opt/ros paths and finally falls back to bundled assets before returning paths for Rust code generation.
+accTitle: Package discovery sequence resolving requested packages against the bundled distro asset tree
+accDescr: build.rs selects a distro from Cargo features, then asks the discovery layer to find each feature-requested package in that distro's bundled asset tree, returning paths for Rust code generation or failing the build if a requested package is missing.
     participant B as build.rs
     participant D as Discovery
-    participant S as Sources
+    participant S as Bundled assets
 
-    B->>D: Find packages
-    D->>S: Check AMENT_PREFIX_PATH
-    alt Found in system
-        S-->>D: System messages
-    else Not found
-        D->>S: Check /opt/ros/*
-        alt Found in standard path
-            S-->>D: System messages
-        else Not found
-            D->>S: Check bundled assets
-            S-->>D: Bundled messages
-        end
+    B->>D: Find packages (distro, requested features)
+    D->>S: Check assets/<distro>/<package>
+    alt Present
+        S-->>D: Bundled messages
+    else Missing
+        S-->>D: Not found
+        D-->>B: Build error
     end
     D-->>B: Package paths
     B->>B: Generate Rust code
@@ -180,24 +175,16 @@ let config = GeneratorConfig {
 
 ```mermaid
 flowchart LR
-accTitle: Package discovery order by feature flags and ROS installation presence
-accDescr: Feature flags trigger discovery that checks for a system ROS installation via AMENT_PREFIX_PATH or standard distro paths, falling back to bundled assets when no ROS is installed.
-    A[Feature Flags] --> B{System ROS?}
-    B -->|Found| C[AMENT_PREFIX_PATH]
-    B -->|Not Found| D{/opt/ros/distro?}
-    D -->|Found| E[Standard paths]
-    D -->|Not Found| F[Bundled assets]
-
-    C --> G[Generate from system]
-    E --> G
-    F --> H[Generate from bundled]
+accTitle: Package discovery order by distro feature and requested package features
+accDescr: A distro Cargo feature selects one bundled asset tree; each enabled package feature is then resolved against that tree, generating from bundled assets on a match or failing the build if the package is missing.
+    A[Distro feature: humble/jazzy/lyrical] --> B[assets/&lt;distro&gt;/]
+    C[Package feature: std_msgs, geometry_msgs, ...] --> D{Package in tree?}
+    B --> D
+    D -->|Found| E[Generate from bundled]
+    D -->|Missing| F[Build error]
 ```
 
-1. **System ROS:** `$AMENT_PREFIX_PATH`, `$CMAKE_PREFIX_PATH`
-2. **Standard paths:** `/opt/ros/{rolling,jazzy,kilted,lyrical,humble}`
-3. **Bundled assets:** Built-in message definitions in hiroz-codegen
-
-This fallback enables development without ROS 2 installation.
+`hiroz-msgs` generates exclusively from `hiroz-codegen`'s bundled asset trees (`crates/hiroz-codegen/assets/<distro>/`) — there is no system ROS 2 discovery (`$AMENT_PREFIX_PATH`, `$CMAKE_PREFIX_PATH`, `/opt/ros/*`). This is why builds work without a ROS 2 installation, and why a package requested by an enabled feature but absent from the selected distro's tree is a hard build error rather than a silent fallback.
 
 ## Using Generated Messages
 
