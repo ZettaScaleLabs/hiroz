@@ -111,6 +111,80 @@ fn limit_respects_an_inherited_hard_limit() {
     );
 }
 
+/// Environment variable that turns a skipped hostile case into a failure.
+const REQUIRE_ENV: &str = "HIROZ_REQUIRE_HOSTILE";
+/// Marks the copy of the test below that runs the skip logic.
+const OUTER_ENV: &str = "HIROZ_HOSTILE_SKIP_OUTER";
+
+/// Probe child with too little room: it lowers its own hard limit to leave 64 MiB, then asks for
+/// the test limit, which ends the process with `SKIP_STATUS`.
+#[test]
+fn limit_below_min_headroom_probe() {
+    if !is_child() {
+        return;
+    }
+    let status = std::fs::read_to_string("/proc/self/status").expect("read /proc/self/status");
+    let kb: u64 = status
+        .lines()
+        .find_map(|l| l.strip_prefix("VmSize:"))
+        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
+        .expect("VmSize in /proc/self/status");
+    let hard = kb * 1024 + (64 << 20);
+    setrlimit(Resource::RLIMIT_AS, hard, hard).expect("lower the hard limit");
+    limit_address_space();
+    unreachable!("limit_address_space must end the process below MIN_HEADROOM");
+}
+
+/// A case that cannot run is a skip by default and a failure when `REQUIRE_ENV` is set.
+#[test]
+fn a_skipped_case_fails_only_when_required() {
+    const NAME: &str = "a_skipped_case_fails_only_when_required";
+    if std::env::var_os(OUTER_ENV).is_some() {
+        let probe = run_child("limit_below_min_headroom_probe");
+        assert_eq!(
+            probe.status.code(),
+            Some(SKIP_STATUS),
+            "the probe must end as a skip\n{}",
+            describe(&probe)
+        );
+        println!("outer: skipped={}", skipped(&probe));
+        return;
+    }
+    let run_outer = |require: bool| {
+        let mut cmd = Command::new(std::env::current_exe().expect("current_exe"));
+        cmd.args(["--exact", NAME, "--nocapture", "--test-threads=1"])
+            .env(OUTER_ENV, "1")
+            .env_remove(CHILD_ENV)
+            .env_remove(REQUIRE_ENV);
+        if require {
+            cmd.env(REQUIRE_ENV, "1");
+        }
+        cmd.output().expect("spawn outer")
+    };
+    let relaxed = run_outer(false);
+    assert!(
+        relaxed.status.success(),
+        "without {REQUIRE_ENV} a skip is not a failure\n{}",
+        describe(&relaxed)
+    );
+    assert!(
+        String::from_utf8_lossy(&relaxed.stdout).contains("outer: skipped=true"),
+        "the skip must be reported\n{}",
+        describe(&relaxed)
+    );
+    let required = run_outer(true);
+    assert!(
+        !required.status.success(),
+        "with {REQUIRE_ENV} a skip must fail\n{}",
+        describe(&required)
+    );
+    assert!(
+        String::from_utf8_lossy(&required.stderr).contains(REQUIRE_ENV),
+        "the failure must name {REQUIRE_ENV}\n{}",
+        describe(&required)
+    );
+}
+
 fn run_child(name: &str) -> Output {
     Command::new(std::env::current_exe().expect("current_exe"))
         .args(["--exact", name, "--nocapture", "--test-threads=1"])
