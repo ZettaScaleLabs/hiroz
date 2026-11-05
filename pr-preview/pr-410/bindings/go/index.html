@@ -3319,7 +3319,7 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 <tbody>
 <tr>
 <td><code>CallTypedContext</code></td>
-<td>the C call</td>
+<td>the registered C call, not <code>SerializeCDR</code> before it or <code>DeserializeCDR</code> after it</td>
 <td>its call timeout: the context deadline up to 10 s, or <code>DefaultServiceTimeout</code> (5 s) without a deadline</td>
 </tr>
 <tr>
@@ -3344,6 +3344,7 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 </tr>
 </tbody>
 </table>
+<p><code>ServiceClient.Close</code> does not wait for your encoder or decoder. A <code>CallTypedContext</code> can still be inside <code>DeserializeCDR</code> when <code>Close</code> returns, so do not assume that your response state is no longer in use.</p>
 <p>A <code>SerializeCDR</code> that calls <code>Close</code> deadlocks <code>SendGoalContext</code>.</p>
 <p><code>GoalHandle.Close</code> is not gated by the client. Do not close a goal handle while a result wait on it is running: the C call reads the handle that <code>Close</code> frees. A result wait that returned on a cancel keeps the goal handle reachable until its C call returns, so dropping the last reference is safe.</p>
 <p><code>SendGoalContext</code> returns an open handle when the server answers first. When the cancel wins, it returns the context error and closes the handle once the C layer returns. The server may already hold the goal, and the cancel does not cancel it. That cleanup does not register with the client and can run after <code>Close</code> has returned.</p>
