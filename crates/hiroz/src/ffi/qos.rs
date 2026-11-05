@@ -131,6 +131,27 @@ pub struct CQosProfileV2 {
     pub liveliness_lease_nsec: u64,
 }
 
+// The C layout of both structs, with the numbers that the header and a C compiler give on a
+// 64-bit target. The numbers are written out and are not taken from `size_of` of the same type, so
+// a reordered field or a changed type fails the build and not a caller.
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    use std::mem::{offset_of, size_of};
+    assert!(size_of::<CQosProfileV2>() == 80);
+    assert!(offset_of!(CQosProfileV2, struct_size) == 0);
+    assert!(offset_of!(CQosProfileV2, reliability) == 4);
+    assert!(offset_of!(CQosProfileV2, durability) == 8);
+    assert!(offset_of!(CQosProfileV2, history) == 12);
+    assert!(offset_of!(CQosProfileV2, history_depth) == 16);
+    assert!(offset_of!(CQosProfileV2, deadline_sec) == 24);
+    assert!(offset_of!(CQosProfileV2, deadline_nsec) == 32);
+    assert!(offset_of!(CQosProfileV2, lifespan_sec) == 40);
+    assert!(offset_of!(CQosProfileV2, lifespan_nsec) == 48);
+    assert!(offset_of!(CQosProfileV2, liveliness) == 56);
+    assert!(offset_of!(CQosProfileV2, liveliness_lease_sec) == 64);
+    assert!(offset_of!(CQosProfileV2, liveliness_lease_nsec) == 72);
+};
+
 /// A `struct_size` that cannot hold the size field. The value is the size the caller gave.
 #[derive(Debug)]
 pub struct InvalidStructSize(pub u32);
@@ -313,6 +334,18 @@ pub struct CActionQosV2 {
     /// subscriber with it when it is not null, and creates none when it is null.
     pub status_topic: *const CQosProfileV2,
 }
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    use std::mem::{offset_of, size_of};
+    assert!(size_of::<CActionQosV2>() == 48);
+    assert!(offset_of!(CActionQosV2, struct_size) == 0);
+    assert!(offset_of!(CActionQosV2, goal_service) == 8);
+    assert!(offset_of!(CActionQosV2, result_service) == 16);
+    assert!(offset_of!(CActionQosV2, cancel_service) == 24);
+    assert!(offset_of!(CActionQosV2, feedback_topic) == 32);
+    assert!(offset_of!(CActionQosV2, status_topic) == 40);
+};
 
 impl CActionQosV2 {
     /// The size of the struct in this build.
