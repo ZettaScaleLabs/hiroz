@@ -179,7 +179,9 @@ func (s *Subscriber) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
 		defer func() {
-			if f := s.onClose.Load(); f != nil {
+			// Swap, not Load: the hook refers to the subscriber, and a subscriber that keeps its
+			// own hook is a cycle through a finalizer, which the collector never frees.
+			if f := s.onClose.Swap(nil); f != nil {
 				(*f)()
 			}
 		}()
