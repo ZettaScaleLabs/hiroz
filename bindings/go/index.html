@@ -1972,6 +1972,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#abi-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ABI version
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2669,6 +2686,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#abi-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ABI version
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3021,6 +3055,10 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 </tbody>
 </table>
 <p>Callbacks flow in reverse: Rust invokes C function pointers → dispatched to Go via <code>//export</code> functions.</p>
+<h3 id="abi-version">ABI version<a class="headerlink" href="#abi-version" title="Permanent link">&para;</a></h3>
+<p>The library exports <code>hiroz_abi_version()</code>, a counter of breaking changes only. It changes when an existing C symbol, struct layout or error code value changes incompatibly. An addition never changes it. The first value is 1, and the function never returns 0.</p>
+<p>A binding detects an added symbol by probing for it, with <code>dlsym</code> or at link time, and not by comparing numbers. Go exposes the counter as <code>hiroz.ABIVersion()</code>. Linking against a library that lacks <code>hiroz_abi_version</code> fails with an undefined symbol.</p>
+<p>Nothing compares the counter with a value that the binding expects, and CI does not check ABI changes against the last release. A breaking mismatch between <code>hiroz_ffi.h</code> and <code>libhiroz</code> is therefore not detected automatically.</p>
 <hr />
 <h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
 <div class="language-go highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">NewContext</span><span class="p">().</span><span class="nx">WithDomainID</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="nx">Build</span><span class="p">()</span>
@@ -3297,6 +3335,11 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 <div class="language-go highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">if</span><span class="w"> </span><span class="nx">errors</span><span class="p">.</span><span class="nx">Is</span><span class="p">(</span><span class="nx">err</span><span class="p">,</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">ErrBuildFailed</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* construction failed */</span><span class="w"> </span><span class="p">}</span>
 </span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="k">if</span><span class="w"> </span><span class="nx">errors</span><span class="p">.</span><span class="nx">Is</span><span class="p">(</span><span class="nx">err</span><span class="p">,</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">ErrTimeout</span><span class="p">)</span><span class="w">     </span><span class="p">{</span><span class="w"> </span><span class="cm">/* no server responded */</span><span class="w"> </span><span class="p">}</span>
 </span></code></pre></div>
+<p>A C caller can read a diagnostic message with <code>hiroz_last_error_message()</code>, which returns a thread-local string or NULL. The message is a hint for logging, and the return value of a call stays the only contract for failure. The comment on <code>hiroz_last_error_message</code> in <code>hiroz_ffi.h</code> is the full contract. The Go package does not expose the message, because a goroutine can move to another OS thread between the C call and the read.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code>hiroz_action_client_send_goal</code>, <code>hiroz_action_client_get_result</code> and <code>hiroz_action_client_cancel_goal</code> return <code>-1</code> for a runtime failure. The same value means <code>ErrorCodeNullPointer</code>, so the code alone does not separate the two. A C caller must not use the message to separate them, because it can be NULL. The Go package maps these paths to <code>ErrorCodeActionCancelFailed</code> and <code>ErrorCodeActionResultFailed</code>, but <code>SendGoal</code> passes the raw code through.</p>
+</div>
 <p>Inspect the error code directly when you need fine-grained handling:</p>
 <div class="language-go highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="kd">var</span><span class="w"> </span><span class="nx">e</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">HirozError</span>
 </span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="k">if</span><span class="w"> </span><span class="nx">errors</span><span class="p">.</span><span class="nx">As</span><span class="p">(</span><span class="nx">err</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
