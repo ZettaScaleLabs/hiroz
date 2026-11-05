@@ -152,14 +152,21 @@ pub struct Channel {
 
 /// What one intra-process publish did.
 ///
-/// `NoTaker` and `DepthExceeded` both mean nothing was delivered. A caller may
-/// fall back to the wire on `NoTaker` but must not on `DepthExceeded`: the
-/// fallback re-enters the same callback with a fresh depth counter.
+/// `NoTaker` means no callback returned normally. That covers two cases: no
+/// subscriber matched, and every callback that ran panicked. In the second case
+/// a callback has run and may have had effects, such as keeping the `Arc`.
+/// `NoTaker` is therefore not a safe signal to retry or to fall back to the wire.
+///
+/// `DepthExceeded` means the bus dropped the message before any callback ran.
+/// A fallback to the wire must not follow it: the fallback re-enters the same
+/// callback with a fresh depth counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Delivery {
-    /// Handed to this many subscribers.
+    /// This many callbacks returned normally. A callback that panicked is not
+    /// counted, so the number of callbacks that ran can be higher.
     Sent(usize),
-    /// No subscriber of this type is on the bus.
+    /// No callback returned normally: no subscriber of this type is on the bus,
+    /// or every callback that ran panicked.
     NoTaker,
     /// Refused: delivery is already nested `MAX_DELIVERY_DEPTH` deep.
     DepthExceeded,
@@ -168,8 +175,8 @@ pub enum Delivery {
 
 /// Which routes one publish took, and what the bus did on its route.
 ///
-/// A delivered count cannot say this: zero covers "no taker", "refused at depth"
-/// and "no bus on this publisher".
+/// A delivered count cannot say this: zero covers "no callback returned",
+/// "refused at depth" and "no bus on this publisher".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Published {
@@ -281,7 +288,8 @@ impl Channel {
                 if invoke_isolated("local_bus::publish", || first.call_shared(erased)) {
                     Delivery::Sent(1)
                 } else {
-                    // The only subscriber panicked, so nothing was delivered.
+                    // The only subscriber ran and panicked. Its effects are not
+                    // undone, so this outcome is not a retry signal.
                     Delivery::NoTaker
                 }
             }

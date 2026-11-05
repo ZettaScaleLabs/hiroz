@@ -714,8 +714,10 @@ where
     /// plain `z_sub` or a recorder, is reachable only over the wire. A publisher
     /// that was not told the audience therefore takes the wire.
     ///
-    /// `Bus(NoTaker)` is a distinct outcome, not a silent drop: the caller
-    /// asserted a local audience and there was none. See [`crate::local_bus`].
+    /// `Bus(NoTaker)` is a distinct outcome, not a silent drop: no callback
+    /// returned normally. Either no local subscriber matched, or every callback
+    /// that ran panicked. A panicked callback may have had effects, so do not
+    /// retry or fall back to the wire on `NoTaker`. See [`Delivery`].
     ///
     /// # Ordering against [`publish`](Self::publish)
     ///
@@ -751,7 +753,7 @@ where
                 let d = self.local_channel.publish(msg);
                 if d == Delivery::NoTaker {
                     debug!(
-                        "[PUB] intra-process only, no local subscriber on {}: message dropped",
+                        "[PUB] intra-process only, no callback returned normally on {}: message dropped",
                         self.entity.topic
                     );
                 }
@@ -861,8 +863,8 @@ where
     ///
     /// On a `Locality::Remote` publisher that refusal does not apply: the wire
     /// runs, the shared subscribers receive, and an owned subscriber receives
-    /// nothing unless it is the only subscriber of the type. The result does not
-    /// say so.
+    /// nothing unless it is the only subscriber of the type. The result carries
+    /// no error. See [`ZSubBuilder::build_with_owned_callback`].
     ///
     /// An `intra_process_only` publisher with no listener returns
     /// `Bus(Delivery::NoTaker)` and drops the message. It has no wire to fall
@@ -1296,10 +1298,20 @@ where
     /// Build a subscriber whose callback receives the message **by value**.
     ///
     /// The bus serves it only through [`ZPub::publish_owned`], and only when it is
-    /// the sole subscriber of this type on the topic. Otherwise
-    /// [`ZPub::publish_shared`] and [`ZPub::publish_owned`] refuse to publish on
-    /// the bus instead of skipping it. It also has a wire half, so an ordinary
-    /// [`ZPub::publish`] reaches it after deserializing.
+    /// the sole subscriber of this type on the topic. It also has a wire half, so
+    /// an ordinary [`ZPub::publish`] reaches it after deserializing.
+    ///
+    /// When the bus cannot serve it, the publisher refuses with `Err` on two
+    /// routes only: [`ZPub::publish_shared`] on any bus route, and
+    /// [`ZPub::publish_owned`] on an intra-process-only publisher.
+    ///
+    /// # Known limit on a `Locality::Remote` publisher
+    ///
+    /// [`ZPub::publish_owned`] does not refuse there. If a shared subscriber is
+    /// also registered, the shared subscriber receives the message and this
+    /// subscriber receives nothing. If only owned subscribers are registered and
+    /// there are two or more, none receives it and the result is
+    /// `BusAndWire(NoTaker)`. Neither case returns an error.
     ///
     /// Use it where the receiver mutates or consumes the message.
     pub fn build_with_owned_callback<F>(self, callback: F) -> Result<ZSub<T, (), S>>
