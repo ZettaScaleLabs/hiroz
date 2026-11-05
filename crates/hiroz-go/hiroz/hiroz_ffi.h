@@ -346,7 +346,9 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Return the version of the C ABI this library exports.
+ * Return the breaking-change counter of the C ABI this library exports.
+ *
+ * The value changes only when an existing C symbol, struct layout or error code value changes incompatibly. It never changes for an addition. Probe for an added symbol instead of comparing numbers.
  */
 uint32_t hiroz_abi_version(void);
 
