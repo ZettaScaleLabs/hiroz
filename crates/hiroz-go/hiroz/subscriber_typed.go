@@ -242,7 +242,9 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 	}
 
 	// Order matters: release blocked callbacks, undeclare so none can start, wait for the
-	// callbacks that are still running, then close.
+	// callbacks that are in their sending section, then close. A callback still decoding
+	// has not taken the sending lock, so it is not waited for. It finds the channel closed
+	// and drops its sample.
 	finish := func() {
 		senders.Lock()
 		closed = true
