@@ -464,37 +464,84 @@ pub fn update_shared_event_status(
 /// are a debug log, and only sequence gaps raise `MESSAGE_LOST`.
 pub struct MessageLossTracker {
     events_mgr: Arc<Mutex<EventsManager>>,
-    /// Last sequence number seen per publisher GID.
+    /// Baselines per publisher GID, at most `capacity` of them.
     ///
     /// Its own lock, and never held across the callout below — raising the
     /// event runs user code, which may re-enter this subscriber.
-    last_seen: Mutex<HashMap<GidArray, i64>>,
+    last_seen: Mutex<Baselines>,
+}
+
+/// The most publishers whose baseline a [`MessageLossTracker`] keeps.
+///
+/// The GID comes from the sample attachment, so a publisher that varies it
+/// would otherwise grow the tracker without limit. When the table is full, the
+/// publisher heard from least recently loses its baseline. After that, its
+/// next sample is a new baseline: it raises no loss, and a gap that fell inside
+/// the eviction goes unreported. The bound is above any realistic number of
+/// live publishers on one topic, so that case needs publisher churn.
+pub(crate) const MAX_TRACKED_PUBLISHERS: usize = 1024;
+
+/// Last sequence number per publisher, with the tick of the latest arrival.
+struct Baselines {
+    capacity: usize,
+    tick: u64,
+    map: HashMap<GidArray, (i64, u64)>,
 }
 
 impl MessageLossTracker {
     pub fn new(events_mgr: Arc<Mutex<EventsManager>>) -> Self {
+        Self::with_capacity(events_mgr, MAX_TRACKED_PUBLISHERS)
+    }
+
+    pub(crate) fn with_capacity(events_mgr: Arc<Mutex<EventsManager>>, capacity: usize) -> Self {
         Self {
             events_mgr,
-            last_seen: Mutex::new(HashMap::new()),
+            last_seen: Mutex::new(Baselines {
+                capacity: capacity.max(1),
+                tick: 0,
+                map: HashMap::new(),
+            }),
         }
+    }
+
+    /// The number of publishers whose baseline is held.
+    #[cfg(test)]
+    pub(crate) fn tracked_publishers(&self) -> usize {
+        self.last_seen.lock().unwrap().map.len()
     }
 
     /// Record an arrival, raising the event if it skipped past anything.
     pub fn observe(&self, source_gid: GidArray, sequence_number: i64) {
         let lost = {
-            let Ok(mut seen) = self.last_seen.lock() else {
+            let Ok(mut guard) = self.last_seen.lock() else {
                 return;
             };
-            match seen.entry(source_gid) {
+            let seen = &mut *guard;
+            seen.tick += 1;
+            let tick = seen.tick;
+            if !seen.map.contains_key(&source_gid) && seen.map.len() >= seen.capacity {
+                // Least recently seen publisher. A scan is acceptable: it runs
+                // only when a new publisher arrives at a full table.
+                let oldest = seen
+                    .map
+                    .iter()
+                    .min_by_key(|(_, (_, at))| *at)
+                    .map(|(gid, _)| *gid);
+                if let Some(oldest) = oldest {
+                    seen.map.remove(&oldest);
+                }
+            }
+            match seen.map.entry(source_gid) {
                 // First sample from this publisher. There is no baseline to
                 // measure against, and a subscriber that joined late has not
                 // "lost" the history it was never sent.
                 Entry::Vacant(slot) => {
-                    slot.insert(sequence_number);
+                    slot.insert((sequence_number, tick));
                     0
                 }
                 Entry::Occupied(mut slot) => {
-                    let high_water = *slot.get();
+                    let (high_water, _) = *slot.get();
+                    slot.get_mut().1 = tick;
                     // The baseline only ever moves **forward**. An arrival at or
                     // below it is a replay, a retransmit or a reorder — not
                     // loss — and letting it move the baseline backwards would
@@ -509,7 +556,7 @@ impl MessageLossTracker {
                     if sequence_number <= high_water {
                         0
                     } else {
-                        slot.insert(sequence_number);
+                        slot.get_mut().0 = sequence_number;
                         sequence_number.saturating_sub(high_water).saturating_sub(1)
                     }
                 }
@@ -650,6 +697,48 @@ mod tests {
             .unwrap()
             .take_event_status(ZenohEventType::MessageLost)
             .total_count
+    }
+
+    fn gid_n(n: u32) -> GidArray {
+        let mut g = [0u8; 16];
+        g[..4].copy_from_slice(&n.to_le_bytes());
+        g
+    }
+
+    /// Publisher identity churn must not grow the tracker past its capacity.
+    #[test]
+    fn message_loss_tracker_is_bounded_under_publisher_churn() {
+        let mgr = Arc::new(Mutex::new(EventsManager::new(gid(1))));
+        let tracker = MessageLossTracker::with_capacity(mgr.clone(), 4);
+        for n in 0..100u32 {
+            tracker.observe(gid_n(n), 0);
+            assert!(tracker.tracked_publishers() <= 4);
+        }
+        assert_eq!(tracker.tracked_publishers(), 4);
+        let status = mgr
+            .lock()
+            .unwrap()
+            .take_event_status(ZenohEventType::MessageLost);
+        assert_eq!(status.total_count, 0, "churn alone is not loss");
+    }
+
+    /// The least recently seen publisher is evicted, and a returning one starts
+    /// a new baseline: no invented loss, and a live publisher keeps its own.
+    #[test]
+    fn message_loss_eviction_drops_the_least_recently_seen() {
+        let mgr = Arc::new(Mutex::new(EventsManager::new(gid(1))));
+        let tracker = MessageLossTracker::with_capacity(mgr.clone(), 2);
+        tracker.observe(gid_n(1), 0);
+        tracker.observe(gid_n(2), 0);
+        tracker.observe(gid_n(1), 1); // 1 is now more recent than 2
+        tracker.observe(gid_n(3), 0); // evicts 2
+        tracker.observe(gid_n(1), 3); // baseline kept: skips 2 -> 1 lost
+        tracker.observe(gid_n(2), 50); // evicted: new baseline, no loss
+        let status = mgr
+            .lock()
+            .unwrap()
+            .take_event_status(ZenohEventType::MessageLost);
+        assert_eq!(status.total_count, 1);
     }
 
     #[test]
