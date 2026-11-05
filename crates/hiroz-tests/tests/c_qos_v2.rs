@@ -2,9 +2,8 @@
 //!
 //! Most tests call the exported C functions the way a C caller does. They read the QoS back from
 //! the liveliness token of the entity, because that is where a peer reads it. A plain Zenoh
-//! session plays the peer. Two tests create no entity: `c_abi_qos_v2_init_writes_size_and_defaults`
-//! checks the initialiser, and `c_abi_action_qos_values_are_distinct` checks the expected values
-//! of the other tests. No test needs a ROS installation.
+//! session plays the peer. The tests of the initialiser and of the converters, and the test of the
+//! expected action values, create no entity. No test needs a ROS installation.
 //!
 //! The suite needs hiroz's `ffi` feature, so it has the `raw-sub-tests` feature.
 
@@ -664,6 +663,9 @@ fn c_abi_action_server_qos_v2_reaches_each_token() {
 /// An action client announces the QoS of its three services and of its status subscriber. Its
 /// feedback subscriber stays out of the buffer group, so it declares no token and a peer cannot
 /// read the feedback QoS.
+///
+/// Nothing here observes that `feedback_topic` reaches the feedback subscriber: its callback
+/// ignores every sample and it declares no token. That forwarding has no test.
 #[test]
 fn c_abi_action_client_qos_v2_reaches_each_token() {
     let router = TestRouter::new();

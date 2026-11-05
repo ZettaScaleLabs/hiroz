@@ -360,7 +360,7 @@ The size rule keeps both mixes of versions safe. A program built against an olde
 | Subscriber | `hiroz_subscriber_create_with_qos_v2` | liveliness token when the subscriber joins the buffer group, and delivery for transient-local |
 | Service client | `hiroz_service_client_create_with_qos_v2` | liveliness token |
 | Service server | `hiroz_service_server_create_with_qos_v2` | liveliness token |
-| Action client | `hiroz_action_client_create_with_qos_v2` | liveliness token of the three services |
+| Action client | `hiroz_action_client_create_with_qos_v2` | liveliness token of the three services, and of the status subscriber when `status_topic` is not null |
 | Action server | `hiroz_action_server_create_with_qos_v2` | liveliness token of the three services, the feedback publisher and the status publisher |
 
 The QoS of a service goes into the liveliness token and does not change how a call is delivered. The subscriber functions with a buffer-group choice (`hiroz_subscriber_create_with_group`, `hiroz_subscriber_create_with_buffer_fields`) still take `hiroz_qos_profile_t`. They have no v2 form yet.
