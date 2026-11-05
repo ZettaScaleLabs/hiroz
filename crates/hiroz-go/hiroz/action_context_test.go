@@ -235,20 +235,37 @@ func (g *hookGoal) SerializeCDR() ([]byte, error) {
 }
 func (g *hookGoal) DeserializeCDR([]byte) error { return nil }
 
-// A panic in the caller's SerializeCDR must not leave the call registered. Otherwise
-// ActionClient.Close waits for it for ever.
-func TestSendGoalContextPanicInSerializeReleasesClient(t *testing.T) {
+// A panic in the caller's SerializeCDR propagates before the call registers, so it leaves no
+// registration behind and Close does not wait.
+func TestSendGoalContextPanicInSerializeLeavesNoRegistration(t *testing.T) {
+	closeReturns := func(c *ActionClient) bool {
+		closed := make(chan struct{})
+		go func() { _ = c.Close(); close(closed) }()
+		select {
+		case <-closed:
+			return true
+		case <-time.After(300 * time.Millisecond):
+			return false
+		}
+	}
+
+	// Positive control: a registration that is still held blocks Close.
+	held := openTestActionClient()
+	if !held.inflight.enter() {
+		t.Fatal("could not register")
+	}
+	if closeReturns(held) {
+		t.Fatal("control: Close returned while a registration was held")
+	}
+	held.inflight.leave()
+
 	c := openTestActionClient()
 	func() {
 		defer func() { _ = recover() }()
 		_, _ = c.SendGoalContext(context.Background(), &hookGoal{hook: func() { panic("bad goal") }})
 	}()
-	closed := make(chan struct{})
-	go func() { _ = c.Close(); close(closed) }()
-	select {
-	case <-closed:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Close is blocked: the panicking call is still registered")
+	if !closeReturns(c) {
+		t.Fatal("Close is blocked: the panicking call left a registration")
 	}
 }
 

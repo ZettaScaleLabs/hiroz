@@ -171,16 +171,17 @@ func (h *GoalHandle) GetResult() ([]byte, error) {
 // GetResultWithContext waits for and returns the goal result as raw bytes.
 // The context can be used to set a deadline or cancel the wait.
 //
-// When ctx ends, this function returns ctx.Err() immediately. The C call keeps running in
-// a goroutine until the action server responds. Nothing aborts it. Do not rely on context
-// cancellation to abort server-side execution.
+// When ctx ends, this function returns ctx.Err() immediately. Cancellation does not interrupt
+// the C call: it keeps running in a goroutine until the server answers or the call times out.
+// It does not cancel server-side execution either.
 //
 // This call registers with the client, and so does every wrapper of it: GetResult,
 // GetTypedResult and GetTypedResultContext. ActionClient.Close waits for the C call, not for
 // ctx. The C call of a result wait has a fixed timeout of 30 seconds, and the service client
 // behind it ends its query after 10 seconds. A call without a deadline, such as GetResult,
 // therefore holds Close for at most 30 seconds, and normally about 10 seconds, and then fails
-// with an error. SendGoalContext registers too, and its C call has a fixed timeout of 10 seconds. It also stays registered while it runs the goal's SerializeCDR, so a slow serializer adds its own time to the hold. SendGoal and Cancel do not register.
+// with an error. SendGoalContext registers too, after it has serialised the goal, and its C
+// call has a fixed timeout of 10 seconds. SendGoal and Cancel do not register.
 func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 	// An ended context starts no C wait. The wait would hold the client registration.
 	if err := ctx.Err(); err != nil {
@@ -424,7 +425,7 @@ func (c *ActionClient) sendGoalBytes(h *C.hiroz_action_client_t, goalBytes []byt
 }
 
 // sendGoal makes the blocking goal send of SendGoalContext with serialised goal bytes. A test
-// replaces it. Production code never assigns it.
+// replaces it.
 var sendGoal = func(c *ActionClient, goalBytes []byte) (*GoalHandle, error) {
 	hw := c.handle.Load()
 	if hw == nil {
@@ -435,9 +436,11 @@ var sendGoal = func(c *ActionClient, goalBytes []byte) (*GoalHandle, error) {
 
 // SendGoalContext sends a goal and returns when the server answers or ctx ends.
 // When ctx ends first, the call returns ctx.Err() and closes the goal handle once the C layer
-// returns. When the server answers first, the call returns the open handle. The server may already hold the goal. Cancelling ctx does not cancel the goal.
-// If ctx has already ended, nothing is sent. SendGoalContext serialises the goal and copies
-// the bytes before it returns, so the caller may reuse or change the goal after any return.
+// returns. When the server answers first, the call returns the open handle. The server may
+// already hold the goal: cancelling ctx does not cancel it.
+// If ctx has already ended, nothing is sent. Cancellation does not interrupt goal.SerializeCDR.
+// The call serialises the goal and copies the bytes before it returns, so the caller may reuse
+// or change the goal after any return.
 //
 // Known limit: the goroutine that closes the goal handle after ctx ended first does not
 // register with the client. It can run after ActionClient.Close has returned.
@@ -445,24 +448,11 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if !c.inflight.enter() {
-		return nil, fmt.Errorf("action client is closed")
-	}
-	// The call stays registered until the worker takes it over. A return or a panic in
-	// the caller's SerializeCDR before that point must release it, or Close waits for ever.
-	registered := true
-	defer func() {
-		if registered {
-			c.inflight.leave()
-		}
-	}()
-	// Serialise here, before the worker starts, and copy the bytes. SerializeCDR may return
-	// storage that the goal owns, and the Message interface does not forbid it. The worker
-	// gets only the copy, so a caller that reuses the goal after a cancelled call cannot
-	// change or race with the send. The generated SerializeCDR returns a fresh buffer.
+	// Serialise before the call registers with the client, so a SerializeCDR that calls Close
+	// cannot wait for itself. Copy the bytes: SerializeCDR may return storage that the goal
+	// owns, and a cancelled call returns while the worker can still read them.
 	goalBytes, err := serializeGoal(goal)
-	// Serialising is user code and can take a while: ctx may have ended during it. The
-	// context error wins over a serializer error.
+	// The context error wins over a serializer error.
 	if cerr := ctx.Err(); cerr != nil {
 		return nil, cerr
 	}
@@ -470,13 +460,15 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 		return nil, err
 	}
 	goalBytes = append([]byte(nil), goalBytes...)
+	if !c.inflight.enter() {
+		return nil, fmt.Errorf("action client is closed")
+	}
 	type result struct {
 		h   *GoalHandle
 		err error
 	}
 	ch := make(chan result, 1)
-	registered = false // the worker leaves the gate from here on
-	go func() {
+	go func() { // owns the registration, and reads the C handle while it holds it
 		defer c.inflight.leave()
 		h, err := sendGoal(c, goalBytes)
 		ch <- result{h, err}
@@ -514,7 +506,8 @@ func finishSendGoal(ctx context.Context, h *GoalHandle, err error) (*GoalHandle,
 // holds it. Registered calls: GetResultWithContext, GetResult, GetTypedResult,
 // GetTypedResultContext and SendGoalContext. Close waits for the C call of each, not for
 // its context. A result wait holds Close for at most 30 seconds, the fixed timeout of its C
-// call (the query behind it ends after 10 seconds), and a goal send for at most 10 seconds plus the time of the goal's SerializeCDR, which runs while the call is registered. A SerializeCDR that calls Close deadlocks. After that the call returns an error.
+// call (the query behind it ends after 10 seconds), and a goal send for at most 10 seconds.
+// A call that Close drained can still succeed or fail: the C call decides.
 // Unregistered calls: SendGoal and GoalHandle.Cancel. Close does not wait for them.
 // Do not call them concurrently with Close.
 func (c *ActionClient) Close() error {
