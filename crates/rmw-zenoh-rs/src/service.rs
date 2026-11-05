@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::ffi::CString;
-use std::sync::Mutex;
 
 use crate::c_void;
 use crate::rmw_impl_has_data_ptr;
@@ -15,11 +14,8 @@ pub struct ClientImpl {
     pub options: rmw_client_options_t,
     pub request_ts: crate::type_support::ServiceTypeSupport,
     pub response_ts: crate::type_support::ServiceTypeSupport,
-    pub callback: std::sync::Arc<Mutex<rmw_client_new_response_callback_t>>,
-    pub callback_user_data: std::sync::Arc<Mutex<usize>>,
+    pub exec_callback: crate::exec_callback::ExecCallback,
     pub notifier: std::sync::Arc<crate::utils::Notifier>,
-    /// Tracks responses that arrived while no callback was set
-    pub unread_count: std::sync::Arc<Mutex<usize>>,
     pub graph: std::sync::Arc<hiroz::graph::Graph>,
     pub entity: hiroz::entity::EndpointEntity,
 }
@@ -29,23 +25,10 @@ impl ClientImpl {
         let req = crate::msg::RosMessage::new(request, self.request_ts.request);
 
         let notifier = self.notifier.clone();
-        let callback_holder = self.callback.clone();
-        let user_data_holder = self.callback_user_data.clone();
-        let unread_count_holder = self.unread_count.clone();
+        let exec_callback = self.exec_callback.clone();
         let notify_callback = move || {
             notifier.notify_all();
-            if let Ok(cb) = callback_holder.lock() {
-                if let Some(callback_fn) = *cb {
-                    if let Ok(user_data_usize) = user_data_holder.lock() {
-                        unsafe {
-                            let user_data_ptr = *user_data_usize as *const std::ffi::c_void;
-                            callback_fn(user_data_ptr, 1);
-                        }
-                    }
-                } else if let Ok(mut unread) = unread_count_holder.lock() {
-                    *unread += 1;
-                }
-            }
+            exec_callback.notify_one();
         };
 
         // rmw_send_request returns the sequence number stamped into the attachment,
@@ -161,10 +144,7 @@ pub struct ServiceImpl {
     pub request_ts: crate::type_support::ServiceTypeSupport,
     pub response_ts: crate::type_support::ServiceTypeSupport,
     pub qos: rmw_qos_profile_t,
-    pub callback: std::sync::Arc<Mutex<rmw_service_new_request_callback_t>>,
-    pub callback_user_data: std::sync::Arc<Mutex<usize>>,
-    /// Tracks requests that arrived while no callback was set
-    pub unread_count: std::sync::Arc<Mutex<usize>>,
+    pub exec_callback: crate::exec_callback::ExecCallback,
     pub graph: std::sync::Arc<hiroz::graph::Graph>,
     pub entity: hiroz::entity::EndpointEntity,
 }
