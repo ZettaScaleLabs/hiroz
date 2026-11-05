@@ -1,28 +1,19 @@
-//! `ZPubBuilder::with_locality` — does the restriction actually reach the wire?
+//! `ZPubBuilder::with_locality`: does the restriction reach the wire?
 //!
-//! `Locality::SessionLocal` is the intra-process fast path. Zenoh's
-//! `resolve_put` skips `primitives.send_push_consume` entirely for it, so the
-//! samples never leave the session: no link, no wire encode, no shared memory.
-//! Subscribers in the same session still get them, through the local callback
-//! list.
+//! `Locality::SessionLocal` skips the transport, so the samples never leave the
+//! session. Subscribers in the same session still receive them.
 //!
-//! # What makes this a detector rather than a green tick
-//!
-//! "The other context received nothing" is worthless on its own — a broken
-//! router, a wrong topic or a too-short deadline all produce the same zero. So
-//! every scenario publishes on TWO topics from the SAME context:
+//! "The other context received nothing" proves nothing alone: a broken router,
+//! a wrong topic or a short deadline give the same zero. Each scenario therefore
+//! publishes on two topics from the same context.
 //!
 //! | topic | publisher locality | same context | other context |
 //! |---|---|---|---|
-//! | `local_only` | `SessionLocal` | must receive | must receive NOTHING |
-//! | `control`    | default (`Any`) | must receive | **must receive** |
+//! | `local_only` | `SessionLocal` | must receive | must receive nothing |
+//! | `control`    | default (`Any`) | must receive | must receive |
 //!
-//! The control row is the point. It proves the router routes, the topics match
-//! and the deadline is long enough, using the same processes and the same
-//! deadline as the row under test. Without it a zero is unknown, not a pass.
-//!
-//! Revert `with_locality` (or pass `Locality::Any`) and `local_only` starts
-//! arriving in the other context, which fails the assertion.
+//! The control row proves the router routes, the topics match and the deadline
+//! suffices. Without it a zero is unknown, not a pass.
 
 mod common;
 
