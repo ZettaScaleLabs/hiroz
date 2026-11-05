@@ -148,3 +148,23 @@ test('welcome does not tell the contributor to mark ready before a maintainer re
     'ready must not follow local checks alone',
   );
 });
+
+// pull_request.base.sha lags the base tip for a PR not updated since the script landed,
+// so the notify job must check out github.sha, the base branch tip.
+test('notify workflow checks out the base branch tip and finds the script it requires', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(__dirname, '..', '..', '..');
+  const text = fs.readFileSync(path.join(root, '.github/workflows/pr-draft-notify.yml'), 'utf8');
+
+  const checkout = text.split(/\n\s*- name:/).find((step) => /uses: actions\/checkout@/.test(step));
+  assert.ok(checkout, 'the workflow must have a checkout step');
+  const ref = checkout.match(/^\s*ref:\s*(.+?)\s*$/m);
+  assert.ok(ref, 'the checkout step must set ref');
+  assert.equal(ref[1], '${{ github.sha }}');
+  assert.doesNotMatch(ref[1], /base\.sha|head|merge/);
+
+  const required = text.match(/require\('\.\/(\.github\/scripts\/[^']+)'\)/);
+  assert.ok(required, 'the notify step must require a script from .github/scripts');
+  assert.ok(fs.existsSync(path.join(root, required[1])), `${required[1]} must exist in the checkout`);
+});
