@@ -29,7 +29,7 @@ const WELCOME_BODY = [
   '**To convert this PR to draft:**',
   '1. Click "Convert to draft" in the sidebar →',
   '2. Ensure all local checks pass (`./scripts/check-local.sh`)',
-  '3. Mark as "Ready for review" when complete',
+  '3. Keep it a draft until a maintainer has reviewed it, then mark it "Ready for review"',
   '',
   'See [CONTRIBUTING.md][1] for details.',
   '',
