@@ -1,8 +1,7 @@
 'use strict';
 
 // Mocked github, context and core objects. The REST mocks honour page and
-// per_page (default 30, as the API does), and paginate walks the pages, so a
-// marker beyond the first page is invisible to code that does not paginate.
+// per_page (default 30), so code that does not paginate misses later pages.
 
 const ordinary = (i) => ({ user: { type: 'User' }, body: `comment ${i}` });
 const botComment = (marker) => ({ user: { type: 'Bot' }, body: `text ${marker} text` });

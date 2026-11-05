@@ -1,8 +1,8 @@
 name: PR Draft Check
 
-# Read-only policy check. It reports the verdict as a check result and never
-# posts comments: on a fork pull request this event gets a read-only token.
-# Comments come from pr-draft-notify.yml, which runs in a trusted context.
+# Read-only policy check. It reports the verdict as a check result and posts
+# no comments: a fork pull request gets a read-only token here.
+# pr-draft-notify.yml posts the comments.
 
 on:
   pull_request:

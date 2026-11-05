@@ -1,15 +1,12 @@
 name: PR Draft Notify
 
-# Posts the policy warning and the welcome comment on external pull requests,
-# including pull requests from forks.
+# Posts the warning and welcome comments on external pull requests, forks included.
 #
-# Trust boundary. pull_request_target runs this file from the base branch with
-# a token that can write to pull requests, so nothing the pull request
-# controls may run here:
-#   - the only checkout is the base commit (never the head, never the merge ref),
-#     sparse, without persisted credentials;
-#   - the script reads the pull request only through context.payload, as data;
-#   - no expression from the event is interpolated into a script or a command.
+# Trust boundary: this job holds a write token, so no PR-controlled code may run.
+#   - The only checkout is the base commit, sparse, without credentials.
+#     Never check out the head or the merge ref.
+#   - The script reads the PR only from context.payload, as data.
+#   - No event expression is interpolated into a script or command.
 
 on:
   pull_request_target:
@@ -25,8 +22,7 @@ jobs:
   notify:
     name: Notify External Contributor
     runs-on: ubuntu-latest
-    # createComment on a pull request needs pull-requests: write (or
-    # issues: write); the same permission covers listReviews and listComments.
+    # createComment on a pull request needs this write permission.
     permissions:
       contents: read
       pull-requests: write
@@ -44,6 +40,5 @@ jobs:
         with:
           script: |
             const { run } = require('./.github/scripts/pr-draft-check.js');
-            // The verdict belongs to pr-draft-check.yml, so this job does not
-            // repeat it. A failed post becomes a warning annotation.
+            // pr-draft-check.yml owns the verdict. A failed post is only a warning.
             await run({ github, context, core }, { notify: true, failOnViolation: false });

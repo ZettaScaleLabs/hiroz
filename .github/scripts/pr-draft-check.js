@@ -1,10 +1,8 @@
 'use strict';
 
-// Decision and notification logic for the external-contributor PR check.
-// Called from .github/workflows/pr-draft-check.yml (read-only verifier) and
-// .github/workflows/pr-draft-notify.yml (comment poster). It reads every
-// pull request field from `context.payload` and never evaluates one, so a
-// hostile title, branch name or body is only ever data.
+// Policy and notification logic for the external-contributor PR check.
+// Used by pr-draft-check.yml (verifier) and pr-draft-notify.yml (comment poster).
+// PR fields come from `context.payload` and are only data, never evaluated.
 
 const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
 const WELCOME_ASSOCIATIONS = ['FIRST_TIME_CONTRIBUTOR', 'NONE'];
@@ -57,8 +55,7 @@ async function hasBotComment({ github, context, prNumber, marker }) {
   );
 }
 
-// Post `body` once. A failure to list or post is logged, never thrown, so it
-// cannot hide the policy result.
+// Post `body` once. A list or post failure is logged, not thrown, so it cannot hide the verdict.
 async function postOnce({ github, context, core, prNumber, marker, body }) {
   try {
     if (await hasBotComment({ github, context, prNumber, marker })) {
@@ -109,8 +106,7 @@ async function run({ github, context, core }, { notify, failOnViolation }) {
   }
 
   if (notify) {
-    // The warning and the welcome do not depend on each other or on the
-    // verifier's result.
+    // The two comments are independent of each other.
     if (WELCOME_ASSOCIATIONS.includes(association)) {
       await postOnce({
         github, context, core, prNumber: pr.number,
