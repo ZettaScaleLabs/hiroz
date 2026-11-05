@@ -112,24 +112,29 @@ impl std::fmt::Display for ReentrancyViolation {
 
 /// Panics (debug only) if any tracked guard is live on this thread.
 ///
-/// Call immediately before invoking user code. `site` is reproduced in the panic
-/// message — when this fires, *which* callback was about to run is the useful
+/// Call immediately before invoking user code. `site` is reproduced in the
+/// message: when this fires, *which* callback was about to run is the useful
 /// information, not the counter's backtrace.
+///
+/// The panic payload is a [`ReentrancyViolation`]. The default panic hook does
+/// not print that type, so the same message is also logged at error level.
 #[inline(always)]
 pub fn assert_no_guards_held(site: &str) {
     #[cfg(debug_assertions)]
     {
         let live = live_guards();
         if live != 0 {
-            std::panic::panic_any(ReentrancyViolation {
-                message: format!(
-                    "hiroz re-entrancy rule violated at `{site}`: about to invoke a user \
-                     callback with {live} lock guard(s) live on this thread. A callback \
-                     that re-enters hiroz will deadlock if it touches a lock this thread \
-                     holds. Fix: collect what you need into an owned value, drop every \
-                     guard, then invoke the callback."
-                ),
-            });
+            let message = format!(
+                "hiroz re-entrancy rule violated at `{site}`: about to invoke a user \
+                 callback with {live} lock guard(s) live on this thread. A callback \
+                 that re-enters hiroz will deadlock if it touches a lock this thread \
+                 holds. Fix: collect what you need into an owned value, drop every \
+                 guard, then invoke the callback."
+            );
+            // The default panic hook prints a non-string payload as `Box<dyn Any>`.
+            // Log the message here so the operator still sees it.
+            tracing::error!("{message}");
+            std::panic::panic_any(ReentrancyViolation { message });
         }
     }
     #[cfg(not(debug_assertions))]
