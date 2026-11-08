@@ -293,7 +293,7 @@ flowchart TD
 accTitle: Python bindings build process from cargo build to compiled output
 accDescr: Running cargo build triggers build.rs which discovers ROS packages, parses msg files, resolves dependencies, then generates both Python type files and a Rust PyO3 module compiled into hiroz-msgs.
     A["cargo build hiroz-msgs<br/>--features python_registry"] --> B["build.rs executes"]
-    B --> C["Discover ROS packages<br/>(AMENT_PREFIX_PATH or bundled)"]
+    B --> C["Discover ROS packages<br/>(bundled assets/&lt;distro&gt; only)"]
     C --> D["Parse .msg/.srv files"]
     D --> E["Resolve dependencies<br/>(type hashes, nested types)"]
     E --> F["Generate Python files"]
