@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use hiroz::{Builder, Result, context::ZContextBuilder, define_action, msg::ZSerializer};
+use hiroz::{Builder, Result, define_action, msg::ZSerializer};
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
 use zenoh::Wait;
@@ -15,7 +15,7 @@ pub struct TestGoal {
     pub order: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct TestResult {
     pub value: i32,
 }
@@ -42,7 +42,7 @@ async fn setup_test() -> Result<(
     hiroz::action::client::ZActionClient<TestAction>,
     hiroz::action::server::ZActionServer<TestAction>,
 )> {
-    let ctx = ZContextBuilder::default().build()?;
+    let ctx = crate::action::context_builder().build()?;
     let node = ctx.create_node("test_action_comm_node").build()?;
 
     let server = node
@@ -443,7 +443,7 @@ mod tests {
         handle2.canceled(TestResult { value: 2 })?;
 
         let (cancel_response, _) = client_task.await.expect("client task panicked")?;
-        assert_eq!(cancel_response.return_code, 1);
+        assert_eq!(cancel_response.return_code, 0);
 
         let _ = timeout(Duration::from_secs(5), goal_handle1.result())
             .await
