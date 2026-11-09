@@ -37,11 +37,13 @@ pub fn calculate_service_type_hash(
     service_event_info_desc: &TypeDescription,
     resolved_deps: &BTreeMap<String, TypeDescription>,
 ) -> Result<TypeHash> {
-    // ROS2 uses slash format, not :: format
-    // Detect if this is an action service (contains SendGoal/GetResult/CancelGoal)
-    let is_action = service_name.contains("SendGoal")
-        || service_name.contains("GetResult")
-        || service_name.contains("CancelGoal");
+    // Action-protocol services (custom actions' SendGoal/GetResult) are hashed
+    // under the package's `/action/` sub-namespace; everything else — including
+    // the standard `action_msgs/srv/CancelGoal`, which lives in the package's
+    // `srv/` — uses `/srv/`. Treating CancelGoal as an action service previously
+    // renamed its request/response types to `/action/.../CancelGoal_...`,
+    // producing a hash that could never match the ROS-side service key.
+    let is_action = service_name.ends_with("_SendGoal") || service_name.ends_with("_GetResult");
     let path = if is_action { "action" } else { "srv" };
 
     // Action services use /action/ path, regular services use /srv/ path
@@ -111,6 +113,45 @@ pub fn calculate_service_type_hash(
         ],
     };
 
+    let type_desc_msg = build_service_description_msg(
+        package,
+        service_name,
+        event_desc,
+        service_desc,
+        request_desc,
+        response_desc,
+        resolved_deps,
+    );
+
+    Ok(calculate_hash(&type_desc_msg))
+}
+
+/// Build the full TypeDescriptionMsg (request/response/event + referenced deps)
+/// for a service — the exact input to the RIHS01 hash. Public so callers that
+/// need to debug or validate the built description can re-use it verbatim.
+pub fn build_service_description_msg(
+    _package: &str,
+    service_name: &str,
+    event_desc: TypeDescription,
+    service_desc: TypeDescription,
+    request_desc: &TypeDescription,
+    response_desc: &TypeDescription,
+    resolved_deps: &BTreeMap<String, TypeDescription>,
+) -> TypeDescriptionMsg {
+    // Action-protocol services (custom actions' SendGoal/GetResult) are hashed
+    // under the package's `/action/` sub-namespace; everything else — including
+    // the standard `action_msgs/srv/CancelGoal`, which lives in the package's
+    // `srv/` — uses `/srv/`. Treating CancelGoal as an action service previously
+    // renamed its request/response types to `/action/.../CancelGoal_...`,
+    // producing a hash that could never match the ROS-side service key.
+    let is_action = service_name.ends_with("_SendGoal") || service_name.ends_with("_GetResult");
+    let path = if is_action { "action" } else { "srv" };
+
+    // Action services use /action/ path, regular services use /srv/ path
+    let service_type_name = format!("{}/{}/{}", _package, path, service_name);
+    let request_type_name = format!("{}/{}/{}_Request", _package, path, service_name);
+    let response_type_name = format!("{}/{}/{}_Response", _package, path, service_name);
+
     // Build referenced type descriptions
     // Need to include: Request, Response, Event, ServiceEventInfo, and any deps of ServiceEventInfo
     let mut request_desc_corrected = request_desc.clone();
@@ -141,12 +182,10 @@ pub fn calculate_service_type_hash(
     let mut referenced_vec: Vec<TypeDescription> = referenced.into_values().collect();
     referenced_vec.sort_by(|a, b| a.type_name.cmp(&b.type_name));
 
-    let type_desc_msg = TypeDescriptionMsg {
+    TypeDescriptionMsg {
         type_description: service_desc,
         referenced_type_descriptions: referenced_vec,
-    };
-
-    Ok(calculate_hash(&type_desc_msg))
+    }
 }
 
 /// Build TypeDescription message from parsed message
