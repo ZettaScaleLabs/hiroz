@@ -331,13 +331,14 @@ A cancel does not stop work that the C layer already started. `Close` waits for 
 | `WaitForServiceContext` | the wait, which `Close` ends and which returns a closed-client error | one wait slice (250 ms) |
 | `SendGoalContext` | the C call, not the goal's `SerializeCDR` before it | 10 s, the fixed timeout of the C call |
 | `GetResultWithContext`, `GetResult`, `GetTypedResult`, `GetTypedResultContext` | the C call | 30 s, the fixed timeout of the C call, and normally about 10 s because the service client behind it ends its query after 10 s |
-| `SendGoal`, `GoalHandle.Cancel` | nothing | do not call them concurrently with `Close` |
+| `GoalHandle.Cancel` | the C call | 10 s, the fixed timeout of the C call; after `Close` it returns a closed-client error |
+| `SendGoal` | nothing | do not call it concurrently with `Close` |
 
 `ServiceClient.Close` does not wait for your encoder or decoder. A `CallTypedContext` can still be inside `DeserializeCDR` when `Close` returns, so do not assume that your response state is no longer in use.
 
 `GoalHandle.Close` is not gated by the client. Do not close a goal handle while a result wait on it is running: the C call reads the handle that `Close` frees. A result wait that returned on a cancel keeps the goal handle reachable until its C call returns, so dropping the last reference is safe.
 
-`SendGoalContext` returns an open handle when the server answers first. When the cancel wins, it returns the context error and closes the handle once the C layer returns. The server may already hold the goal, and the cancel does not cancel it. That cleanup does not register with the client and can run after `Close` has returned.
+`SendGoalContext` returns an open handle when the server answers first. When the cancel wins, it returns the context error and closes the handle once the C layer returns. The server may already hold the goal, and the cancel does not cancel it. That cleanup does not register with the client and can run after `Close` has returned. This is harmless: it frees only the handle's own box and never reads the client.
 
 `SubscriberWithChannelContext` has no cleanup function. The channel closes when the context ends or when the subscriber closes, whichever comes first, so pass a context that you cancel, or close the subscriber.
 
