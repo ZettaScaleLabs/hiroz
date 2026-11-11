@@ -570,9 +570,13 @@ func TestActionClientCloseWaitsForRegisteredCancel(t *testing.T) {
 	receiveBounded(t, done, "Cancel to return")
 }
 
-// A cancel call that fails must still keep the goal handle alive for the whole C call: the
-// handle finalizer destroys the C handle that the call reads, and nothing after the call
-// uses the handle on the error path.
+// cancelInto cancels h and reports the result. It does not use h after the call.
+func cancelInto(h *GoalHandle, done chan<- error) { done <- h.Cancel() }
+
+// Cancel keeps the goal handle alive for the whole C call, also when the call fails: the
+// handle finalizer destroys the C handle that the call reads. Today the status update after
+// the call keeps the handle live on every path. This test fails if that line and the
+// runtime.KeepAlive call both go.
 func TestGoalHandleCancelKeepsGoalHandleAliveDuringCall(t *testing.T) {
 	c := openTestActionClient()
 	started := make(chan struct{})
@@ -587,7 +591,8 @@ func TestGoalHandleCancelKeepsGoalHandleAliveDuringCall(t *testing.T) {
 	func() {
 		h := fakeGoalHandle(c)
 		runtime.SetFinalizer(h, func(*GoalHandle) { finalized.Store(true) })
-		go func() { done <- h.Cancel() }()
+		// The goroutine takes h as an argument. A closure over h would keep it reachable.
+		go cancelInto(h, done)
 		receiveBounded(t, started, "the C call to start")
 	}()
 
