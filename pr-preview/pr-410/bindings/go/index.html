@@ -3385,6 +3385,11 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 <td>nothing</td>
 <td>do not call it concurrently with <code>Close</code></td>
 </tr>
+<tr>
+<td><code>CallTyped</code>, <code>CallTypedWithTimeout</code>, <code>WaitForService</code></td>
+<td>nothing</td>
+<td>do not call them concurrently with <code>Close</code></td>
+</tr>
 </tbody>
 </table>
 <p><code>ServiceClient.Close</code> does not wait for your encoder or decoder. A <code>CallTypedContext</code> can still be inside <code>DeserializeCDR</code> when <code>Close</code> returns, so do not assume that your response state is no longer in use.</p>
@@ -3412,8 +3417,8 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 <tr>
 <td><code>SubscriberWithChannelContext</code></td>
 <td>The subscriber is destroyed, then the channel closes.</td>
-<td>A closed channel does not mean that <code>DeserializeCDR</code> has returned for a sample in flight. That sample is dropped. A sample that is already in the send when the context ends can still arrive before the channel closes.</td>
-<td>The closed channel shows that no sample arrives. Keep the message type's decoder free of state that you release on close.</td>
+<td>A closed channel does not mean that <code>DeserializeCDR</code> has returned for a sample in flight. That sample is dropped. A sample that is already in the send, or that finishes decoding before the cleanup goroutine runs, can still arrive.</td>
+<td>The closed channel receives no new sample, and the samples it holds stay readable. Keep the message type's decoder free of state that you release on close.</td>
 </tr>
 <tr>
 <td><code>CallTypedContext</code>, in <code>SerializeCDR</code></td>
@@ -3424,7 +3429,7 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 <tr>
 <td><code>CallTypedContext</code>, in <code>DeserializeCDR</code></td>
 <td>Nothing: the result has arrived.</td>
-<td><code>DeserializeCDR</code> is not interrupted. The call returns <code>nil</code>, and the response holds the decoded value.</td>
+<td><code>DeserializeCDR</code> is not interrupted. The call returns what the decoder returns: <code>nil</code> with the decoded value, or the decode error.</td>
 <td>The return of <code>CallTypedContext</code>.</td>
 </tr>
 </tbody>
