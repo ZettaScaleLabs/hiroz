@@ -60,9 +60,9 @@ pub fn deserialize_cdr(
 
 /// Most values one decode call may produce without consuming a byte of input.
 ///
-/// A value such as an empty message takes no bytes, so the input size bounds neither the count a
-/// sequence declares nor the messages a schema nests. The budget is shared by every value of one
-/// call, so nesting does not multiply it.
+/// An empty message takes no bytes. The input size bounds neither the count a sequence declares
+/// nor the messages a schema nests. The budget is shared by every value of one call, so nesting
+/// does not multiply it.
 const MAX_ZERO_BYTE_ELEMENTS: usize = 1 << 20;
 
 /// The values without data that one decode call may still produce.
@@ -195,8 +195,8 @@ fn deserialize_message(
     Ok(DynamicMessage::from_values(schema, values))
 }
 
-/// Decode one value. A value that consumes no input is charged to `budget`, so a count or a
-/// nesting that the input cannot back runs out of budget before it runs out of memory.
+/// Decode one value. A value that consumes no input is charged to `budget`. A count or nesting
+/// that the input cannot back then runs out of budget before it runs out of memory.
 fn deserialize_value(
     field_type: &FieldType,
     reader: &mut CdrReader<LittleEndian>,
