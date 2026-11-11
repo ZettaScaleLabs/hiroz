@@ -478,3 +478,91 @@ func TestSendGoalContextCancelDuringSerializeWaitsForSerializer(t *testing.T) {
 		t.Errorf("the goal was sent %d times for a call cancelled in the serializer, want 0", n)
 	}
 }
+
+func stubActionCancel(t *testing.T, f func() int32) {
+	t.Helper()
+	old := actionCancel
+	actionCancel = func(*cGoalHandleC) int32 { return f() }
+	t.Cleanup(func() { actionCancel = old })
+}
+
+// Positive control for the cancel tests below: before Close, Cancel reaches the C call.
+func TestGoalHandleCancelBeforeCloseReachesCCall(t *testing.T) {
+	c := openTestActionClient()
+	h := fakeGoalHandle(c)
+	var calls atomic.Int32
+	stubActionCancel(t, func() int32 { calls.Add(1); return 0 })
+
+	if err := h.Cancel(); err != nil {
+		t.Fatalf("Cancel: want no error, got %v", err)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("the C call ran %d times, want 1", calls.Load())
+	}
+	if h.Status() != GoalStatusCanceling {
+		t.Errorf("status %v, want canceling", h.Status())
+	}
+	_ = c.Close()
+}
+
+// Control for the cancel tests: a result wait on a closed client already returns the closed
+// error and makes no C call.
+func TestGoalHandleGetResultAfterCloseReturnsClosedError(t *testing.T) {
+	c := openTestActionClient()
+	h := fakeGoalHandle(c)
+	var calls atomic.Int32
+	stubActionResult(t, func() ([]byte, int32) { calls.Add(1); return []byte{5}, 0 })
+	_ = c.Close()
+
+	if _, err := h.GetResultWithContext(context.Background()); err == nil || err.Error() != "action client is closed" {
+		t.Fatalf("want the closed-client error, got %v", err)
+	}
+	if calls.Load() != 0 {
+		t.Errorf("the C call ran %d times after Close, want 0", calls.Load())
+	}
+}
+
+// A handle that outlives its client must not reach the C call: the C call reads the client
+// that Close freed.
+func TestGoalHandleCancelAfterCloseReturnsClosedError(t *testing.T) {
+	c := openTestActionClient()
+	h := fakeGoalHandle(c)
+	var calls atomic.Int32
+	stubActionCancel(t, func() int32 { calls.Add(1); return 0 })
+	_ = c.Close()
+
+	err := h.Cancel()
+	if err == nil || err.Error() != "action client is closed" {
+		t.Fatalf("want the closed-client error, got %v", err)
+	}
+	if n := calls.Load(); n != 0 {
+		t.Errorf("the C call ran %d times after Close, want 0", n)
+	}
+}
+
+// Close waits for a registered cancel call, as it does for the other registered calls.
+func TestActionClientCloseWaitsForRegisteredCancel(t *testing.T) {
+	c := openTestActionClient()
+	h := fakeGoalHandle(c)
+	started := make(chan struct{})
+	release, free := newRelease(t)
+	stubActionCancel(t, func() int32 {
+		close(started)
+		<-release
+		return 0
+	})
+	done := make(chan error, 1)
+	go func() { done <- h.Cancel() }()
+	receiveBounded(t, started, "the C call to start")
+
+	closed := make(chan struct{})
+	go func() { _ = c.Close(); close(closed) }()
+	select {
+	case <-closed:
+		t.Fatal("Close returned while a cancel call was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+	free()
+	receiveBounded(t, closed, "Close to return after the C call ended")
+	receiveBounded(t, done, "Cancel to return")
+}
