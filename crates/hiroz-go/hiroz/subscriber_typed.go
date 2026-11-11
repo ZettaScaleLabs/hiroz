@@ -2,6 +2,7 @@ package hiroz
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"sync"
 )
@@ -190,11 +191,13 @@ func BuildWithTypedCallbackContext[T Message](ctx context.Context, builder *Subs
 // SubscriberWithChannelContext is SubscriberWithChannel with a lifetime bound to ctx, and no
 // cleanup function. When ctx ends, a cleanup goroutine destroys the subscriber and then
 // closes the channel, so a range loop over the channel finishes. Closing the subscriber
-// earlier also closes the channel. A closed channel means that no sample will arrive on it.
-// It does not mean that the message type's DeserializeCDR has returned: a callback that is
-// inside DeserializeCDR when ctx ends runs it to the end, and then drops the sample. A
-// sample that is already in the send when ctx ends can still arrive before the channel
-// closes. If ctx has already ended, the call returns ctx.Err() and creates nothing.
+// earlier also closes the channel. A closed channel receives no new sample, and the samples
+// that it already holds stay readable. It does not mean that the message type's
+// DeserializeCDR has returned: a callback that is inside DeserializeCDR when the channel
+// closes runs it to the end, and then drops the sample. A sample that is already in the send,
+// or that finishes decoding before the cleanup goroutine runs, can still arrive.
+// If ctx has already ended, the call returns ctx.Err() and creates nothing. A negative
+// bufferSize returns ErrBuildFailed and creates nothing.
 //
 // Known limit: neither cancel nor Close releases the callback. The underlying subscriber keeps
 // it reachable until the process ends, together with its channels and the message type.
@@ -215,6 +218,9 @@ func BuildWithTypedCallbackContext[T Message](ctx context.Context, builder *Subs
 func SubscriberWithChannelContext[T Message](ctx context.Context, builder *SubscriberBuilder, bufferSize int) (*Subscriber, <-chan T, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
+	}
+	if bufferSize < 0 {
+		return nil, nil, fmt.Errorf("%w: subscriber for %s: negative buffer size %d", ErrBuildFailed, builder.topic, bufferSize)
 	}
 	msgTemplate := newMessage[T]()
 	outCh := make(chan T, bufferSize)
