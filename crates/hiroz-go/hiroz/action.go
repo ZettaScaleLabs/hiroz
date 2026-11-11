@@ -65,6 +65,12 @@ var actionResult = func(h *cGoalHandleC) ([]byte, int32) {
 	return resultBytes, 0
 }
 
+// actionCancel makes the C call of a cancel request. A test replaces it to run the cancel
+// path without a Zenoh session.
+var actionCancel = func(h *cGoalHandleC) int32 {
+	return int32(C.hiroz_action_client_cancel_goal(h))
+}
+
 // GoalStatus represents the status of an action goal
 type GoalStatus int8
 
@@ -154,7 +160,7 @@ func (h *GoalHandle) Cancel() error {
 		return fmt.Errorf("goal handle is closed")
 	}
 
-	result := C.hiroz_action_client_cancel_goal(hw.p)
+	result := actionCancel(hw.p)
 	if result != 0 {
 		return newHirozError(ErrorCodeActionCancelFailed, fmt.Sprintf("failed to cancel goal with code %d", result))
 	}
