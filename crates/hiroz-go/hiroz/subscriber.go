@@ -27,6 +27,8 @@ type Subscriber struct {
 	// onClose runs once, after Close has destroyed the subscriber. The context variants set
 	// it to release their registration on the context.
 	onClose atomic.Pointer[func()]
+	// closed is set by Close before it takes the hook, so setOnClose can tell that it is late.
+	closed atomic.Bool
 }
 
 // BufferGroup selects whether a subscriber joins the CPU buffer group of rmw_zenoh.
@@ -178,11 +180,8 @@ func (s *Subscriber) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
 		defer func() {
-			// Swap, not Load: the hook refers to the subscriber, and a subscriber that keeps its
-			// own hook is a cycle through a finalizer, which the collector never frees.
-			if f := s.onClose.Swap(nil); f != nil {
-				(*f)()
-			}
+			s.closed.Store(true)
+			s.runOnClose()
 		}()
 		if s.handle == nil {
 			return
@@ -194,6 +193,15 @@ func (s *Subscriber) Close() error {
 		}
 	})
 	return err
+}
+
+// runOnClose runs the close hook at most once. It takes the hook with Swap, not Load: the hook
+// refers to the subscriber, and a subscriber that keeps its own hook is a cycle through a
+// finalizer, which the collector never frees.
+func (s *Subscriber) runOnClose() {
+	if f := s.onClose.Swap(nil); f != nil {
+		(*f)()
+	}
 }
 
 // subscriberClosure recovers the closure context that userData names.

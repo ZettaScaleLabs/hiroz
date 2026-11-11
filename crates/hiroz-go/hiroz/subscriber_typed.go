@@ -141,8 +141,14 @@ func SubscriberWithHandler[T Message](builder *SubscriberBuilder, handler Handle
 	return sub, ch, drop, nil
 }
 
-// setOnClose sets the function that Close runs once the subscriber is destroyed.
-func (s *Subscriber) setOnClose(f func()) { s.onClose.Store(&f) }
+// setOnClose sets the function that Close runs once the subscriber is destroyed. When Close
+// has already run, nobody else would run f, so setOnClose runs it.
+func (s *Subscriber) setOnClose(f func()) {
+	s.onClose.Store(&f)
+	if s.closed.Load() {
+		s.runOnClose()
+	}
+}
 
 // BuildWithTypedCallbackContext is BuildWithTypedCallback with a lifetime bound to ctx.
 // When ctx ends, a cleanup goroutine destroys the subscriber through Node.DestroySubscriber.
