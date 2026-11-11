@@ -351,20 +351,19 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
     /// Read a sequence length prefix.
     ///
     /// # Limits
-    /// The maximum count bounds the iteration of one sequence. Nested sequences each get their own
-    /// bound, so it does not bound the total work of a decode. It does not prove that the elements
-    /// are present in the input. A decoder whose elements can take no bytes must also keep a
-    /// budget for the whole decode call.
+    /// The maximum sequence length is 100 million elements. This validates only the declared count.
+    /// It does not compare the count with [`Self::remaining`], because valid elements can occupy
+    /// zero bytes on the wire. Nested sequences each get their own bound, so it does not bound the
+    /// total work of a decode.
     ///
-    /// The maximum sequence length is 100 million elements. This validates only
-    /// the declared count: it does not compare the count with [`Self::remaining`],
-    /// because valid elements can occupy zero bytes on the wire.
+    /// A decoder should decode each element before it appends it. It may reserve at most
+    /// `count.min(self.remaining())` elements up front. That bound stops a count above the unread
+    /// bytes from reserving the declared count. It does not bound the bytes reserved: an element of
+    /// `size_of::<T>()` bytes can make the reservation up to `size_of::<T>()` times the unread input.
     ///
-    /// A decoder must consume each element before it grows its output, and may
-    /// reserve at most `count.min(self.remaining())` elements as a hint. That bound
-    /// stops a short input from reserving the declared count. It does not bound the
-    /// bytes reserved: an element of `size_of::<T>()` bytes can make the reservation
-    /// up to `size_of::<T>()` times the unread input.
+    /// Elements that take no bytes need a budget for the whole decode call. The dynamic decoder
+    /// keeps one. The generic `Vec<T>` decoder keeps none: a zero-sized element costs time and no
+    /// memory.
     #[inline]
     pub fn read_sequence_length(&mut self) -> Result<usize> {
         const MAX_SEQUENCE_LENGTH: u32 = 100_000_000;
