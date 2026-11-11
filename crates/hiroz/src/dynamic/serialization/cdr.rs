@@ -58,14 +58,14 @@ pub fn deserialize_cdr(
     deserialize_message(schema, &mut reader, &mut budget)
 }
 
-/// Most elements one decode call may produce without consuming a byte of input.
+/// Most values one decode call may produce without consuming a byte of input.
 ///
-/// An element such as an empty message takes no bytes, so the input size does not bound how many
-/// of them a sequence declares. The budget is shared by every sequence and array of one call, so
-/// nesting does not multiply it.
+/// A value such as an empty message takes no bytes, so the input size bounds neither the count a
+/// sequence declares nor the messages a schema nests. The budget is shared by every value of one
+/// call, so nesting does not multiply it.
 const MAX_ZERO_BYTE_ELEMENTS: usize = 1 << 20;
 
-/// The zero-byte elements one decode call may still produce.
+/// The values without data that one decode call may still produce.
 struct ZeroByteBudget {
     left: usize,
 }
@@ -77,11 +77,11 @@ impl ZeroByteBudget {
         }
     }
 
-    /// Account for one element that consumed no input.
+    /// Account for one value that consumed no input.
     fn spend(&mut self) -> Result<(), DynamicError> {
         self.left = self.left.checked_sub(1).ok_or_else(|| {
             DynamicError::DeserializationError(format!(
-                "more than {MAX_ZERO_BYTE_ELEMENTS} elements without data in one message"
+                "more than {MAX_ZERO_BYTE_ELEMENTS} values without data in one message"
             ))
         })?;
         Ok(())
@@ -90,8 +90,8 @@ impl ZeroByteBudget {
 
 /// Decode `count` elements of `inner` into a vector.
 ///
-/// The initial reservation never exceeds the unread input. An element that consumes no input is
-/// charged to `budget`, so a count that the input cannot back runs out of budget and not memory.
+/// The initial capacity is at most one element per unread byte. The elements are counted, not
+/// their bytes, so the reservation can exceed the unread input.
 fn deserialize_elements(
     inner: &FieldType,
     count: usize,
@@ -100,11 +100,7 @@ fn deserialize_elements(
 ) -> Result<Vec<DynamicValue>, DynamicError> {
     let mut values = Vec::with_capacity(count.min(reader.remaining()));
     for _ in 0..count {
-        let before = reader.remaining();
         values.push(deserialize_value(inner, reader, budget)?);
-        if reader.remaining() == before {
-            budget.spend()?;
-        }
     }
     Ok(values)
 }
@@ -199,7 +195,22 @@ fn deserialize_message(
     Ok(DynamicMessage::from_values(schema, values))
 }
 
+/// Decode one value. A value that consumes no input is charged to `budget`, so a count or a
+/// nesting that the input cannot back runs out of budget before it runs out of memory.
 fn deserialize_value(
+    field_type: &FieldType,
+    reader: &mut CdrReader<LittleEndian>,
+    budget: &mut ZeroByteBudget,
+) -> Result<DynamicValue, DynamicError> {
+    let before = reader.remaining();
+    let value = deserialize_value_inner(field_type, reader, budget)?;
+    if reader.remaining() == before {
+        budget.spend()?;
+    }
+    Ok(value)
+}
+
+fn deserialize_value_inner(
     field_type: &FieldType,
     reader: &mut CdrReader<LittleEndian>,
     budget: &mut ZeroByteBudget,

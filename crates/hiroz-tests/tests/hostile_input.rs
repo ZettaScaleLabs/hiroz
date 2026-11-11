@@ -528,7 +528,7 @@ fn dynamic_decoder_shares_the_zero_byte_budget_across_sequences() {
     let err = DynamicMessage::from_cdr(&nested_sample(&[300_000; 4]), &schema)
         .expect_err("a total above the budget must be an error");
     assert!(
-        err.to_string().contains("elements without data"),
+        err.to_string().contains("values without data"),
         "the error must name the budget: {err}"
     );
 }
