@@ -547,6 +547,39 @@ fn message_tree(depth: u32) -> std::sync::Arc<MessageSchema> {
     schema
 }
 
+/// The budget is 1,048,576 values without data: a sequence of that many empty messages decodes
+/// and one more is an error. The child limits memory because the accepted case holds them all.
+#[test]
+fn dynamic_decoder_pins_the_zero_byte_budget() {
+    if is_child() {
+        let schema = MessageSchema::builder("test_msgs/msg/EmptySeq")
+            .field(
+                "items",
+                FieldType::Sequence(Box::new(FieldType::Message(empty_message()))),
+            )
+            .build()
+            .expect("schema");
+        let sample = |count: u32| {
+            let mut v = vec![0x00, 0x01, 0x00, 0x00];
+            v.extend_from_slice(&count.to_le_bytes());
+            v
+        };
+        limit_address_space();
+        let msg = DynamicMessage::from_cdr(&sample(1_048_576), &schema)
+            .expect("a count at the budget must decode");
+        println!("at budget: {} elements", elements(&msg, "items").len());
+        drop(msg);
+        let err = DynamicMessage::from_cdr(&sample(1_048_577), &schema)
+            .expect_err("a count above the budget must be an error");
+        println!("above budget: {err}");
+        return;
+    }
+    assert_child_survives(
+        "dynamic_decoder_pins_the_zero_byte_budget",
+        &["at budget: 1048576 elements", "above budget: "],
+    );
+}
+
 /// The number of messages in `msg`, itself included.
 fn message_count(msg: &DynamicMessage) -> usize {
     let nested = (0..msg.schema().field_count()).map(|i| match msg.get_dynamic_by_index(i) {
