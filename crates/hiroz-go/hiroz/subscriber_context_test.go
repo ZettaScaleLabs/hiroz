@@ -532,3 +532,94 @@ func TestCallbackThatCapturesContextRetainsPayload(t *testing.T) {
 		t.Fatal("the payload was collected although a retained callback captures its context")
 	}
 }
+
+// closeOnRegisterCtx closes every subscriber of the node while the AfterFunc registration
+// runs. That is a node teardown that comes between the registration and the close hook.
+type closeOnRegisterCtx struct {
+	*countingCtx
+	node *Node
+}
+
+func (c *closeOnRegisterCtx) AfterFunc(f func()) func() bool {
+	stop := c.countingCtx.AfterFunc(f)
+	c.node.subsMu.Lock()
+	subs := c.node.ownedSubs
+	c.node.ownedSubs = nil
+	c.node.subsMu.Unlock()
+	for _, s := range subs {
+		_ = s.Close()
+	}
+	return stop
+}
+
+// A Close that runs before the close hook exists must still run the hook, because nothing
+// else releases the registration on the context.
+func TestBuildWithTypedCallbackContextCloseBeforeHookReleasesRegistration(t *testing.T) {
+	f := stubSubscriber(t)
+	node := &Node{}
+	ctx := &closeOnRegisterCtx{countingCtx: newCountingCtx(), node: node}
+	defer ctx.cancel()
+	if _, err := BuildWithTypedCallbackContext(ctx, node.CreateSubscriber("chatter"), func(*nilSafeMessage) {}); err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if n := f.destroys.Load(); n != 1 {
+		t.Fatalf("control: destroys = %d, want 1: the registration did not close the subscriber", n)
+	}
+	if s := ctx.stopped.Load(); s != 1 {
+		t.Errorf("stopped = %d, want 1: the context still holds the subscriber", s)
+	}
+}
+
+// The channel variant closes its channel when the subscriber closes before the hook exists.
+func TestSubscriberWithChannelContextCloseBeforeHookClosesChannel(t *testing.T) {
+	f := stubSubscriber(t)
+	node := &Node{}
+	ctx := &closeOnRegisterCtx{countingCtx: newCountingCtx(), node: node}
+	defer ctx.cancel()
+	_, ch, err := SubscriberWithChannelContext[*nilSafeMessage](ctx, node.CreateSubscriber("chatter"), 1)
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if n := f.destroys.Load(); n != 1 {
+		t.Fatalf("control: destroys = %d, want 1: the registration did not close the subscriber", n)
+	}
+	drained := make(chan struct{})
+	go func() {
+		for range ch {
+		}
+		close(drained)
+	}()
+	receiveBounded(t, drained, "the channel to close, with the context still live")
+	if s := ctx.stopped.Load(); s != 1 {
+		t.Errorf("stopped = %d, want 1: the context still holds the subscriber", s)
+	}
+}
+
+// A negative buffer size is an argument error, and nothing is created for it. A size of zero
+// is the positive control: an unbuffered channel is valid.
+func TestSubscriberWithChannelContextBufferSize(t *testing.T) {
+	f := stubSubscriber(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("a negative buffer size panicked: %v", r)
+			}
+		}()
+		sub, ch, err := SubscriberWithChannelContext[*nilSafeMessage](ctx, (&Node{}).CreateSubscriber("chatter"), -1)
+		if sub != nil || ch != nil || !errors.Is(err, ErrBuildFailed) {
+			t.Errorf("want ErrBuildFailed and nothing built, got sub=%v ch=%v err=%v", sub, ch, err)
+		}
+	}()
+	if f.deliver != nil {
+		t.Error("a subscriber was created for a negative buffer size")
+	}
+
+	sub, ch, err := SubscriberWithChannelContext[*nilSafeMessage](ctx, (&Node{}).CreateSubscriber("chatter"), 0)
+	if err != nil || sub == nil || ch == nil {
+		t.Fatalf("control: want an unbuffered subscriber, got sub=%v ch=%v err=%v", sub, ch, err)
+	}
+	_ = sub.Close()
+}
