@@ -533,6 +533,73 @@ fn dynamic_decoder_shares_the_zero_byte_budget_across_sequences() {
     );
 }
 
+/// A schema of `depth` levels of messages with no bytes. Each level holds two of the level below,
+/// so the decoded value has `2^(depth + 1) - 1` messages and the input has no byte for any of them.
+fn message_tree(depth: u32) -> std::sync::Arc<MessageSchema> {
+    let mut schema = empty_message();
+    for level in 0..depth {
+        schema = MessageSchema::builder(&format!("test_msgs/msg/Tree{level}"))
+            .field("left", FieldType::Message(schema.clone()))
+            .field("right", FieldType::Message(schema))
+            .build()
+            .expect("schema");
+    }
+    schema
+}
+
+/// The number of messages in `msg`, itself included.
+fn message_count(msg: &DynamicMessage) -> usize {
+    let nested = (0..msg.schema().field_count()).map(|i| match msg.get_dynamic_by_index(i) {
+        Ok(DynamicValue::Message(m)) => message_count(m),
+        other => panic!("expected a message, got {other:?}"),
+    });
+    1 + nested.sum::<usize>()
+}
+
+/// Messages that hold messages and take no bytes count against the zero-byte budget, as the
+/// elements of a sequence do. A tree of 33 million of them must be an error, not an allocation.
+#[test]
+fn dynamic_decoder_survives_a_hostile_message_tree() {
+    if is_child() {
+        let tree = message_tree(24);
+        // A one-byte element that holds the tree: the element consumes input, its children do not.
+        let wrapped = MessageSchema::builder("test_msgs/msg/WrappedTree")
+            .field(
+                "items",
+                FieldType::Sequence(Box::new(FieldType::Message(
+                    MessageSchema::builder("test_msgs/msg/Wrapper")
+                        .field("tag", FieldType::Uint8)
+                        .field("tree", FieldType::Message(tree.clone()))
+                        .build()
+                        .expect("schema"),
+                ))),
+            )
+            .build()
+            .expect("schema");
+        let header = [0x00, 0x01, 0x00, 0x00];
+        limit_address_space();
+        let err = DynamicMessage::from_cdr(&header, &tree)
+            .expect_err("a hostile message tree must be an error");
+        println!("hostile: {err}");
+
+        let mut wrapped_sample = header.to_vec();
+        wrapped_sample.extend_from_slice(&1u32.to_le_bytes());
+        wrapped_sample.push(7);
+        let err = DynamicMessage::from_cdr(&wrapped_sample, &wrapped)
+            .expect_err("a wrapped hostile message tree must be an error");
+        println!("wrapped: {err}");
+
+        // The same process decodes an honest tree.
+        let msg = DynamicMessage::from_cdr(&header, &message_tree(3)).expect("valid sample");
+        println!("next valid: {} messages", message_count(&msg));
+        return;
+    }
+    assert_child_survives(
+        "dynamic_decoder_survives_a_hostile_message_tree",
+        &["hostile: ", "wrapped: ", "next valid: 15 messages"],
+    );
+}
+
 /// A fixed array takes its length from the schema, which a remote node supplies. A huge length
 /// must be an error from the decoder, never a reservation.
 #[test]
