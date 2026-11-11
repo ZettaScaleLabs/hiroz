@@ -15,6 +15,10 @@ import (
 
 const barrierBound = 10 * time.Second
 
+// blockedWindow is how long a test watches for a call that must stay blocked. A snapshot
+// taken at once would pass for a call that returns a moment later.
+const blockedWindow = 100 * time.Millisecond
+
 // barrier holds user code until the test releases it. Release is idempotent, so a deferred
 // release frees the held goroutine when an assertion fails first.
 type barrier struct {
@@ -200,7 +204,7 @@ func TestCallTypedContextCancelDuringSerializeWaitsForSerializer(t *testing.T) {
 	select {
 	case err := <-done:
 		t.Fatalf("the call returned %v while the serializer was blocked", err)
-	default:
+	case <-time.After(blockedWindow):
 	}
 
 	b.free()
@@ -229,7 +233,7 @@ func TestCallTypedContextCancelDuringDeserializeStillReturnsResult(t *testing.T)
 	select {
 	case err := <-done:
 		t.Fatalf("the call returned %v while the deserializer was blocked", err)
-	default:
+	case <-time.After(blockedWindow):
 	}
 
 	b.free()

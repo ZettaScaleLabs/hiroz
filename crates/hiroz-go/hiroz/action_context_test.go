@@ -361,6 +361,9 @@ func TestGetResultWithContextCancelledBeatsClosedHandle(t *testing.T) {
 	}
 }
 
+// errSerializerFailed is the error that failingGoal and failingReq return.
+var errSerializerFailed = errors.New("serializer failed")
+
 // failingGoal runs hook inside SerializeCDR and then fails.
 type failingGoal struct{ hook func() }
 
@@ -368,7 +371,7 @@ func (g *failingGoal) TypeName() string { return "x" }
 func (g *failingGoal) TypeHash() string { return "y" }
 func (g *failingGoal) SerializeCDR() ([]byte, error) {
 	g.hook()
-	return nil, errors.New("serializer failed")
+	return nil, errSerializerFailed
 }
 func (g *failingGoal) DeserializeCDR([]byte) error { return nil }
 
@@ -387,7 +390,7 @@ func TestSendGoalContextEndedDuringFailingSerializeReturnsCtxErr(t *testing.T) {
 func TestSendGoalContextFailingSerializeReturnsSerializerError(t *testing.T) {
 	c := openTestActionClient()
 	_, err := c.SendGoalContext(context.Background(), &failingGoal{hook: func() {}})
-	if err == nil || errors.Is(err, context.Canceled) {
+	if !errors.Is(err, errSerializerFailed) {
 		t.Fatalf("want the serializer error, got %v", err)
 	}
 	_ = c.Close()
@@ -466,7 +469,7 @@ func TestSendGoalContextCancelDuringSerializeWaitsForSerializer(t *testing.T) {
 	select {
 	case err := <-done:
 		t.Fatalf("the call returned %v while the serializer was blocked", err)
-	default:
+	case <-time.After(blockedWindow):
 	}
 
 	b.free()
@@ -565,4 +568,45 @@ func TestActionClientCloseWaitsForRegisteredCancel(t *testing.T) {
 	free()
 	receiveBounded(t, closed, "Close to return after the C call ended")
 	receiveBounded(t, done, "Cancel to return")
+}
+
+// A cancel call that fails must still keep the goal handle alive for the whole C call: the
+// handle finalizer destroys the C handle that the call reads, and nothing after the call
+// uses the handle on the error path.
+func TestGoalHandleCancelKeepsGoalHandleAliveDuringCall(t *testing.T) {
+	c := openTestActionClient()
+	started := make(chan struct{})
+	release, free := newRelease(t)
+	stubActionCancel(t, func() int32 {
+		close(started)
+		<-release
+		return 1
+	})
+	var finalized atomic.Bool
+	done := make(chan error, 1)
+	func() {
+		h := fakeGoalHandle(c)
+		runtime.SetFinalizer(h, func(*GoalHandle) { finalized.Store(true) })
+		go func() { done <- h.Cancel() }()
+		receiveBounded(t, started, "the C call to start")
+	}()
+
+	for i := 0; i < 50; i++ {
+		runtime.GC()
+		time.Sleep(time.Millisecond)
+	}
+	if finalized.Load() {
+		t.Fatal("the goal handle was finalized while the C cancel call was still running")
+	}
+
+	// Positive control: once the call has returned, the same handle is collected.
+	free()
+	if err := receiveBounded(t, done, "Cancel to return"); err == nil {
+		t.Error("want the cancel failure, got nil")
+	}
+	waitUntil(t, "the goal handle to be finalized after the call", func() bool {
+		runtime.GC()
+		return finalized.Load()
+	})
+	_ = c.Close()
 }

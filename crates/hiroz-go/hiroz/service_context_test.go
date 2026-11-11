@@ -361,7 +361,7 @@ func (r *failingReq) TypeName() string { return "x" }
 func (r *failingReq) TypeHash() string { return "y" }
 func (r *failingReq) SerializeCDR() ([]byte, error) {
 	r.hook()
-	return nil, errors.New("serializer failed")
+	return nil, errSerializerFailed
 }
 func (r *failingReq) DeserializeCDR([]byte) error { return nil }
 
@@ -377,7 +377,7 @@ func TestCallTypedContextEndedDuringFailingSerializeReturnsCtxErr(t *testing.T) 
 // Positive control: with a live context the serializer error comes back as it is.
 func TestCallTypedContextFailingSerializeReturnsSerializerError(t *testing.T) {
 	err := CallTypedContext(context.Background(), openTestClient(), &failingReq{hook: func() {}}, &MockMessage{})
-	if err == nil || errors.Is(err, context.Canceled) {
+	if !errors.Is(err, errSerializerFailed) {
 		t.Fatalf("want the serializer error, got %v", err)
 	}
 }
