@@ -57,3 +57,28 @@ func TestFinishSendGoalLiveContextKeepsHandle(t *testing.T) {
 		t.Fatal("a live context closed the handle")
 	}
 }
+
+func TestFinishGetResultEndedContextBeatsSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	data, err := finishGetResult(ctx, &GoalHandle{}, []byte{1}, nil)
+	if !errors.Is(err, context.Canceled) || data != nil {
+		t.Fatalf("want context.Canceled and no data, got data=%v err=%v", data, err)
+	}
+}
+
+// A positive control: with a live context the result passes through, and so does a failure.
+func TestFinishGetResultLiveContextKeepsOutcome(t *testing.T) {
+	h := &GoalHandle{}
+	data, err := finishGetResult(context.Background(), h, []byte{1}, nil)
+	if err != nil || len(data) != 1 || data[0] != 1 {
+		t.Fatalf("want the result [1], got data=%v err=%v", data, err)
+	}
+	if h.Status() != GoalStatusSucceeded {
+		t.Errorf("status %v, want succeeded", h.Status())
+	}
+	failure := errors.New("wait failed")
+	if _, err := finishGetResult(context.Background(), &GoalHandle{}, nil, failure); !errors.Is(err, failure) {
+		t.Errorf("want the failure, got %v", err)
+	}
+}

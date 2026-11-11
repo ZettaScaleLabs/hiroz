@@ -245,15 +245,21 @@ func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case r := <-ch:
-		if r.err == nil {
-			h.setStatus(GoalStatusSucceeded)
-		}
-		// Both channels can be ready. An ended context wins, as on the ctx.Done path.
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		return r.data, r.err
+		return finishGetResult(ctx, h, r.data, r.err)
 	}
+}
+
+// finishGetResult returns the result only while ctx is live. When both ctx.Done and the
+// result channel are ready, select picks either one. An ended context wins, as on the
+// ctx.Done path.
+func finishGetResult(ctx context.Context, h *GoalHandle, data []byte, err error) ([]byte, error) {
+	if err == nil {
+		h.setStatus(GoalStatusSucceeded)
+	}
+	if cerr := ctx.Err(); cerr != nil {
+		return nil, cerr
+	}
+	return data, err
 }
 
 // Close destroys the goal handle.
