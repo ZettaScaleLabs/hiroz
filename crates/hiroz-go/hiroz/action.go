@@ -523,13 +523,13 @@ func finishSendGoal(ctx context.Context, h *GoalHandle, err error) (*GoalHandle,
 }
 
 // Close destroys the action client.
-// It refuses new calls of the registered kind, then blocks until the calls that already
-// registered have returned, so that the C handle is never freed while a goroutine still
-// holds it. Registered calls: GetResultWithContext, GetResult, GetTypedResult,
-// GetTypedResultContext, GoalHandle.Cancel and SendGoalContext. Close waits for the C call of each, not for
-// its context. A result wait holds Close for at most 30 seconds, the fixed timeout of its C
-// call (the query behind it ends after 10 seconds), and a goal send for at most 10 seconds.
-// A call that Close drained can still succeed or fail: the C call decides.
+// It refuses new calls of the registered kind. It then blocks until the registered calls
+// have returned, so that no goroutine holds the C handle when Close frees it.
+// Registered calls: GetResultWithContext, GetResult, GetTypedResult, GetTypedResultContext,
+// GoalHandle.Cancel and SendGoalContext. Close waits for the C call of each, not for its
+// context. A result wait holds Close for at most 30 seconds, the fixed timeout of its C
+// call. The query behind it ends after 10 seconds. A goal send holds Close for at most
+// 10 seconds. A call that Close drained can still succeed or fail: the C call decides.
 // Unregistered call: SendGoal. Close does not wait for it.
 // Do not call it concurrently with Close.
 func (c *ActionClient) Close() error {

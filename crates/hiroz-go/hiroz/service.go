@@ -402,10 +402,12 @@ func (c *ServiceClient) WaitForServiceContext(ctx context.Context) error {
 // Close drains the registered C operations and the service waits, then frees the handle.
 // A CallTypedContext that is still inside the C layer holds Close until its call timeout
 // ends. A WaitForServiceContext call returns within one wait slice.
+// Close does not wait for CallTyped, CallTypedWithTimeout or WaitForService. Do not call
+// them concurrently with Close.
 // Close does not wait for your code. The request SerializeCDR runs before the call registers.
-// The response DeserializeCDR runs after the C layer releases its registration. A call can
-// therefore still be inside the decoder when Close returns. Do not assume that application
-// response state is no longer in use once Close has returned.
+// Close does not wait for the response DeserializeCDR. A call can therefore still be inside
+// the decoder when Close returns. Do not assume that application response state is no
+// longer in use once Close has returned.
 func (c *ServiceClient) Close() error {
 	var err error
 	c.closeOnce.Do(func() {

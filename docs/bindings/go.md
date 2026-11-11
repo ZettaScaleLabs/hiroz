@@ -333,6 +333,7 @@ A cancel does not stop work that the C layer already started. `Close` waits for 
 | `GetResultWithContext`, `GetResult`, `GetTypedResult`, `GetTypedResultContext` | the C call | 30 s, the fixed timeout of the C call, and normally about 10 s because the service client behind it ends its query after 10 s |
 | `GoalHandle.Cancel` | the C call | 10 s, the fixed timeout of the C call; after `Close` it returns a closed-client error |
 | `SendGoal` | nothing | do not call it concurrently with `Close` |
+| `CallTyped`, `CallTypedWithTimeout`, `WaitForService` | nothing | do not call them concurrently with `Close` |
 
 `ServiceClient.Close` does not wait for your encoder or decoder. A `CallTypedContext` can still be inside `DeserializeCDR` when `Close` returns, so do not assume that your response state is no longer in use.
 
@@ -349,9 +350,9 @@ A context bounds the wait for a result or the lifetime of a subscriber. It does 
 | Call | When the context ends | Not guaranteed | How to know it is done |
 |---|---|---|---|
 | `BuildWithTypedCallbackContext` | A cleanup goroutine destroys the subscriber. Cancel does not wait for it. Closing the subscriber first releases the registration on the context. | A callback can start after `ctx.Done` closes. A running handler keeps running after the destroy returns. | There is no completion signal. Make the handler safe to run after the cancel, for example with a lock and a flag that it checks, and do not free what it uses on cancel alone. |
-| `SubscriberWithChannelContext` | The subscriber is destroyed, then the channel closes. | A closed channel does not mean that `DeserializeCDR` has returned for a sample in flight. That sample is dropped. A sample that is already in the send when the context ends can still arrive before the channel closes. | The closed channel shows that no sample arrives. Keep the message type's decoder free of state that you release on close. |
+| `SubscriberWithChannelContext` | The subscriber is destroyed, then the channel closes. | A closed channel does not mean that `DeserializeCDR` has returned for a sample in flight. That sample is dropped. A sample that is already in the send, or that finishes decoding before the cleanup goroutine runs, can still arrive. | The closed channel receives no new sample, and the samples it holds stay readable. Keep the message type's decoder free of state that you release on close. |
 | `CallTypedContext`, in `SerializeCDR` | Nothing: the call is not waiting for a result yet. | The call returns only when the serializer returns. It then returns the context error and makes no C call. | The return of `CallTypedContext`. |
-| `CallTypedContext`, in `DeserializeCDR` | Nothing: the result has arrived. | `DeserializeCDR` is not interrupted. The call returns `nil`, and the response holds the decoded value. | The return of `CallTypedContext`. |
+| `CallTypedContext`, in `DeserializeCDR` | Nothing: the result has arrived. | `DeserializeCDR` is not interrupted. The call returns what the decoder returns: `nil` with the decoded value, or the decode error. | The return of `CallTypedContext`. |
 
 `SendGoalContext` serializes the goal in the same way: a slow `SerializeCDR` delays its return and does not hold `ActionClient.Close`, because the call registers after it has serialized the goal.
 

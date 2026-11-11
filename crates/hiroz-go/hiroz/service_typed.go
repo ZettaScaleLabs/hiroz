@@ -55,8 +55,9 @@ func CallTypedWithTimeout[Resp Message](client *ServiceClient, request Message, 
 //
 // A call whose ctx ended during request.SerializeCDR returns the context error when the
 // serializer returns, and does not reach the C layer. ctx is checked once after the C result
-// arrives, before response.DeserializeCDR runs. If ctx ends during decoding, the call returns
-// nil and response holds the decoded value.
+// arrives, before response.DeserializeCDR runs. If ctx ends during decoding, the decoder
+// runs to its end and the call returns its outcome: nil with the decoded value in response,
+// or the decode error.
 func CallTypedContext[Resp Message](ctx context.Context, client *ServiceClient, request Message, response Resp) error {
 	// Check before the user's serializer runs, so a cancelled call does not wait for it.
 	if err := ctx.Err(); err != nil {
