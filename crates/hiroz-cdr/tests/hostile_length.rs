@@ -13,8 +13,8 @@
 //! prints `SKIPPED` on stderr and returns, which cargo counts as a pass. Set
 //! `HIROZ_REQUIRE_HOSTILE` to make that a failure; CI sets it.
 
-// The abort needs a reservation above the address space of a 32-bit process, and
-// `setrlimit` takes a narrower type there, so the file runs on 64-bit Linux only.
+// The file runs on 64-bit Linux only. A 32-bit process may reserve the hostile amount, and
+// `setrlimit` takes a narrower type there.
 #![cfg(all(target_os = "linux", target_pointer_width = "64"))]
 
 use std::process::{Command, Output};
@@ -87,16 +87,20 @@ fn skipped(out: &Output) -> bool {
     if out.status.code() != Some(SKIP_STATUS) {
         return false;
     }
+    skip(&format!(
+        "the inherited address-space hard limit leaves no room to test\n{}",
+        describe(out)
+    ));
+    true
+}
+
+/// A case that cannot run: print `SKIPPED` on stderr, or panic when `HIROZ_REQUIRE_HOSTILE` is set.
+fn skip(why: &str) {
     assert!(
         std::env::var_os(REQUIRE_ENV).is_none(),
-        "{REQUIRE_ENV} is set, but the inherited address-space hard limit leaves no room to run the case\n{}",
-        describe(out)
+        "{REQUIRE_ENV} is set, but {why}"
     );
-    eprintln!(
-        "SKIPPED: the inherited address-space hard limit leaves no room to test\n{}",
-        describe(out)
-    );
-    true
+    eprintln!("SKIPPED: {why}");
 }
 
 /// A child under an inherited hard limit must lower its limit and not raise it.
@@ -113,7 +117,13 @@ fn limit_respects_an_inherited_hard_limit() {
         .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
         .expect("VmSize in /proc/self/status");
     // `ulimit -v` sets the soft and the hard limit, in kB. The cap is below the usual request.
+    // It cannot raise a lower hard limit that this process inherited.
     let inherited_kb = kb + (256 << 10);
+    let (_, hard) = getrlimit(Resource::RLIMIT_AS).expect("getrlimit RLIMIT_AS");
+    if hard < inherited_kb * 1024 {
+        skip("the inherited address-space hard limit is below the cap this case sets");
+        return;
+    }
     let out = Command::new("sh")
         .args([
             "-c",
@@ -150,8 +160,8 @@ const REQUIRE_ENV: &str = "HIROZ_REQUIRE_HOSTILE";
 /// Marks the copy of the test below that runs the skip logic.
 const OUTER_ENV: &str = "HIROZ_HOSTILE_SKIP_OUTER";
 
-/// Probe child with too little room: it lowers its own hard limit to leave 64 MiB, then asks for
-/// the test limit, which ends the process with `SKIP_STATUS`.
+/// Probe child with too little room. It lowers its hard limit to leave 64 MiB, then asks for the
+/// test limit, which ends the process with `SKIP_STATUS`.
 #[test]
 fn limit_below_min_headroom_probe() {
     if !is_child() {
@@ -163,7 +173,8 @@ fn limit_below_min_headroom_probe() {
         .find_map(|l| l.strip_prefix("VmSize:"))
         .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
         .expect("VmSize in /proc/self/status");
-    let hard = kb * 1024 + (64 << 20);
+    let (_, inherited) = getrlimit(Resource::RLIMIT_AS).expect("getrlimit RLIMIT_AS");
+    let hard = (kb * 1024 + (64 << 20)).min(inherited);
     setrlimit(Resource::RLIMIT_AS, hard, hard).expect("lower the hard limit");
     limit_address_space();
     unreachable!("limit_address_space must end the process below MIN_HEADROOM");
@@ -219,7 +230,7 @@ fn a_skipped_case_fails_only_when_required() {
     );
 }
 
-/// Re-run test `name` of this binary as a child with the hostile-length limit.
+/// Re-run test `name` of this binary in child mode. The test sets its own limit.
 fn run_child(name: &str) -> Output {
     Command::new(std::env::current_exe().expect("current_exe"))
         .args(["--exact", name, "--nocapture", "--test-threads=1"])
@@ -239,10 +250,11 @@ fn describe(out: &Output) -> String {
     )
 }
 
-/// The child ended because of an abort (SIGABRT, shell status 134).
+/// The child ended because an allocation failed: SIGABRT after the allocator's message.
 fn aborted(out: &Output) -> bool {
     use std::os::unix::process::ExitStatusExt;
     out.status.signal() == Some(6)
+        && String::from_utf8_lossy(&out.stderr).contains("memory allocation of")
 }
 
 /// A message body without the encapsulation header: a length prefix and nothing after it.
@@ -378,14 +390,16 @@ fn long_valid_sequence_still_decodes() {
     let n = 1000u32;
     let body = valid_body(n);
 
+    let expected: Vec<[u64; 4]> = (0..u64::from(n))
+        .map(|i| [i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 3])
+        .collect();
+
     let mut r = CdrReader::<LittleEndian>::new(&body);
     let v = Vec::<Big>::cdr_deserialize(&mut r).expect("typed decode");
-    assert_eq!(v.len(), n as usize);
-    assert_eq!(v[999].0, [3996, 3997, 3998, 3999]);
+    assert_eq!(v.iter().map(|b| b.0).collect::<Vec<_>>(), expected, "typed");
 
     let (v, _) = from_bytes::<Vec<Big>, LittleEndian>(&body).expect("serde decode");
-    assert_eq!(v.len(), n as usize);
-    assert_eq!(v[999].0, [3996, 3997, 3998, 3999]);
+    assert_eq!(v.iter().map(|b| b.0).collect::<Vec<_>>(), expected, "serde");
 }
 
 /// Unit elements occupy no bytes on the wire, so their sequence needs only a length prefix.

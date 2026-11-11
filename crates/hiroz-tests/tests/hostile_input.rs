@@ -1,7 +1,7 @@
 //! Hostile sequence lengths in the decoders a subscriber uses.
 //!
 //! A decoder that reserves memory from a length it has just read aborts the
-//! process when the reservation fails, and the test cannot catch an abort. Each
+//! process when the reservation fails. A test cannot catch an abort. Each
 //! case re-executes this test binary as a child process under a lowered address
 //! space limit (`RLIMIT_AS`) and checks how the child ended. A cgroup memory
 //! limit does not trigger the abort: the reservation is not charged until touched.
@@ -10,8 +10,8 @@
 //! prints `SKIPPED` on stderr and returns, which cargo counts as a pass. Set
 //! `HIROZ_REQUIRE_HOSTILE` to make that a failure; CI sets it.
 
-// The abort needs a reservation above the address space of a 32-bit process, and
-// `setrlimit` takes a narrower type there, so the file runs on 64-bit Linux only.
+// The file runs on 64-bit Linux only. A 32-bit process may reserve the hostile amount, and
+// `setrlimit` takes a narrower type there.
 #![cfg(all(target_os = "linux", target_pointer_width = "64", feature = "ros-msgs"))]
 
 use std::process::{Command, Output};
@@ -65,16 +65,20 @@ fn skipped(out: &Output) -> bool {
     if out.status.code() != Some(SKIP_STATUS) {
         return false;
     }
+    skip(&format!(
+        "the inherited address-space hard limit leaves no room to test\n{}",
+        describe(out)
+    ));
+    true
+}
+
+/// A case that cannot run: print `SKIPPED` on stderr, or panic when `HIROZ_REQUIRE_HOSTILE` is set.
+fn skip(why: &str) {
     assert!(
         std::env::var_os(REQUIRE_ENV).is_none(),
-        "{REQUIRE_ENV} is set, but the inherited address-space hard limit leaves no room to run the case\n{}",
-        describe(out)
+        "{REQUIRE_ENV} is set, but {why}"
     );
-    eprintln!(
-        "SKIPPED: the inherited address-space hard limit leaves no room to test\n{}",
-        describe(out)
-    );
-    true
+    eprintln!("SKIPPED: {why}");
 }
 
 /// A child under an inherited hard limit must lower its limit and not raise it.
@@ -91,7 +95,13 @@ fn limit_respects_an_inherited_hard_limit() {
         .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
         .expect("VmSize in /proc/self/status");
     // `ulimit -v` sets the soft and the hard limit, in kB. The cap is below the usual request.
+    // It cannot raise a lower hard limit that this process inherited.
     let inherited_kb = kb + (256 << 10);
+    let (_, hard) = getrlimit(Resource::RLIMIT_AS).expect("getrlimit RLIMIT_AS");
+    if hard < inherited_kb * 1024 {
+        skip("the inherited address-space hard limit is below the cap this case sets");
+        return;
+    }
     let out = Command::new("sh")
         .args([
             "-c",
@@ -128,8 +138,8 @@ const REQUIRE_ENV: &str = "HIROZ_REQUIRE_HOSTILE";
 /// Marks the copy of the test below that runs the skip logic.
 const OUTER_ENV: &str = "HIROZ_HOSTILE_SKIP_OUTER";
 
-/// Probe child with too little room: it lowers its own hard limit to leave 64 MiB, then asks for
-/// the test limit, which ends the process with `SKIP_STATUS`.
+/// Probe child with too little room. It lowers its hard limit to leave 64 MiB, then asks for the
+/// test limit, which ends the process with `SKIP_STATUS`.
 #[test]
 fn limit_below_min_headroom_probe() {
     if !is_child() {
@@ -141,7 +151,8 @@ fn limit_below_min_headroom_probe() {
         .find_map(|l| l.strip_prefix("VmSize:"))
         .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
         .expect("VmSize in /proc/self/status");
-    let hard = kb * 1024 + (64 << 20);
+    let (_, inherited) = getrlimit(Resource::RLIMIT_AS).expect("getrlimit RLIMIT_AS");
+    let hard = (kb * 1024 + (64 << 20)).min(inherited);
     setrlimit(Resource::RLIMIT_AS, hard, hard).expect("lower the hard limit");
     limit_address_space();
     unreachable!("limit_address_space must end the process below MIN_HEADROOM");
@@ -252,12 +263,28 @@ fn elements(msg: &DynamicMessage, name: &str) -> Vec<DynamicValue> {
     }
 }
 
-/// The decoded fields of the sample the tests build: one dimension "x" of size 3, data `[1, 2, 3]`.
+/// The sample the typed tests build: one dimension "x" of size 3, offset 5 and data `[1, 2, 3]`.
+fn valid_array() -> hiroz_msgs::std_msgs::UInt8MultiArray {
+    use hiroz_msgs::std_msgs::{MultiArrayDimension, UInt8MultiArray};
+
+    let mut valid = UInt8MultiArray::default();
+    valid.layout.dim = vec![MultiArrayDimension {
+        label: "x".into(),
+        size: 3,
+        stride: 3,
+    }];
+    valid.layout.data_offset = 5;
+    valid.data = vec![1u8, 2, 3].into();
+    valid
+}
+
+/// The decoded fields of `valid_array`.
 fn assert_valid_array(back: &hiroz_msgs::std_msgs::UInt8MultiArray) {
     assert_eq!(back.layout.dim.len(), 1, "dimensions");
     assert_eq!(back.layout.dim[0].label, "x", "label");
     assert_eq!(back.layout.dim[0].size, 3, "size");
     assert_eq!(back.layout.dim[0].stride, 3, "stride");
+    assert_eq!(back.layout.data_offset, 5, "data offset");
     assert_eq!(back.data, hiroz::ZBuf::from(vec![1u8, 2, 3]), "data");
 }
 
@@ -290,7 +317,8 @@ fn assert_child_survives(name: &str, markers: &[&str]) {
 }
 
 /// Positive control: this file's harness sees an allocation abort. The child reserves the
-/// hostile amount directly, with no hiroz code involved, and must die of SIGABRT.
+/// hostile amount directly, with no hiroz code involved, and must die of SIGABRT with the
+/// allocator's message.
 #[test]
 fn harness_detects_an_allocation_abort_here() {
     use std::os::unix::process::ExitStatusExt;
@@ -308,9 +336,9 @@ fn harness_detects_an_allocation_abort_here() {
     if skipped(&out) {
         return;
     }
-    assert_eq!(
-        out.status.signal(),
-        Some(6),
+    assert!(
+        out.status.signal() == Some(6)
+            && String::from_utf8_lossy(&out.stderr).contains("memory allocation of"),
         "the harness must see the allocation abort\n{}",
         describe(&out)
     );
@@ -346,8 +374,8 @@ fn dynamic_decoder_survives_a_hostile_sequence_length() {
     );
 }
 
-/// The `BoundedSequence` arm has its own reservation. The decoder does not check the bound,
-/// so this test reaches that reservation whatever bound the schema states.
+/// The `BoundedSequence` arm decodes through the same helper as the unbounded one. It does not
+/// check the bound, so this test reaches the reservation whatever bound the schema states.
 #[test]
 fn dynamic_decoder_survives_a_hostile_bounded_sequence_length() {
     if is_child() {
@@ -389,8 +417,10 @@ fn dynamic_decoder_decodes_a_long_valid_sequence() {
     let schema = f64_sequence_schema();
     let msg = DynamicMessage::from_cdr(&valid_f64_sample(1000), &schema).expect("decode");
     let values = elements(&msg, "values");
-    assert_eq!(values.len(), 1000);
-    assert_eq!(values[999], DynamicValue::Float64(999.0));
+    let expected: Vec<DynamicValue> = (0..1000)
+        .map(|i| DynamicValue::Float64(f64::from(i)))
+        .collect();
+    assert_eq!(values, expected);
 }
 
 /// Elements that take no bytes on the wire: a sequence of an empty message needs only its prefix.
@@ -433,8 +463,8 @@ fn nested_hostile_sample(outer: u32) -> Vec<u8> {
     v
 }
 
-/// Zero-byte elements need no payload, so the declared count is the only limit on the work. The
-/// decoder must stop with an error instead of growing its output by the declared count.
+/// Zero-byte elements need no payload, so only the budget bounds a declared count. The decoder
+/// must stop with an error.
 #[test]
 fn dynamic_decoder_survives_a_hostile_zero_byte_sequence() {
     if is_child() {
@@ -453,7 +483,12 @@ fn dynamic_decoder_survives_a_hostile_zero_byte_sequence() {
         let mut valid = vec![0x00, 0x01, 0x00, 0x00];
         valid.extend_from_slice(&3u32.to_le_bytes());
         let msg = DynamicMessage::from_cdr(&valid, &schema).expect("valid sample");
-        println!("next valid: {} elements", elements(&msg, "items").len());
+        let items = elements(&msg, "items");
+        assert!(
+            items.iter().all(|v| matches!(v, DynamicValue::Message(_))),
+            "decoded values: {items:?}"
+        );
+        println!("next valid: {} elements", items.len());
         return;
     }
     assert_child_survives(
@@ -462,8 +497,8 @@ fn dynamic_decoder_survives_a_hostile_zero_byte_sequence() {
     );
 }
 
-/// The budget is per decode call. In a sequence of sequences of zero-byte elements, each inner
-/// count is below the single-sequence maximum, and only the total is hostile.
+/// The budget is per decode call. Hostile counts in nested sequences of zero-byte elements must
+/// end in an error.
 #[test]
 fn dynamic_decoder_survives_nested_hostile_zero_byte_sequences() {
     if is_child() {
@@ -485,16 +520,16 @@ fn dynamic_decoder_survives_nested_hostile_zero_byte_sequences() {
         valid.extend_from_slice(&3u32.to_le_bytes());
         let msg = DynamicMessage::from_cdr(&valid, &schema).expect("valid sample");
         let outer = elements(&msg, "items");
-        println!(
-            "next valid: {} outer, {} inner",
-            outer.len(),
-            outer[0].as_array().expect("inner array").len()
-        );
+        let inner: Vec<usize> = outer
+            .iter()
+            .map(|v| v.as_array().expect("inner array").len())
+            .collect();
+        println!("next valid: {} outer, inner {inner:?}", outer.len());
         return;
     }
     assert_child_survives(
         "dynamic_decoder_survives_nested_hostile_zero_byte_sequences",
-        &["hostile: ", "next valid: 2 outer, 3 inner"],
+        &["hostile: ", "next valid: 2 outer, inner [3, 3]"],
     );
 }
 
@@ -509,8 +544,7 @@ fn nested_sample(inner_counts: &[u32]) -> Vec<u8> {
 }
 
 /// The zero-byte budget covers the whole decode call. Each inner sequence below stays under the
-/// budget of 1,048,576 on its own, so a decoder that gave every sequence a fresh budget would
-/// accept the sample. Only the shared budget rejects the total.
+/// budget of 1,048,576. A decoder that gave every sequence a fresh budget would accept the sample.
 #[test]
 fn dynamic_decoder_shares_the_zero_byte_budget_across_sequences() {
     let inner = FieldType::Sequence(Box::new(FieldType::Message(empty_message())));
@@ -533,8 +567,8 @@ fn dynamic_decoder_shares_the_zero_byte_budget_across_sequences() {
     );
 }
 
-/// A schema of `depth` levels of messages with no bytes. Each level holds two of the level below,
-/// so the decoded value has `2^(depth + 1) - 1` messages and the input has no byte for any of them.
+/// A schema of `depth` levels of messages with no bytes. Each level holds two of the level below.
+/// The decoded value has `2^(depth + 1) - 1` messages, and the input has no byte for any of them.
 fn message_tree(depth: u32) -> std::sync::Arc<MessageSchema> {
     let mut schema = empty_message();
     for level in 0..depth {
@@ -670,6 +704,11 @@ fn dynamic_decoder_survives_a_hostile_array_length() {
         let mut valid = header.to_vec();
         valid.extend_from_slice(&[1, 0, 1]);
         let msg = DynamicMessage::from_cdr(&valid, &small).expect("valid sample");
+        assert_eq!(
+            elements(&msg, "flags"),
+            [true, false, true].map(DynamicValue::Bool),
+            "decoded values"
+        );
         println!("next valid: {} elements", elements(&msg, "flags").len());
         return;
     }
@@ -705,19 +744,12 @@ fn dynamic_decoder_accepts_a_length_at_the_boundary() {
 #[test]
 fn generated_decoder_survives_a_hostile_sequence_length() {
     use hiroz::msg::ZMessage;
-    use hiroz_msgs::std_msgs::{MultiArrayDimension, UInt8MultiArray};
+    use hiroz_msgs::std_msgs::UInt8MultiArray;
     use zenoh_buffers::buffer::Buffer;
 
     if is_child() {
         // Build the valid sample before the limit applies.
-        let mut valid = UInt8MultiArray::default();
-        valid.layout.dim = vec![MultiArrayDimension {
-            label: "x".into(),
-            size: 3,
-            stride: 3,
-        }];
-        valid.data = vec![1u8, 2, 3].into();
-        let valid = valid.serialize();
+        let valid = valid_array().serialize();
         limit_address_space();
 
         match UInt8MultiArray::deserialize(&hostile_sample()[..]) {
@@ -755,7 +787,7 @@ fn typed_subscriber_survives_a_hostile_sample() {
     use std::time::{Duration, Instant};
 
     use hiroz::{Builder, msg::ZMessage};
-    use hiroz_msgs::std_msgs::{MultiArrayDimension, UInt8MultiArray};
+    use hiroz_msgs::std_msgs::UInt8MultiArray;
     use zenoh::Wait;
     use zenoh_buffers::buffer::Buffer;
 
@@ -770,7 +802,7 @@ fn typed_subscriber_survives_a_hostile_sample() {
             .build()
             .expect("typed subscriber");
 
-        // A raw session is the publisher; it shares no code with the typed path.
+        // A raw session is the publisher, so the hostile bytes bypass typed serialization.
         let key = hiroz::context::KeyExprFormat::default()
             .topic_key_expr(sub.entity())
             .expect("topic key");
@@ -788,14 +820,7 @@ fn typed_subscriber_survives_a_hostile_sample() {
             .wait()
             .expect("raw publisher");
 
-        let mut valid = UInt8MultiArray::default();
-        valid.layout.dim = vec![MultiArrayDimension {
-            label: "x".into(),
-            size: 3,
-            stride: 3,
-        }];
-        valid.data = vec![1u8, 2, 3].into();
-        let valid = valid.serialize().to_vec();
+        let valid = valid_array().serialize().to_vec();
 
         // Wait until the subscriber receives a valid sample: the route is up.
         let start = Instant::now();
@@ -811,8 +836,8 @@ fn typed_subscriber_survives_a_hostile_sample() {
         }
         println!("route up");
 
-        // Drain the valid samples the wait loop left queued or in flight, so that
-        // neither the hostile receive nor the next-valid receive can be satisfied by one.
+        // Drain the valid samples the wait loop left queued or in flight. Then neither the hostile
+        // receive nor the next-valid receive can take one.
         // The queue is empty once a receive times out.
         let mut drained = 0;
         loop {
