@@ -42,7 +42,7 @@ use hiroz::{
         },
         subscriber::{CSubscriber, hiroz_subscriber_create_with_qos_v2, hiroz_subscriber_destroy},
     },
-    qos::{QosDurability, QosDuration, QosHistory, QosLiveliness, QosProfile, QosReliability},
+    qos::{QosDurability, QosDuration, QosHistory, QosProfile, QosReliability},
 };
 
 const RECV: Duration = Duration::from_secs(3);
@@ -1166,24 +1166,23 @@ fn c_abi_qos_v2_reads_each_prefix_up_to_the_boundary() {
     }
 }
 
-/// A v2 struct with a finite deadline, lifespan and lease, and manual-by-topic liveliness.
+/// A v2 struct with a finite deadline, lifespan and lease.
 fn timed_v2() -> CQosProfileV2 {
     let mut qos = init_v2();
     qos.deadline_sec = 5;
     qos.deadline_nsec = 6;
     qos.lifespan_sec = 7;
     qos.lifespan_nsec = 8;
-    qos.liveliness = 2;
     qos.liveliness_lease_sec = 9;
     qos.liveliness_lease_nsec = 10;
     qos
 }
 
-/// The deadline, lifespan, liveliness and lease reach the token. Every other test leaves them at
+/// The deadline, lifespan and lease reach the token. Every other test leaves them at
 /// the default, so a creator that drops them would pass. The first struct is whole. The second
 /// ends after `deadline_sec`: the deadline is cut in two, so its nanoseconds keep the default.
 #[test]
-fn c_abi_qos_v2_durations_and_liveliness_reach_the_token() {
+fn c_abi_qos_v2_durations_reach_the_token() {
     let router = TestRouter::new();
     let raw = buffer_rmw::client_session(router.endpoint());
     let c = CFixture::new(router.endpoint(), "c_qos_v2_durations");
@@ -1191,7 +1190,6 @@ fn c_abi_qos_v2_durations_and_liveliness_reach_the_token() {
     let timed = QosProfile {
         deadline: QosDuration { sec: 5, nsec: 6 },
         lifespan: QosDuration { sec: 7, nsec: 8 },
-        liveliness: QosLiveliness::ManualByTopic,
         liveliness_lease_duration: QosDuration { sec: 9, nsec: 10 },
         ..Default::default()
     };
@@ -1541,5 +1539,101 @@ fn c_abi_qos_v2_creators_record_a_last_error_on_a_bad_size() {
         hiroz_service_server_destroy(server);
         hiroz_action_client_destroy(action_client);
         hiroz_action_server_destroy(action_server);
+    }
+}
+
+/// A creator rejects manual liveliness and creates no entity. Manual liveliness encodes as a value
+/// that rmw_zenoh rejects, so it must not reach a token. The converter returns an error for each
+/// manual value; automatic liveliness is the control that converts. A creator of each kind gets
+/// the same: a publisher, and an action whose member has manual liveliness.
+#[test]
+fn c_abi_qos_v2_rejects_manual_liveliness() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_manual");
+
+    for liveliness in [1, 2] {
+        let mut qos = init_v2();
+        qos.liveliness = liveliness;
+        let converted = unsafe { CQosProfileV2::to_qos_profile(&qos) };
+        assert!(converted.is_err(), "liveliness {liveliness} was converted");
+
+        let topic = format!("c_qos_v2_manual_pub_{liveliness}");
+        let publisher = c.publisher_v2(&topic, &qos);
+        assert!(
+            publisher.is_null(),
+            "liveliness {liveliness} was accepted by a publisher"
+        );
+        assert!(
+            tokens_of(&raw, &topic).is_empty(),
+            "a rejected publisher left a token for {topic}"
+        );
+
+        let mut profiles = ActionProfiles::new();
+        profiles.cancel.liveliness = liveliness;
+        let action = profiles.as_struct();
+        let name = format!("c_qos_v2_manual_act_{liveliness}");
+        let server = c.action_server_v2(&name, &action);
+        assert!(
+            server.is_null(),
+            "liveliness {liveliness} in a member was accepted by an action server"
+        );
+        assert!(
+            tokens_of(&raw, &format!("{name}/_action/send_goal")).is_empty(),
+            "a rejected action server left a token for {name}"
+        );
+    }
+
+    // Control: automatic liveliness converts and reaches a token.
+    let qos = init_v2();
+    assert!(unsafe { CQosProfileV2::to_qos_profile(&qos) }.is_ok());
+    let publisher = c.publisher_v2("c_qos_v2_manual_pub_auto", &qos);
+    assert!(!publisher.is_null(), "automatic liveliness was rejected");
+    assert_eq!(
+        qos_text(&raw, "c_qos_v2_manual_pub_auto"),
+        encoded(&QosProfile::default())
+    );
+    unsafe { hiroz_publisher_destroy(publisher) };
+}
+
+/// The type hash of `action_msgs/msg/GoalStatusArray`, which every action uses for its status
+/// topic.
+const STATUS_HASH: &str = "RIHS01_6c1684b00f177d37438febe6e709fc4e2b0d4248dca4854946f9ed8b30cda83e";
+
+/// The status endpoints of the C action creators carry the real type hash in their token, on the
+/// client and on the server. The send-goal token is the control: the test passes it an empty hash,
+/// so a hash in the status token does not come from the fixture.
+#[test]
+fn c_abi_action_status_endpoints_carry_the_status_type_hash() {
+    let router = TestRouter::new();
+    let raw = buffer_rmw::client_session(router.endpoint());
+    let c = CFixture::new(router.endpoint(), "c_qos_v2_status_hash");
+
+    let profiles = ActionProfiles::new();
+    let qos = profiles.as_struct();
+    let client = c.action_client_v2("c_qos_v2_status_hash_client", &qos);
+    let server = c.action_server_v2("c_qos_v2_status_hash_server", &qos);
+    assert!(!client.is_null() && !server.is_null());
+
+    for name in ["c_qos_v2_status_hash_client", "c_qos_v2_status_hash_server"] {
+        let status = wait_tokens(&raw, &format!("{name}/_action/status"));
+        assert_eq!(status.len(), 1, "status tokens of {name}: {status:?}");
+        assert!(
+            status[0].contains(STATUS_HASH),
+            "the status token of {name} lacks the status hash: {}",
+            status[0]
+        );
+        let goal = wait_tokens(&raw, &format!("{name}/_action/send_goal"));
+        assert_eq!(goal.len(), 1, "send_goal tokens of {name}: {goal:?}");
+        assert!(
+            !goal[0].contains(STATUS_HASH),
+            "the control carries the status hash: {}",
+            goal[0]
+        );
+    }
+
+    unsafe {
+        hiroz_action_client_destroy(client);
+        hiroz_action_server_destroy(server);
     }
 }
