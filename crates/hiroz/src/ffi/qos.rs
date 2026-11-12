@@ -108,7 +108,9 @@ impl CQosProfile {
 /// absent: hiroz never reads part of a field. A `struct_size` below 4 is invalid: the creator
 /// returns null.
 ///
-/// The fields after `struct_size` have the meaning that they have in `hiroz_qos_profile_t`.
+/// The fields after `struct_size` have the meaning that they have in `hiroz_qos_profile_t`,
+/// except `liveliness`: only 0 (automatic) is valid. A manual value (1 or 2) is an error: the
+/// creator returns null, because rmw_zenoh rejects the manual encoding.
 #[repr(C)]
 pub struct CQosProfileV2 {
     /// `sizeof(hiroz_qos_profile_v2_t)` as the caller knows it
@@ -125,7 +127,7 @@ pub struct CQosProfileV2 {
     pub deadline_nsec: u64,
     pub lifespan_sec: u64,
     pub lifespan_nsec: u64,
-    /// 0 = Automatic (default), 1 = ManualByNode, 2 = ManualByTopic
+    /// 0 = Automatic (default). 1 and 2 are manual liveliness, which a creator rejects
     pub liveliness: i32,
     pub liveliness_lease_sec: u64,
     pub liveliness_lease_nsec: u64,
@@ -152,9 +154,14 @@ const _: () = {
     assert!(offset_of!(CQosProfileV2, liveliness_lease_nsec) == 72);
 };
 
-/// A `struct_size` that cannot hold the size field. The value is the size the caller gave.
+/// A v2 struct that a creator cannot use.
 #[derive(Debug)]
-pub struct InvalidStructSize(pub u32);
+pub enum InvalidQos {
+    /// A `struct_size` that cannot hold the size field. The value is the size the caller gave.
+    StructSize(u32),
+    /// A manual liveliness value. The value is the one the caller gave.
+    ManualLiveliness(i32),
+}
 
 impl CQosProfileV2 {
     /// The size of the struct in this build.
@@ -183,7 +190,8 @@ impl CQosProfileV2 {
 
     /// Convert a nullable pointer to an optional QosProfile.
     ///
-    /// Null gives `Ok(None)`: the default QoS. A `struct_size` below the size field gives `Err`.
+    /// Null gives `Ok(None)`: the default QoS. A `struct_size` below the size field gives `Err`,
+    /// and so does manual liveliness, which rmw_zenoh does not accept.
     /// A `struct_size` below the full size gives the default for every field that it does not
     /// cover completely. A `struct_size` above the full size is accepted and the extra bytes are not read.
     ///
@@ -191,17 +199,20 @@ impl CQosProfileV2 {
     /// The pointer must be null, or point to at least `struct_size` readable bytes.
     pub unsafe fn to_qos_profile(
         ptr: *const CQosProfileV2,
-    ) -> Result<Option<QosProfile>, InvalidStructSize> {
+    ) -> Result<Option<QosProfile>, InvalidQos> {
         if ptr.is_null() {
             return Ok(None);
         }
         let struct_size = unsafe { std::ptr::read_unaligned(ptr as *const u32) };
         if struct_size < Self::MIN_SIZE {
-            return Err(InvalidStructSize(struct_size));
+            return Err(InvalidQos::StructSize(struct_size));
         }
         let mut full = Self::defaults();
         let covered = struct_size.min(Self::SIZE) as usize;
         unsafe { Self::copy_whole_members(ptr as *const u8, &mut full, covered) };
+        if matches!(full.liveliness, 1 | 2) {
+            return Err(InvalidQos::ManualLiveliness(full.liveliness));
+        }
         Ok(Some(full.as_v1().as_qos_profile()))
     }
 
@@ -360,13 +371,13 @@ impl CActionQosV2 {
     /// The pointer must be null, or point to at least `struct_size` readable bytes, and each
     /// non-null member inside that size must meet the safety rule of
     /// [`CQosProfileV2::to_qos_profile`].
-    pub unsafe fn to_action_qos(ptr: *const CActionQosV2) -> Result<ActionQos, InvalidStructSize> {
+    pub unsafe fn to_action_qos(ptr: *const CActionQosV2) -> Result<ActionQos, InvalidQos> {
         if ptr.is_null() {
             return Ok(ActionQos::default());
         }
         let struct_size = unsafe { std::ptr::read_unaligned(ptr as *const u32) };
         if struct_size < CQosProfileV2::MIN_SIZE {
-            return Err(InvalidStructSize(struct_size));
+            return Err(InvalidQos::StructSize(struct_size));
         }
         let mut full = Self {
             struct_size: Self::SIZE,
