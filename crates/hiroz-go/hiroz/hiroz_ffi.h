@@ -183,7 +183,9 @@ typedef struct hiroz_node_t {
  * absent: hiroz never reads part of a field. A `struct_size` below 4 is invalid: the creator
  * returns null.
  *
- * The fields after `struct_size` have the meaning that they have in `hiroz_qos_profile_t`.
+ * The fields after `struct_size` have the meaning that they have in `hiroz_qos_profile_t`,
+ * except `liveliness`: only 0 (automatic) is valid. A manual value (1 or 2) is an error: the
+ * creator returns null, because rmw_zenoh rejects the manual encoding.
  */
 typedef struct hiroz_qos_profile_v2_t {
   /**
@@ -211,7 +213,7 @@ typedef struct hiroz_qos_profile_v2_t {
   uint64_t lifespan_sec;
   uint64_t lifespan_nsec;
   /**
-   * 0 = Automatic (default), 1 = ManualByNode, 2 = ManualByTopic
+   * 0 = Automatic (default). 1 and 2 are manual liveliness, which a creator rejects
    */
   int32_t liveliness;
   uint64_t liveliness_lease_sec;
