@@ -10,6 +10,12 @@ use hiroz_schema::type_name::dds_from_namespace;
 
 #[cfg(feature = "ffi")]
 use crate::ffi::publisher::RawPublisher;
+
+/// The type hash of `action_msgs/msg/GoalStatusArray`. Every action uses this one message on its
+/// status topic, so the C action creators, which take no status hash, pass it themselves.
+#[cfg(feature = "ffi")]
+const GOAL_STATUS_ARRAY_TYPE_HASH: &str =
+    "RIHS01_6c1684b00f177d37438febe6e709fc4e2b0d4248dca4854946f9ed8b30cda83e";
 use crate::{
     Builder, ServiceTypeInfo, WithTypeInfo,
     action::{client::ZActionClientBuilder, server::ZActionServerBuilder},
@@ -1119,7 +1125,7 @@ impl ZNode {
                 self.create_raw_subscriber_inner(
                     &status_topic,
                     &status_type_dds,
-                    "",
+                    GOAL_STATUS_ARRAY_TYPE_HASH,
                     |_| {},
                     Some(status_qos),
                     crate::BufferGroup::Off,
@@ -1228,7 +1234,7 @@ impl ZNode {
         let status_pub = self.create_raw_publisher_with_qos(
             &status_topic,
             &status_type_dds,
-            "",
+            GOAL_STATUS_ARRAY_TYPE_HASH,
             qos.status_topic,
         )?;
 
