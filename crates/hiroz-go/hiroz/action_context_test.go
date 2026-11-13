@@ -486,8 +486,9 @@ func TestActionClientCloseWaitsForRegisteredCancel(t *testing.T) {
 func cancelInto(h *GoalHandle, done chan<- error) { done <- h.Cancel() }
 
 // Cancel keeps the goal handle alive for the whole C call, also when the call fails: the
-// handle finalizer destroys the C handle that the call reads. The stub fails the call, which
-// leaves before any status update, so only runtime.KeepAlive keeps the handle live here.
+// handle finalizer destroys the C handle that the call reads. After a successful call the
+// status update keeps the handle live as well. This test fails only if that update and the
+// runtime.KeepAlive call both go.
 func TestGoalHandleCancelKeepsGoalHandleAliveDuringCall(t *testing.T) {
 	c := openTestActionClient()
 	started := make(chan struct{})
