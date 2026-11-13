@@ -221,7 +221,8 @@ func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 
 	ch := make(chan ffiResult, 1)
 	goalHandle := hw.p // read while registered, so Close has not freed the client
-	go func() { // owns the registration from here
+	// The goroutine owns the registration from here.
+	go func() {
 		defer h.client.inflight.leave()
 
 		resultBytes, result := actionResult(goalHandle)
