@@ -152,3 +152,11 @@ fn a_commented_out_error_log_does_not_satisfy_the_rejected_arm_check() {
     let src = "match o {\n PinOutcome::Rejected { .. } => { tracing::error!(\"x\"); }\n PinOutcome::Pinned { .. } => {}\n}";
     assert!(logs_at_error_level(src));
 }
+
+#[test]
+fn block_delimiters_inside_line_comments_do_not_start_a_comment() {
+    let src = format!("// /*\n{CALL};\n// */\n");
+    assert_eq!(pin_calls(&src), vec![2]);
+    let src = format!("// /*\n// */ {CALL};\n");
+    assert!(pin_calls(&src).is_empty());
+}
