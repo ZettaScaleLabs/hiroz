@@ -14,7 +14,7 @@
 //!   call of the host application. It detects only the environment variables
 //!   `MALLOC_TRIM_THRESHOLD_` and `MALLOC_MMAP_THRESHOLD_`, not `GLIBC_TUNABLES`.
 //! - The trim threshold of 256 MiB speeds up a 32 MiB typed receive on the main thread. A receive
-//!   on a spawned thread, and receives of 8 MiB or less, match a threshold of 64 MiB.
+//!   on a spawned thread, and receives of 1 MiB and 8 MiB, match a threshold of 64 MiB.
 //! - Payloads of 64 MiB and more were not measured. The size of a request need not equal the
 //!   size of the message.
 //! - Nothing in CI checks the timing. The gate is opt-in and needs a quiet host.
@@ -86,8 +86,11 @@ pub const TRIM_THRESHOLD: i32 = 256 << 20;
 /// 64 MiB value is a deliberate override.
 ///
 /// The function skips both calls when `MALLOC_TRIM_THRESHOLD_` or `MALLOC_MMAP_THRESHOLD_` is
-/// set, because it never overrides an explicit deployment choice. `GLIBC_TUNABLES` is not
+/// set, because it keeps those two explicit deployment choices. `GLIBC_TUNABLES` is not
 /// detected, so `mallopt` overrides a value set there.
+///
+/// glibc documents `mallopt` as not safe against concurrent allocation. Call this function at
+/// startup, before the process starts other threads that allocate.
 pub fn pin_large_message_thresholds() -> PinOutcome {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
