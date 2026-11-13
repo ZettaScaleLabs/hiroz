@@ -4,16 +4,16 @@
 //! messages of every event. The file holds one test because the subscriber is global to the
 //! process, and zenoh runs the sample callbacks on its own threads.
 
-use std::{
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
-};
+use std::sync::{Arc, Mutex};
 
-use hiroz::{Builder, context::ZContextBuilder, encoding::Encoding};
+mod common;
+
+use common::{isolated_node, wait_until};
+use hiroz::{Builder, encoding::Encoding};
 use hiroz_msgs::std_msgs::String as RosString;
 
-/// Records the message text of every event.
-struct Capture(Arc<Mutex<Vec<String>>>);
+/// Records the level and the message text of every event.
+struct Capture(Arc<Mutex<Vec<(tracing::Level, String)>>>);
 
 struct MessageVisitor(String);
 
@@ -41,7 +41,10 @@ impl tracing::Subscriber for Capture {
     fn event(&self, event: &tracing::Event<'_>) {
         let mut visitor = MessageVisitor(String::new());
         event.record(&mut visitor);
-        self.0.lock().unwrap().push(visitor.0);
+        self.0
+            .lock()
+            .unwrap()
+            .push((*event.metadata().level(), visitor.0));
     }
 
     fn enter(&self, _: &tracing::span::Id) {}
@@ -49,20 +52,15 @@ impl tracing::Subscriber for Capture {
     fn exit(&self, _: &tracing::span::Id) {}
 }
 
-fn mismatches(log: &Arc<Mutex<Vec<String>>>) -> usize {
+/// The number of warnings about an encoding mismatch.
+fn mismatches(log: &Arc<Mutex<Vec<(tracing::Level, String)>>>) -> usize {
     log.lock()
         .unwrap()
         .iter()
-        .filter(|line| line.contains("Encoding mismatch"))
+        .filter(|(level, line)| {
+            *level == tracing::Level::WARN && line.contains("Encoding mismatch")
+        })
         .count()
-}
-
-fn wait_until(what: &str, condition: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !condition() {
-        assert!(Instant::now() < deadline, "timed out waiting for {what}");
-        std::thread::sleep(Duration::from_millis(50));
-    }
 }
 
 /// A CDR publisher and a consumer that expects Protobuf produce one warning per received message.
@@ -76,14 +74,7 @@ fn cache_warns_on_encoding_mismatch() {
     let log = Arc::new(Mutex::new(Vec::new()));
     tracing::subscriber::set_global_default(Capture(log.clone())).expect("global subscriber");
 
-    let ctx = ZContextBuilder::default()
-        .with_mode("peer")
-        .disable_multicast_scouting()
-        .with_connect_endpoints(Vec::<String>::new())
-        .with_listen_endpoints(["tcp/127.0.0.1:0"])
-        .build()
-        .expect("context");
-    let node = ctx.create_node("cache_encoding").build().expect("node");
+    let (_ctx, node) = isolated_node("cache_encoding");
     let publisher = node
         .create_pub::<RosString>(TOPIC)
         .with_encoding(Encoding::cdr())
