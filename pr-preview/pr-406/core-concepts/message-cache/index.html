@@ -2863,7 +2863,7 @@
 <tbody>
 <tr>
 <td><code>with_qos(qos)</code></td>
-<td>A <code>TransientLocal</code> durability makes the cache request the history of publishers that started earlier. The cache stores the replayed messages like live ones. That subscription drops a sample that is not newer than one already delivered from the same source. The default durability is <code>Volatile</code>, and a volatile cache delivers every sample.</td>
+<td>A <code>TransientLocal</code> durability makes the cache request the history of publishers that started earlier. The cache stores the replayed messages like live ones. That subscription drops a sample that is not newer than one already delivered from the same source. The default durability is <code>Volatile</code>, and a volatile cache does not drop reordered samples.</td>
 </tr>
 <tr>
 <td><code>with_locality(locality)</code></td>
@@ -2871,7 +2871,7 @@
 </tr>
 <tr>
 <td><code>with_encoding(encoding)</code></td>
-<td>Sets the encoding that the cache expects. A sample with a known, different encoding logs a warning, and the cache stores the message. A sample with an unknown encoding is logged at debug level only.</td>
+<td>Sets the encoding that the cache expects. A sample with a known, different encoding logs a warning, and the check does not reject the message. A sample with an unknown encoding is logged at debug level only.</td>
 </tr>
 </tbody>
 </table>
