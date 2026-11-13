@@ -36,6 +36,11 @@ env:
   # version, so a moving `stable` changes the key whenever the runner image
   # changes it. Keep this equal to the Rust pin in flake.nix.
   MACOS_RUST_TOOLCHAIN: 1.91.0
+  # Rust toolchain that builds the hu WASM plugins. The wasm32-wasip2 std of a
+  # newer rustc imports a newer WASI than the wasmtime inside hu provides, and
+  # hu then cannot load the plugin. Raise this only together with the wasmtime
+  # version in crates/hiroz-union/Cargo.toml. release.yml carries the same pin.
+  WASM_PLUGIN_TOOLCHAIN: 1.91.0
 
 jobs:
   release-notes:
@@ -624,7 +629,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
         with:
           cache: false
-          toolchain: stable
+          toolchain: ${{ env.WASM_PLUGIN_TOOLCHAIN }}
           target: wasm32-wasip2
 
       - name: Install Nushell

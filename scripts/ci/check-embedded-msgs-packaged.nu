@@ -42,6 +42,15 @@ def layout-problems [dir: string, version: string]: nothing -> list<string> {
     $problems
 }
 
+# The embedded_msgs.rs files that the build scripts of `hiroz*` crates wrote under
+# `target`. Cargo before 1.100 puts a build script output in
+# `build/<crate>-<hash>/out`. From 1.100 the layout is `build/<crate>/<hash>/out`.
+# The `**` matches both, and a layout change then fails the check at this glob
+# instead of passing it for an unrelated reason.
+def find-tables [target: string]: nothing -> list<string> {
+    glob ($target | path join debug build "hiroz*" "**" out embedded_msgs.rs)
+}
+
 # Run `cmd` and stop with `what` and the tail of its output when it fails.
 def run-or-fail [what: string, cmd: closure] {
     let out = (do $cmd | complete)
@@ -105,7 +114,7 @@ def check-packaged [work: string]: nothing -> int {
     let warned = ($build.stderr | str contains "embedded schema fallback will be empty")
     if $warned { print "build script warned that the embedded schema fallback is empty" }
 
-    let tables = (glob ($target | path join debug build "hiroz-*" out embedded_msgs.rs))
+    let tables = (find-tables $target)
     if ($tables | is-empty) { error make {msg: "embedded_msgs.rs not found: UNKNOWN"} }
     let table = ($tables | sort-by --reverse {|p| ls --directory $p | get modified | first } | first)
     let text = (open --raw $table)
@@ -139,7 +148,15 @@ def "main self-test-layout" [] {
     let good = (layout-problems ($tmp | path join good) "1.2.3")
     let sibling = (layout-problems ($tmp | path join bad) "1.2.3")
     let missing = (layout-problems ($tmp | path join empty) "1.2.3")
+    # Both build-script output layouts, and a crate that is not a hiroz crate.
+    for rel in [[hiroz-0123abcd out] [hiroz 0123abcd out] [other 0123abcd out]] {
+        let dir = ($tmp | path join target debug build ...$rel)
+        mkdir $dir
+        "" | save --force ($dir | path join embedded_msgs.rs)
+    }
+    let found = (find-tables ($tmp | path join target) | length)
     rm --recursive --force $tmp
+    if $found != 2 { print $"SELFTEST=FAIL \(glob found ($found) of 2 tables)"; exit 1 }
     if ($good | is-not-empty) { print "SELFTEST=FAIL (good layout rejected)"; exit 1 }
     if ($sibling | is-empty) { print "SELFTEST=FAIL (sibling not detected)"; exit 1 }
     if ($missing | is-empty) { print "SELFTEST=FAIL (missing crate not detected)"; exit 1 }
