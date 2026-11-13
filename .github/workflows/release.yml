@@ -165,6 +165,8 @@ jobs:
         with:
           # wasm32-wasip2 builds the hu plugins. They are platform-independent,
           # so only the primary leg (below) actually packages them.
+          # The toolchain is pinned to the WASM_PLUGIN_TOOLCHAIN of ci.yml.
+          toolchain: 1.91.0
           targets: wasm32-wasip2
 
       - name: Install Rust target (Linux cross-compile only)
@@ -261,6 +263,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # stable
         with:
+          # Pinned to the WASM_PLUGIN_TOOLCHAIN of ci.yml, see the note there.
+          toolchain: 1.91.0
           targets: wasm32-wasip2
 
       - name: Install nushell
