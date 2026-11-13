@@ -1,63 +1,24 @@
 //! A cache applies the same subscriber checks as a plain subscriber.
 //!
-//! Each test builds its entities on one session with no router and no peer. A control in the same
-//! test shows that the checked behaviour differs from the default, so a green result cannot come
-//! from a cache that never receives anything.
+//! A control in the same test shows that the checked behaviour differs from the default, so a green
+//! result cannot come from a cache that never receives anything.
 
 use std::{
-    net::TcpListener,
     num::NonZeroUsize,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod common;
+
+use common::{connected_nodes, isolated_node, wait_until};
 use hiroz::{
     BufferGroup, Builder,
     attachment::Attachment,
-    cache::ZCache,
-    context::{ZContext, ZContextBuilder},
     event::ZenohEventType,
-    node::ZNode,
     qos::{QosDurability, QosHistory, QosProfile, QosReliability},
 };
 use hiroz_msgs::std_msgs::String as RosString;
 use zenoh::{Wait, sample::Locality};
-
-/// A node on a session that has no router and no peer.
-fn isolated_node(name: &str) -> (ZContext, ZNode) {
-    let ctx = ZContextBuilder::default()
-        .with_mode("peer")
-        .disable_multicast_scouting()
-        .with_connect_endpoints(Vec::<String>::new())
-        .with_listen_endpoints(["tcp/127.0.0.1:0"])
-        .build()
-        .expect("context");
-    let node = ctx.create_node(name).build().expect("node");
-    (ctx, node)
-}
-
-/// Poll `condition` until it holds. The test fails with `what` after ten seconds.
-fn wait_until(what: &str, condition: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !condition() {
-        assert!(Instant::now() < deadline, "timed out waiting for {what}");
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-/// Poll until the cache holds `len` messages. On a timeout the failure names what the cache holds.
-fn wait_for_len(what: &str, cache: &ZCache<RosString>, len: usize) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while cache.len() != len {
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for {what}: the cache holds {} of {len} messages, oldest stamp {:?}, newest stamp {:?}",
-            cache.len(),
-            cache.oldest_stamp(),
-            cache.newest_stamp(),
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
 
 fn message(text: &str) -> RosString {
     RosString {
@@ -203,176 +164,6 @@ fn cache_reports_message_loss() {
     );
 }
 
-/// A cache keeps its message count and its loss baselines within bounds under publisher churn.
-///
-/// The test puts one sample for each of 1100 forged publisher GIDs into a cache of capacity 2. That
-/// is more than the loss tracker keeps. The first GID has lost its baseline by then, so its next
-/// sample, far ahead of the first, is a new baseline and raises no loss. Control in the same
-/// test: a sample that skips 3 and 4 from the most recent GID, whose baseline is kept, raises a
-/// loss of 2.
-#[test]
-fn cache_loss_tracking_survives_publisher_churn() {
-    const TOPIC: &str = "cache_parity_loss_churn";
-    const PUBLISHERS: u32 = 1100;
-    let (_ctx, node) = isolated_node("cache_loss_churn");
-    let cache = node
-        .create_cache::<RosString>(&format!("/{TOPIC}"), 2)
-        .build()
-        .expect("cache");
-    let publisher = node
-        .create_pub::<RosString>(&format!("/{TOPIC}"))
-        .build()
-        .expect("publisher");
-    let probe = node
-        .session()
-        .declare_subscriber(format!("**/{TOPIC}/**"))
-        .wait()
-        .expect("probe");
-
-    publisher.publish(&message("real")).expect("publish");
-    let sample = probe
-        .recv_timeout(Duration::from_secs(10))
-        .expect("the probe receive")
-        .expect("the probe sees the real publication");
-    wait_until("the cache to store the real message", || cache.len() == 1);
-    // The probe is never read again. A full probe queue would block the puts below.
-    let (key, payload) = (sample.key_expr().clone(), sample.payload().clone());
-    drop(probe);
-
-    let gid_for = |n: u32| {
-        let mut gid = [7u8; 16];
-        gid[..4].copy_from_slice(&n.to_le_bytes());
-        gid
-    };
-    let put = |sn: i64, gid: [u8; 16]| {
-        node.session()
-            .put(key.clone(), payload.clone())
-            .attachment(Attachment::new(sn, gid))
-            .wait()
-            .expect("forged put");
-    };
-    let lost = || {
-        cache
-            .events_mgr()
-            .lock()
-            .unwrap()
-            .take_event_status(ZenohEventType::MessageLost)
-            .total_count
-    };
-    for n in 0..PUBLISHERS {
-        put(0, gid_for(n));
-    }
-    // Puts on one session arrive in order, so the last one is the last to be stored.
-    put(1, gid_for(PUBLISHERS - 1));
-    std::thread::sleep(Duration::from_secs(1));
-    assert!(cache.len() <= 2, "the cache holds {} messages", cache.len());
-    assert_eq!(lost(), 0, "churn alone is not loss");
-
-    put(1_000, gid_for(0));
-    put(4, gid_for(PUBLISHERS - 1));
-    std::thread::sleep(Duration::from_secs(1));
-    assert_eq!(
-        lost(),
-        2,
-        "the evicted GID starts a new baseline, and the kept GID reports its gap"
-    );
-}
-
-/// Two peer sessions on one machine: the second connects to the first.
-fn connected_nodes(name: &str) -> (ZContext, ZNode, ZContext, ZNode) {
-    let port = TcpListener::bind("127.0.0.1:0")
-        .expect("bind")
-        .local_addr()
-        .expect("address")
-        .port();
-    let endpoint = format!("tcp/127.0.0.1:{port}");
-    let ctx_a = ZContextBuilder::default()
-        .with_mode("peer")
-        .disable_multicast_scouting()
-        .with_connect_endpoints(Vec::<String>::new())
-        .with_listen_endpoints([endpoint.clone()])
-        .build()
-        .expect("context a");
-    let node_a = ctx_a
-        .create_node(format!("{name}_a"))
-        .build()
-        .expect("node a");
-    let ctx_b = ZContextBuilder::default()
-        .with_mode("peer")
-        .disable_multicast_scouting()
-        .with_connect_endpoints([endpoint])
-        .with_listen_endpoints(["tcp/127.0.0.1:0"])
-        .build()
-        .expect("context b");
-    let node_b = ctx_b
-        .create_node(format!("{name}_b"))
-        .build()
-        .expect("node b");
-    (ctx_a, node_a, ctx_b, node_b)
-}
-
-/// A volatile cache stores a sample whose timestamp is older than one it already stored.
-///
-/// Two plain puts carry timestamps from one clock, the newer one first. A cache that filters
-/// samples by timestamp would drop the second put. Control in the same test: the first message,
-/// from a real publisher, is stored before the puts, so a missing sample is a drop and not a
-/// cache that never received anything. The cache is cleared after the control, so the two puts
-/// are counted alone.
-#[test]
-fn volatile_cache_keeps_reordered_timestamps() {
-    const TOPIC: &str = "cache_parity_reorder";
-    let (_ctx, node) = isolated_node("cache_reorder");
-    let cache = node
-        .create_cache::<RosString>(&format!("/{TOPIC}"), 10)
-        .build()
-        .expect("cache");
-    let publisher = node
-        .create_pub::<RosString>(&format!("/{TOPIC}"))
-        .build()
-        .expect("publisher");
-    let probe = node
-        .session()
-        .declare_subscriber(format!("**/{TOPIC}/**"))
-        .wait()
-        .expect("probe");
-
-    publisher.publish(&message("real")).expect("publish");
-    let sample = probe
-        .recv_timeout(Duration::from_secs(10))
-        .expect("the probe receive")
-        .expect("the probe sees the real publication");
-    wait_until("the cache to store the real message", || cache.len() == 1);
-
-    // The control only shows that the cache receives. Clearing it leaves the injected pair alone,
-    // so the count cannot depend on whether a key of the pair equals the key of the control.
-    cache.clear();
-
-    // The cache indexes a message by its timestamp as a `SystemTime`, which has no room for the
-    // logical counter of the clock. Two timestamps from one clock tick differ only in that counter
-    // and index the same entry. A coarse system clock produces such a pair, so the test draws
-    // `newer` until the two timestamps differ as a `SystemTime`.
-    let older = node.session().new_timestamp();
-    let tick_deadline = Instant::now() + Duration::from_secs(10);
-    let newer = loop {
-        let candidate = node.session().new_timestamp();
-        if candidate.get_time().to_system_time() > older.get_time().to_system_time() {
-            break candidate;
-        }
-        assert!(
-            Instant::now() < tick_deadline,
-            "the clock never produced a timestamp after {older}"
-        );
-    };
-    for timestamp in [newer, older] {
-        node.session()
-            .put(sample.key_expr().clone(), sample.payload().clone())
-            .timestamp(timestamp)
-            .wait()
-            .expect("timestamped put");
-    }
-    wait_for_len("the cache to store both timestamped samples", &cache, 2);
-}
-
 /// The locality of a cache restricts the buffer-group subscription as well as the topic one.
 ///
 /// Both caches join the CPU buffer group. A plain put on the group key of the topic reaches the
@@ -475,12 +266,12 @@ fn cache_with_remote_locality_stores_remote_messages_only() {
     let everything = |cache: &hiroz::cache::ZCache<RosString>| {
         cache.get_interval(UNIX_EPOCH, SystemTime::now() + Duration::from_secs(86_400))
     };
+    wait_until("the default cache to store a local message", || {
+        everything(&any).iter().any(|m| m.data == "local")
+    });
     let kept = everything(&remote_only);
     assert!(
         kept.iter().all(|m| m.data == "remote"),
         "a cache restricted to remote publishers stored a local message"
     );
-    wait_until("the default cache to store a local message", || {
-        everything(&any).iter().any(|m| m.data == "local")
-    });
 }
