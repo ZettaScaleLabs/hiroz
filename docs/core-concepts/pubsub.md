@@ -344,7 +344,7 @@ Common presets:
 
 ## Locality
 
-Publishers, subscribers and caches take a `Locality` from `zenoh::sample`. `with_locality` restricts an entity to peers of one locality: `SessionLocal` (the same Zenoh session), `Remote` (other sessions) or `Any` (the default). On a publisher it limits the subscribers that receive the message. On a subscriber or a cache it limits the publishers that the entity receives from. The restriction applies to live messages only. The rustdoc of `ZPubBuilder::with_locality` states how `TransientLocal` history behaves.
+Publishers, subscribers and caches take a `Locality` from `zenoh::sample`. `with_locality` restricts an entity to peers of one locality: `SessionLocal` (the same Zenoh session), `Remote` (other sessions) or `Any` (the default). On a publisher it limits the subscribers that receive a message sent with `publish`. `publish_shared` and `publish_owned` also serve same-session subscribers on the local bus. On a subscriber or a cache it limits the publishers that the entity receives from. The restriction applies to live messages only. The rustdoc of `ZPubBuilder::with_locality` states how `TransientLocal` history behaves.
 
 ```rust
 use hiroz::prelude::*;

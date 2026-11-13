@@ -319,7 +319,7 @@ impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
     /// Apply a QoS profile to the underlying subscriber. A `TransientLocal` durability makes the
     /// cache request the history of publishers that started earlier. That subscription drops a
     /// sample that is not newer than one it already delivered from the same source. A volatile
-    /// cache delivers every sample.
+    /// cache does not drop reordered samples.
     pub fn with_qos(mut self, qos: crate::qos::QosProfile) -> Self {
         self.sub_builder = self.sub_builder.with_qos(qos);
         self
@@ -338,8 +338,8 @@ impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
 
     /// Set the encoding that the cache expects on received messages, as
     /// [`ZSubBuilder::with_encoding`](crate::pubsub::ZSubBuilder::with_encoding) does for a
-    /// subscriber. A sample with a known, different encoding logs a warning. The cache still
-    /// stores the message.
+    /// subscriber. A sample with a known, different encoding logs a warning. The check does not
+    /// reject the message.
     pub fn with_encoding(mut self, encoding: crate::encoding::Encoding) -> Self {
         self.sub_builder = self.sub_builder.with_encoding(encoding);
         self

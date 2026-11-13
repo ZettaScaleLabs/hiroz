@@ -519,8 +519,8 @@ impl MessageLossTracker {
             seen.tick += 1;
             let tick = seen.tick;
             if !seen.map.contains_key(&source_gid) && seen.map.len() >= seen.capacity {
-                // Least recently seen publisher. A scan is acceptable: it runs
-                // only when a new publisher arrives at a full table.
+                // Least recently seen publisher. The scan runs only when a
+                // new publisher arrives at a full table.
                 let oldest = seen
                     .map
                     .iter()

@@ -55,7 +55,7 @@ fn observe_loss(loss: &MessageLossTracker, sample: &Sample) {
 
 /// Log a warning when `sample` carries a known encoding that differs from `expected`. A sample
 /// with an encoding that hiroz does not know is only logged at debug level, and no check runs
-/// without an expected encoding. The message is delivered in every case. Every subscriber build
+/// without an expected encoding. The check never rejects a sample. Every subscriber build
 /// path calls this, so the cache and the subscriber check the same way.
 fn warn_on_encoding_mismatch(expected: Option<&crate::encoding::Encoding>, sample: &Sample) {
     let Some(expected) = expected else {
@@ -298,7 +298,7 @@ impl<T, S> ZPubBuilder<T, S> {
     /// # This makes the publisher invisible off-process
     ///
     /// A [`Locality::SessionLocal`](zenoh::sample::Locality::SessionLocal)
-    /// publisher is not reachable from any other process, including
+    /// publisher sends no live sample to any other process, including
     /// `ros2 topic echo`. Set it only where the subscriber is in the same context.
     ///
     /// # Serialization still happens
@@ -552,7 +552,7 @@ where
     /// the publisher's own session does not count, because the publisher does not deliver to it.
     /// With `Locality::SessionLocal`, only subscribers on the publisher's own session count.
     ///
-    /// The count is of subscribers that [`publish`](Self::publish) can reach. With
+    /// The count is of the topic's subscribers that the publisher's locality admits. With
     /// `Locality::Remote`, a same-session subscriber built with
     /// [`build_with_shared_callback`](ZSubBuilder::build_with_shared_callback) or
     /// [`build_with_owned_callback`](ZSubBuilder::build_with_owned_callback) is not counted, although
@@ -1013,7 +1013,7 @@ impl ZPub<crate::dynamic::DynamicMessage, crate::dynamic::DynamicSerdeCdrSerdes>
 /// The subscriptions of a raw-callback subscriber: one on the topic key, and one on the group key
 /// when the subscriber joins the group. Dropping the value undeclares both. Only a transient-local
 /// QoS makes the topic-key subscription an advanced one, because only that QoS needs history. A
-/// volatile subscriber keeps a plain subscription, which delivers every sample.
+/// volatile subscriber keeps a plain subscription, which does not drop reordered samples.
 pub(crate) struct RawSubscriptions {
     _base: RawBase,
     _group: Option<zenoh::pubsub::Subscriber<()>>,
