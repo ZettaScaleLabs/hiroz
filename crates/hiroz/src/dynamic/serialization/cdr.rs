@@ -33,6 +33,9 @@ pub fn serialize_cdr_to_zbuf(msg: &DynamicMessage) -> Result<ZBuf, DynamicError>
 }
 
 /// Deserialize a dynamic message from CDR bytes.
+///
+/// A value that consumes no input, such as an empty message, counts against a budget of
+/// 1,048,576 values per call. Input that needs more is an error.
 pub fn deserialize_cdr(
     data: &[u8],
     schema: &Arc<MessageSchema>,
@@ -195,8 +198,8 @@ fn deserialize_message(
     Ok(DynamicMessage::from_values(schema, values))
 }
 
-/// Decode one value. A value that consumes no input is charged to `budget`. A count or nesting
-/// that the input cannot back then runs out of budget before it runs out of memory.
+/// Decode one value. A value that consumes no input is charged to `budget`, so a count or a
+/// message tree that the input cannot back runs out of budget instead of growing without bound.
 fn deserialize_value(
     field_type: &FieldType,
     reader: &mut CdrReader<LittleEndian>,
