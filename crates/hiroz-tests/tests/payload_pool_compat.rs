@@ -6,11 +6,10 @@
 //! questions a user adopting it will actually hit.
 //!
 //! The property every test here turns on is the same one: **a slot returns to
-//! the pool when the last holder drops its `Arc`**. So `pool.stats().available`
-//! back at capacity after a publish is the evidence that nothing downstream
-//! retained the buffer. If the wire path ever spliced the payload instead of
-//! serializing a copy of it, zenoh's TX queue would hold the pooled allocation
-//! and these tests would fail — which is exactly what makes them worth running.
+//! the pool when the last holder drops its `Arc`**. The wire, durability and
+//! remote-locality tests read `pool.stats().available` back at capacity after a
+//! publish as the evidence that nothing downstream retained the `Arc<T>`. The
+//! fan-out and re-entry tests assert on delivery and exhaustion instead.
 //!
 //! | test | property |
 //! |---|---|
@@ -18,16 +17,10 @@
 //! | `a_transient_local_wire_publisher_does_not_retain_it_either` | the durability cache holds serialized samples, not the `Arc` |
 //! | `two_subscribers_share_one_allocation_and_both_release_it` | fan-out costs one slot, not N |
 //! | `a_remote_locality_publisher_returns_the_slot_after_both_routes` | bus + wire together still release |
-//! | `a_pool_survives_a_subscriber_that_publishes_from_its_own_pool` | inline delivery does not deadlock the pool
+//! | `a_pool_survives_a_subscriber_that_publishes_from_its_own_pool` | inline delivery does not deadlock the pool |
 //!
-//! # These do not pass vacuously
-//!
-//! All five conclude "nothing downstream retained the buffer" from `available`
-//! being back at capacity, so if `available` could not drop in this setting they
-//! would all be green for the wrong reason. Measured: retaining the published
-//! `Arc` in `a_wire_publish_does_not_retain_the_pooled_buffer` turns **that test
-//! and only that test** red, with zero compile errors and the patch confirmed
-//! applied. The instrument works.
+//! Retaining the published `Arc` in `a_wire_publish_does_not_retain_the_pooled_buffer`
+//! turns that test red, so `available` can drop in this setting.
 
 mod common;
 
@@ -65,13 +58,11 @@ fn msg(s: &str) -> RosString {
     RosString { data: s.to_owned() }
 }
 
-/// The wire path must not hold the pooled allocation after `publish` returns.
+/// The wire path must not hold the pooled `Arc<T>` after `publish` returns.
 ///
-/// hiroz serializes into a fresh `ZBuf` (`ZBufWriter` + serde), so the bytes
-/// zenoh queues are a copy and the pooled buffer is untouched. This asserts
-/// that rather than trusting the reading: if serialization ever became a splice
-/// of the existing `ZSlice`, the slot would still be out and `available` would
-/// be short.
+/// hiroz serializes into a fresh `ZBuf` (`ZBufWriter` + serde), so zenoh never
+/// receives the `Arc`. This asserts the slot is back after each publish. It
+/// checks the outer `Arc<T>` only, not the buffers inside a message.
 #[test]
 fn a_wire_publish_does_not_retain_the_pooled_buffer() -> hiroz::Result<()> {
     let router = TestRouter::new();
@@ -87,7 +78,11 @@ fn a_wire_publish_does_not_retain_the_pooled_buffer() -> hiroz::Result<()> {
     for i in 0..8 {
         let mut slot = pool.acquire().expect("a slot, every iteration");
         slot.data = format!("m{i}");
-        publisher.publish_shared(slot.into_shared())?;
+        assert_eq!(
+            publisher.publish_shared(slot.into_shared())?,
+            Published::Wire,
+            "iteration {i}: the wire route did not run"
+        );
 
         assert_eq!(
             pool.stats().available,
@@ -124,7 +119,11 @@ fn a_transient_local_wire_publisher_does_not_retain_it_either() -> hiroz::Result
     for i in 0..8 {
         let mut slot = pool.acquire().expect("a slot, every iteration");
         slot.data = format!("m{i}");
-        publisher.publish_shared(slot.into_shared())?;
+        assert_eq!(
+            publisher.publish_shared(slot.into_shared())?,
+            Published::Wire,
+            "iteration {i}: the wire route did not run"
+        );
         assert_eq!(
             pool.stats().available,
             2,
@@ -148,10 +147,12 @@ fn two_subscribers_share_one_allocation_and_both_release_it() -> hiroz::Result<(
 
     let hits_a = Arc::new(AtomicUsize::new(0));
     let hits_b = Arc::new(AtomicUsize::new(0));
-    let seen: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen_a: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen_b: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
+    let published: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
 
     let a = hits_a.clone();
-    let ptrs = seen.clone();
+    let ptrs = seen_a.clone();
     let _sub_a = node
         .create_sub::<RosString>("pool_fanout")
         .build_with_shared_callback(move |m: Arc<RosString>| {
@@ -160,9 +161,11 @@ fn two_subscribers_share_one_allocation_and_both_release_it() -> hiroz::Result<(
         })?;
 
     let b = hits_b.clone();
+    let ptrs = seen_b.clone();
     let _sub_b = node
         .create_sub::<RosString>("pool_fanout")
-        .build_with_shared_callback(move |_m: Arc<RosString>| {
+        .build_with_shared_callback(move |m: Arc<RosString>| {
+            ptrs.lock().expect("lock").push(Arc::as_ptr(&m) as usize);
             b.fetch_add(1, Ordering::SeqCst);
         })?;
 
@@ -178,7 +181,12 @@ fn two_subscribers_share_one_allocation_and_both_release_it() -> hiroz::Result<(
             panic!("iteration {i}: the pool exhausted, so fan-out is retaining slots")
         });
         slot.data = format!("m{i}");
-        let delivered = publisher.publish_shared(slot.into_shared())?;
+        let shared = slot.into_shared();
+        published
+            .lock()
+            .expect("lock")
+            .push(Arc::as_ptr(&shared) as usize);
+        let delivered = publisher.publish_shared(shared)?;
         assert_eq!(
             delivered,
             Published::Bus(Delivery::Sent(2)),
@@ -190,12 +198,23 @@ fn two_subscribers_share_one_allocation_and_both_release_it() -> hiroz::Result<(
     assert_eq!(hits_b.load(Ordering::SeqCst), 5);
     assert_eq!(pool.stats().exhaustions, 0);
     assert_eq!(pool.stats().stuck, 0);
+    assert_eq!(
+        pool.stats().available,
+        1,
+        "a subscriber kept the last message"
+    );
 
-    // One slot, so every delivery must have carried the same allocation.
-    let p = seen.lock().expect("lock");
-    assert!(
-        p.iter().all(|&x| x == p[0]),
-        "the pool handed out more than one buffer from a capacity of one: {p:?}"
+    // Both subscribers must have seen the allocation the publisher sent.
+    let sent = published.lock().expect("lock");
+    assert_eq!(
+        *seen_a.lock().expect("lock"),
+        *sent,
+        "subscriber A got a copy"
+    );
+    assert_eq!(
+        *seen_b.lock().expect("lock"),
+        *sent,
+        "subscriber B got a copy"
     );
     Ok(())
 }
@@ -225,7 +244,11 @@ fn a_remote_locality_publisher_returns_the_slot_after_both_routes() -> hiroz::Re
     for i in 0..6 {
         let mut slot = pool.acquire().expect("a slot, every iteration");
         slot.data = format!("m{i}");
-        publisher.publish_shared(slot.into_shared())?;
+        assert_eq!(
+            publisher.publish_shared(slot.into_shared())?,
+            Published::BusAndWire(Delivery::Sent(1)),
+            "iteration {i}: both routes must run"
+        );
         assert_eq!(
             pool.stats().available,
             2,
@@ -257,25 +280,33 @@ fn a_pool_survives_a_subscriber_that_publishes_from_its_own_pool() -> hiroz::Res
         .with_intra_process_only()
         .build()?;
 
+    let delivered_out = Arc::new(AtomicUsize::new(0));
+    let d = delivered_out.clone();
+    let _out_sub = node
+        .create_sub::<RosString>("pool_reentrant_out")
+        .build_with_shared_callback(move |_m: Arc<RosString>| {
+            d.fetch_add(1, Ordering::SeqCst);
+        })?;
+
     let e = echoes.clone();
     let p = inner_pool.clone();
     let _sub = node
         .create_sub::<RosString>("pool_reentrant_in")
         .build_with_shared_callback(move |_m: Arc<RosString>| {
-            // Re-entering the pool from inside a callback, on the publishing
-            // thread. If `into_shared` did not end the borrow, this is where
-            // the design would deadlock.
-            // Acquire, stamp and *release the guard* before publishing. Holding
-            // it across the publish is what would deadlock: delivery is inline,
-            // so the callback this publish invokes runs on this thread and
-            // re-locks the same mutex.
+            // Take the pool again from inside a callback, on the publishing
+            // thread. Release the mutex before publishing: delivery is inline,
+            // so holding it across the publish would deadlock.
             let shared = {
                 let mut guard = p.lock().expect("pool lock");
                 guard.acquire().map(|slot| slot.into_shared())
             };
             if let Some(shared) = shared {
-                let _ = out.publish_shared(shared);
-                e.fetch_add(1, Ordering::SeqCst);
+                if matches!(
+                    out.publish_shared(shared),
+                    Ok(Published::Bus(Delivery::Sent(1)))
+                ) {
+                    e.fetch_add(1, Ordering::SeqCst);
+                }
             }
         })?;
 
@@ -302,10 +333,14 @@ fn a_pool_survives_a_subscriber_that_publishes_from_its_own_pool() -> hiroz::Res
         5,
         "the callback did not complete five re-entrant publishes"
     );
+    assert_eq!(
+        delivered_out.load(Ordering::SeqCst),
+        5,
+        "the nested messages did not reach their subscriber"
+    );
     // The pool both sides share: re-entering it must not have exhausted it.
-    // A slot is taken by the outer publish and again by the callback it
-    // invokes, so an exhaustion here would mean `into_shared` failed to end
-    // the borrow before the nested acquire.
+    // Each outer publish takes a slot and so does the callback it invokes; four
+    // slots serve both because each returns before the next send.
     assert_eq!(
         inner_pool.lock().expect("pool lock").stats().exhaustions,
         0,
