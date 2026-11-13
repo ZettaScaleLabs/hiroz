@@ -101,6 +101,11 @@ fn rejected_arm(src: &str) -> &str {
     &rest[..end]
 }
 
+/// Whether the `Rejected` arm of `src` logs at error level.
+fn logs_at_error_level(src: &str) -> bool {
+    rejected_arm(src).contains("tracing::error!")
+}
+
 /// `rmw_init` installs an `error` log filter just before the pin, so a rejection that is logged
 /// below `error` never prints in the default configuration.
 #[test]
@@ -108,10 +113,10 @@ fn a_rejected_pin_is_logged_at_error_level() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(CONTEXT_RS);
     let src = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-    let arm = rejected_arm(&src);
     assert!(
-        arm.contains("tracing::error!"),
-        "the Rejected arm must log at error level: {arm}"
+        logs_at_error_level(&src),
+        "the Rejected arm must log at error level: {}",
+        rejected_arm(&src)
     );
 }
 
@@ -120,4 +125,20 @@ fn rejected_arm_ends_at_the_next_outcome() {
     let src = "match o {\n PinOutcome::Rejected { .. } => { tracing::error!(\"x\"); }\n PinOutcome::Pinned { .. } => { tracing::debug!(\"y\"); }\n}";
     let arm = rejected_arm(src);
     assert!(arm.contains("error!") && !arm.contains("debug!"), "{arm}");
+}
+
+#[test]
+fn trailing_comment_is_not_a_call() {
+    let src = format!("    let x = 1; // {CALL}\n");
+    assert!(pin_calls(&src).is_empty());
+    let src = format!("    match {CALL} {{ // keep\n");
+    assert_eq!(pin_calls(&src), vec![1]);
+}
+
+#[test]
+fn a_commented_out_error_log_does_not_satisfy_the_rejected_arm_check() {
+    let src = "match o {\n PinOutcome::Rejected { .. } => {\n // tracing::error!(\"x\");\n tracing::debug!(\"y\"); /* tracing::error!(\"z\") */ }\n PinOutcome::Pinned { .. } => {}\n}";
+    assert!(!logs_at_error_level(src));
+    let src = "match o {\n PinOutcome::Rejected { .. } => { tracing::error!(\"x\"); }\n PinOutcome::Pinned { .. } => {}\n}";
+    assert!(logs_at_error_level(src));
 }
