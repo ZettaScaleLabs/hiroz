@@ -664,6 +664,12 @@ jobs:
           HOME="$HUHOME" HU_PREFIX="$HUHOME/.local" sh scripts/install-hu.sh --offline dist
           echo "HUHOME=$HUHOME" >> "$GITHUB_ENV"
 
+      - name: Diagnose plugin discovery
+        run: |
+          HOME="$HUHOME" "$HUHOME/.local/bin/hu" plugin list || true
+          ls -l "$HUHOME/.local/share/hu/plugins" || true
+          HOME="$HUHOME" RUST_LOG=warn "$HUHOME/.local/bin/hu" meter list topics 2>&1 | head -20 || true
+
       # The traffic source is built from the tree, NOT taken from the artifact.
       # `hu` cannot generate its own traffic (`hu meter pub` needs message
       # definitions no release ships), so without an external publisher the
