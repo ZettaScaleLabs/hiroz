@@ -2134,23 +2134,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Context variants">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#what-a-context-ending-does-not-wait-for" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What a context ending does not wait for
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
         
           <li class="md-nav__item">
@@ -2876,23 +2859,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Context variants">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#what-a-context-ending-does-not-wait-for" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What a context ending does not wait for
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
         
           <li class="md-nav__item">
@@ -3246,7 +3212,7 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 </span><span id="__span-10-25"><a id="__codelineno-10-25" name="__codelineno-10-25" href="#__codelineno-10-25"></a><span class="nx">resultBytes</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">handle</span><span class="p">.</span><span class="nx">GetResult</span><span class="p">()</span>
 </span></code></pre></div>
 <h3 id="goal-status">Goal status<a class="headerlink" href="#goal-status" title="Permanent link">&para;</a></h3>
-<div class="language-go highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nx">handle</span><span class="p">.</span><span class="nx">Status</span><span class="p">()</span><span class="w">       </span><span class="c1">// GoalStatusAccepted → GoalStatusSucceeded</span>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nx">handle</span><span class="p">.</span><span class="nx">GetStatus</span><span class="p">()</span><span class="w">    </span><span class="c1">// GoalStatusAccepted → GoalStatusSucceeded</span>
 </span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nx">handle</span><span class="p">.</span><span class="nx">IsActive</span><span class="p">()</span><span class="w">     </span><span class="c1">// true while executing</span>
 </span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nx">handle</span><span class="p">.</span><span class="nx">IsTerminal</span><span class="p">()</span><span class="w">   </span><span class="c1">// true when finished</span>
 </span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="nx">handle</span><span class="p">.</span><span class="nx">Cancel</span><span class="p">()</span><span class="w">       </span><span class="c1">// request cancellation</span>
@@ -3344,98 +3310,7 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 </tr>
 </tbody>
 </table>
-<p>A context deadline sets the timeout of <code>CallTypedContext</code>, up to 10 seconds. The service client behind it ends every query after 10 seconds, so a later deadline does not extend the call: it returns <code>hiroz.ErrTimeout</code> after about 10 seconds. Without a deadline the call uses <code>DefaultServiceTimeout</code> (5 s). When the context ends first, the error wraps <code>context.Canceled</code> or <code>context.DeadlineExceeded</code>. A call whose C timeout ends after the context deadline has passed also returns <code>context.DeadlineExceeded</code>, not <code>hiroz.ErrTimeout</code>. <code>ErrTimeout</code> means the server did not answer within the call timeout while the context deadline was still in the future. <code>WaitForServiceContext</code> waits in slices of at most 250 ms, so it returns within one slice of a cancel.</p>
-<p>A cancel does not stop work that the C layer already started. <code>Close</code> waits for that work and not for the context, and the cancel does not interrupt it. A call that starts after <code>Close</code> has begun returns a closed-client error and does not reach the C layer. A call whose context has already ended returns the context error first, even when the client or the goal handle is closed.</p>
-<table>
-<thead>
-<tr>
-<th>Call</th>
-<th><code>Close</code> waits for</th>
-<th>Longest hold</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>CallTypedContext</code></td>
-<td>the registered C call, not <code>SerializeCDR</code> before it or <code>DeserializeCDR</code> after it</td>
-<td>its call timeout: the context deadline up to 10 s, or <code>DefaultServiceTimeout</code> (5 s) without a deadline</td>
-</tr>
-<tr>
-<td><code>WaitForServiceContext</code></td>
-<td>the wait, which <code>Close</code> ends and which returns a closed-client error</td>
-<td>one wait slice (250 ms)</td>
-</tr>
-<tr>
-<td><code>SendGoalContext</code></td>
-<td>the C call, not the goal's <code>SerializeCDR</code> before it</td>
-<td>10 s, the fixed timeout of the C call</td>
-</tr>
-<tr>
-<td><code>GetResultWithContext</code>, <code>GetResult</code>, <code>GetTypedResult</code>, <code>GetTypedResultContext</code></td>
-<td>the C call</td>
-<td>30 s, the fixed timeout of the C call, and normally about 10 s because the service client behind it ends its query after 10 s</td>
-</tr>
-<tr>
-<td><code>GoalHandle.Cancel</code></td>
-<td>the C call</td>
-<td>10 s, the fixed timeout of the C call; after <code>Close</code> it returns a closed-client error</td>
-</tr>
-<tr>
-<td><code>SendGoal</code></td>
-<td>nothing</td>
-<td>do not call it concurrently with <code>Close</code></td>
-</tr>
-<tr>
-<td><code>CallTyped</code>, <code>CallTypedWithTimeout</code>, <code>WaitForService</code></td>
-<td>nothing</td>
-<td>do not call them concurrently with <code>Close</code></td>
-</tr>
-</tbody>
-</table>
-<p><code>ServiceClient.Close</code> does not wait for your encoder or decoder. A <code>CallTypedContext</code> can still be inside <code>DeserializeCDR</code> when <code>Close</code> returns, so do not assume that your response state is no longer in use.</p>
-<p><code>GoalHandle.Close</code> is not gated by the client. Do not close a goal handle while a result wait on it is running: the C call reads the handle that <code>Close</code> frees. A result wait that returned on a cancel keeps the goal handle reachable until its C call returns, so dropping the last reference is safe.</p>
-<p><code>SendGoalContext</code> returns an open handle when the server answers first. When the cancel wins, it returns the context error and closes the handle once the C layer returns. The server may already hold the goal, and the cancel does not cancel it. That cleanup does not register with the client and can run after <code>Close</code> has returned. This is harmless: it frees only the handle's own box and never reads the client.</p>
-<p><code>SubscriberWithChannelContext</code> has no cleanup function. The channel closes when the context ends or when the subscriber closes, whichever comes first, so pass a context that you cancel, or close the subscriber.</p>
-<h4 id="what-a-context-ending-does-not-wait-for">What a context ending does not wait for<a class="headerlink" href="#what-a-context-ending-does-not-wait-for" title="Permanent link">&para;</a></h4>
-<p>A context bounds the wait for a result or the lifetime of a subscriber. It does not wait for your code, and it does not stop code that already runs.</p>
-<table>
-<thead>
-<tr>
-<th>Call</th>
-<th>When the context ends</th>
-<th>Not guaranteed</th>
-<th>How to know it is done</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>BuildWithTypedCallbackContext</code></td>
-<td>A cleanup goroutine destroys the subscriber. Cancel does not wait for it. Closing the subscriber first releases the registration on the context.</td>
-<td>A callback can start after <code>ctx.Done</code> closes. A running handler keeps running after the destroy returns.</td>
-<td>There is no completion signal. Make the handler safe to run after the cancel, for example with a lock and a flag that it checks, and do not free what it uses on cancel alone.</td>
-</tr>
-<tr>
-<td><code>SubscriberWithChannelContext</code></td>
-<td>The subscriber is destroyed, then the channel closes.</td>
-<td>A closed channel does not mean that <code>DeserializeCDR</code> has returned for a sample in flight. That sample is dropped. A sample that is already in the send, or that finishes decoding before the cleanup goroutine runs, can still arrive.</td>
-<td>The closed channel receives no new sample, and the samples it holds stay readable. Keep the message type's decoder free of state that you release on close.</td>
-</tr>
-<tr>
-<td><code>CallTypedContext</code>, in <code>SerializeCDR</code></td>
-<td>Nothing: the call is not waiting for a result yet.</td>
-<td>The call returns only when the serializer returns. It then returns the context error and makes no C call.</td>
-<td>The return of <code>CallTypedContext</code>.</td>
-</tr>
-<tr>
-<td><code>CallTypedContext</code>, in <code>DeserializeCDR</code></td>
-<td>Nothing: the result has arrived.</td>
-<td><code>DeserializeCDR</code> is not interrupted. The call returns what the decoder returns: <code>nil</code> with the decoded value, or the decode error.</td>
-<td>The return of <code>CallTypedContext</code>.</td>
-</tr>
-</tbody>
-</table>
-<p><code>SendGoalContext</code> serializes the goal in the same way: a slow <code>SerializeCDR</code> delays its return and does not hold <code>ActionClient.Close</code>, because the call registers after it has serialized the goal.</p>
-<p><strong>Known limit:</strong> neither a cancel nor <code>Close</code> releases the callback of a successfully built subscriber. The underlying subscriber keeps it reachable until the process ends, together with what it captures: for <code>SubscriberWithChannelContext</code> its channels, for <code>BuildWithTypedCallbackContext</code> your handler's state. The channel callback does not keep the context. Releasing the callback after the running callbacks finish is not implemented.</p>
+<p>A cancel returns the context error and does not stop work that the C layer already started. <code>Close</code> waits for the registered C call of each context call, and not for the context or for your <code>SerializeCDR</code> and <code>DeserializeCDR</code>. A call that starts after <code>Close</code> has begun returns a closed-client error, and a call whose context has already ended returns the context error first. A context deadline sets the timeout of <code>CallTypedContext</code>, up to 10 seconds. A subscriber callback can still run after a cancel, so make the handler safe to run after the cancel. Neither a cancel nor <code>Close</code> releases a built subscriber's callback: the subscriber keeps it reachable until the process ends. <code>SubscriberWithChannelContext</code> has no cleanup function, so pass a context that you cancel, or close the subscriber. The Go documentation of <code>ServiceClient.Close</code> and <code>ActionClient.Close</code> states what each waits for and how long it can block.</p>
 <h3 id="action">Action<a class="headerlink" href="#action" title="Permanent link">&para;</a></h3>
 <div class="language-go highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1">// Typed server</span>
 </span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="nx">server</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">BuildTypedActionServer</span><span class="p">(</span>
@@ -3454,8 +3329,8 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 </span><span id="__span-16-15"><a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a><span class="p">)</span>
 </span><span id="__span-16-16"><a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a>
 </span><span id="__span-16-17"><a id="__codelineno-16-17" name="__codelineno-16-17" href="#__codelineno-16-17"></a><span class="c1">// Typed client</span>
-</span><span id="__span-16-18"><a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a><span class="nx">client</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">node</span><span class="p">.</span><span class="nx">CreateActionClient</span><span class="p">(</span><span class="s">&quot;fibonacci&quot;</span><span class="p">).</span><span class="nx">Build</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">example_interfaces</span><span class="p">.</span><span class="nx">Fibonacci</span><span class="p">{})</span>
-</span><span id="__span-16-19"><a id="__codelineno-16-19" name="__codelineno-16-19" href="#__codelineno-16-19"></a><span class="nx">handle</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">SendGoal</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">example_interfaces</span><span class="p">.</span><span class="nx">FibonacciGoal</span><span class="p">{</span><span class="nx">Order</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">})</span>
+</span><span id="__span-16-18"><a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a><span class="nx">client</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">BuildTypedActionClient</span><span class="p">(</span><span class="nx">node</span><span class="p">.</span><span class="nx">CreateActionClient</span><span class="p">(</span><span class="s">&quot;fibonacci&quot;</span><span class="p">),</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">example_interfaces</span><span class="p">.</span><span class="nx">Fibonacci</span><span class="p">{})</span>
+</span><span id="__span-16-19"><a id="__codelineno-16-19" name="__codelineno-16-19" href="#__codelineno-16-19"></a><span class="nx">handle</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">SendTypedGoal</span><span class="p">(</span><span class="nx">client</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">example_interfaces</span><span class="p">.</span><span class="nx">FibonacciGoal</span><span class="p">{</span><span class="nx">Order</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">})</span>
 </span><span id="__span-16-20"><a id="__codelineno-16-20" name="__codelineno-16-20" href="#__codelineno-16-20"></a><span class="nx">result</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">example_interfaces</span><span class="p">.</span><span class="nx">FibonacciResult</span><span class="p">{}</span>
 </span><span id="__span-16-21"><a id="__codelineno-16-21" name="__codelineno-16-21" href="#__codelineno-16-21"></a><span class="nx">err</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">hiroz</span><span class="p">.</span><span class="nx">GetTypedResult</span><span class="p">(</span><span class="nx">handle</span><span class="p">,</span><span class="w"> </span><span class="nx">result</span><span class="p">)</span>
 </span></code></pre></div>
@@ -3474,10 +3349,10 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 </div>
 <hr />
 <h2 id="graph-introspection">Graph Introspection<a class="headerlink" href="#graph-introspection" title="Permanent link">&para;</a></h2>
-<div class="language-go highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nx">topics</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">GetTopicNamesAndTypes</span><span class="p">()</span><span class="w">      </span><span class="c1">// []hiroz.TopicInfo</span>
-</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="nx">nodes</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w">  </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">GetNodeNames</span><span class="p">()</span><span class="w">               </span><span class="c1">// []hiroz.NodeInfo</span>
-</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="nx">services</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">GetServiceNamesAndTypes</span><span class="p">()</span><span class="w">  </span><span class="c1">// []hiroz.ServiceInfo</span>
-</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="nx">exists</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">NodeExists</span><span class="p">(</span><span class="s">&quot;talker&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;/&quot;</span><span class="p">)</span>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nx">topics</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">node</span><span class="p">.</span><span class="nx">GetTopicNamesAndTypes</span><span class="p">()</span><span class="w">    </span><span class="c1">// map[string][]string</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="nx">names</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w">  </span><span class="o">:=</span><span class="w"> </span><span class="nx">node</span><span class="p">.</span><span class="nx">GetNodeNames</span><span class="p">()</span><span class="w">             </span><span class="c1">// []string</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="nx">services</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">node</span><span class="p">.</span><span class="nx">GetServiceNamesAndTypes</span><span class="p">()</span>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="nx">exists</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">node</span><span class="p">.</span><span class="nx">NodeExists</span><span class="p">(</span><span class="s">&quot;talker&quot;</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Requires a Zenoh router and a brief settling time after nodes come online.</p>
 <hr />
