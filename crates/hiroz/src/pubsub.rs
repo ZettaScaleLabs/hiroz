@@ -1314,7 +1314,6 @@ where
         let events_mgr = Arc::new(Mutex::new(EventsManager::new(gid)));
         let loss = Arc::new(MessageLossTracker::new(events_mgr.clone()));
 
-        // Wrap the handler with the loss tracker and the encoding check
         let expected_encoding = self.expected_encoding.clone();
         let validated_handler = move |sample: Sample| {
             observe_loss(&loss, &sample);

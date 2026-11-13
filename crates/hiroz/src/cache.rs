@@ -329,8 +329,8 @@ impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
     /// sessions or both. The default is both. The restriction applies to the topic subscription
     /// and to the buffer-group subscription alike.
     ///
-    /// The restriction applies to live samples. A cache with `TransientLocal` QoS still receives
-    /// the history of publishers outside the locality.
+    /// The restriction applies to live samples only. See
+    /// [`ZPubBuilder::with_locality`](crate::pubsub::ZPubBuilder::with_locality) for the history caveat.
     pub fn with_locality(mut self, locality: zenoh::sample::Locality) -> Self {
         self.sub_builder = self.sub_builder.with_locality(locality);
         self

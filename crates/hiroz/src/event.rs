@@ -477,8 +477,7 @@ pub struct MessageLossTracker {
 /// would otherwise grow the tracker without limit. When the table is full, the
 /// publisher heard from least recently loses its baseline. After that, its
 /// next sample is a new baseline: it raises no loss, and a gap that fell inside
-/// the eviction goes unreported. The bound is above any realistic number of
-/// live publishers on one topic, so that case needs publisher churn.
+/// the eviction goes unreported.
 pub(crate) const MAX_TRACKED_PUBLISHERS: usize = 1024;
 
 /// Last sequence number per publisher, with the tick of the latest arrival.
@@ -506,7 +505,7 @@ impl MessageLossTracker {
 
     /// The number of publishers whose baseline is held.
     #[cfg(test)]
-    pub(crate) fn tracked_publishers(&self) -> usize {
+    fn tracked_publishers(&self) -> usize {
         self.last_seen.lock().unwrap().map.len()
     }
 
