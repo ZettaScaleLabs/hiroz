@@ -7,11 +7,11 @@
 //!
 //! The test fails in these cases:
 //! - The call is removed.
-//! - The call is commented out on its own line with `//` or inside `/* */`.
+//! - The call is commented out with `//` or inside `/* */`.
 //! - The call occurs more than once.
 //! - The call is written under a shortened path, for example after a `use` import.
 //!
-//! A trailing comment after code on the same line does not hide the call.
+//! A trailing comment after code on the same line does not hide the call before it.
 //!
 //! The match is file-wide in `context.rs`, not scoped to `rmw_init`. A call in any other
 //! function satisfies it. The test does not fail in these cases:
@@ -49,12 +49,22 @@ fn strip_block_comments(src: &str) -> String {
     out
 }
 
-/// Lines of `src` that call the pin, ignoring line and block comments.
-fn pin_calls(src: &str) -> Vec<usize> {
+/// `src` without its block comments and without the text after `//` on each line. A `//` inside
+/// a string literal is not told apart from a comment.
+fn strip_comments(src: &str) -> String {
     strip_block_comments(src)
         .lines()
+        .map(|l| l.split_once("//").map_or(l, |(code, _)| code))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Lines of `src` that call the pin, ignoring line and block comments.
+fn pin_calls(src: &str) -> Vec<usize> {
+    strip_comments(src)
+        .lines()
         .enumerate()
-        .filter(|(_, l)| !l.trim_start().starts_with("//") && l.contains(CALL))
+        .filter(|(_, l)| l.contains(CALL))
         .map(|(i, _)| i + 1)
         .collect()
 }
@@ -103,7 +113,7 @@ fn rejected_arm(src: &str) -> &str {
 
 /// Whether the `Rejected` arm of `src` logs at error level.
 fn logs_at_error_level(src: &str) -> bool {
-    rejected_arm(src).contains("tracing::error!")
+    rejected_arm(&strip_comments(src)).contains("tracing::error!")
 }
 
 /// `rmw_init` installs an `error` log filter just before the pin, so a rejection that is logged
