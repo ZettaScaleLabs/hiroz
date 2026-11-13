@@ -64,14 +64,17 @@ impl Drop for Guard {
     }
 }
 
-/// A helper command with the operator threshold variables and `GLIBC_TUNABLES` removed. The
-/// helper exits when one is set, and an operator may set them in the environment of the test
-/// run. A test that needs one of them sets it after this call.
+/// A helper command with the operator threshold variables, `GLIBC_TUNABLES` and the Zenoh
+/// configuration overrides removed. The helper exits when a threshold variable is set, and the
+/// overrides can redirect the receiver away from the publisher of the test. A test that needs
+/// one of them sets it after this call.
 fn probe() -> Command {
     let mut c = Command::new(PROBE);
     c.env_remove("MALLOC_TRIM_THRESHOLD_")
         .env_remove("MALLOC_MMAP_THRESHOLD_")
-        .env_remove("GLIBC_TUNABLES");
+        .env_remove("GLIBC_TUNABLES")
+        .env_remove("ZENOH_CONFIG_OVERRIDE")
+        .env_remove("ZENOH_SESSION_CONFIG_URI");
     c
 }
 
@@ -277,7 +280,7 @@ fn receiver_fails_when_the_publisher_repeats_an_id() {
 }
 
 /// The production function, called alone, must leave the allocator unchanged when the operator
-/// set a threshold variable, and must pin without one.
+/// set a threshold variable, and must act without one.
 #[test]
 #[serial]
 fn production_pin_reports_operator_set_under_each_variable() {
@@ -294,11 +297,13 @@ fn production_pin_reports_operator_set_under_each_variable() {
             out.status
         );
     }
-    // Control: without a variable the same call pins, so the check above can tell the two apart.
+    // Control: without a variable the same call acts, so the check above can tell the two apart.
+    // A glibc that rejects the mmap threshold reports `Rejected`, which also is not `OperatorSet`.
     let out = probe().arg("pin").output().expect("run pin");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        out.status.success() && stdout.contains("PIN outcome=Pinned"),
+        out.status.success()
+            && (stdout.contains("PIN outcome=Pinned") || stdout.contains("PIN outcome=Rejected")),
         "status {}, stdout: {stdout}",
         out.status
     );
