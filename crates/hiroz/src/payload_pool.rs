@@ -16,15 +16,17 @@
 //! # Using it
 //!
 //! ```ignore
-//! let mut pool = PayloadPool::new(16, ByteMultiArray::default);
+//! let mut pool = PayloadPool::new(16, || ByteMultiArray {
+//!     data: vec![0; 1 << 20],
+//!     ..Default::default()
+//! });
 //!
 //! let Some(mut msg) = pool.acquire() else {
 //!     // Every slot is still out. Allocate, drop the frame, or apply your own
 //!     // back-pressure — the pool will not choose for you.
 //!     return Ok(());
 //! };
-//! msg.data.clear();
-//! msg.data.extend_from_slice(&frame);                // written in place
+//! msg.data[..8].copy_from_slice(&seq.to_le_bytes());   // written in place
 //! publisher.publish_shared(msg.into_shared())?;
 //! ```
 //!
