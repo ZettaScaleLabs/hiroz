@@ -1,33 +1,24 @@
 //! A decoder caps the initial capacity of a sequence by the unread input, whatever count the
-//! wire declares. A sequence whose count does not exceed the unread bytes still reserves its
-//! full count at once.
+//! wire declares.
 //!
-//! An allocation failure aborts the process, so the test cannot catch it. Each
-//! case re-executes this test binary as a child process with a lowered address
-//! space limit (`RLIMIT_AS`) and checks how the child ended.
-//!
-//! Environment: the abort needs an address-space limit. A cgroup memory limit
-//! does not trigger it, because the reservation is not charged until it is touched.
-//!
-//! A child that inherits a hard limit leaving under 128 MiB cannot run the case. The test then
-//! prints `SKIPPED` on stderr and returns, which cargo counts as a pass. Set
-//! `HIROZ_REQUIRE_HOSTILE` to make that a failure; CI sets it.
+//! An allocation failure aborts the process, so the test cannot catch it. The cases run in a
+//! child process under a lowered address-space limit. See the `hostile` module for the harness
+//! and its environment.
 
 // The file runs on 64-bit Linux only. A 32-bit process may reserve the hostile amount, and
 // `setrlimit` takes a narrower type there.
 #![cfg(all(target_os = "linux", target_pointer_width = "64"))]
 
-use std::process::{Command, Output};
-
 use byteorder::LittleEndian;
-use hiroz_cdr::{CdrDeserialize, CdrReader, from_bytes};
-use nix::sys::resource::{Resource, getrlimit, setrlimit};
+use hiroz_cdr::{CdrDeserialize, CdrReader};
 
-const CHILD_ENV: &str = "HIROZ_CDR_HOSTILE_CHILD";
-const HOSTILE_LENGTH: u32 = 99_999_999;
+#[path = "support/hostile.rs"]
+mod hostile;
+
+use hostile::{HOSTILE_LENGTH, describe, is_child, limit_address_space, run_child, skipped};
 
 /// One element of 32 bytes on the wire and in memory. 99_999_999 of them need 3.2 GB.
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug)]
 struct Big([u64; 4]);
 
 impl CdrDeserialize for Big {
@@ -41,220 +32,6 @@ impl CdrDeserialize for Big {
             reader.read_u64()?,
         ]))
     }
-}
-
-/// Address space the child may add on top of what the test binary already maps.
-const HEADROOM: u64 = 1 << 30;
-
-fn is_child() -> bool {
-    std::env::var_os(CHILD_ENV).is_some()
-}
-
-/// Smallest address-space headroom a child accepts. Below it the child ends with `SKIP_STATUS`.
-const MIN_HEADROOM: u64 = 128 << 20;
-/// Exit status of a child that cannot lower its address-space limit far enough to test.
-const SKIP_STATUS: i32 = 77;
-
-/// Lower RLIMIT_AS to the current virtual size plus `HEADROOM`, and never above the inherited
-/// hard limit. A child that has less than `MIN_HEADROOM` ends with `SKIP_STATUS`.
-fn limit_address_space() {
-    let status = std::fs::read_to_string("/proc/self/status").expect("read /proc/self/status");
-    let kb: u64 = status
-        .lines()
-        .find_map(|l| l.strip_prefix("VmSize:"))
-        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
-        .expect("VmSize in /proc/self/status");
-    let size = kb * 1024;
-    let (_, hard) = getrlimit(Resource::RLIMIT_AS).expect("getrlimit RLIMIT_AS");
-    // RLIM_INFINITY is the largest value, so `min` leaves an unlimited hard limit alone.
-    let limit = (size + HEADROOM).min(hard);
-    if limit < size + MIN_HEADROOM {
-        println!("address-space limit unavailable: inherited hard limit {hard}, VmSize {size}");
-        std::process::exit(SKIP_STATUS);
-    }
-    setrlimit(Resource::RLIMIT_AS, limit, limit).expect("setrlimit RLIMIT_AS");
-    println!("address-space limit: {limit}");
-    // The child aborts on purpose; a core dump would be large and slow.
-    setrlimit(Resource::RLIMIT_CORE, 0, 0).expect("setrlimit RLIMIT_CORE");
-}
-
-/// The child ended because it could not lower its limit, so the case did not run.
-///
-/// By default this prints `SKIPPED` on stderr and returns `true`; the test then returns, and
-/// cargo counts it as a pass. When `HIROZ_REQUIRE_HOSTILE` is set it panics, so a run that must
-/// exercise the allocation failure fails when it cannot.
-fn skipped(out: &Output) -> bool {
-    if out.status.code() != Some(SKIP_STATUS) {
-        return false;
-    }
-    skip(&format!(
-        "the inherited address-space hard limit leaves no room to test\n{}",
-        describe(out)
-    ));
-    true
-}
-
-/// A case that cannot run: print `SKIPPED` on stderr, or panic when `HIROZ_REQUIRE_HOSTILE` is set.
-fn skip(why: &str) {
-    assert!(
-        std::env::var_os(REQUIRE_ENV).is_none(),
-        "{REQUIRE_ENV} is set, but {why}"
-    );
-    eprintln!("SKIPPED: {why}");
-}
-
-/// A child under an inherited hard limit must lower its limit and not raise it.
-#[test]
-fn limit_respects_an_inherited_hard_limit() {
-    if is_child() {
-        limit_address_space();
-        return;
-    }
-    let status = std::fs::read_to_string("/proc/self/status").expect("read /proc/self/status");
-    let kb: u64 = status
-        .lines()
-        .find_map(|l| l.strip_prefix("VmSize:"))
-        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
-        .expect("VmSize in /proc/self/status");
-    // `ulimit -v` sets the soft and the hard limit, in kB. The cap is below the usual request.
-    // It cannot raise a lower hard limit that this process inherited.
-    let inherited_kb = kb + (256 << 10);
-    let (_, hard) = getrlimit(Resource::RLIMIT_AS).expect("getrlimit RLIMIT_AS");
-    if hard < inherited_kb * 1024 {
-        skip("the inherited address-space hard limit is below the cap this case sets");
-        return;
-    }
-    let out = Command::new("sh")
-        .args([
-            "-c",
-            "ulimit -v \"$1\" && exec \"$0\" --exact limit_respects_an_inherited_hard_limit \
-             --nocapture --test-threads=1",
-            &std::env::current_exe()
-                .expect("current_exe")
-                .to_string_lossy(),
-            &inherited_kb.to_string(),
-        ])
-        .env(CHILD_ENV, "1")
-        .output()
-        .expect("spawn child");
-    assert!(
-        out.status.success(),
-        "the child must work under an inherited hard limit\n{}",
-        describe(&out)
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let applied: u64 = stdout
-        .lines()
-        .find_map(|l| l.split_once("address-space limit: "))
-        .and_then(|(_, v)| v.trim().parse().ok())
-        .unwrap_or_else(|| panic!("no applied limit reported\n{}", describe(&out)));
-    assert!(
-        applied <= inherited_kb * 1024,
-        "applied {applied} above the inherited {}",
-        inherited_kb * 1024
-    );
-}
-
-/// Environment variable that turns a skipped hostile case into a failure.
-const REQUIRE_ENV: &str = "HIROZ_REQUIRE_HOSTILE";
-/// Marks the copy of the test below that runs the skip logic.
-const OUTER_ENV: &str = "HIROZ_HOSTILE_SKIP_OUTER";
-
-/// Probe child with too little room. It lowers its hard limit to leave 64 MiB, then asks for the
-/// test limit, which ends the process with `SKIP_STATUS`.
-#[test]
-fn limit_below_min_headroom_probe() {
-    if !is_child() {
-        return;
-    }
-    let status = std::fs::read_to_string("/proc/self/status").expect("read /proc/self/status");
-    let kb: u64 = status
-        .lines()
-        .find_map(|l| l.strip_prefix("VmSize:"))
-        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
-        .expect("VmSize in /proc/self/status");
-    let (_, inherited) = getrlimit(Resource::RLIMIT_AS).expect("getrlimit RLIMIT_AS");
-    let hard = (kb * 1024 + (64 << 20)).min(inherited);
-    setrlimit(Resource::RLIMIT_AS, hard, hard).expect("lower the hard limit");
-    limit_address_space();
-    unreachable!("limit_address_space must end the process below MIN_HEADROOM");
-}
-
-/// A case that cannot run is a skip by default and a failure when `REQUIRE_ENV` is set.
-#[test]
-fn a_skipped_case_fails_only_when_required() {
-    const NAME: &str = "a_skipped_case_fails_only_when_required";
-    if std::env::var_os(OUTER_ENV).is_some() {
-        let probe = run_child("limit_below_min_headroom_probe");
-        assert_eq!(
-            probe.status.code(),
-            Some(SKIP_STATUS),
-            "the probe must end as a skip\n{}",
-            describe(&probe)
-        );
-        println!("outer: skipped={}", skipped(&probe));
-        return;
-    }
-    let run_outer = |require: bool| {
-        let mut cmd = Command::new(std::env::current_exe().expect("current_exe"));
-        cmd.args(["--exact", NAME, "--nocapture", "--test-threads=1"])
-            .env(OUTER_ENV, "1")
-            .env_remove(CHILD_ENV)
-            .env_remove(REQUIRE_ENV);
-        if require {
-            cmd.env(REQUIRE_ENV, "1");
-        }
-        cmd.output().expect("spawn outer")
-    };
-    let relaxed = run_outer(false);
-    assert!(
-        relaxed.status.success(),
-        "without {REQUIRE_ENV} a skip is not a failure\n{}",
-        describe(&relaxed)
-    );
-    assert!(
-        String::from_utf8_lossy(&relaxed.stdout).contains("outer: skipped=true"),
-        "the skip must be reported\n{}",
-        describe(&relaxed)
-    );
-    let required = run_outer(true);
-    assert!(
-        !required.status.success(),
-        "with {REQUIRE_ENV} a skip must fail\n{}",
-        describe(&required)
-    );
-    assert!(
-        String::from_utf8_lossy(&required.stderr).contains(REQUIRE_ENV),
-        "the failure must name {REQUIRE_ENV}\n{}",
-        describe(&required)
-    );
-}
-
-/// Re-run test `name` of this binary in child mode. The test sets its own limit.
-fn run_child(name: &str) -> Output {
-    Command::new(std::env::current_exe().expect("current_exe"))
-        .args(["--exact", name, "--nocapture", "--test-threads=1"])
-        .env(CHILD_ENV, "1")
-        .output()
-        .expect("spawn child")
-}
-
-fn describe(out: &Output) -> String {
-    use std::os::unix::process::ExitStatusExt;
-    format!(
-        "status={:?} signal={:?}\nstdout:\n{}\nstderr:\n{}",
-        out.status.code(),
-        out.status.signal(),
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    )
-}
-
-/// The child ended because an allocation failed: SIGABRT after the allocator's message.
-fn aborted(out: &Output) -> bool {
-    use std::os::unix::process::ExitStatusExt;
-    out.status.signal() == Some(6)
-        && String::from_utf8_lossy(&out.stderr).contains("memory allocation of")
 }
 
 /// A message body without the encapsulation header: a length prefix and nothing after it.
@@ -276,31 +53,6 @@ fn valid_body(n: u32) -> Vec<u8> {
     }
     v
 }
-
-// --- harness control ------------------------------------------------------
-
-/// Positive control: the harness detects the abort. The child reserves the hostile
-/// amount directly, with no hiroz-cdr code involved, and must die of SIGABRT.
-#[test]
-fn harness_detects_an_allocation_abort() {
-    if is_child() {
-        limit_address_space();
-        let v: Vec<Big> = Vec::with_capacity(HOSTILE_LENGTH as usize);
-        println!("reserved {}", v.capacity());
-        return;
-    }
-    let out = run_child("harness_detects_an_allocation_abort");
-    if skipped(&out) {
-        return;
-    }
-    assert!(
-        aborted(&out),
-        "the harness must see the allocation abort\n{}",
-        describe(&out)
-    );
-}
-
-// --- typed path -----------------------------------------------------------
 
 /// Generic `Vec<T>::cdr_deserialize` coverage. Generated non-plain sequences use their own loop.
 #[test]
@@ -348,43 +100,7 @@ fn typed_vec_survives_a_hostile_length() {
     );
 }
 
-// --- serde path -----------------------------------------------------------
-
-/// The serde deserializer reaches the same length check through `deserialize_seq`.
-#[test]
-fn serde_vec_survives_a_hostile_length() {
-    if is_child() {
-        limit_address_space();
-        let hostile = length_only(HOSTILE_LENGTH);
-        let res = from_bytes::<Vec<Big>, LittleEndian>(&hostile);
-        assert!(res.is_err(), "hostile length must be an error");
-        println!("hostile: {}", res.unwrap_err());
-
-        let valid = valid_body(3);
-        let (v, _) = from_bytes::<Vec<Big>, LittleEndian>(&valid).expect("valid message");
-        assert_eq!(v.len(), 3);
-        assert_eq!(v[2].0, [8, 9, 10, 11], "decoded values");
-        println!("next valid: {} elements", v.len());
-        return;
-    }
-    let name = "serde_vec_survives_a_hostile_length";
-    let out = run_child(name);
-    if skipped(&out) {
-        return;
-    }
-    assert!(
-        out.status.success(),
-        "{name}: the child must survive a hostile length\n{}",
-        describe(&out)
-    );
-    assert!(
-        String::from_utf8_lossy(&out.stdout).contains("next valid: 3 elements"),
-        "{name}: {}",
-        describe(&out)
-    );
-}
-
-/// A long sequence that fits its payload still decodes, for the generic and the serde path.
+/// A long sequence that fits its payload still decodes.
 #[test]
 fn long_valid_sequence_still_decodes() {
     let n = 1000u32;
@@ -396,28 +112,5 @@ fn long_valid_sequence_still_decodes() {
 
     let mut r = CdrReader::<LittleEndian>::new(&body);
     let v = Vec::<Big>::cdr_deserialize(&mut r).expect("typed decode");
-    assert_eq!(v.iter().map(|b| b.0).collect::<Vec<_>>(), expected, "typed");
-
-    let (v, _) = from_bytes::<Vec<Big>, LittleEndian>(&body).expect("serde decode");
-    assert_eq!(v.iter().map(|b| b.0).collect::<Vec<_>>(), expected, "serde");
-}
-
-/// Unit elements occupy no bytes on the wire, so their sequence needs only a length prefix.
-#[test]
-fn zero_size_elements_need_no_payload_bytes() {
-    let decode = |len: u32, payload: usize| {
-        let mut body = length_only(len);
-        body.extend(std::iter::repeat_n(0u8, payload));
-        from_bytes::<Vec<()>, LittleEndian>(&body).map(|(v, consumed)| (v.len(), consumed))
-    };
-    // Controls: the decoder handles empty and non-empty sequences. Elements take no bytes, so
-    // every decode consumes the four bytes of the length prefix and leaves the payload unread.
-    assert_eq!(decode(0, 0).unwrap(), (0, 4), "empty sequence");
-    assert_eq!(decode(3, 3).unwrap(), (3, 4), "payload bytes remain unread");
-    assert_eq!(decode(3, 0).unwrap(), (3, 4), "zero-byte unit elements");
-    assert_eq!(
-        decode(3, 2).unwrap(),
-        (3, 4),
-        "trailing bytes remain unread"
-    );
+    assert_eq!(v.iter().map(|b| b.0).collect::<Vec<_>>(), expected);
 }

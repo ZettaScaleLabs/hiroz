@@ -1,231 +1,19 @@
 //! Hostile sequence lengths in the decoders a subscriber uses.
 //!
-//! A decoder that reserves memory from a length it has just read aborts the
-//! process when the reservation fails. A test cannot catch an abort. Each
-//! case re-executes this test binary as a child process under a lowered address
-//! space limit (`RLIMIT_AS`) and checks how the child ended. A cgroup memory
-//! limit does not trigger the abort: the reservation is not charged until touched.
-//!
-//! A child that inherits a hard limit leaving under 128 MiB cannot run the case. The test then
-//! prints `SKIPPED` on stderr and returns, which cargo counts as a pass. Set
-//! `HIROZ_REQUIRE_HOSTILE` to make that a failure; CI sets it.
+//! A decoder that reserves memory from a length it has just read aborts the process when the
+//! reservation fails. A test cannot catch an abort. The cases run in a child process under a
+//! lowered address-space limit. See the `hostile` module for the harness and its environment.
 
 // The file runs on 64-bit Linux only. A 32-bit process may reserve the hostile amount, and
 // `setrlimit` takes a narrower type there.
 #![cfg(all(target_os = "linux", target_pointer_width = "64", feature = "ros-msgs"))]
 
-use std::process::{Command, Output};
-
 use hiroz::dynamic::{DynamicMessage, DynamicValue, FieldType, MessageSchema};
-use nix::sys::resource::{Resource, getrlimit, setrlimit};
 
-const CHILD_ENV: &str = "HIROZ_TESTS_HOSTILE_CHILD";
-const HOSTILE_LENGTH: u32 = 99_999_999;
-/// Address space the child may add on top of what the test binary already maps.
-const HEADROOM: u64 = 1 << 30;
+#[path = "../../hiroz-cdr/tests/support/hostile.rs"]
+mod hostile;
 
-fn is_child() -> bool {
-    std::env::var_os(CHILD_ENV).is_some()
-}
-
-/// Smallest address-space headroom a child accepts. Below it the child ends with `SKIP_STATUS`.
-const MIN_HEADROOM: u64 = 128 << 20;
-/// Exit status of a child that cannot lower its address-space limit far enough to test.
-const SKIP_STATUS: i32 = 77;
-
-/// Lower RLIMIT_AS to the current virtual size plus `HEADROOM`, and never above the inherited
-/// hard limit. A child that has less than `MIN_HEADROOM` ends with `SKIP_STATUS`.
-fn limit_address_space() {
-    let status = std::fs::read_to_string("/proc/self/status").expect("read /proc/self/status");
-    let kb: u64 = status
-        .lines()
-        .find_map(|l| l.strip_prefix("VmSize:"))
-        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
-        .expect("VmSize in /proc/self/status");
-    let size = kb * 1024;
-    let (_, hard) = getrlimit(Resource::RLIMIT_AS).expect("getrlimit RLIMIT_AS");
-    // RLIM_INFINITY is the largest value, so `min` leaves an unlimited hard limit alone.
-    let limit = (size + HEADROOM).min(hard);
-    if limit < size + MIN_HEADROOM {
-        println!("address-space limit unavailable: inherited hard limit {hard}, VmSize {size}");
-        std::process::exit(SKIP_STATUS);
-    }
-    setrlimit(Resource::RLIMIT_AS, limit, limit).expect("setrlimit RLIMIT_AS");
-    println!("address-space limit: {limit}");
-    // The child aborts on purpose; a core dump would be large and slow.
-    setrlimit(Resource::RLIMIT_CORE, 0, 0).expect("setrlimit RLIMIT_CORE");
-}
-
-/// The child ended because it could not lower its limit, so the case did not run.
-///
-/// By default this prints `SKIPPED` on stderr and returns `true`; the test then returns, and
-/// cargo counts it as a pass. When `HIROZ_REQUIRE_HOSTILE` is set it panics, so a run that must
-/// exercise the allocation failure fails when it cannot.
-fn skipped(out: &Output) -> bool {
-    if out.status.code() != Some(SKIP_STATUS) {
-        return false;
-    }
-    skip(&format!(
-        "the inherited address-space hard limit leaves no room to test\n{}",
-        describe(out)
-    ));
-    true
-}
-
-/// A case that cannot run: print `SKIPPED` on stderr, or panic when `HIROZ_REQUIRE_HOSTILE` is set.
-fn skip(why: &str) {
-    assert!(
-        std::env::var_os(REQUIRE_ENV).is_none(),
-        "{REQUIRE_ENV} is set, but {why}"
-    );
-    eprintln!("SKIPPED: {why}");
-}
-
-/// A child under an inherited hard limit must lower its limit and not raise it.
-#[test]
-fn limit_respects_an_inherited_hard_limit() {
-    if is_child() {
-        limit_address_space();
-        return;
-    }
-    let status = std::fs::read_to_string("/proc/self/status").expect("read /proc/self/status");
-    let kb: u64 = status
-        .lines()
-        .find_map(|l| l.strip_prefix("VmSize:"))
-        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
-        .expect("VmSize in /proc/self/status");
-    // `ulimit -v` sets the soft and the hard limit, in kB. The cap is below the usual request.
-    // It cannot raise a lower hard limit that this process inherited.
-    let inherited_kb = kb + (256 << 10);
-    let (_, hard) = getrlimit(Resource::RLIMIT_AS).expect("getrlimit RLIMIT_AS");
-    if hard < inherited_kb * 1024 {
-        skip("the inherited address-space hard limit is below the cap this case sets");
-        return;
-    }
-    let out = Command::new("sh")
-        .args([
-            "-c",
-            "ulimit -v \"$1\" && exec \"$0\" --exact limit_respects_an_inherited_hard_limit \
-             --nocapture --test-threads=1",
-            &std::env::current_exe()
-                .expect("current_exe")
-                .to_string_lossy(),
-            &inherited_kb.to_string(),
-        ])
-        .env(CHILD_ENV, "1")
-        .output()
-        .expect("spawn child");
-    assert!(
-        out.status.success(),
-        "the child must work under an inherited hard limit\n{}",
-        describe(&out)
-    );
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let applied: u64 = stdout
-        .lines()
-        .find_map(|l| l.split_once("address-space limit: "))
-        .and_then(|(_, v)| v.trim().parse().ok())
-        .unwrap_or_else(|| panic!("no applied limit reported\n{}", describe(&out)));
-    assert!(
-        applied <= inherited_kb * 1024,
-        "applied {applied} above the inherited {}",
-        inherited_kb * 1024
-    );
-}
-
-/// Environment variable that turns a skipped hostile case into a failure.
-const REQUIRE_ENV: &str = "HIROZ_REQUIRE_HOSTILE";
-/// Marks the copy of the test below that runs the skip logic.
-const OUTER_ENV: &str = "HIROZ_HOSTILE_SKIP_OUTER";
-
-/// Probe child with too little room. It lowers its hard limit to leave 64 MiB, then asks for the
-/// test limit, which ends the process with `SKIP_STATUS`.
-#[test]
-fn limit_below_min_headroom_probe() {
-    if !is_child() {
-        return;
-    }
-    let status = std::fs::read_to_string("/proc/self/status").expect("read /proc/self/status");
-    let kb: u64 = status
-        .lines()
-        .find_map(|l| l.strip_prefix("VmSize:"))
-        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
-        .expect("VmSize in /proc/self/status");
-    let (_, inherited) = getrlimit(Resource::RLIMIT_AS).expect("getrlimit RLIMIT_AS");
-    let hard = (kb * 1024 + (64 << 20)).min(inherited);
-    setrlimit(Resource::RLIMIT_AS, hard, hard).expect("lower the hard limit");
-    limit_address_space();
-    unreachable!("limit_address_space must end the process below MIN_HEADROOM");
-}
-
-/// A case that cannot run is a skip by default and a failure when `REQUIRE_ENV` is set.
-#[test]
-fn a_skipped_case_fails_only_when_required() {
-    const NAME: &str = "a_skipped_case_fails_only_when_required";
-    if std::env::var_os(OUTER_ENV).is_some() {
-        let probe = run_child("limit_below_min_headroom_probe");
-        assert_eq!(
-            probe.status.code(),
-            Some(SKIP_STATUS),
-            "the probe must end as a skip\n{}",
-            describe(&probe)
-        );
-        println!("outer: skipped={}", skipped(&probe));
-        return;
-    }
-    let run_outer = |require: bool| {
-        let mut cmd = Command::new(std::env::current_exe().expect("current_exe"));
-        cmd.args(["--exact", NAME, "--nocapture", "--test-threads=1"])
-            .env(OUTER_ENV, "1")
-            .env_remove(CHILD_ENV)
-            .env_remove(REQUIRE_ENV);
-        if require {
-            cmd.env(REQUIRE_ENV, "1");
-        }
-        cmd.output().expect("spawn outer")
-    };
-    let relaxed = run_outer(false);
-    assert!(
-        relaxed.status.success(),
-        "without {REQUIRE_ENV} a skip is not a failure\n{}",
-        describe(&relaxed)
-    );
-    assert!(
-        String::from_utf8_lossy(&relaxed.stdout).contains("outer: skipped=true"),
-        "the skip must be reported\n{}",
-        describe(&relaxed)
-    );
-    let required = run_outer(true);
-    assert!(
-        !required.status.success(),
-        "with {REQUIRE_ENV} a skip must fail\n{}",
-        describe(&required)
-    );
-    assert!(
-        String::from_utf8_lossy(&required.stderr).contains(REQUIRE_ENV),
-        "the failure must name {REQUIRE_ENV}\n{}",
-        describe(&required)
-    );
-}
-
-fn run_child(name: &str) -> Output {
-    Command::new(std::env::current_exe().expect("current_exe"))
-        .args(["--exact", name, "--nocapture", "--test-threads=1"])
-        .env(CHILD_ENV, "1")
-        .output()
-        .expect("spawn child")
-}
-
-fn describe(out: &Output) -> String {
-    use std::os::unix::process::ExitStatusExt;
-    format!(
-        "status={:?} signal={:?}\nstdout:\n{}\nstderr:\n{}",
-        out.status.code(),
-        out.status.signal(),
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    )
-}
+use hostile::{HOSTILE_LENGTH, describe, is_child, limit_address_space, run_child, skipped};
 
 /// The 4-byte CDR_LE encapsulation header and a length prefix, nothing after.
 fn hostile_sample() -> Vec<u8> {
@@ -316,98 +104,55 @@ fn assert_child_survives(name: &str, markers: &[&str]) {
     }
 }
 
-/// Positive control: this file's harness sees an allocation abort. The child reserves the
-/// hostile amount directly, with no hiroz code involved, and must die of SIGABRT with the
-/// allocator's message.
-#[test]
-fn harness_detects_an_allocation_abort_here() {
-    use std::os::unix::process::ExitStatusExt;
-
-    /// One element of 32 bytes. 99_999_999 of them need 3.2 GB.
-    type Big = [u64; 4];
-
-    if is_child() {
-        limit_address_space();
-        let v: Vec<Big> = Vec::with_capacity(HOSTILE_LENGTH as usize);
-        println!("reserved {}", v.capacity());
-        return;
-    }
-    let out = run_child("harness_detects_an_allocation_abort_here");
-    if skipped(&out) {
-        return;
-    }
-    assert!(
-        out.status.signal() == Some(6)
-            && String::from_utf8_lossy(&out.stderr).contains("memory allocation of"),
-        "the harness must see the allocation abort\n{}",
-        describe(&out)
-    );
-}
-
-/// The dynamic decoder must consume elements before growing its output array.
+/// The dynamic decoder must consume elements before growing its output array. The
+/// `BoundedSequence` arm decodes through the same helper as the unbounded one and does not check
+/// the bound, so its case reaches the reservation whatever bound the schema states.
 #[test]
 fn dynamic_decoder_survives_a_hostile_sequence_length() {
     if is_child() {
-        let schema = f64_sequence_schema();
-        limit_address_space();
-        let err = DynamicMessage::from_cdr(&hostile_sample(), &schema)
-            .expect_err("hostile length must be an error");
-        println!("hostile: {err}");
-
-        let err = DynamicMessage::from_cdr(&truncated_sample(), &schema)
-            .expect_err("truncated sample must be an error");
-        println!("truncated: {err}");
-
-        // The same process decodes the next, valid sample.
-        let msg = DynamicMessage::from_cdr(&valid_f64_sample(3), &schema).expect("valid sample");
-        assert_eq!(
-            elements(&msg, "values"),
-            [0.0, 1.0, 2.0].map(DynamicValue::Float64),
-            "decoded values"
-        );
-        println!("next valid: {} elements", elements(&msg, "values").len());
-        return;
-    }
-    assert_child_survives(
-        "dynamic_decoder_survives_a_hostile_sequence_length",
-        &["hostile: ", "truncated: ", "next valid: 3 elements"],
-    );
-}
-
-/// The `BoundedSequence` arm decodes through the same helper as the unbounded one. It does not
-/// check the bound, so this test reaches the reservation whatever bound the schema states.
-#[test]
-fn dynamic_decoder_survives_a_hostile_bounded_sequence_length() {
-    if is_child() {
-        let schema = MessageSchema::builder("test_msgs/msg/F64BoundedSeq")
+        let bounded = MessageSchema::builder("test_msgs/msg/F64BoundedSeq")
             .field(
                 "values",
                 FieldType::BoundedSequence(Box::new(FieldType::Float64), 200_000_000),
             )
             .build()
             .expect("schema");
+        let schemas = [("unbounded", f64_sequence_schema()), ("bounded", bounded)];
         limit_address_space();
-        let err = DynamicMessage::from_cdr(&hostile_sample(), &schema)
-            .expect_err("hostile length must be an error");
-        println!("hostile: {err}");
+        for (name, schema) in schemas {
+            let err = DynamicMessage::from_cdr(&hostile_sample(), &schema)
+                .expect_err("hostile length must be an error");
+            println!("hostile {name}: {err}");
 
-        let err = DynamicMessage::from_cdr(&truncated_sample(), &schema)
-            .expect_err("truncated sample must be an error");
-        println!("truncated: {err}");
+            let err = DynamicMessage::from_cdr(&truncated_sample(), &schema)
+                .expect_err("truncated sample must be an error");
+            println!("truncated {name}: {err}");
 
-        // The same process decodes the next, valid sample.
-        let msg = DynamicMessage::from_cdr(&valid_f64_sample(3), &schema).expect("valid sample");
-        assert_eq!(
-            elements(&msg, "values"),
-            [0.0, 1.0, 2.0].map(DynamicValue::Float64),
-            "decoded values"
-        );
-        println!("next valid: {} elements", elements(&msg, "values").len());
+            // The same process decodes the next, valid sample.
+            let msg =
+                DynamicMessage::from_cdr(&valid_f64_sample(3), &schema).expect("valid sample");
+            assert_eq!(
+                elements(&msg, "values"),
+                [0.0, 1.0, 2.0].map(DynamicValue::Float64),
+                "{name}: decoded values"
+            );
+            println!(
+                "next valid {name}: {} elements",
+                elements(&msg, "values").len()
+            );
+        }
         return;
     }
     assert_child_survives(
-        "dynamic_decoder_survives_a_hostile_bounded_sequence_length",
-        &["hostile: ", "truncated: ", "next valid: 3 elements"],
+        "dynamic_decoder_survives_a_hostile_sequence_length",
+        &[
+            "hostile unbounded: ",
+            "truncated unbounded: ",
+            "next valid unbounded: 3 elements",
+            "hostile bounded: ",
+            "truncated bounded: ",
+            "next valid bounded: 3 elements",
+        ],
     );
 }
 
@@ -773,107 +518,5 @@ fn generated_decoder_survives_a_hostile_sequence_length() {
     assert_child_survives(
         "generated_decoder_survives_a_hostile_sequence_length",
         &["hostile: ", "truncated: ", "next valid: 1 dims, 3 bytes"],
-    );
-}
-
-mod common;
-
-/// A typed subscriber must outlive a hostile sample from a raw publisher.
-/// The child builds the subscriber and the publisher, limits its address space, publishes
-/// the hostile sample and then a valid one. It must return an error for the first and the
-/// message for the second.
-#[test]
-fn typed_subscriber_survives_a_hostile_sample() {
-    use std::time::{Duration, Instant};
-
-    use hiroz::{Builder, msg::ZMessage};
-    use hiroz_msgs::std_msgs::UInt8MultiArray;
-    use zenoh::Wait;
-    use zenoh_buffers::buffer::Buffer;
-
-    const NAME: &str = "typed_subscriber_survives_a_hostile_sample";
-
-    if is_child() {
-        let router = common::TestRouter::new();
-        let ctx = common::create_hiroz_context_with_endpoint(router.endpoint()).expect("context");
-        let node = ctx.create_node("hostile_sub").build().expect("node");
-        let sub = node
-            .create_sub::<UInt8MultiArray>("/hostile_sample_topic")
-            .build()
-            .expect("typed subscriber");
-
-        // A raw session is the publisher, so the hostile bytes bypass typed serialization.
-        let key = hiroz::context::KeyExprFormat::default()
-            .topic_key_expr(sub.entity())
-            .expect("topic key");
-        let mut config = zenoh::Config::default();
-        config.insert_json5("mode", "\"client\"").expect("mode");
-        config
-            .insert_json5("connect/endpoints", &format!("[\"{}\"]", router.endpoint()))
-            .expect("endpoint");
-        config
-            .insert_json5("scouting/multicast/enabled", "false")
-            .expect("multicast");
-        let session = zenoh::open(config).wait().expect("raw session");
-        let publisher = session
-            .declare_publisher((*key).clone())
-            .wait()
-            .expect("raw publisher");
-
-        let valid = valid_array().serialize().to_vec();
-
-        // Wait until the subscriber receives a valid sample: the route is up.
-        let start = Instant::now();
-        loop {
-            publisher.put(valid.clone()).wait().expect("put");
-            if sub.recv_timeout(Duration::from_millis(200)).is_ok() {
-                break;
-            }
-            assert!(
-                start.elapsed() < Duration::from_secs(20),
-                "route never came up"
-            );
-        }
-        println!("route up");
-
-        // Drain the valid samples the wait loop left queued or in flight. Then neither the hostile
-        // receive nor the next-valid receive can take one.
-        // The queue is empty once a receive times out.
-        let mut drained = 0;
-        loop {
-            match sub.recv_timeout(Duration::from_millis(500)) {
-                Ok(_) => drained += 1,
-                Err(err) if hiroz::error::is_timeout(&*err) => break,
-                Err(err) => panic!("drain: unexpected error: {err}"),
-            }
-        }
-        println!("drained: {drained}");
-
-        limit_address_space();
-        publisher.put(hostile_sample()).wait().expect("put hostile");
-        // The error must come from the decoder. A timeout would also be an `Err`, and a
-        // dead delivery path would then pass for a rejected sample.
-        match sub.recv_timeout(Duration::from_secs(5)) {
-            Err(err) if hiroz::error::is_timeout(&*err) => {
-                panic!("hostile sample was not delivered: {err}")
-            }
-            Err(err) => println!("hostile: {err}"),
-            Ok(_) => panic!("hostile length must be an error"),
-        }
-        publisher.put(valid).wait().expect("put valid");
-        let back = sub
-            .recv_timeout(Duration::from_secs(5))
-            .expect("next valid sample");
-        assert_valid_array(&back);
-        println!(
-            "next valid: {} dims, {} bytes",
-            back.layout.dim.len(),
-            back.data.len()
-        );
-        return;
-    }
-    assert_child_survives(
-        NAME,
-        &["route up", "hostile: ", "next valid: 1 dims, 3 bytes"],
     );
 }
