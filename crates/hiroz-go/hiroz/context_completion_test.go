@@ -124,7 +124,9 @@ func TestSubscriberWithChannelContextCloseDoesNotWaitForDecoder(t *testing.T) {
 
 	// Positive control: with the gate open a sample arrives.
 	f.deliver([]byte{1})
-	receiveBounded(t, ch, "the control sample")
+	if v := receiveBounded(t, ch, "the control sample"); v == nil {
+		t.Fatal("the channel closed instead of delivering the control sample")
+	}
 
 	b := newBarrier()
 	defer b.free()
@@ -135,7 +137,7 @@ func TestSubscriberWithChannelContextCloseDoesNotWaitForDecoder(t *testing.T) {
 	b.waitEntered(t, "the decoder")
 
 	cancel()
-	closed := make(chan int)
+	closed := make(chan int, 1)
 	go func() {
 		n := 0
 		for range ch {

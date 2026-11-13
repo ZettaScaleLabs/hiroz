@@ -38,8 +38,9 @@ func TestCallTypedContextRefusedOnceCloseStarted(t *testing.T) {
 	go func() { _ = c.Close(); close(closed) }()
 	waitUntil(t, "Close to start", func() bool { return gateShut(&c.inflight) })
 
-	err := CallTypedContext(context.Background(), c, mockReq(), &MockMessage{})
-	if err == nil {
+	late := make(chan error, 1)
+	go func() { late <- CallTypedContext(context.Background(), c, mockReq(), &MockMessage{}) }()
+	if err := receiveBounded(t, late, "the late call to return"); err == nil {
 		t.Fatal("a call after Close started must fail")
 	}
 	if n := calls.Load(); n != 1 {
@@ -124,24 +125,29 @@ func TestSendGoalContextRefusedOnceCloseStarted(t *testing.T) {
 		return fakeGoalHandle(cl), nil
 	})
 
-	first := make(chan error, 1)
-	go func() { h, err := c.SendGoalContext(context.Background(), goalMsg()); _ = h; first <- err }()
+	type sent struct {
+		h   *GoalHandle
+		err error
+	}
+	first := make(chan sent, 1)
+	go func() { h, err := c.SendGoalContext(context.Background(), goalMsg()); first <- sent{h, err} }()
 	receiveBounded(t, started, "the first call to reach the C layer")
 
 	closed := make(chan struct{})
 	go func() { _ = c.Close(); close(closed) }()
 	waitUntil(t, "Close to start", func() bool { return gateShut(&c.inflight) })
 
-	h, err := c.SendGoalContext(context.Background(), goalMsg())
-	if h != nil || err == nil {
-		t.Fatalf("want an error and no handle, got h=%v err=%v", h, err)
+	lateRes := make(chan sent, 1)
+	go func() { h, err := c.SendGoalContext(context.Background(), goalMsg()); lateRes <- sent{h, err} }()
+	if r := receiveBounded(t, lateRes, "the late send to return"); r.h != nil || r.err == nil {
+		t.Fatalf("want an error and no handle, got h=%v err=%v", r.h, r.err)
 	}
 	if n := sends.Load(); n != 1 {
 		t.Errorf("sends = %d, want 1: the late send reached the C layer", n)
 	}
 	free()
-	if err := receiveBounded(t, first, "the first call to return"); err != nil {
-		t.Errorf("the send that began before Close failed: %v", err)
+	if r := receiveBounded(t, first, "the first call to return"); r.err != nil || r.h == nil {
+		t.Errorf("the send that began before Close returned h=%v err=%v, want a handle and no error", r.h, r.err)
 	}
 	receiveBounded(t, closed, "Close to return")
 }

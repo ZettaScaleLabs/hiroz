@@ -53,7 +53,10 @@ func ctxAwait[V any](t *testing.T, pub *Publisher, got <-chan V) (V, bool) {
 			t.Fatalf("publish: %v", err)
 		}
 		select {
-		case v := <-got:
+		case v, ok := <-got:
+			if !ok {
+				t.Fatal("the channel closed before a sample arrived")
+			}
 			return v, true
 		case <-deadline:
 			var zero V

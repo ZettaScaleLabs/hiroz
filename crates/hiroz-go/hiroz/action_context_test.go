@@ -45,6 +45,40 @@ func TestGetTypedResultContextOnClosedHandle(t *testing.T) {
 	}
 }
 
+// badResult is a result message whose decoder always fails.
+type badResult struct{ MockMessage }
+
+func (*badResult) DeserializeCDR([]byte) error { return errors.New("bad bytes") }
+
+// The typed result helpers decode the bytes of the C result into the caller's message, and a
+// decoder failure is reported as a deserialisation error.
+func TestGetTypedResultHelpersDecode(t *testing.T) {
+	helpers := map[string]func(*GoalHandle, Message) error{
+		"GetTypedResult":        func(h *GoalHandle, m Message) error { return GetTypedResult(h, m) },
+		"GetTypedResultContext": func(h *GoalHandle, m Message) error { return GetTypedResultContext(context.Background(), h, m) },
+	}
+	for name, get := range helpers {
+		t.Run(name, func(t *testing.T) {
+			c := openTestActionClient()
+			defer c.Close()
+			stubActionResult(t, func() ([]byte, int32) { return []byte{7, 8}, 0 })
+
+			m := &MockMessage{}
+			if err := get(fakeGoalHandle(c), m); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(m.data) != 2 || m.data[0] != 7 || m.data[1] != 8 {
+				t.Errorf("decoded %v, want [7 8]", m.data)
+			}
+
+			var he HirozError
+			if err := get(fakeGoalHandle(c), &badResult{}); !errors.As(err, &he) || he.Code() != ErrorCodeDeserializationFailed {
+				t.Errorf("want a deserialisation error, got %v", err)
+			}
+		})
+	}
+}
+
 func goalMsg() *MockMessage { return &MockMessage{typeName: "x", typeHash: "y", data: []byte{1}} }
 
 func stubSendGoal(t *testing.T, f func(c *ActionClient, goalBytes []byte) (*GoalHandle, error)) {
@@ -479,7 +513,9 @@ func TestActionClientCloseWaitsForRegisteredCancel(t *testing.T) {
 	}
 	free()
 	receiveBounded(t, closed, "Close to return after the C call ended")
-	receiveBounded(t, done, "Cancel to return")
+	if err := receiveBounded(t, done, "Cancel to return"); err != nil {
+		t.Errorf("the cancel that began before Close failed: %v", err)
+	}
 }
 
 // cancelInto cancels h and reports the result. It does not use h after the call.
