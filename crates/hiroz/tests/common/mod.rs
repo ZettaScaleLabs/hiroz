@@ -6,6 +6,9 @@
 //! make cargo treat it as its own test binary). Add a helper here rather
 //! than copying it into a new test file.
 
+// Each test crate compiles this module whole and uses a subset of it.
+#![allow(dead_code)]
+
 use std::time::{Duration, Instant};
 
 use hiroz::{
@@ -53,7 +56,6 @@ impl TestRouter {
 }
 
 /// A node on a peer session that has no router and no peer.
-#[allow(dead_code)]
 pub fn isolated_node(name: &str) -> (ZContext, ZNode) {
     let ctx = ZContextBuilder::default()
         .with_mode("peer")
@@ -67,7 +69,6 @@ pub fn isolated_node(name: &str) -> (ZContext, ZNode) {
 }
 
 /// Two peer sessions on one machine: the second connects to the first.
-#[allow(dead_code)]
 pub fn connected_nodes(name: &str) -> (ZContext, ZNode, ZContext, ZNode) {
     let port = std::net::TcpListener::bind("127.0.0.1:0")
         .expect("bind")
@@ -101,7 +102,6 @@ pub fn connected_nodes(name: &str) -> (ZContext, ZNode, ZContext, ZNode) {
 }
 
 /// Poll `condition` until it holds. The test fails with `what` after ten seconds.
-#[allow(dead_code)]
 pub fn wait_until(what: &str, condition: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !condition() {
