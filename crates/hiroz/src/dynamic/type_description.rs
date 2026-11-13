@@ -336,6 +336,13 @@ fn field_description_to_schema(
     })
 }
 
+/// Largest fixed-array length the importer accepts, in elements.
+///
+/// A remote node supplies the type description, and the array length decides how much a default
+/// value allocates. One array of this length holds at most 32 MiB of 32-byte values. The limit
+/// counts elements, not bytes, and it does not bound arrays nested in messages.
+pub(crate) const MAX_ARRAY_CAPACITY: usize = 1 << 20;
+
 /// Convert a FieldTypeDescription back to a FieldType.
 fn field_type_description_to_type(
     ftd: &FieldTypeDescription,
@@ -385,7 +392,16 @@ fn field_type_description_to_type(
 
     // Apply array/sequence modifiers
     if is_array {
-        Ok(FieldType::Array(Box::new(base_type), ftd.capacity as usize))
+        let len = usize::try_from(ftd.capacity)
+            .ok()
+            .filter(|len| *len <= MAX_ARRAY_CAPACITY)
+            .ok_or_else(|| {
+                DynamicError::SerializationError(format!(
+                    "array capacity {} exceeds the maximum of {MAX_ARRAY_CAPACITY}",
+                    ftd.capacity
+                ))
+            })?;
+        Ok(FieldType::Array(Box::new(base_type), len))
     } else if is_bounded_seq {
         Ok(FieldType::BoundedSequence(
             Box::new(base_type),
@@ -615,6 +631,56 @@ mod tests {
             TypeId::UINT8_BOUNDED_SEQUENCE
         );
         assert_eq!(td.fields[0].field_type.capacity, 100);
+    }
+
+    /// A remote node supplies the type description, so the importer must not accept an array
+    /// length that no real interface declares.
+    #[test]
+    fn test_import_rejects_a_huge_array_capacity() {
+        let schema = MessageSchema::builder("test_msgs/msg/Flags")
+            .field("flags", FieldType::Array(Box::new(FieldType::Bool), 3))
+            .build()
+            .unwrap();
+        let import = |capacity: u64| {
+            let mut msg = schema.to_type_description_msg().unwrap();
+            msg.type_description.fields[0].field_type.capacity = capacity;
+            type_description_msg_to_schema(&msg)
+        };
+
+        // Controls: a small capacity imports with the stated length.
+        for capacity in [0u64, 3, 1024] {
+            let imported = import(capacity).unwrap_or_else(|e| panic!("{capacity}: {e}"));
+            assert!(
+                matches!(
+                    &imported.fields[0].field_type,
+                    FieldType::Array(_, len) if *len == capacity as usize
+                ),
+                "{capacity}: {:?}",
+                imported.fields[0].field_type
+            );
+        }
+        // The boundary: the maximum imports and one more does not.
+        assert!(import(MAX_ARRAY_CAPACITY as u64).is_ok());
+        assert!(import(MAX_ARRAY_CAPACITY as u64 + 1).is_err());
+        for capacity in [u64::MAX, 1 << 40, u64::from(u32::MAX) + 1] {
+            assert!(import(capacity).is_err(), "{capacity} must be rejected");
+        }
+    }
+
+    /// An imported schema must not let a default value allocate by a hostile array length. Without
+    /// a limit the import succeeds and building the default message panics on the capacity.
+    #[test]
+    fn test_imported_huge_array_has_no_default_message() {
+        let schema = MessageSchema::builder("test_msgs/msg/Flags")
+            .field("flags", FieldType::Array(Box::new(FieldType::Bool), 3))
+            .build()
+            .unwrap();
+        let mut msg = schema.to_type_description_msg().unwrap();
+        msg.type_description.fields[0].field_type.capacity = u64::MAX;
+        if let Ok(imported) = type_description_msg_to_schema(&msg) {
+            let _ = crate::dynamic::DynamicMessage::new(&imported);
+            panic!("the import of an array of {} elements must fail", u64::MAX);
+        }
     }
 
     #[test]
