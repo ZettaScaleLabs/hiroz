@@ -64,13 +64,14 @@ impl Drop for Guard {
     }
 }
 
-/// A helper command with both operator threshold variables removed. The helper exits when either
-/// is set, and an operator may set them in the environment of the test run. A test that needs
-/// one of them sets it after this call.
+/// A helper command with the operator threshold variables and `GLIBC_TUNABLES` removed. The
+/// helper exits when one is set, and an operator may set them in the environment of the test
+/// run. A test that needs one of them sets it after this call.
 fn probe() -> Command {
     let mut c = Command::new(PROBE);
     c.env_remove("MALLOC_TRIM_THRESHOLD_")
-        .env_remove("MALLOC_MMAP_THRESHOLD_");
+        .env_remove("MALLOC_MMAP_THRESHOLD_")
+        .env_remove("GLIBC_TUNABLES");
     c
 }
 
@@ -340,8 +341,8 @@ fn improves(candidate: &[f64], old: &[f64], margin: f64) -> bool {
 }
 
 /// The negative control of the improvement check: the old pin slowed on purpose must not pass it.
-/// It slows the arm that the check compares with, so the verdict does not depend on how far the
-/// old pin sits from no pin on the host.
+/// It slows the arm that the check compares with. The verdict then does not depend on the
+/// distance between the old pin and no pin on the host.
 fn slowed_old_pin_is_rejected(old_slowed: &[f64], old: &[f64], margin: f64) -> bool {
     !improves(old_slowed, old, margin)
 }
@@ -396,8 +397,8 @@ fn improvement_check_passes_a_real_gain_and_fails_an_unchanged_arm() {
 #[test]
 fn improvement_control_holds_where_the_old_pin_is_far_slower_than_no_pin() {
     // On this host no pin runs at 36 ms and the old pin at 60 ms. Slowing no pin by the control
-    // delay gives 46 ms, which is below the old pin by more than a margin of 8 ms, so a control
-    // built from the no-pin arm reports a false failure of the gate.
+    // delay gives 46 ms. That is below the old pin by more than a margin of 8 ms. A control built
+    // from the no-pin arm then reports a false failure of the gate.
     let unpinned_slowed = [46.0; 5];
     let old = [60.0, 60.0, 60.0, 60.0, 60.0];
     let old_slowed = [70.0, 70.0, 70.0, 70.0, 70.0];

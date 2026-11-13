@@ -144,7 +144,11 @@ fn pin_gate(outcome: PinOutcome) -> Result<(), String> {
 /// does not end up pinned. A comparison of two unpinned arms would pass without measuring the
 /// pin.
 fn apply_arm(arm: &str) -> String {
-    for var in ["MALLOC_TRIM_THRESHOLD_", "MALLOC_MMAP_THRESHOLD_"] {
+    for var in [
+        "MALLOC_TRIM_THRESHOLD_",
+        "MALLOC_MMAP_THRESHOLD_",
+        "GLIBC_TUNABLES",
+    ] {
         if std::env::var_os(var).is_some() {
             eprintln!("PINGATE {var} is set; every arm would run under it");
             std::process::exit(EXIT_PIN_GATE);
@@ -160,7 +164,12 @@ fn apply_arm(arm: &str) -> String {
         "Pinned".to_string()
     } else if let Some(v) = arm.strip_prefix("raw:") {
         let (mmap, trim) = v.split_once(':').expect("raw:<mmap>:<trim>");
-        let mib = |s: &str| s.parse::<i32>().expect("mib") << 20;
+        let mib = |s: &str| {
+            s.parse::<i32>()
+                .ok()
+                .and_then(|m| m.checked_mul(1 << 20))
+                .unwrap_or_else(|| panic!("raw size {s} MiB does not fit an i32 byte count"))
+        };
         unsafe extern "C" {
             fn mallopt(param: core::ffi::c_int, value: core::ffi::c_int) -> core::ffi::c_int;
         }
