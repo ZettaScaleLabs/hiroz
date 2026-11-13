@@ -70,14 +70,7 @@ func typedExecuteCallback[Goal, Result Message](executeCallback func(h *ServerGo
 //	result := &example_interfaces.FibonacciResult{}
 //	err := hiroz.GetTypedResult(handle, result)
 func GetTypedResult[Result Message](handle *GoalHandle, result Result) error {
-	resultBytes, err := handle.GetResult()
-	if err != nil {
-		return err
-	}
-	if err := result.DeserializeCDR(resultBytes); err != nil {
-		return newHirozError(ErrorCodeDeserializationFailed, fmt.Sprintf("failed to deserialize result: %v", err))
-	}
-	return nil
+	return GetTypedResultContext(context.Background(), handle, result)
 }
 
 // GetTypedResultContext is GetTypedResult with a wait that ends when ctx ends.
