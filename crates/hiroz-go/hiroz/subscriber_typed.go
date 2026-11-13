@@ -228,7 +228,6 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 	// senders holds a read lock while a callback may send. The teardown takes the write lock
 	// before it closes outCh, so no callback sends on a closed channel.
 	var senders sync.RWMutex
-	closed := false
 
 	rawHandler := func(data []byte) {
 		msg := newMessage[T]()
@@ -237,12 +236,10 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 		}
 		senders.RLock()
 		defer senders.RUnlock()
-		if closed {
-			return
-		}
 		// The handler does not capture ctx, which the subscriber would keep reachable for ever.
-		// Cancellation reaches it through done, which closes before the destroy runs. When both
-		// arms of the send below are ready, select picks either, so drop the sample first.
+		// Cancellation reaches it through done, which closes before the teardown takes the
+		// write lock. When both arms of the send below are ready, select picks either, so drop
+		// the sample first.
 		select {
 		case <-done:
 			return
@@ -269,7 +266,6 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 	// and drops its sample.
 	finish := func() {
 		senders.Lock()
-		closed = true
 		senders.Unlock()
 		close(outCh)
 	}
