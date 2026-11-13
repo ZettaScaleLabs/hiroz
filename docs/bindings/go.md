@@ -225,7 +225,7 @@ resultBytes, err := handle.GetResult()
 ### Goal status
 
 ```go
-handle.Status()       // GoalStatusAccepted → GoalStatusSucceeded
+handle.GetStatus()    // GoalStatusAccepted → GoalStatusSucceeded
 handle.IsActive()     // true while executing
 handle.IsTerminal()   // true when finished
 handle.Cancel()       // request cancellation
@@ -321,42 +321,7 @@ The calls in this table have a variant that ends when a `context.Context` ends. 
 | `hiroz.BuildWithTypedCallback` | `hiroz.BuildWithTypedCallbackContext(ctx, builder, handler)` |
 | `hiroz.SubscriberWithChannel` | `hiroz.SubscriberWithChannelContext[T](ctx, builder, size)` |
 
-A context deadline sets the timeout of `CallTypedContext`, up to 10 seconds. The service client behind it ends every query after 10 seconds, so a later deadline does not extend the call: it returns `hiroz.ErrTimeout` after about 10 seconds. Without a deadline the call uses `DefaultServiceTimeout` (5 s). When the context ends first, the error wraps `context.Canceled` or `context.DeadlineExceeded`. A call whose C timeout ends after the context deadline has passed also returns `context.DeadlineExceeded`, not `hiroz.ErrTimeout`. `ErrTimeout` means the server did not answer within the call timeout while the context deadline was still in the future. `WaitForServiceContext` waits in slices of at most 250 ms, so it returns within one slice of a cancel.
-
-A cancel does not stop work that the C layer already started. `Close` waits for that work and not for the context, and the cancel does not interrupt it. A call that starts after `Close` has begun returns a closed-client error and does not reach the C layer. A call whose context has already ended returns the context error first, even when the client or the goal handle is closed.
-
-| Call | `Close` waits for | Longest hold |
-|---|---|---|
-| `CallTypedContext` | the registered C call, not `SerializeCDR` before it or `DeserializeCDR` after it | its call timeout: the context deadline up to 10 s, or `DefaultServiceTimeout` (5 s) without a deadline |
-| `WaitForServiceContext` | the wait, which `Close` ends and which returns a closed-client error | one wait slice (250 ms) |
-| `SendGoalContext` | the C call, not the goal's `SerializeCDR` before it | 10 s, the fixed timeout of the C call |
-| `GetResultWithContext`, `GetResult`, `GetTypedResult`, `GetTypedResultContext` | the C call | 30 s, the fixed timeout of the C call, and normally about 10 s because the service client behind it ends its query after 10 s |
-| `GoalHandle.Cancel` | the C call | 10 s, the fixed timeout of the C call; after `Close` it returns a closed-client error |
-| `SendGoal` | nothing | do not call it concurrently with `Close` |
-| `CallTyped`, `CallTypedWithTimeout`, `WaitForService` | nothing | do not call them concurrently with `Close` |
-
-`ServiceClient.Close` does not wait for your encoder or decoder. A `CallTypedContext` can still be inside `DeserializeCDR` when `Close` returns, so do not assume that your response state is no longer in use.
-
-`GoalHandle.Close` is not gated by the client. Do not close a goal handle while a result wait on it is running: the C call reads the handle that `Close` frees. A result wait that returned on a cancel keeps the goal handle reachable until its C call returns, so dropping the last reference is safe.
-
-`SendGoalContext` returns an open handle when the server answers first. When the cancel wins, it returns the context error and closes the handle once the C layer returns. The server may already hold the goal, and the cancel does not cancel it. That cleanup does not register with the client and can run after `Close` has returned. This is harmless: it frees only the handle's own box and never reads the client.
-
-`SubscriberWithChannelContext` has no cleanup function. The channel closes when the context ends or when the subscriber closes, whichever comes first, so pass a context that you cancel, or close the subscriber.
-
-#### What a context ending does not wait for
-
-A context bounds the wait for a result or the lifetime of a subscriber. It does not wait for your code, and it does not stop code that already runs.
-
-| Call | When the context ends | Not guaranteed | How to know it is done |
-|---|---|---|---|
-| `BuildWithTypedCallbackContext` | A cleanup goroutine destroys the subscriber. Cancel does not wait for it. Closing the subscriber first releases the registration on the context. | A callback can start after `ctx.Done` closes. A running handler keeps running after the destroy returns. | There is no completion signal. Make the handler safe to run after the cancel, for example with a lock and a flag that it checks, and do not free what it uses on cancel alone. |
-| `SubscriberWithChannelContext` | The subscriber is destroyed, then the channel closes. | A closed channel does not mean that `DeserializeCDR` has returned for a sample in flight. That sample is dropped. A sample that is already in the send, or that finishes decoding before the cleanup goroutine runs, can still arrive. | The closed channel receives no new sample, and the samples it holds stay readable. Keep the message type's decoder free of state that you release on close. |
-| `CallTypedContext`, in `SerializeCDR` | Nothing: the call is not waiting for a result yet. | The call returns only when the serializer returns. It then returns the context error and makes no C call. | The return of `CallTypedContext`. |
-| `CallTypedContext`, in `DeserializeCDR` | Nothing: the result has arrived. | `DeserializeCDR` is not interrupted. The call returns what the decoder returns: `nil` with the decoded value, or the decode error. | The return of `CallTypedContext`. |
-
-`SendGoalContext` serializes the goal in the same way: a slow `SerializeCDR` delays its return and does not hold `ActionClient.Close`, because the call registers after it has serialized the goal.
-
-**Known limit:** neither a cancel nor `Close` releases the callback of a successfully built subscriber. The underlying subscriber keeps it reachable until the process ends, together with what it captures: for `SubscriberWithChannelContext` its channels, for `BuildWithTypedCallbackContext` your handler's state. The channel callback does not keep the context. Releasing the callback after the running callbacks finish is not implemented.
+A cancel returns the context error and does not stop work that the C layer already started. `Close` waits for the registered C call of each context call, and not for the context or for your `SerializeCDR` and `DeserializeCDR`. A call that starts after `Close` has begun returns a closed-client error, and a call whose context has already ended returns the context error first. A context deadline sets the timeout of `CallTypedContext`, up to 10 seconds. A subscriber callback can still run after a cancel, so make the handler safe to run after the cancel. Neither a cancel nor `Close` releases a built subscriber's callback: the subscriber keeps it reachable until the process ends. `SubscriberWithChannelContext` has no cleanup function, so pass a context that you cancel, or close the subscriber. The Go documentation of `ServiceClient.Close` and `ActionClient.Close` states what each waits for and how long it can block.
 
 ### Action
 
@@ -378,8 +343,8 @@ server, err := hiroz.BuildTypedActionServer(
 )
 
 // Typed client
-client, err := node.CreateActionClient("fibonacci").Build(&example_interfaces.Fibonacci{})
-handle, err := client.SendGoal(&example_interfaces.FibonacciGoal{Order: 10})
+client, err := hiroz.BuildTypedActionClient(node.CreateActionClient("fibonacci"), &example_interfaces.Fibonacci{})
+handle, err := hiroz.SendTypedGoal(client, &example_interfaces.FibonacciGoal{Order: 10})
 result := &example_interfaces.FibonacciResult{}
 err = hiroz.GetTypedResult(handle, result)
 ```
@@ -406,10 +371,10 @@ Apply with `.WithQoS(profile)` on the publisher or subscriber builder.
 ## Graph Introspection
 
 ```go
-topics, _ := ctx.GetTopicNamesAndTypes()      // []hiroz.TopicInfo
-nodes, _  := ctx.GetNodeNames()               // []hiroz.NodeInfo
-services, _ := ctx.GetServiceNamesAndTypes()  // []hiroz.ServiceInfo
-exists, _ := ctx.NodeExists("talker", "/")
+topics, _ := node.GetTopicNamesAndTypes()    // map[string][]string
+names, _  := node.GetNodeNames()             // []string
+services, _ := node.GetServiceNamesAndTypes()
+exists, _ := node.NodeExists("talker")
 ```
 
 Requires a Zenoh router and a brief settling time after nodes come online.
