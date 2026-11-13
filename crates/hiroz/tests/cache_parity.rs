@@ -29,9 +29,9 @@ fn message(text: &str) -> RosString {
 /// A cache built with a transient-local QoS replays the history of a publisher that started
 /// earlier. A cache with the default QoS does not.
 ///
-/// Control in the same test: the volatile cache sees none of the three messages that the
-/// transient-local cache received, so the replay comes from the durability and not from a late
-/// delivery.
+/// Control in the same test: the volatile cache receives a live message after the replay and
+/// holds nothing else, so the replay comes from the durability and the volatile subscription
+/// works.
 #[test]
 fn cache_replays_transient_local_history() {
     const TOPIC: &str = "/cache_parity_transient_local";
@@ -66,9 +66,27 @@ fn cache_replays_transient_local_history() {
     wait_until("the transient-local cache to replay 3 messages", || {
         durable.len() == 3
     });
+    let everything = |cache: &hiroz::cache::ZCache<RosString>| {
+        cache.get_interval(UNIX_EPOCH, SystemTime::now() + Duration::from_secs(86_400))
+    };
+    let mut replayed: Vec<String> = everything(&durable)
+        .iter()
+        .map(|m| m.data.clone())
+        .collect();
+    replayed.sort();
+    assert_eq!(replayed, ["history 0", "history 1", "history 2"]);
+
+    publisher.publish(&message("live")).expect("publish");
+    wait_until("the volatile cache to receive a live message", || {
+        !volatile.is_empty()
+    });
+    let seen: Vec<String> = everything(&volatile)
+        .iter()
+        .map(|m| m.data.clone())
+        .collect();
     assert_eq!(
-        volatile.len(),
-        0,
+        seen,
+        ["live"],
         "a volatile cache received history that was published before it existed"
     );
 }
@@ -114,8 +132,8 @@ fn cache_honours_locality() {
 ///
 /// The test learns the topic key and a valid payload from one real publication, then puts three
 /// samples with a forged attachment: sequence numbers 0, 1 and 5. The first is the baseline, the
-/// second is contiguous, and the third skips 2, 3 and 4. Control in the same test: the baseline
-/// and the contiguous sample add nothing, so the count of 3 is the gap and not a phantom loss.
+/// second is contiguous, and the third skips 2, 3 and 4. Control in the same test: the count is 0
+/// after the contiguous sample, so the count of 3 is the gap and not a phantom loss.
 #[test]
 fn cache_reports_message_loss() {
     const TOPIC: &str = "cache_parity_loss";
@@ -142,38 +160,50 @@ fn cache_reports_message_loss() {
     wait_until("the cache to store the real message", || cache.len() == 1);
 
     let gid = [9u8; 16];
-    for sn in [0i64, 1, 5] {
+    let put = |sn: i64| {
         node.session()
             .put(sample.key_expr().clone(), sample.payload().clone())
             .attachment(Attachment::new(sn, gid))
             .wait()
             .expect("forged put");
-    }
-    wait_until("the cache to store the forged messages", || {
+    };
+    let lost = || {
+        cache
+            .events_mgr()
+            .lock()
+            .unwrap()
+            .take_event_status(ZenohEventType::MessageLost)
+            .total_count
+    };
+    put(0);
+    put(1);
+    wait_until(
+        "the cache to store the baseline and the contiguous sample",
+        || cache.len() == 3,
+    );
+    assert_eq!(
+        lost(),
+        0,
+        "the baseline and a contiguous sample are not loss"
+    );
+    put(5);
+    wait_until("the cache to store the sample after the gap", || {
         cache.len() == 4
     });
-
-    let status = cache
-        .events_mgr()
-        .lock()
-        .unwrap()
-        .take_event_status(ZenohEventType::MessageLost);
-    assert_eq!(
-        status.total_count, 3,
-        "expected the gap 2, 3, 4 and no other loss"
-    );
+    assert_eq!(lost(), 3, "expected the gap 2, 3, 4 and no other loss");
 }
 
 /// The locality of a cache restricts the buffer-group subscription as well as the topic one.
 ///
-/// Both caches join the CPU buffer group. A plain put on the group key of the topic reaches the
-/// cache with the default locality and must not reach the cache that accepts remote publishers
-/// only. Control in the same test: the default cache stores the put, so the empty cache is the
-/// locality and not a group key that nobody reads.
+/// Both caches join the CPU buffer group. A plain put on the group key of the topic from the
+/// cache's own session reaches the cache with the default locality and must not reach the cache
+/// that accepts remote publishers only. Controls in the same test: the default cache stores that
+/// put, and the restricted cache stores a put on the group key from another session, so the
+/// empty cache is the locality and not a group key that nobody reads.
 #[test]
 fn cache_locality_covers_the_buffer_group_key() {
     const TOPIC: &str = "cache_parity_group_locality";
-    let (_ctx, node) = isolated_node("cache_group_locality");
+    let (_ctx_a, node, _ctx_b, node_b) = connected_nodes("cache_group_locality");
     let remote_only = node
         .create_cache::<RosString>(&format!("/{TOPIC}"), 10)
         .with_buffer_group(BufferGroup::Cpu)
@@ -206,7 +236,7 @@ fn cache_locality_covers_the_buffer_group_key() {
 
     let group_key = format!("{}/_buf_cpu", sample.key_expr());
     node.session()
-        .put(group_key, sample.payload().clone())
+        .put(group_key.clone(), sample.payload().clone())
         .wait()
         .expect("put on the group key");
     wait_until("the default cache to store the group-key put", || {
@@ -218,6 +248,22 @@ fn cache_locality_covers_the_buffer_group_key() {
         0,
         "a cache restricted to remote publishers received a local message on the group key"
     );
+
+    // The sessions need a moment to learn each other's declarations, so the remote put is sent
+    // until the restricted cache has stored one.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while remote_only.is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "the restricted cache never stored a remote message on the group key"
+        );
+        node_b
+            .session()
+            .put(group_key.clone(), sample.payload().clone())
+            .wait()
+            .expect("remote put on the group key");
+        std::thread::sleep(Duration::from_millis(200));
+    }
 }
 
 /// A cache with `Locality::Remote` stores what a publisher on another session sends, and nothing

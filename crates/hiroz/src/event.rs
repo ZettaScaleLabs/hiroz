@@ -721,6 +721,18 @@ mod tests {
         assert_eq!(status.total_count, 0, "churn alone is not loss");
     }
 
+    /// The constructor that production code calls applies `MAX_TRACKED_PUBLISHERS`.
+    #[test]
+    fn message_loss_tracker_new_applies_the_production_bound() {
+        let mgr = Arc::new(Mutex::new(EventsManager::new(gid(1))));
+        let tracker = MessageLossTracker::new(mgr);
+        let churn = u32::try_from(MAX_TRACKED_PUBLISHERS).unwrap() + 10;
+        for n in 0..churn {
+            tracker.observe(gid_n(n), 0);
+        }
+        assert_eq!(tracker.tracked_publishers(), MAX_TRACKED_PUBLISHERS);
+    }
+
     /// The least recently seen publisher is evicted, and a returning one starts
     /// a new baseline: no invented loss, and a live publisher keeps its own.
     #[test]
