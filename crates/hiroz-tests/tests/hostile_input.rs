@@ -346,7 +346,11 @@ fn dynamic_decoder_pins_the_zero_byte_budget() {
         limit_address_space();
         let msg = DynamicMessage::from_cdr(&sample(1_048_576), &schema)
             .expect("a count at the budget must decode");
-        println!("at budget: {} elements", elements(&msg, "items").len());
+        let at_budget = match msg.get_dynamic_by_index(0) {
+            Ok(DynamicValue::Array(v)) => v.len(),
+            other => panic!("expected an array, got {other:?}"),
+        };
+        println!("at budget: {at_budget} elements");
         drop(msg);
         let err = DynamicMessage::from_cdr(&sample(1_048_577), &schema)
             .expect_err("a count above the budget must be an error");
@@ -438,6 +442,11 @@ fn dynamic_decoder_survives_a_hostile_array_length() {
         limit_address_space();
         let err = DynamicMessage::from_cdr(&header, &big).expect_err("huge array must be an error");
         println!("hostile: {err}");
+        let mut one_byte = header.to_vec();
+        one_byte.push(0);
+        let err = DynamicMessage::from_cdr(&one_byte, &big)
+            .expect_err("huge array with one unread byte must be an error");
+        println!("hostile with data: {err}");
         let err = DynamicMessage::from_cdr(&header, &zero_byte)
             .expect_err("huge zero-byte array must be an error");
         println!("hostile zero-byte: {err}");
@@ -459,7 +468,12 @@ fn dynamic_decoder_survives_a_hostile_array_length() {
     }
     assert_child_survives(
         "dynamic_decoder_survives_a_hostile_array_length",
-        &["hostile: ", "hostile zero-byte: ", "next valid: 3 elements"],
+        &[
+            "hostile: ",
+            "hostile with data: ",
+            "hostile zero-byte: ",
+            "next valid: 3 elements",
+        ],
     );
 }
 
@@ -484,8 +498,7 @@ fn dynamic_decoder_accepts_a_length_at_the_boundary() {
 
 /// The generated decoder of a message with a `sequence<struct>` field (`UInt8MultiArray`
 /// starts with `layout.dim`, a sequence of 32-byte `MultiArrayDimension`) must also
-/// return an error. This is the path of a typed subscriber, on any key, because
-/// every key reaches the same decode.
+/// return an error. A typed subscriber runs this decode.
 #[test]
 fn generated_decoder_survives_a_hostile_sequence_length() {
     use hiroz::msg::ZMessage;

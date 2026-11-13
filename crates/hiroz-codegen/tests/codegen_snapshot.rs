@@ -89,6 +89,25 @@ fn snapshot_nested() {
     insta::assert_snapshot!("nested", format_tokens(tokens));
 }
 
+/// Every generated sequence decoder caps its reservation at the unread input, including the
+/// big-endian branch for plain element types, which no host in CI compiles.
+#[test]
+fn generated_sequence_decoders_cap_the_reservation() {
+    let msgs = resolve_corpus();
+    let msg = get_resolved(&msgs, "UnboundedSequences");
+    let tokens = generate_message_impl_with_cdr(msg, &ctx(), &HashSet::new())
+        .expect("generate UnboundedSequences");
+    let src = format_tokens(tokens);
+    assert!(
+        src.contains("Vec::with_capacity(__count.min(__r.remaining()))"),
+        "capped reservation missing"
+    );
+    assert!(
+        !src.contains("with_capacity(__count)"),
+        "a reservation takes the declared count"
+    );
+}
+
 // ── Service snapshot ──────────────────────────────────────────────────────────
 
 #[test]
