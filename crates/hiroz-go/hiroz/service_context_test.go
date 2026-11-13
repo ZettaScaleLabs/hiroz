@@ -116,8 +116,9 @@ func TestCallTypedContextPassesDeadlineAsTimeout(t *testing.T) {
 	if err := CallTypedContext(ctx, openTestClient(), mockReq(), resp); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if ms := got.Load(); ms == 0 || ms > 800 {
-		t.Errorf("timeout passed to C = %d ms, want 1..800", ms)
+	// The deadline was 800 ms when the call began. Only the time the call itself took is gone.
+	if ms := got.Load(); ms < 600 || ms > 800 {
+		t.Errorf("timeout passed to C = %d ms, want 600..800", ms)
 	}
 	if len(resp.data) != 1 || resp.data[0] != 7 {
 		t.Errorf("response not deserialized: %v", resp.data)
