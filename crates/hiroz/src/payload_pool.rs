@@ -23,13 +23,14 @@
 //!     // back-pressure — the pool will not choose for you.
 //!     return Ok(());
 //! };
-//! msg.stamp = now;                                   // written in place
+//! msg.data.clear();
+//! msg.data.extend_from_slice(&frame);                // written in place
 //! publisher.publish_shared(msg.into_shared())?;
 //! ```
 //!
 //! # What it will not do
 //!
-//! [`PayloadPool::acquire`](crate::payload_pool::PayloadPool::acquire) **never allocates**. An invisible fallback is the
+//! [`PayloadPool::acquire`](crate::payload_pool::PayloadPool::acquire) **never allocates a message**. An invisible fallback is the
 //! defect this type exists to prevent: a pool that quietly allocates when it is
 //! exhausted performs like no pool at all and says nothing about it.
 //!
@@ -60,17 +61,17 @@
 //! |---|---|
 //! | [`crate::pubsub::ZPub::publish_owned`] | takes `T` by value and gives the message away; the allocation would leave the pool for good |
 //! | `TRANSIENT_LOCAL` + `with_intra_process_only()` | refused by the publisher itself, pool or not — there is no wire to hold the history |
-//! | a subscriber that stores its `Arc` | a permanent capacity loss, reported through [`PoolStats::stuck`](crate::payload_pool::PoolStats::stuck) |
+//! | a subscriber that stores its `Arc` | the slot is unavailable while it is stored, reported through [`PoolStats::stuck`](crate::payload_pool::PoolStats::stuck) |
 //! | sharing one pool across threads without a lock | `acquire` needs `&mut self`; wrap it, or give each thread its own |
 //!
 //! Two of these deserve a sentence more.
 //!
-//! **The wire is safe by copy, not by luck.** Nothing in the type system stops
-//! a future serializer from splicing the payload's existing `ZSlice` instead of
-//! writing a copy of it — and if one did, zenoh's TX queue would hold the
-//! pooled allocation while the publisher reused it. That is why the copy is
-//! pinned by a test asserting the slot comes back, rather than left as a
-//! comment.
+//! **The wire does not retain the `Arc<T>`.** `publish_shared` serializes the
+//! message into a fresh `ZBuf`, so the transport never holds the pooled
+//! allocation. The compatibility tests assert that the slot comes back after a
+//! wire publish. They measure the outer `Arc<T>` only: whether a message's own
+//! `ZBuf` fields are copied or shared by a serializer is a separate question
+//! they do not answer.
 //!
 //! **Rewriting bytes in place is the one part that needs more than std**, and
 //! it needs nothing from hiroz. A pooled message whose fields are plain — a
@@ -85,18 +86,21 @@
 //! # The failure mode to watch
 //!
 //! A subscriber that *stores* its `Arc` — rather than reading it and letting it
-//! drop — keeps that slot out of circulation permanently. The pool cannot stop
-//! this; it makes it visible. [`PoolStats::stuck`](crate::payload_pool::PoolStats::stuck) counts slots that have been
-//! unavailable across many consecutive acquires, which is the signature of a
-//! retained message rather than of momentary traffic.
+//! drop — keeps that slot out of circulation until the stored `Arc` is dropped.
+//! The pool cannot stop this; it makes it visible. [`PoolStats::stuck`](crate::payload_pool::PoolStats::stuck) counts
+//! slots that `acquire` has found unavailable on many consecutive visits, which
+//! is the signature of a retained message rather than of momentary traffic.
 
 use std::sync::Arc;
 
-/// How many consecutive acquire attempts a slot must be unavailable for before
-/// it is reported as stuck.
+/// How many consecutive times `acquire` must find a slot unavailable before it
+/// is reported as stuck.
 ///
-/// Under synchronous delivery a slot returns before the next send, so a slot
-/// that is busy this often is being *held*, not merely in flight.
+/// `acquire` stops at the first free slot, so it visits a held slot about once
+/// per rotation, not once per call: with `n` slots expect the report after
+/// roughly `STUCK_AFTER * (n - 1)` acquires. Under synchronous delivery a slot
+/// returns before the next send, so a slot that is busy this often is being
+/// *held*, not merely in flight.
 pub const STUCK_AFTER: u32 = 64;
 
 /// A fixed set of pre-allocated messages, reused across sends.
@@ -104,7 +108,7 @@ pub const STUCK_AFTER: u32 = 64;
 /// See the [module documentation](self) for what a pool is worth and when.
 pub struct PayloadPool<T> {
     slots: Vec<Arc<T>>,
-    /// Consecutive acquires during which each slot was unavailable.
+    /// Consecutive visits by `acquire` that found each slot unavailable.
     busy_streak: Vec<u32>,
     /// Whether a stuck slot has been reported, so the warning is not repeated
     /// on every send.
@@ -128,8 +132,8 @@ pub struct PoolStats {
     pub capacity: usize,
     /// Slots acquirable right now.
     pub available: usize,
-    /// Slots unavailable for [`STUCK_AFTER`] consecutive acquires — almost
-    /// always a subscriber that stored its `Arc`.
+    /// Slots that `acquire` found unavailable on [`STUCK_AFTER`] consecutive
+    /// visits — almost always a subscriber that stored its `Arc`.
     ///
     /// This can over-report by a slot that has since been released but not yet
     /// reacquired: the scan stops at the first free slot, so a later one keeps
@@ -158,7 +162,7 @@ impl<T> PayloadPool<T> {
 
     /// Take a slot nobody else holds, or `None` when every slot is still out.
     ///
-    /// **Never allocates.** `None` is a decision for the caller, not something
+    /// **Never allocates a message.** `None` is a decision for the caller, not something
     /// to paper over.
     ///
     /// The test is [`Arc::get_mut`] itself rather than a strong-count check
@@ -185,10 +189,9 @@ impl<T> PayloadPool<T> {
                 tracing::warn!(
                     slot = i,
                     consecutive = STUCK_AFTER,
-                    "a pooled payload slot has been held for {} consecutive acquires. A \
+                    "a pooled payload slot was unavailable on {} consecutive visits. A \
                      subscriber is most likely storing its Arc rather than letting it drop, \
-                     which removes this slot from the pool permanently. Effective capacity \
-                     is now one lower.",
+                     which removes this slot from the pool until the Arc is dropped.",
                     STUCK_AFTER
                 );
             }
@@ -317,6 +320,32 @@ mod tests {
     }
 
     #[test]
+    fn a_held_slot_in_a_larger_pool_is_reported_after_threshold_visits_not_calls() {
+        // `acquire` stops at the first free slot, so with four slots it visits a
+        // held one only on every third call. `stuck` counts visits.
+        let mut pool = PayloadPool::new(4, Msg::default);
+        let _retained = pool.acquire().expect("fresh pool").into_shared();
+
+        for _ in 0..(STUCK_AFTER + 2) {
+            drop(pool.acquire().map(|m| m.into_shared()));
+        }
+        assert_eq!(
+            pool.stats().stuck,
+            0,
+            "reported after as few calls as the threshold: the unit is no longer a visit"
+        );
+
+        for _ in 0..(STUCK_AFTER * 3) {
+            drop(pool.acquire().map(|m| m.into_shared()));
+        }
+        assert_eq!(
+            pool.stats().stuck,
+            1,
+            "a held slot was not reported after enough visits"
+        );
+    }
+
+    #[test]
     fn exhaustion_returns_none_and_never_allocates() {
         let mut pool = PayloadPool::new(2, Msg::default);
         let _a = pool.acquire().expect("slot 0").into_shared();
@@ -332,9 +361,8 @@ mod tests {
 
     #[test]
     fn a_weak_reference_is_skipped_rather_than_panicking() {
-        // The hand-rolled version tested `strong_count == 1` and then unwrapped
-        // `Arc::get_mut`, which ALSO requires no `Weak`. A subscriber holding a
-        // Weak panicked the sender.
+        // `Arc::get_mut` requires no `Weak` as well as one strong reference, so a
+        // slot a `Weak` still points at is skipped, not handed out.
         let mut pool = PayloadPool::new(1, Msg::default);
         let shared = pool.acquire().expect("fresh pool").into_shared();
         let weak = Arc::downgrade(&shared);
