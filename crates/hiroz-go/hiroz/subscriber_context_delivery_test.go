@@ -89,10 +89,13 @@ func TestSubscriberWithChannelContextDeliversForPointerType(t *testing.T) {
 	node, pub := ctxDeliveryFixture(t, "/ctx_delivery_chan")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	_, ch, err := SubscriberWithChannelContext[*ctxDeliveryMsg](ctx, node.CreateSubscriber("/ctx_delivery_chan"), 16)
+	sub, ch, err := SubscriberWithChannelContext[*ctxDeliveryMsg](ctx, node.CreateSubscriber("/ctx_delivery_chan"), 16)
 	if err != nil {
 		t.Fatalf("subscriber: %v", err)
 	}
+	// Close destroys the subscriber before the deferred cancel could start a teardown goroutine
+	// that outlives the test.
+	defer sub.Close()
 	m, ok := ctxAwait(t, pub, ch)
 	if !ok {
 		t.Fatal("no message received")
@@ -107,10 +110,11 @@ func TestBuildWithTypedCallbackContextDeliversForPointerType(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	got := make(chan string, 64)
-	_, err := BuildWithTypedCallbackContext(ctx, node.CreateSubscriber("/ctx_delivery_cb"), func(m *ctxDeliveryMsg) { got <- m.Value })
+	sub, err := BuildWithTypedCallbackContext(ctx, node.CreateSubscriber("/ctx_delivery_cb"), func(m *ctxDeliveryMsg) { got <- m.Value })
 	if err != nil {
 		t.Fatalf("subscriber: %v", err)
 	}
+	defer sub.Close()
 	v, ok := ctxAwait(t, pub, got)
 	if !ok {
 		t.Fatal("no message received")
