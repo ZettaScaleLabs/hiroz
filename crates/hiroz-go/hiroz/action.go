@@ -239,21 +239,15 @@ func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case r := <-ch:
-		return finishGetResult(ctx, h, r.data, r.err)
+		if r.err == nil {
+			h.setStatus(GoalStatusSucceeded)
+		}
+		// When both ctx.Done and ch are ready, select picks either one. An ended context wins.
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
+		return r.data, r.err
 	}
-}
-
-// finishGetResult returns the result only while ctx is live. When both ctx.Done and the
-// result channel are ready, select picks either one. An ended context wins, as on the
-// ctx.Done path.
-func finishGetResult(ctx context.Context, h *GoalHandle, data []byte, err error) ([]byte, error) {
-	if err == nil {
-		h.setStatus(GoalStatusSucceeded)
-	}
-	if cerr := ctx.Err(); cerr != nil {
-		return nil, cerr
-	}
-	return data, err
 }
 
 // Close destroys the goal handle.
@@ -499,21 +493,16 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 		}()
 		return nil, ctx.Err()
 	case r := <-ch:
-		return finishSendGoal(ctx, r.h, r.err)
-	}
-}
-
-// finishSendGoal returns the handle only while ctx is live. When both ctx.Done and the
-// result channel are ready, select picks either one. A handle that arrives after ctx ended
-// is closed here, and the caller gets ctx.Err(), as on the ctx.Done path.
-func finishSendGoal(ctx context.Context, h *GoalHandle, err error) (*GoalHandle, error) {
-	if cerr := ctx.Err(); cerr != nil {
-		if h != nil {
-			_ = h.Close()
+		// When both ctx.Done and ch are ready, select picks either one. An ended context wins,
+		// and it closes the handle, as the ctx.Done branch does.
+		if cerr := ctx.Err(); cerr != nil {
+			if r.h != nil {
+				_ = r.h.Close()
+			}
+			return nil, cerr
 		}
-		return nil, cerr
+		return r.h, r.err
 	}
-	return h, err
 }
 
 // Close destroys the action client.
