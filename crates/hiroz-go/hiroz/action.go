@@ -157,7 +157,7 @@ func (h *GoalHandle) IsTerminal() bool {
 //
 // The call registers with the client, as the result waits do. ActionClient.Close waits for the
 // C call, and a call that starts after Close has begun returns a closed-client error without
-// reaching the C layer.
+// reaching the C layer. A closed goal handle returns its own error first.
 func (h *GoalHandle) Cancel() error {
 	if h.handle.Load() == nil || h.client == nil {
 		return fmt.Errorf("goal handle is closed")
@@ -253,7 +253,7 @@ func (h *GoalHandle) GetResultWithContext(ctx context.Context) ([]byte, error) {
 
 // Close destroys the goal handle.
 // Known limit: Close is not gated by the client. Do not close a goal handle while a result
-// wait on it is running. The C call of the wait reads the handle, and Close frees it.
+// wait or a Cancel on it is running. The C call reads the handle, and Close frees it.
 func (h *GoalHandle) Close() error {
 	var err error
 	h.closeOnce.Do(func() {

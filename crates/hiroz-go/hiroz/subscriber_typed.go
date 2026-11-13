@@ -143,7 +143,8 @@ func SubscriberWithHandler[T Message](builder *SubscriberBuilder, handler Handle
 }
 
 // setOnClose sets the function that Close runs once the subscriber is destroyed. When Close
-// has already run, nobody else would run f, so setOnClose runs it.
+// has already marked the subscriber closed, setOnClose also tries to run f. The swap in
+// runOnClose lets exactly one of the two callers take it.
 func (s *Subscriber) setOnClose(f func()) {
 	s.onClose.Store(&f)
 	if s.closed.Load() {
@@ -225,8 +226,9 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 	msgTemplate := newMessage[T]()
 	outCh := make(chan T, bufferSize)
 	done := make(chan struct{})
-	// senders holds a read lock while a callback may send. The teardown takes the write lock
-	// before it closes outCh, so no callback sends on a closed channel.
+	// senders holds a read lock while a callback may send. The teardown closes done, then takes
+	// the write lock before it closes outCh, so a callback that holds the read lock has
+	// finished its send. A callback that starts later sees done closed and sends nothing.
 	var senders sync.RWMutex
 
 	rawHandler := func(data []byte) {
@@ -262,8 +264,8 @@ func SubscriberWithChannelContext[T Message](ctx context.Context, builder *Subsc
 
 	// Order matters: release blocked callbacks, undeclare so none can start, wait for the
 	// callbacks that are in their sending section, then close. A callback still decoding
-	// has not taken the sending lock, so it is not waited for. It finds the channel closed
-	// and drops its sample.
+	// has not taken the sending lock, so it is not waited for. It sees done closed and drops
+	// its sample.
 	finish := func() {
 		senders.Lock()
 		senders.Unlock()

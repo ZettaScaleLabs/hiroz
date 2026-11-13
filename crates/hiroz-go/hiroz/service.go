@@ -149,7 +149,8 @@ func (b *ServiceClientBuilder) Build(svc Service) (*ServiceClient, error) {
 	return client, nil
 }
 
-// DefaultServiceTimeout is the default timeout used by Call.
+// DefaultServiceTimeout is the default timeout of CallTyped, and of CallTypedContext when the
+// context has no deadline.
 const DefaultServiceTimeout = 5 * time.Second
 
 // callRaw makes a synchronous service call with raw CDR bytes.
