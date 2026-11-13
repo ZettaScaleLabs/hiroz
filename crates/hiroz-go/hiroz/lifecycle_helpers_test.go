@@ -31,3 +31,41 @@ func newRelease(t *testing.T) (<-chan struct{}, func()) {
 	t.Cleanup(free)
 	return ch, free
 }
+
+// stubMsg is a message whose serializer and decoder a test supplies. A nil function does the
+// default: serialise to [1] and decode nothing.
+type stubMsg struct {
+	ser func() ([]byte, error)
+	de  func([]byte) error
+}
+
+func (*stubMsg) TypeName() string { return "x" }
+func (*stubMsg) TypeHash() string { return "y" }
+func (m *stubMsg) SerializeCDR() ([]byte, error) {
+	if m.ser == nil {
+		return []byte{1}, nil
+	}
+	return m.ser()
+}
+func (m *stubMsg) DeserializeCDR(b []byte) error {
+	if m.de == nil {
+		return nil
+	}
+	return m.de(b)
+}
+
+// hookMsg runs hook inside SerializeCDR, as user code does.
+func hookMsg(hook func()) *stubMsg {
+	return &stubMsg{ser: func() ([]byte, error) { hook(); return []byte{1}, nil }}
+}
+
+// failMsg runs hook inside SerializeCDR and then fails with errSerializerFailed.
+func failMsg(hook func()) *stubMsg {
+	return &stubMsg{ser: func() ([]byte, error) { hook(); return nil, errSerializerFailed }}
+}
+
+// sharedMsg returns its own backing array from SerializeCDR, as a message that caches its
+// buffer does. The Message interface does not forbid this.
+func sharedMsg(data []byte) *stubMsg {
+	return &stubMsg{ser: func() ([]byte, error) { return data, nil }}
+}

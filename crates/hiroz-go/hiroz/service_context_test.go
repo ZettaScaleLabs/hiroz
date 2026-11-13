@@ -298,7 +298,8 @@ func TestWaitForServiceContextCloseDuringWaitWinsOverReady(t *testing.T) {
 // returned on cancel. callRawContext copies the bytes before the worker starts.
 func TestCallTypedContextOwnsSerialisedBytes(t *testing.T) {
 	c := openTestClient()
-	req := &sharedGoal{data: []byte{1, 2}}
+	data := []byte{1, 2}
+	req := sharedMsg(data)
 	started := make(chan struct{})
 	release, free := newRelease(t)
 	sent := make(chan []byte, 1)
@@ -317,7 +318,7 @@ func TestCallTypedContextOwnsSerialisedBytes(t *testing.T) {
 	if err := receiveBounded(t, done, "the call to return"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
-	req.data[0] = 9 // the caller reuses the request storage in place
+	data[0] = 9 // the caller reuses the request storage in place
 	free()
 	if got := receiveBounded(t, sent, "the C layer to send"); len(got) != 2 || got[0] != 1 || got[1] != 2 {
 		t.Errorf("the C layer sent %v, want the request as it was at the call: [1 2]", got)
@@ -355,21 +356,10 @@ func TestWaitForServiceContextClosedClientIsNotContextError(t *testing.T) {
 	}
 }
 
-// failingReq runs hook inside SerializeCDR and then fails.
-type failingReq struct{ hook func() }
-
-func (r *failingReq) TypeName() string { return "x" }
-func (r *failingReq) TypeHash() string { return "y" }
-func (r *failingReq) SerializeCDR() ([]byte, error) {
-	r.hook()
-	return nil, errSerializerFailed
-}
-func (r *failingReq) DeserializeCDR([]byte) error { return nil }
-
 // A serializer error that follows the end of ctx returns the context error.
 func TestCallTypedContextEndedDuringFailingSerializeReturnsCtxErr(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	err := CallTypedContext(ctx, openTestClient(), &failingReq{hook: cancel}, &MockMessage{})
+	err := CallTypedContext(ctx, openTestClient(), failMsg(cancel), &MockMessage{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
@@ -377,7 +367,7 @@ func TestCallTypedContextEndedDuringFailingSerializeReturnsCtxErr(t *testing.T) 
 
 // Positive control: with a live context the serializer error comes back as it is.
 func TestCallTypedContextFailingSerializeReturnsSerializerError(t *testing.T) {
-	err := CallTypedContext(context.Background(), openTestClient(), &failingReq{hook: func() {}}, &MockMessage{})
+	err := CallTypedContext(context.Background(), openTestClient(), failMsg(func() {}), &MockMessage{})
 	if !errors.Is(err, errSerializerFailed) {
 		t.Fatalf("want the serializer error, got %v", err)
 	}

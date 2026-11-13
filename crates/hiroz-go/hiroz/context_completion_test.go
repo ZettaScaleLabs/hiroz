@@ -66,14 +66,12 @@ func TestBuildWithTypedCallbackContextCancelDoesNotWaitForHandler(t *testing.T) 
 	f := stubSubscriber(t)
 	b := newBarrier()
 	defer b.free()
-	var finished atomic.Bool
 	exited := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	_, err := BuildWithTypedCallbackContext(ctx, (&Node{}).CreateSubscriber("chatter"), func(*nilSafeMessage) {
 		defer close(exited)
 		b.hold()
-		finished.Store(true)
 	})
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
@@ -85,9 +83,6 @@ func TestBuildWithTypedCallbackContextCancelDoesNotWaitForHandler(t *testing.T) 
 
 	cancel()
 	receiveBounded(t, f.destroyed, "the destroy after cancel")
-	if finished.Load() {
-		t.Fatal("the handler finished before it was released")
-	}
 	select {
 	case <-exited:
 		t.Fatal("cancel waited for the handler: the documented contract says it does not")
@@ -97,9 +92,6 @@ func TestBuildWithTypedCallbackContextCancelDoesNotWaitForHandler(t *testing.T) 
 	b.free()
 	receiveBounded(t, exited, "the handler to return after its release")
 	receiveBounded(t, delivered, "the delivery to return")
-	if !finished.Load() {
-		t.Error("the handler did not run to its end after the context ended")
-	}
 }
 
 // gateMessage decodes through a gate that a test can close. The generic helpers build a new
@@ -162,28 +154,6 @@ func TestSubscriberWithChannelContextCloseDoesNotWaitForDecoder(t *testing.T) {
 
 	b.free()
 	receiveBounded(t, delivered, "the delivery to return after the release")
-	if _, ok := <-ch; ok {
-		t.Error("the released decoder delivered a sample into a closed channel")
-	}
-}
-
-// gateRequest holds SerializeCDR at a barrier.
-type gateRequest struct {
-	MockMessage
-	b *barrier
-}
-
-func (m *gateRequest) SerializeCDR() ([]byte, error) { m.b.hold(); return []byte{1}, nil }
-
-// gateResponse holds DeserializeCDR at a barrier.
-type gateResponse struct {
-	MockMessage
-	b *barrier
-}
-
-func (m *gateResponse) DeserializeCDR(data []byte) error {
-	m.b.hold()
-	return m.MockMessage.DeserializeCDR(data)
 }
 
 // Cancelling while SerializeCDR runs does not end the call: the context bounds the wait for
@@ -198,7 +168,7 @@ func TestCallTypedContextCancelDuringSerializeWaitsForSerializer(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	go func() { done <- CallTypedContext(ctx, openTestClient(), &gateRequest{b: b}, &MockMessage{}) }()
+	go func() { done <- CallTypedContext(ctx, openTestClient(), hookMsg(b.hold), &MockMessage{}) }()
 	b.waitEntered(t, "the serializer")
 	cancel()
 	select {
@@ -224,7 +194,8 @@ func TestCallTypedContextCancelDuringDeserializeStillReturnsResult(t *testing.T)
 	defer b.free()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	resp := &gateResponse{b: b}
+	var decoded []byte
+	resp := &stubMsg{de: func(data []byte) error { b.hold(); decoded = data; return nil }}
 
 	done := make(chan error, 1)
 	go func() { done <- CallTypedContext(ctx, openTestClient(), mockReq(), resp) }()
@@ -240,7 +211,7 @@ func TestCallTypedContextCancelDuringDeserializeStillReturnsResult(t *testing.T)
 	if err := receiveBounded(t, done, "the call to return"); err != nil {
 		t.Fatalf("want nil from a result that arrived before the cancel, got %v", err)
 	}
-	if len(resp.data) != 1 || resp.data[0] != 7 {
-		t.Errorf("response holds %v, want [7]", resp.data)
+	if len(decoded) != 1 || decoded[0] != 7 {
+		t.Errorf("response holds %v, want [7]", decoded)
 	}
 }

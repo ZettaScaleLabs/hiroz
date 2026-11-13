@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"runtime"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -122,82 +121,14 @@ func TestSendGoalContextCancelInFlightClosesHandle(t *testing.T) {
 	receiveBounded(t, closed, "Close to return")
 }
 
-// ownedGoal is a goal whose bytes the caller may change after a call returns. It counts the
-// serialisations so a test can tell when SerializeCDR ran.
-type ownedGoal struct {
-	mu    sync.Mutex
-	data  []byte
-	calls int
-}
-
-func (g *ownedGoal) TypeName() string { return "x" }
-func (g *ownedGoal) TypeHash() string { return "y" }
-func (g *ownedGoal) SerializeCDR() ([]byte, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.calls++
-	return append([]byte(nil), g.data...), nil
-}
-func (g *ownedGoal) DeserializeCDR([]byte) error { return nil }
-func (g *ownedGoal) set(b []byte) {
-	g.mu.Lock()
-	g.data = b
-	g.mu.Unlock()
-}
-func (g *ownedGoal) serialisations() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.calls
-}
-
-// SendGoalContext reads the goal before it returns. A caller that changes the goal after a
-// cancelled call must not change the goal that the C layer sends later.
-func TestSendGoalContextSerialisesBeforeReturn(t *testing.T) {
-	c := openTestActionClient()
-	goal := &ownedGoal{data: []byte{1}}
-	started := make(chan struct{})
-	release, free := newRelease(t)
-	sent := make(chan []byte, 1)
-	stubSendGoal(t, func(_ *ActionClient, b []byte) (*GoalHandle, error) {
-		close(started)
-		<-release
-		sent <- b // the C layer reads the goal bytes here
-		return nil, errors.New("stub")
-	})
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan error, 1)
-	go func() { _, err := c.SendGoalContext(ctx, goal); done <- err }()
-	receiveBounded(t, started, "the C layer to start")
-	cancel()
-	if err := receiveBounded(t, done, "the call to return"); !errors.Is(err, context.Canceled) {
-		t.Fatalf("want context.Canceled, got %v", err)
-	}
-	if n := goal.serialisations(); n != 1 {
-		t.Errorf("the goal was serialised %d times before the call returned, want 1", n)
-	}
-	goal.set([]byte{9}) // the caller reuses the goal
-	free()
-	if got := receiveBounded(t, sent, "the C layer to send"); len(got) != 1 || got[0] != 1 {
-		t.Errorf("the C layer sent %v, want the goal as it was at the call: [1]", got)
-	}
-	_ = c.Close()
-}
-
-// sharedGoal returns its own backing array from SerializeCDR, as a message that caches its
-// buffer does. The Message interface does not forbid this.
-type sharedGoal struct{ data []byte }
-
-func (g *sharedGoal) TypeName() string              { return "x" }
-func (g *sharedGoal) TypeHash() string              { return "y" }
-func (g *sharedGoal) SerializeCDR() ([]byte, error) { return g.data, nil }
-func (g *sharedGoal) DeserializeCDR([]byte) error   { return nil }
-
-// A goal that returns shared storage must not change what the C layer sends after the call
-// returned on cancel. SendGoalContext copies the bytes before the worker starts.
+// SendGoalContext serialises the goal once, before it returns. A goal that returns shared
+// storage must not change what the C layer sends after the call returned on cancel, so the
+// call copies the bytes before the worker starts.
 func TestSendGoalContextOwnsSerialisedBytes(t *testing.T) {
 	c := openTestActionClient()
-	goal := &sharedGoal{data: []byte{1, 2}}
+	data := []byte{1, 2}
+	var serialisations atomic.Int32
+	goal := &stubMsg{ser: func() ([]byte, error) { serialisations.Add(1); return data, nil }}
 	started := make(chan struct{})
 	release, free := newRelease(t)
 	sent := make(chan []byte, 1)
@@ -216,24 +147,16 @@ func TestSendGoalContextOwnsSerialisedBytes(t *testing.T) {
 	if err := receiveBounded(t, done, "the call to return"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
-	goal.data[0] = 9 // the caller reuses the goal storage in place
+	if n := serialisations.Load(); n != 1 {
+		t.Errorf("the goal was serialised %d times before the call returned, want 1", n)
+	}
+	data[0] = 9 // the caller reuses the goal storage in place
 	free()
 	if got := receiveBounded(t, sent, "the C layer to send"); len(got) != 2 || got[0] != 1 || got[1] != 2 {
 		t.Errorf("the C layer sent %v, want the goal as it was at the call: [1 2]", got)
 	}
 	_ = c.Close()
 }
-
-// hookGoal runs hook inside SerializeCDR, as user code does.
-type hookGoal struct{ hook func() }
-
-func (g *hookGoal) TypeName() string { return "x" }
-func (g *hookGoal) TypeHash() string { return "y" }
-func (g *hookGoal) SerializeCDR() ([]byte, error) {
-	g.hook()
-	return []byte{1}, nil
-}
-func (g *hookGoal) DeserializeCDR([]byte) error { return nil }
 
 // A panic in the caller's SerializeCDR propagates before the call registers, so it leaves no
 // registration behind and Close does not wait.
@@ -262,7 +185,7 @@ func TestSendGoalContextPanicInSerializeLeavesNoRegistration(t *testing.T) {
 	c := openTestActionClient()
 	func() {
 		defer func() { _ = recover() }()
-		_, _ = c.SendGoalContext(context.Background(), &hookGoal{hook: func() { panic("bad goal") }})
+		_, _ = c.SendGoalContext(context.Background(), hookMsg(func() { panic("bad goal") }))
 	}()
 	if !closeReturns(c) {
 		t.Fatal("Close is blocked: the panicking call left a registration")
@@ -279,7 +202,7 @@ func TestSendGoalContextSerializerMayCloseClient(t *testing.T) {
 	})
 	done := make(chan error, 1)
 	go func() {
-		_, err := c.SendGoalContext(context.Background(), &hookGoal{hook: func() { _ = c.Close() }})
+		_, err := c.SendGoalContext(context.Background(), hookMsg(func() { _ = c.Close() }))
 		done <- err
 	}()
 	if err := receiveBounded(t, done, "the call to return"); err == nil {
@@ -296,7 +219,7 @@ func TestSendGoalContextEndedDuringSerializeSendsNothing(t *testing.T) {
 		return nil, errors.New("stub")
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	h, err := c.SendGoalContext(ctx, &hookGoal{hook: cancel})
+	h, err := c.SendGoalContext(ctx, hookMsg(cancel))
 	if h != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled and no handle, got h=%v err=%v", h, err)
 	}
@@ -361,25 +284,14 @@ func TestGetResultWithContextCancelledBeatsClosedHandle(t *testing.T) {
 	}
 }
 
-// errSerializerFailed is the error that failingGoal and failingReq return.
+// errSerializerFailed is the error that failMsg returns.
 var errSerializerFailed = errors.New("serializer failed")
-
-// failingGoal runs hook inside SerializeCDR and then fails.
-type failingGoal struct{ hook func() }
-
-func (g *failingGoal) TypeName() string { return "x" }
-func (g *failingGoal) TypeHash() string { return "y" }
-func (g *failingGoal) SerializeCDR() ([]byte, error) {
-	g.hook()
-	return nil, errSerializerFailed
-}
-func (g *failingGoal) DeserializeCDR([]byte) error { return nil }
 
 // A serializer error that follows the end of ctx returns the context error.
 func TestSendGoalContextEndedDuringFailingSerializeReturnsCtxErr(t *testing.T) {
 	c := openTestActionClient()
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := c.SendGoalContext(ctx, &failingGoal{hook: cancel})
+	_, err := c.SendGoalContext(ctx, failMsg(cancel))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
@@ -389,7 +301,7 @@ func TestSendGoalContextEndedDuringFailingSerializeReturnsCtxErr(t *testing.T) {
 // Positive control: with a live context the serializer error comes back as it is.
 func TestSendGoalContextFailingSerializeReturnsSerializerError(t *testing.T) {
 	c := openTestActionClient()
-	_, err := c.SendGoalContext(context.Background(), &failingGoal{hook: func() {}})
+	_, err := c.SendGoalContext(context.Background(), failMsg(func() {}))
 	if !errors.Is(err, errSerializerFailed) {
 		t.Fatalf("want the serializer error, got %v", err)
 	}
@@ -574,9 +486,8 @@ func TestActionClientCloseWaitsForRegisteredCancel(t *testing.T) {
 func cancelInto(h *GoalHandle, done chan<- error) { done <- h.Cancel() }
 
 // Cancel keeps the goal handle alive for the whole C call, also when the call fails: the
-// handle finalizer destroys the C handle that the call reads. Today the status update after
-// the call keeps the handle live on every path. This test fails if that line and the
-// runtime.KeepAlive call both go.
+// handle finalizer destroys the C handle that the call reads. The stub fails the call, which
+// leaves before any status update, so only runtime.KeepAlive keeps the handle live here.
 func TestGoalHandleCancelKeepsGoalHandleAliveDuringCall(t *testing.T) {
 	c := openTestActionClient()
 	started := make(chan struct{})

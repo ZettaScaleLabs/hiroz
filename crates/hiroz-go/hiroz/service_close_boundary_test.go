@@ -6,23 +6,6 @@ import (
 	"time"
 )
 
-// blockingDecoder is a response whose DeserializeCDR runs until the test releases it.
-type blockingDecoder struct {
-	entered chan struct{}
-	release <-chan struct{}
-	exited  chan struct{}
-}
-
-func (d *blockingDecoder) TypeName() string              { return "x" }
-func (d *blockingDecoder) TypeHash() string              { return "y" }
-func (d *blockingDecoder) SerializeCDR() ([]byte, error) { return nil, nil }
-func (d *blockingDecoder) DeserializeCDR([]byte) error {
-	close(d.entered)
-	<-d.release
-	close(d.exited)
-	return nil
-}
-
 // closeResult runs Close on its own goroutine and reports when it returned.
 func closeResult(c *ServiceClient) <-chan struct{} {
 	ch := make(chan struct{})
@@ -62,19 +45,20 @@ func TestServiceClientCloseDoesNotWaitForDecoder(t *testing.T) {
 	c := openTestClient()
 	stubServiceCall(t, func([]byte, uint64) ([]byte, int32) { return []byte{1}, 0 })
 	release, free := newRelease(t)
-	dec := &blockingDecoder{entered: make(chan struct{}), release: release, exited: make(chan struct{})}
+	entered, exited := make(chan struct{}), make(chan struct{})
+	dec := &stubMsg{de: func([]byte) error { close(entered); <-release; close(exited); return nil }}
 	done := make(chan error, 1)
 	go func() { done <- CallTypedContext(context.Background(), c, mockReq(), dec) }()
-	receiveBounded(t, dec.entered, "the decoder to start")
+	receiveBounded(t, entered, "the decoder to start")
 
 	receiveBounded(t, closeResult(c), "Close to return while the decoder is blocked")
 	select {
-	case <-dec.exited:
+	case <-exited:
 		t.Fatal("the decoder returned before the test released it")
 	default:
 	}
 	free()
-	receiveBounded(t, dec.exited, "the decoder to return after release")
+	receiveBounded(t, exited, "the decoder to return after release")
 	if err := receiveBounded(t, done, "the call to return"); err != nil {
 		t.Fatalf("the call returned %v after Close, want nil", err)
 	}
