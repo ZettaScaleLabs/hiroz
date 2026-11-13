@@ -25,14 +25,19 @@ use std::path::Path;
 const CONTEXT_RS: &str = "../rmw-zenoh-rs/src/context.rs";
 const CALL: &str = "hiroz::malloc_pin::pin_large_message_thresholds()";
 
-/// `src` without its block comments, nested ones included. Newlines stay, so line numbers do not
-/// move. A `/*` inside a string literal is not told apart from a comment.
+/// `src` without its block comments, nested ones included. A `/*` inside a `//` comment does not
+/// open one. Newlines stay, so line numbers do not move. A `/*` inside a string literal is not
+/// told apart from a comment.
 fn strip_block_comments(src: &str) -> String {
     let b = src.as_bytes();
     let mut out = String::with_capacity(src.len());
     let (mut i, mut depth) = (0, 0usize);
     while i < b.len() {
-        if b[i..].starts_with(b"/*") {
+        if depth == 0 && b[i..].starts_with(b"//") {
+            let end = src[i..].find('\n').map_or(src.len(), |n| i + n);
+            out.push_str(&src[i..end]);
+            i = end;
+        } else if b[i..].starts_with(b"/*") {
             depth += 1;
             i += 2;
         } else if depth > 0 && b[i..].starts_with(b"*/") {
