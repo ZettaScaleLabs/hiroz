@@ -1,9 +1,8 @@
 //! File-wide count of the allocator pin call in `context.rs`.
 //!
 //! `rmw-zenoh-rs` needs ROS headers to build, so this test reads its source instead of calling
-//! `rmw_init`. It counts the lines of `context.rs` that contain the full path
-//! `hiroz::malloc_pin::pin_large_message_thresholds()`. It asserts that exactly one line
-//! matches.
+//! `rmw_init`. It counts the occurrences in `context.rs` of the full path
+//! `hiroz::malloc_pin::pin_large_message_thresholds()`. It asserts that exactly one matches.
 //!
 //! The test fails in these cases:
 //! - The call is removed.
@@ -64,7 +63,8 @@ fn strip_comments(src: &str) -> String {
         .join("\n")
 }
 
-/// Lines of `src` that call the pin, ignoring line and block comments.
+/// Line of each call to the pin in `src`, ignoring line and block comments. A line with two
+/// calls appears twice.
 fn pin_calls(src: &str) -> Vec<usize> {
     strip_comments(src)
         .lines()
@@ -164,4 +164,10 @@ fn block_delimiters_inside_line_comments_do_not_start_a_comment() {
     assert_eq!(pin_calls(&src), vec![2]);
     let src = format!("// /*\n// */ {CALL};\n");
     assert!(pin_calls(&src).is_empty());
+}
+
+#[test]
+fn two_calls_on_one_line_count_twice() {
+    let src = format!("let _ = {CALL}; match {CALL} {{ _ => {{}} }}\n");
+    assert_eq!(pin_calls(&src), vec![1, 1]);
 }
