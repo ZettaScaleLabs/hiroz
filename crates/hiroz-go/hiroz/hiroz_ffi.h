@@ -26,6 +26,15 @@
 #define hiroz_BUFFER_FIELDS_PRESENT 2
 
 /**
+ * How many consecutive acquire attempts a slot must be unavailable for before
+ * it is reported as stuck.
+ *
+ * Under synchronous delivery a slot returns before the next send, so a slot
+ * that is busy this often is being *held*, not merely in flight.
+ */
+#define hiroz_STUCK_AFTER 64
+
+/**
  * Default depth for `KeepLast` when SYSTEM_DEFAULT (depth=0) is used.
  * Matches rclcpp's default of 10. Note this is distinct from
  * [`KEEP_ALL_CACHE_DEPTH`] below, which is the rmw_zenoh-aligned cap
