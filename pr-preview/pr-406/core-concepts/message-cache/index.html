@@ -2867,7 +2867,7 @@
 </tr>
 <tr>
 <td><code>with_locality(locality)</code></td>
-<td>Restricts the cache to publishers of one locality: <code>Locality::SessionLocal</code> (the same session), <code>Locality::Remote</code> or <code>Locality::Any</code>. The default is <code>Any</code>. The restriction applies to live samples. A <code>TransientLocal</code> cache still receives the history of publishers outside the locality.</td>
+<td>Restricts the cache to publishers of one locality: <code>Locality::SessionLocal</code> (the same session), <code>Locality::Remote</code> or <code>Locality::Any</code>. The default is <code>Any</code>. The restriction applies to live samples only. See the rustdoc of <code>ZPubBuilder::with_locality</code> for <code>TransientLocal</code> history.</td>
 </tr>
 <tr>
 <td><code>with_encoding(encoding)</code></td>
