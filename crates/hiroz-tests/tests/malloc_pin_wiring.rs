@@ -69,8 +69,7 @@ fn pin_calls(src: &str) -> Vec<usize> {
     strip_comments(src)
         .lines()
         .enumerate()
-        .filter(|(_, l)| l.contains(CALL))
-        .map(|(i, _)| i + 1)
+        .flat_map(|(i, l)| std::iter::repeat_n(i + 1, l.matches(CALL).count()))
         .collect()
 }
 
