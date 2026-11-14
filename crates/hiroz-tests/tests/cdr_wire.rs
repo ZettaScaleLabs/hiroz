@@ -84,9 +84,10 @@ fn dynamic_nested_empty_messages_take_one_byte_each() {
 }
 
 fn descriptor_with(ranges: usize) -> ParameterDescriptor {
-    let mut d = ParameterDescriptor::default();
-    d.integer_range = vec![IntegerRange::default(); ranges];
-    d
+    ParameterDescriptor {
+        integer_range: vec![IntegerRange::default(); ranges],
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -113,7 +114,7 @@ fn dynamic_bounded_sequence_rejects_a_count_over_the_maximum() {
         if n > 0 {
             v.extend_from_slice(&[0; 4]); // f64 starts on an 8-byte boundary
         }
-        v.extend(std::iter::repeat(0u8).take(8 * n as usize));
+        v.extend(std::iter::repeat_n(0u8, 8 * n as usize));
         sample(&v)
     };
     DynamicMessage::from_cdr(&f64s(3), &floats).expect("a count at the maximum decodes");
