@@ -179,7 +179,10 @@ fn lifecycle_empty_requests_take_one_byte() {
 
     fn check<T>(request: T)
     where
-        T: hiroz_cdr::CdrSerialize + hiroz_cdr::CdrDeserialize + hiroz_cdr::CdrSerializedSize,
+        T: hiroz_cdr::CdrSerialize
+            + hiroz_cdr::CdrDeserialize
+            + hiroz_cdr::CdrSerializedSize
+            + std::fmt::Debug,
     {
         let bytes = NativeCdrSerdes::<T>::serialize(&request);
         assert_eq!(bytes, sample(&[0]));
