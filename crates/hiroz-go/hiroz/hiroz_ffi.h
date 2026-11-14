@@ -26,11 +26,14 @@
 #define hiroz_BUFFER_FIELDS_PRESENT 2
 
 /**
- * How many consecutive acquire attempts a slot must be unavailable for before
- * it is reported as stuck.
+ * How many consecutive times `acquire` must find a slot unavailable before it
+ * is reported as stuck.
  *
- * Under synchronous delivery a slot returns before the next send, so a slot
- * that is busy this often is being *held*, not merely in flight.
+ * `acquire` stops at the first free slot, so it visits a held slot about once
+ * per rotation, not once per call: with `n` slots expect the report after
+ * roughly `STUCK_AFTER * (n - 1)` acquires. Under synchronous delivery a slot
+ * returns before the next send, so a slot that is busy this often is being
+ * *held*, not merely in flight.
  */
 #define hiroz_STUCK_AFTER 64
 
