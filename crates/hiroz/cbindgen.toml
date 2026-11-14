@@ -5,6 +5,8 @@ cpp_compat = true
 
 [export]
 prefix = "hiroz_"
+# Tuning constants of the allocator pin: Rust-only, not part of the C interface.
+exclude = ["MMAP_THRESHOLD", "TRIM_THRESHOLD"]
 
 [export.rename]
 "CContext" = "context_t"
