@@ -160,8 +160,8 @@ func (s *Subscriber) setOnClose(f func()) {
 // not permission to release what the handler uses, and there is no completion signal: make
 // the handler safe to run after cancel, for example by guarding shared state with a lock and
 // a flag that the handler checks. If ctx has already ended, the call returns ctx.Err() and
-// creates no subscriber. Closing the subscriber earlier is safe: it also releases the
-// registration on ctx.
+// creates no subscriber. A nil handler returns an error and creates no subscriber. Closing
+// the subscriber earlier is safe: it also releases the registration on ctx.
 //
 // Known limit: neither cancel nor Close releases the handler. The underlying subscriber keeps
 // it reachable until the process ends, together with what it captures. Releasing it after the
@@ -174,6 +174,9 @@ func (s *Subscriber) setOnClose(f func()) {
 func BuildWithTypedCallbackContext[T Message](ctx context.Context, builder *SubscriberBuilder, handler TypedMessageHandler[T]) (*Subscriber, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if handler == nil {
+		return nil, fmt.Errorf("callback handler cannot be nil")
 	}
 	sub, err := BuildWithTypedCallback(builder, handler)
 	if err != nil {
@@ -213,6 +216,9 @@ func BuildWithTypedCallbackContext[T Message](ctx context.Context, builder *Subs
 //
 //	sub, ch, err := hiroz.SubscriberWithChannelContext[*std_msgs.String](
 //	    ctx, node.CreateSubscriber("chatter"), 10)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
 //	for msg := range ch {
 //	    log.Printf("Received: %s", msg.Data)
 //	}
