@@ -1707,11 +1707,8 @@ fn remote_publisher_owned_publish_reaches_no_one_of_two_owned_receivers() -> hir
     Ok(())
 }
 
-/// The headline of this PR is that `publish` dispatches on ownership, and until
-/// now nothing exercised it: every test called `publish_shared`/`publish_ref`
-/// directly, so the trait impls could regress without a single failure.
-///
-/// `&T` must take the wire and `Arc<T>` the bus, and both must report it.
+/// `publish` dispatches on ownership: `&T` takes the wire and `Arc<T>` the
+/// bus, and each reports the route it took. The `Arc` arrives unchanged.
 #[test]
 fn ownership_selects_the_route_through_the_generic_publish() -> hiroz::Result<()> {
     let router = TestRouter::new();
@@ -1719,10 +1716,13 @@ fn ownership_selects_the_route_through_the_generic_publish() -> hiroz::Result<()
     let node = ctx.create_node("dispatch").build()?;
 
     let hits = Arc::new(AtomicUsize::new(0));
+    let received: Arc<Mutex<Vec<Arc<RosString>>>> = Arc::new(Mutex::new(Vec::new()));
     let h = hits.clone();
+    let r = received.clone();
     let _sub = node
         .create_sub::<RosString>("dispatch_topic")
-        .build_with_shared_callback(move |_m: Arc<RosString>| {
+        .build_with_shared_callback(move |m: Arc<RosString>| {
+            r.lock().expect("lock").push(m);
             h.fetch_add(1, Ordering::SeqCst);
         })?;
 
@@ -1733,9 +1733,10 @@ fn ownership_selects_the_route_through_the_generic_publish() -> hiroz::Result<()
     wait_for_ready(Duration::from_millis(300));
 
     // Arc<T> -> the bus, through the trait rather than publish_shared.
-    let shared = publisher.publish(Arc::new(RosString {
+    let sent = Arc::new(RosString {
         data: "by arc".to_owned(),
-    }))?;
+    });
+    let shared = publisher.publish(Arc::clone(&sent))?;
     assert_eq!(
         shared,
         Published::Bus(Delivery::Sent(1)),
@@ -1746,9 +1747,13 @@ fn ownership_selects_the_route_through_the_generic_publish() -> hiroz::Result<()
         1,
         "the bus subscriber must be served"
     );
+    assert!(
+        Arc::ptr_eq(&sent, &received.lock().expect("lock")[0]),
+        "the subscriber got a copy, not the published allocation"
+    );
 
-    // &T -> the wire. On an intra-process-only publisher there is no wire, so
-    // the route is observable as the *absence* of a second bus delivery.
+    // &T -> the wire, on a plain publisher for another topic. The subscriber
+    // above does not listen there, so its count must not move.
     let wire_pub = node.create_pub::<RosString>("dispatch_wire").build()?;
     let borrowed = wire_pub.publish(&RosString {
         data: "by reference".to_owned(),
