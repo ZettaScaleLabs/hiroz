@@ -478,7 +478,7 @@ pub struct MessageLossTracker {
 /// publisher heard from least recently loses its baseline. After that, its
 /// next sample is a new baseline: it raises no loss, and a gap that fell inside
 /// the eviction goes unreported.
-pub(crate) const MAX_TRACKED_PUBLISHERS: usize = 1024;
+const MAX_TRACKED_PUBLISHERS: usize = 1024;
 
 /// Last sequence number per publisher, with the tick of the latest arrival.
 struct Baselines {
@@ -492,7 +492,7 @@ impl MessageLossTracker {
         Self::with_capacity(events_mgr, MAX_TRACKED_PUBLISHERS)
     }
 
-    pub(crate) fn with_capacity(events_mgr: Arc<Mutex<EventsManager>>, capacity: usize) -> Self {
+    fn with_capacity(events_mgr: Arc<Mutex<EventsManager>>, capacity: usize) -> Self {
         Self {
             events_mgr,
             last_seen: Mutex::new(Baselines {
