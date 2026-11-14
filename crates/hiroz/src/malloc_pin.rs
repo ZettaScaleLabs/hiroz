@@ -7,9 +7,11 @@
 //! process.
 //!
 //! Scope:
-//! - Only `rmw_init` in `rmw-zenoh-rs` applies the pin. `hiroz` does not call it. An
-//!   application that uses `hiroz` directly must call
-//!   [`crate::malloc_pin::pin_large_message_thresholds`] itself.
+//! - This module is internal to the hiroz crates and not part of the public API. It is hidden
+//!   from the documentation and carries no stability promise. It is `pub` only because
+//!   `rmw-zenoh-rs` and the test crate call it.
+//! - Only `rmw_init` in `rmw-zenoh-rs` applies the pin. `hiroz` does not call it, so a native
+//!   hiroz application gets no pin.
 //! - The pin changes the allocator of the whole process and overrides any earlier `mallopt`
 //!   call of the host application. It detects only the environment variables
 //!   `MALLOC_TRIM_THRESHOLD_` and `MALLOC_MMAP_THRESHOLD_`, not `GLIBC_TUNABLES`.
@@ -111,7 +113,7 @@ pub fn pin_large_message_thresholds() -> PinOutcome {
 }
 
 /// The decision of the pin, with the `mallopt` call injected. A test uses it to drive the
-/// rejection path without a glibc that rejects. Applications call
+/// rejection path without a glibc that rejects. Production code calls
 /// [`pin_large_message_thresholds`] instead.
 ///
 /// `mallopt` takes the glibc parameter number and the value, and returns 1 on success and 0 on
