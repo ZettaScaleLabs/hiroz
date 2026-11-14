@@ -188,6 +188,27 @@ impl<T: ZMessage, S: ZSerializer> std::fmt::Debug for ZPub<T, S> {
 /// impl the suggestion does not compile.
 ///
 /// Give a message away by name with [`ZPub::publish_moved`].
+///
+/// # Sealed
+///
+/// The trait is sealed: only `&T` and `Arc<T>` implement it, so a downstream
+/// type cannot add a route.
+///
+/// ```compile_fail,E0277
+/// use hiroz::{
+///     local_bus::Published,
+///     msg::{ZMessage, ZSerializer},
+///     pubsub::{Publishable, ZPub},
+/// };
+///
+/// struct Mine;
+///
+/// impl<T: ZMessage, S: ZSerializer> Publishable<T, S> for Mine {
+///     fn publish_to(self, _: &ZPub<T, S>) -> hiroz::Result<Published> {
+///         unimplemented!()
+///     }
+/// }
+/// ```
 pub trait Publishable<T: ZMessage, S: ZSerializer>: Sized {
     /// Publish `self` through `publisher`, by the route its ownership selects.
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published>;
