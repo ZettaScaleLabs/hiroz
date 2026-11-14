@@ -16,9 +16,11 @@ pub struct Strings {
     pub bounded_string_value: ::std::string::String,
     pub unbounded_string_array: ::std::vec::Vec<::std::string::String>,
     pub string_array_three: [::std::string::String; 3],
+    #[serde(deserialize_with = "::hiroz_cdr::deserialize_bounded::<_, _, 3>")]
     pub bounded_string_sequence: ::std::vec::Vec<::std::string::String>,
     pub unbounded_bounded_string_array: ::std::vec::Vec<::std::string::String>,
     pub bounded_string_array_three: [::std::string::String; 3],
+    #[serde(deserialize_with = "::hiroz_cdr::deserialize_bounded::<_, _, 3>")]
     pub bounded_string_bounded_sequence: ::std::vec::Vec<::std::string::String>,
 }
 impl Strings {}
@@ -190,7 +192,7 @@ impl ::hiroz_cdr::CdrDeserialize for Strings {
             __v
         };
         let string_array_three: [::std::string::String; 3] = {
-            let mut __arr = [Default::default(); 3];
+            let mut __arr: [::std::string::String; 3] = ::std::array::from_fn(|_| Default::default());
             for __slot in __arr.iter_mut() {
                 *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
             }
@@ -213,7 +215,7 @@ impl ::hiroz_cdr::CdrDeserialize for Strings {
             __v
         };
         let bounded_string_array_three: [::std::string::String; 3] = {
-            let mut __arr = [Default::default(); 3];
+            let mut __arr: [::std::string::String; 3] = ::std::array::from_fn(|_| Default::default());
             for __slot in __arr.iter_mut() {
                 *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
             }
