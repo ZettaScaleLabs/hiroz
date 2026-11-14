@@ -1752,21 +1752,24 @@ fn ownership_selects_the_route_through_the_generic_publish() -> hiroz::Result<()
         "the subscriber got a copy, not the published allocation"
     );
 
-    // &T -> the wire, on a plain publisher for another topic. The subscriber
-    // above does not listen there, so its count must not move.
-    let wire_pub = node.create_pub::<RosString>("dispatch_wire").build()?;
-    let borrowed = wire_pub.publish(&RosString {
-        data: "by reference".to_owned(),
-    })?;
+    // &T -> the wire, even on this intra-process-only publisher. The wire copy
+    // reaches the same subscriber through deserialization, so it is a
+    // different allocation.
+    let borrowed = publisher.publish(&*sent)?;
     assert_eq!(
         borrowed,
         Published::Wire,
         "a &T argument must select the wire, got {borrowed:?}"
     );
-    assert_eq!(
-        hits.load(Ordering::SeqCst),
-        1,
-        "the borrowed publish must not have reached the bus subscriber"
+    assert!(
+        wait_until(|| hits.load(Ordering::SeqCst) == 2),
+        "the wire copy of the borrowed message never arrived"
     );
+    let got = received.lock().expect("lock");
+    assert!(
+        !Arc::ptr_eq(&sent, &got[1]),
+        "the borrowed publish reached the subscriber as the same allocation, so it took the bus"
+    );
+    assert_eq!(got[1].data, "by arc");
     Ok(())
 }
