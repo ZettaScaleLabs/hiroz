@@ -53,6 +53,17 @@ fn observe_loss(loss: &MessageLossTracker, sample: &Sample) {
     loss.observe(attachment.source_gid, attachment.sequence_number);
 }
 
+/// The checks that every subscriber build path runs on an arriving sample, before it reaches the
+/// user's callback: message loss and encoding. One function keeps the paths in step.
+fn check_sample(
+    loss: &MessageLossTracker,
+    expected: Option<&crate::encoding::Encoding>,
+    sample: &Sample,
+) {
+    observe_loss(loss, sample);
+    warn_on_encoding_mismatch(expected, sample);
+}
+
 /// Log a warning when `sample` carries a known encoding that differs from `expected`. A sample
 /// with an encoding that hiroz does not know is only logged at debug level, and no check runs
 /// without an expected encoding. The check never rejects a sample. Every subscriber build
@@ -552,13 +563,12 @@ where
     /// the publisher's own session does not count, because the publisher does not deliver to it.
     /// With `Locality::SessionLocal`, only subscribers on the publisher's own session count.
     ///
-    /// The count is of the topic's subscribers that the publisher's locality admits. With
-    /// `Locality::Remote`, a same-session subscriber built with
+    /// With `Locality::Remote`, a same-session subscriber built with
     /// [`build_with_shared_callback`](ZSubBuilder::build_with_shared_callback) or
     /// [`build_with_owned_callback`](ZSubBuilder::build_with_owned_callback) is not counted, although
     /// [`publish_shared`](Self::publish_shared) and [`publish_owned`](Self::publish_owned) can serve
-    /// it on the bus. It registers on the bus when it is built, so a caller of those methods has
-    /// nothing to wait for.
+    /// it on the bus. It registers on the bus when it is built, unless its own locality is
+    /// `Remote`, so a caller of those methods has nothing to wait for.
     ///
     /// Returns `true` if the required number of subscribers appeared within the
     /// timeout, `false` otherwise.
@@ -1220,8 +1230,7 @@ where
         let loss = MessageLossTracker::new(events_mgr.clone());
         let expected_encoding = self.expected_encoding.clone();
         let shared = Arc::new(move |sample: Sample| {
-            observe_loss(&loss, &sample);
-            warn_on_encoding_mismatch(expected_encoding.as_ref(), &sample);
+            check_sample(&loss, expected_encoding.as_ref(), &sample);
             callback(sample)
         });
         let group_sub = declare_group_subscription(
@@ -1316,8 +1325,7 @@ where
 
         let expected_encoding = self.expected_encoding.clone();
         let validated_handler = move |sample: Sample| {
-            observe_loss(&loss, &sample);
-            warn_on_encoding_mismatch(expected_encoding.as_ref(), &sample);
+            check_sample(&loss, expected_encoding.as_ref(), &sample);
             handler.handle(sample)
         };
 

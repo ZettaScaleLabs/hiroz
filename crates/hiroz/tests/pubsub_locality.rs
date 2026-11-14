@@ -9,8 +9,6 @@ use hiroz::Builder;
 use hiroz_msgs::std_msgs::String as RosString;
 use zenoh::sample::Locality;
 
-/// `wait_for_subscription` counts only the subscribers the publisher's locality admits.
-///
 /// One session holds a subscriber and a `Locality::Remote` publisher. The publisher delivers to
 /// nobody, so it must not report a subscriber as ready. Control in the same test: an unrestricted
 /// publisher on the same topic reports the subscriber ready, so a graph that never shows the

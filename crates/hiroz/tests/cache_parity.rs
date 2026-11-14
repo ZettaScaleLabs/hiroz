@@ -231,11 +231,12 @@ fn cache_with_a_stamp_extractor_reports_message_loss() {
 
 /// The locality of a cache restricts the buffer-group subscription as well as the topic one.
 ///
-/// Both caches join the CPU buffer group. A plain put on the group key of the topic from the
-/// cache's own session reaches the cache with the default locality and must not reach the cache
-/// that accepts remote publishers only. Controls in the same test: the default cache stores that
-/// put, and the restricted cache stores a put on the group key from another session, so the
-/// empty cache is the locality and not a group key that nobody reads.
+/// Both caches join the CPU buffer group. A plain put on the group key from the cache's own
+/// session must reach the default cache and must not reach the remote-only cache.
+///
+/// Controls in the same test: the default cache stores that put. The remote-only cache stores a
+/// put on the group key from another session. So the empty cache is the locality, and not a group
+/// key that nobody reads.
 #[test]
 fn cache_locality_covers_the_buffer_group_key() {
     const TOPIC: &str = "cache_parity_group_locality";
