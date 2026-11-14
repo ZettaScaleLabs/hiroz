@@ -1,0 +1,16 @@
+error[E0277]: the trait bound `&Wrapper<'_>: Publishable<hiroz_msgs::std_msgs::String, NativeCdrSerdes<hiroz_msgs::std_msgs::String>>` is not satisfied
+  --> tests/ui/fail_deref_wrapper.rs:20:23
+   |
+20 |     let _ = p.publish(w);
+   |               ------- ^ the trait `Publishable<hiroz_msgs::std_msgs::String, NativeCdrSerdes<hiroz_msgs::std_msgs::String>>` is not implemented for `&Wrapper<'_>`
+   |               |
+   |               required by a bound introduced by this call
+   |
+   = help: the following other types implement trait `Publishable<T, S>`:
+             &T
+             Arc<T>
+note: required by a bound in `ZPub::<T, S>::publish`
+  --> $WORKSPACE/crates/hiroz/src/pubsub.rs
+   |
+   |     pub fn publish(&self, msg: impl Publishable<T, S>) -> Result<Published> {
+   |                                     ^^^^^^^^^^^^^^^^^ required by this bound in `ZPub::<T, S>::publish`
