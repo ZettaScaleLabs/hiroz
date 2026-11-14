@@ -260,40 +260,6 @@ func TestCallTypedContextTimeoutAfterDeadlineIsDeadlineExceeded(t *testing.T) {
 	t.Fatal("the deadline passed before the call started in every attempt")
 }
 
-// A server that becomes visible while the context ends makes the C wait return 0. The
-// context ended first, so the call returns the context error and not success.
-func TestWaitForServiceContextCancelDuringWaitWinsOverReady(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	stubServiceWait(t, func(uint64) int32 {
-		cancel()
-		return 0
-	})
-	err := openTestClient().WaitForServiceContext(ctx)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("want context.Canceled, got %v", err)
-	}
-}
-
-// Close that starts while the C wait runs must not read as a ready service when the wait
-// returns 0 afterwards.
-func TestWaitForServiceContextCloseDuringWaitWinsOverReady(t *testing.T) {
-	c := openTestClient()
-	closed := make(chan struct{})
-	stubServiceWait(t, func(uint64) int32 {
-		go func() { _ = c.Close(); close(closed) }()
-		receiveBounded(t, c.inflight.quitting(), "Close to start")
-		return 0
-	})
-	err := c.WaitForServiceContext(context.Background())
-	if err == nil {
-		t.Fatal("want an error that says the client is closed, got success")
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("close must not read as a context error: %v", err)
-	}
-	receiveBounded(t, closed, "Close to return")
-}
-
 // A request that returns shared storage must not change what the C layer sends after the call
 // returned on cancel. callRawContext copies the bytes before the worker starts.
 func TestCallTypedContextOwnsSerialisedBytes(t *testing.T) {

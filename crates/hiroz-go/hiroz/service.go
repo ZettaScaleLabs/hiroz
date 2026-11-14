@@ -242,10 +242,6 @@ func (c *ServiceClient) callRawContext(ctx context.Context, requestBytes []byte)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case r := <-ch:
-		// When both ctx.Done and ch are ready, select picks either one. An ended context wins.
-		if cerr := ctx.Err(); cerr != nil {
-			return nil, cerr
-		}
 		if dl, ok := ctx.Deadline(); ok && errors.Is(r.err, ErrTimeout) && !time.Now().Before(dl) {
 			return nil, context.DeadlineExceeded
 		}
@@ -367,16 +363,6 @@ func (c *ServiceClient) WaitForServiceContext(ctx context.Context) error {
 			return context.DeadlineExceeded
 		}
 		rc := serviceWait(h, timeoutMs)
-		// A cancel or a Close that came while the C wait ran ends the call, even when the C
-		// wait then found the server.
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		select {
-		case <-quit:
-			return fmt.Errorf("service client is closed")
-		default:
-		}
 		if rc == 0 {
 			return nil
 		}
