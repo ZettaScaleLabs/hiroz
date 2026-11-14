@@ -209,9 +209,15 @@ impl<T: ZMessage, S: ZSerializer> std::fmt::Debug for ZPub<T, S> {
 ///     }
 /// }
 /// ```
-pub trait Publishable<T: ZMessage, S: ZSerializer>: Sized {
+pub trait Publishable<T: ZMessage, S: ZSerializer>: sealed::Sealed + Sized {
     /// Publish `self` through `publisher`, by the route its ownership selects.
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published>;
+}
+
+mod sealed {
+    pub trait Sealed {}
+    impl<T> Sealed for &T {}
+    impl<T> Sealed for std::sync::Arc<T> {}
 }
 
 impl<T, S> Publishable<T, S> for &T
