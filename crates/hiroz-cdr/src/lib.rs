@@ -25,6 +25,26 @@ pub mod zbuf_writer;
 
 use std::cell::RefCell;
 
+/// Deserialize a bounded sequence: a `Vec` with at most `MAX` elements. A longer sequence is an
+/// error. Generated message types name it in `#[serde(deserialize_with = ...)]`.
+pub fn deserialize_bounded<'de, D, T, const MAX: usize>(
+    deserializer: D,
+) -> std::result::Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    use serde::de::Error;
+    let values = <Vec<T> as serde::Deserialize>::deserialize(deserializer)?;
+    if values.len() > MAX {
+        return Err(D::Error::custom(format!(
+            "Sequence length {} exceeds the declared maximum ({MAX})",
+            values.len()
+        )));
+    }
+    Ok(values)
+}
+
 // Thread-local for zero-copy ZBuf deserialization bypass.
 // When set with the source payload ZBuf, ZBuf::Deserialize creates sub-ZSlices
 // instead of copying bytes, enabling zero-copy deserialization.

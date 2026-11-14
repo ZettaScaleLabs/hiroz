@@ -385,9 +385,10 @@ fn generate_cdr_deserialize_field(
                     };
                 }
             } else {
+                // `[x; N]` needs `Copy`, which a String or an empty message lacks.
                 quote! {
                     let #fname: #rust_elem_ty = {
-                        let mut __arr = [Default::default(); #n_lit];
+                        let mut __arr: #rust_elem_ty = ::std::array::from_fn(|_| Default::default());
                         for __slot in __arr.iter_mut() {
                             *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
                         }
@@ -752,20 +753,23 @@ fn generate_field_def_with_context(
     // Check if this is a ZBuf field (for Python bridge attribute)
     let is_zbuf = is_zbuf_field(field);
 
-    // Add attributes for large fixed arrays (>32 elements)
-    let serde_attributes = if let ArrayType::Fixed(n) = &field.field_type.array {
-        if *n > 32 {
+    // Add attributes for large fixed arrays (>32 elements), and the maximum of a bounded sequence
+    let serde_attributes = match &field.field_type.array {
+        ArrayType::Fixed(n) if *n > 32 => {
             // Generate a default value code string for the array
             let default_code = generate_array_default_code(&field.field_type, *n)?;
             quote! {
                 #[serde(with = "serde_big_array::BigArray")]
                 #[default(_code = #default_code)]
             }
-        } else {
-            quote! {}
         }
-    } else {
-        quote! {}
+        ArrayType::Bounded(max) => {
+            let decoder = format!("::hiroz_cdr::deserialize_bounded::<_, _, {max}>");
+            quote! {
+                #[serde(deserialize_with = #decoder)]
+            }
+        }
+        _ => quote! {},
     };
 
     // Add Python bridge attribute for ZBuf fields
