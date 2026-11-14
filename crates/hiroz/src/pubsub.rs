@@ -181,21 +181,13 @@ impl<T: ZMessage, S: ZSerializer> std::fmt::Debug for ZPub<T, S> {
 ///
 /// # Why there is no impl for `T`
 ///
-/// There was one, routing to [`ZPub::publish_moved`]. It was removed because it
-/// turned a correct lint into a silent reroute.
-///
 /// `clippy::needless_borrows_for_generic_args` fires on `publish(&expr)` when
 /// the unborrowed expression also satisfies the bound, and suggests dropping
-/// the `&`. With an impl for `T` that suggestion selects a different impl and
-/// moves the message from the wire to the intra-process bus, with no error and
-/// no failing test. This repository gates on `-D warnings`, so a contributor
-/// would be told to make that change.
+/// the `&`. An impl for `T` would make that suggestion select a different impl
+/// and move the message from the wire to the bus, with no error. Without the
+/// impl the suggestion does not compile.
 ///
-/// Measured: with the impl present the lint fires twice and clippy fails; with
-/// it removed the same call site compiles and clippy passes with no errors.
-///
-/// The moved route is still available, by name, as [`ZPub::publish_moved`] —
-/// which is the clearer spelling for a call that gives the message away.
+/// Give a message away by name with [`ZPub::publish_moved`].
 pub trait Publishable<T: ZMessage, S: ZSerializer>: Sized {
     /// Publish `self` through `publisher`, by the route its ownership selects.
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published>;
@@ -218,10 +210,7 @@ where
     S: for<'a> ZSerializer<Input<'a> = &'a T> + 'static,
 {
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published> {
-        // `publish_shared` reports the route itself, so there is nothing to
-        // reconstruct here. It used to return a count, which could not say
-        // whether a zero meant "the bus had no taker" or "there is no bus on
-        // this publisher".
+        // `publish_shared` reports the route itself.
         publisher.publish_shared(self)
     }
 }
@@ -366,7 +355,7 @@ impl<T, S> ZPubBuilder<T, S> {
     /// to the intra-process bus. The message goes to same-session subscribers and
     /// never to zenoh, so it is neither serialized nor transmitted.
     ///
-    /// [`ZPub::publish`] keeps its wire behaviour whatever this is set to.
+    /// [`ZPub::publish_ref`] keeps its wire behaviour whatever this is set to.
     ///
     /// The caller asserts the audience; it is not inferred. A plain zenoh
     /// subscriber declares no liveliness token, so the graph cannot see it, and a
@@ -643,7 +632,7 @@ where
     /// | argument | route | equivalent to |
     /// |---|---|---|
     /// | `&T` | zenoh | [`ZPub::publish_ref`] |
-    /// | `Arc<T>` | the bus, every subscriber sharing one allocation | [`ZPub::publish_shared`] |
+    /// | `Arc<T>` | the route this publisher was built with; see [`ZPub::publish_shared`] | [`ZPub::publish_shared`] |
     ///
     /// There is deliberately no `T` form: see [`Publishable`] for why an impl
     /// on the bare value made a clippy suggestion reroute messages. Give a
@@ -818,7 +807,7 @@ where
     /// # Ordering against [`publish`](Self::publish)
     ///
     /// Bus delivery is synchronous: the callbacks have run when this returns. A
-    /// message sent with `publish` travels the wire and arrives later. The two
+    /// message sent with `publish_ref` travels the wire and arrives later. The two
     /// have no ordering guarantee between them on one topic.
     ///
     /// # QoS is not carried on the intra-process path
@@ -906,8 +895,9 @@ where
 
     /// Which routes this publisher's messages take.
     ///
-    /// Every publishing method reads this one decision, so they cannot disagree
-    /// on the route.
+    /// `publish_shared`, `publish_moved` and `publish(Arc<T>)` read this one
+    /// decision, so they cannot disagree on the route. `publish_ref` always uses
+    /// the wire.
     ///
     /// `with_intra_process_only()` wins over a locality: it asserts that this
     /// publisher has no wire at all.
@@ -1395,7 +1385,7 @@ where
     ///
     /// The bus serves it only through [`ZPub::publish_moved`], and only when it is
     /// the sole subscriber of this type on the topic. It also has a wire half, so
-    /// an ordinary [`ZPub::publish`] reaches it after deserializing.
+    /// an ordinary [`ZPub::publish_ref`] reaches it after deserializing.
     ///
     /// When the bus cannot serve it, the publisher refuses with `Err` on two
     /// routes only: [`ZPub::publish_shared`] on any bus route, and

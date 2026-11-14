@@ -64,10 +64,7 @@ pub struct PublisherImpl {
 impl PublisherImpl {
     pub fn publish(&self, msg: *const ::std::os::raw::c_void) -> Result<()> {
         let ros_msg = crate::msg::RosMessage::new(msg as *const crate::c_void, self.ts);
-        // publish_ref, not publish: this is the tail expression of a
-        // Result<()> function on the C ABI path, and publish now returns
-        // Result<Published>. The rmw contract is "sent or error", with no
-        // count to report.
+        // The rmw contract is "sent or error": a wire publish with no outcome.
         self.inner.publish_ref(&ros_msg)
     }
 
