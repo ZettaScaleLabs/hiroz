@@ -329,7 +329,8 @@ func waitSliceMs(remaining time.Duration) (timeoutMs uint64, expired bool) {
 // or ctx ends. It returns nil when the service is ready and ctx.Err() when ctx ends first.
 // Any other failure returns the HirozError of the C layer. The C wait runs in slices of at
 // most 250 ms, so a cancelled context returns within one slice. Close also ends the wait
-// within one slice: the call then returns an error that says the client is closed.
+// within one slice: the call then returns an error that says the client is closed. When the
+// server appears while ctx ends or Close starts, either outcome can be returned.
 func (c *ServiceClient) WaitForServiceContext(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err

@@ -481,12 +481,12 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 // It refuses new calls of the registered kind. It then blocks until the registered calls
 // have returned, so that no goroutine holds the C handle when Close frees it.
 // Registered calls: GetResultWithContext, GetResult, GetTypedResult, GetTypedResultContext
-// and SendGoalContext. Close waits for the C call of each, not for its context. A result
-// wait holds Close for at most 30 seconds, the fixed timeout of its C call. The query behind
-// it ends after 10 seconds. A goal send holds Close for at most 10 seconds.
-// A call that Close drained can still succeed or fail: the C call decides.
+// and SendGoalContext. Close waits for the C call of each, not for its context. The reply
+// timeout of a result wait is 30 seconds, and the query behind it ends after 10 seconds.
+// The reply timeout of a goal send is 10 seconds. These timeouts do not bound the time to
+// submit the query. A call that Close drained can still succeed or fail: the C call decides.
 // Unregistered calls: SendGoal and GoalHandle.Cancel. Close does not wait for them.
-// Do not call it concurrently with Close.
+// Do not run them concurrently with Close.
 func (c *ActionClient) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
