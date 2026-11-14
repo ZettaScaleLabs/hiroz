@@ -132,3 +132,40 @@ fn dynamic_bounded_sequence_rejects_a_count_over_the_maximum() {
     DynamicMessage::from_cdr(&sample(&[4, 0, 0, 0, 1, 2, 3, 4]), &bytes)
         .expect_err("a byte count over the maximum");
 }
+
+/// The serde codec serves the Python bindings and the action wrappers. It must agree with the
+/// native codec.
+#[test]
+fn serde_empty_message_writes_and_reads_one_byte() {
+    assert_eq!(
+        SerdeCdrSerdes::<Empty>::serialize(&Empty::default()),
+        sample(&[0])
+    );
+    SerdeCdrSerdes::<Empty>::deserialize(&sample(&[0])[..]).expect("one byte decodes");
+    SerdeCdrSerdes::<Empty>::deserialize(&HEADER[..]).expect_err("no byte is an error");
+}
+
+#[test]
+fn serde_bounded_sequence_rejects_a_count_over_the_maximum() {
+    let at_max = SerdeCdrSerdes::<ParameterDescriptor>::serialize(&descriptor_with(1));
+    SerdeCdrSerdes::<ParameterDescriptor>::deserialize(&at_max[..])
+        .expect("a count at the maximum decodes");
+    let over = SerdeCdrSerdes::<ParameterDescriptor>::serialize(&descriptor_with(2));
+    SerdeCdrSerdes::<ParameterDescriptor>::deserialize(&over[..])
+        .expect_err("a count over the maximum is an error");
+}
+
+/// An empty schema takes one byte, and so does a nested one.
+#[test]
+fn dynamic_empty_schema_has_a_fixed_size_of_one_byte() {
+    let empty = empty_schema();
+    assert_eq!(empty.fixed_cdr_size(), Some(1));
+    let pair = MessageSchema::builder("test_msgs/msg/EmptyThenByte")
+        .field("e", FieldType::Message(empty))
+        .field("b", FieldType::Uint8)
+        .build()
+        .expect("schema");
+    assert_eq!(pair.fixed_cdr_size(), Some(2));
+    let msg = DynamicMessage::new(&pair);
+    assert_eq!(msg.to_cdr().expect("serialize").len() - HEADER.len(), 2);
+}

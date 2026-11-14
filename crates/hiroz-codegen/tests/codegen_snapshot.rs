@@ -150,6 +150,24 @@ fn generated_bounded_sequence_decoders_check_the_maximum() {
     );
 }
 
+/// A fixed array of a type that is not `Copy` builds without `[x; N]`, which needs `Copy`. An
+/// empty message is no longer `Copy`.
+#[test]
+fn generated_fixed_array_of_an_empty_message_needs_no_copy() {
+    let msgs = resolve_corpus();
+    let plain = hiroz_codegen::generator::rust::compute_plain_types(&msgs);
+    let tokens = generate_message_impl_with_cdr(get_resolved(&msgs, "Arrays"), &ctx(), &plain)
+        .expect("generate Arrays");
+    let src = format_tokens(tokens);
+    let decoder = src
+        .split("let constants_values")
+        .nth(1)
+        .and_then(|rest| rest.split("let defaults_values").next())
+        .expect("the Constants array decoder");
+    assert!(decoder.contains("from_fn"), "{decoder}");
+    assert!(!decoder.contains("[Default::default();"), "{decoder}");
+}
+
 // ── Service snapshot ──────────────────────────────────────────────────────────
 
 #[test]
