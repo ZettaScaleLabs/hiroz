@@ -209,15 +209,17 @@ impl<T: ZMessage, S: ZSerializer> std::fmt::Debug for ZPub<T, S> {
 ///     }
 /// }
 /// ```
-pub trait Publishable<T: ZMessage, S: ZSerializer>: sealed::Sealed + Sized {
+pub trait Publishable<T: ZMessage, S: ZSerializer>: sealed::Sealed<T> + Sized {
     /// Publish `self` through `publisher`, by the route its ownership selects.
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published>;
 }
 
 mod sealed {
-    pub trait Sealed {}
-    impl<T> Sealed for &T {}
-    impl<T> Sealed for std::sync::Arc<T> {}
+    /// Names the message type, so a reference to a downstream type does not
+    /// satisfy the seal merely by being a reference.
+    pub trait Sealed<T> {}
+    impl<T> Sealed<T> for &T {}
+    impl<T> Sealed<T> for std::sync::Arc<T> {}
 }
 
 impl<T, S> Publishable<T, S> for &T
