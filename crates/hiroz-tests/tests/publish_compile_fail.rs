@@ -12,6 +12,7 @@ fn publish_accepts_only_borrowed_and_shared_messages() {
     let t = trybuild::TestCases::new();
     t.pass("tests/ui/pass_borrowed_and_shared.rs");
     t.compile_fail("tests/ui/fail_impl_publishable.rs");
+    t.compile_fail("tests/ui/fail_impl_for_reference_wrapper.rs");
     t.compile_fail("tests/ui/fail_owned_message.rs");
     t.compile_fail("tests/ui/fail_ref_to_arc.rs");
     t.compile_fail("tests/ui/fail_deref_wrapper.rs");
