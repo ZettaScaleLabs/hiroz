@@ -734,19 +734,36 @@ impl Resolver {
             }],
         };
 
-        // CancelGoal_Response: return_code (int8)
+        // CancelGoal_Response: return_code (int8), goals_canceling (GoalInfo[])
         let response_desc = TypeDescription {
             type_name: "action_msgs/srv/CancelGoal_Response".to_string(),
-            fields: vec![FieldDescription {
-                name: "return_code".to_string(),
-                field_type: FieldTypeDescription {
-                    type_id: 2, // int8
-                    capacity: 0,
-                    string_capacity: 0,
-                    nested_type_name: String::new(),
+            fields: vec![
+                FieldDescription {
+                    name: "return_code".to_string(),
+                    field_type: FieldTypeDescription {
+                        type_id: 2, // int8
+                        capacity: 0,
+                        string_capacity: 0,
+                        nested_type_name: String::new(),
+                    },
+                    default_value: String::new(),
                 },
-                default_value: String::new(),
-            }],
+                // `GoalInfo[] goals_canceling` — omitting this field previously
+                // produced a hash that did not match the ROS-side service
+                // (rmw_zenoh routes service queries by key expr, which embeds
+                // the RIHS01 type hash), so the cancel call never reached any
+                // action server and timed out with no response.
+                FieldDescription {
+                    name: "goals_canceling".to_string(),
+                    field_type: FieldTypeDescription {
+                        type_id: 145, // NESTED_TYPE_UNBOUNDED_SEQUENCE
+                        capacity: 0,
+                        string_capacity: 0,
+                        nested_type_name: "action_msgs/msg/GoalInfo".to_string(),
+                    },
+                    default_value: String::new(),
+                },
+            ],
         };
 
         // Get dependencies
@@ -755,6 +772,11 @@ impl Resolver {
         // Get GoalInfo from resolved types
         if let Some(goal_info_desc) = self.type_descriptions.get("action_msgs/GoalInfo") {
             deps.insert(goal_info_desc.type_name.clone(), goal_info_desc.clone());
+            // GoalInfo nests unique_identifier_msgs/UUID + builtin_interfaces/Time —
+            // those MUST be part of the referenced type descriptions or the hash
+            // will not match the one ROS computed for CancelGoal (rmw_zenoh
+            // routes service calls by key expr, which embeds the RIHS01 hash).
+            self.collect_nested_deps(goal_info_desc, &mut deps);
         }
 
         // Get Time (GoalInfo contains Time)
