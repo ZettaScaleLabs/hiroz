@@ -4,14 +4,9 @@
 //! rather than serializing, which removes the encode and the transport. What
 //! remains is the allocation: a publisher that builds a fresh message per send
 //! still pays for the allocation, the first touch of that memory, and the write
-//! that fills it. Removing that was worth **−95% at 128 KiB and −99% at 1 MiB**
-//! on the intra-process benchmark.
-//!
-//! Take those figures for what they measure. They remove the allocation, the
-//! first touch *and* the payload write, because the benchmark rewrites eight
-//! bytes of a buffer filled once at construction. A task that must genuinely
-//! produce new content each cycle keeps most of that cost. A pool pays when you
-//! republish, forward, or refill a fixed region — not when you generate.
+//! that fills it. A pool removes those three costs when you republish,
+//! forward, or refill a fixed region. It does not help a task that must
+//! generate new content each cycle.
 //!
 //! # Using it
 //!
@@ -78,9 +73,9 @@
 //! **Rewriting bytes in place is the one part that needs more than std**, and
 //! it needs nothing from hiroz. A pooled message whose fields are plain — a
 //! `String`, a fixed array, a `Vec` replaced wholesale — works against
-//! released zenoh today. Only overwriting bytes *inside* an existing `ZBuf`
-//! requires `opt_mut_slice`, which no released `zenoh-buffers` has; a
-//! workspace wanting it patches that crate and reaches the accessor through
+//! released zenoh. Only overwriting bytes *inside* an existing `ZBuf`
+//! requires `opt_mut_slice`, which a workspace supplies by patching
+//! `zenoh-buffers`, and reaches through
 //! [`ZBuf`](crate::zbuf::ZBuf), which is a newtype over zenoh's own. That
 //! accessor refuses when anything else still references the buffer, a second
 //! guard behind the `Arc` check here.
