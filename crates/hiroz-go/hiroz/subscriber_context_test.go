@@ -46,6 +46,11 @@ func TestSubscriberWithChannelContextBuildFailure(t *testing.T) {
 }
 
 func TestBuildWithTypedCallbackContextAlreadyCancelled(t *testing.T) {
+	// A cancelled context must not reach the C creator, so no callback state exists.
+	var creates atomic.Int32
+	original := createSubscriber
+	createSubscriber = func(subscriberCall) *cSubscriber { creates.Add(1); return nil }
+	t.Cleanup(func() { createSubscriber = original })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -55,6 +60,9 @@ func TestBuildWithTypedCallbackContextAlreadyCancelled(t *testing.T) {
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	if n := creates.Load(); n != 0 {
+		t.Errorf("a cancelled context reached the C creator %d times, want 0", n)
 	}
 }
 

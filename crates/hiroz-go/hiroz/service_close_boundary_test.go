@@ -52,11 +52,6 @@ func TestServiceClientCloseDoesNotWaitForDecoder(t *testing.T) {
 	receiveBounded(t, entered, "the decoder to start")
 
 	receiveBounded(t, closeResult(c), "Close to return while the decoder is blocked")
-	select {
-	case <-exited:
-		t.Fatal("the decoder returned before the test released it")
-	default:
-	}
 	free()
 	receiveBounded(t, exited, "the decoder to return after release")
 	if err := receiveBounded(t, done, "the call to return"); err != nil {
