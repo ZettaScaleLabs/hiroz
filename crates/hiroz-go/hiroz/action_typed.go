@@ -1,6 +1,9 @@
 package hiroz
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 // BuildTypedActionServer creates an action server with typed goal/feedback/result handling.
 // The goal callback receives the deserialized goal and returns bool (accept/reject).
@@ -67,7 +70,14 @@ func typedExecuteCallback[Goal, Result Message](executeCallback func(h *ServerGo
 //	result := &example_interfaces.FibonacciResult{}
 //	err := hiroz.GetTypedResult(handle, result)
 func GetTypedResult[Result Message](handle *GoalHandle, result Result) error {
-	resultBytes, err := handle.GetResult()
+	return GetTypedResultContext(context.Background(), handle, result)
+}
+
+// GetTypedResultContext is GetTypedResult with a wait that ends when ctx ends.
+// When ctx ends first, the error is ctx.Err(). See GoalHandle.GetResultWithContext for
+// what the cancel does not stop.
+func GetTypedResultContext[Result Message](ctx context.Context, handle *GoalHandle, result Result) error {
+	resultBytes, err := handle.GetResultWithContext(ctx)
 	if err != nil {
 		return err
 	}

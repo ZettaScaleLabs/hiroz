@@ -184,12 +184,9 @@ server, err := node.CreateServiceServer("add_two_ints").
 // Client
 client, err := node.CreateServiceClient("add_two_ints").
     Build(&example_interfaces.AddTwoInts{})
-respBytes, err := client.Call(&example_interfaces.AddTwoIntsRequest{A: 5, B: 3})
-// client.CallWithTimeout(req, 10*time.Second) for a custom timeout
 var resp example_interfaces.AddTwoIntsResponse
-if err := resp.DeserializeCDR(respBytes); err != nil {
-    // handle error
-}
+err = hiroz.CallTyped(client, &example_interfaces.AddTwoIntsRequest{A: 5, B: 3}, &resp)
+// hiroz.CallTypedWithTimeout(client, req, &resp, 10*time.Second) for a custom timeout
 // use resp.Sum
 ```
 
@@ -310,6 +307,21 @@ resp := &example_interfaces.AddTwoIntsResponse{}
 err := hiroz.CallTyped(client, &example_interfaces.AddTwoIntsRequest{A: 5, B: 3}, resp)
 // hiroz.CallTypedWithTimeout(client, req, resp, 10*time.Second)
 ```
+
+### Context variants
+
+The calls in this table have a variant that ends when a `context.Context` ends. Other blocking calls, such as `CallTypedWithTimeout`, keep their timeout argument and have no other variant.
+
+| Call | Context variant |
+|------|-----------------|
+| `hiroz.CallTyped` | `hiroz.CallTypedContext(ctx, client, req, resp)` |
+| `client.WaitForService(timeout)` | `client.WaitForServiceContext(ctx)` |
+| `client.SendGoal(goal)` | `client.SendGoalContext(ctx, goal)` |
+| `handle.GetResult()`, `hiroz.GetTypedResult` | `handle.GetResultWithContext(ctx)`, `hiroz.GetTypedResultContext(ctx, handle, result)` |
+| `hiroz.BuildWithTypedCallback` | `hiroz.BuildWithTypedCallbackContext(ctx, builder, handler)` |
+| `hiroz.SubscriberWithChannel` | `hiroz.SubscriberWithChannelContext[T](ctx, builder, size)` |
+
+A cancel that arrives while a call waits for the C result returns the context error at once, and does not stop work that the C layer already started. `WaitForServiceContext` is the exception: it waits in slices of at most 250 ms, so a cancel can take up to one slice to return. Serialization and decoding run to their end, and a result that arrives together with the cancel can be returned instead of the context error. `Close` waits for the registered C call of each context call, and not for the context or for your `SerializeCDR` and `DeserializeCDR`. A call that starts after `Close` has begun returns a closed-client error once its request is serialized, and a call whose context has already ended returns the context error first. A context deadline sets the timeout of `CallTypedContext`, up to 10 seconds. A subscriber callback can still run after a cancel, so make the handler safe to run after the cancel. Neither a cancel nor `Close` releases a built subscriber's callback: the subscriber keeps it reachable until the process ends. `SubscriberWithChannelContext` has no cleanup function, so pass a context that you cancel, or close the subscriber. The Go documentation of `ServiceClient.Close` and `ActionClient.Close` states what each waits for and how long it can block.
 
 ### Action
 
