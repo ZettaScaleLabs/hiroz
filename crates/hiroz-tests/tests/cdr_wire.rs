@@ -7,7 +7,7 @@
 
 use hiroz::{
     dynamic::{DynamicMessage, DynamicValue, FieldType, MessageSchema},
-    msg::ZMessage,
+    msg::{SerdeCdrSerdes, ZDeserializer, ZMessage, ZSerializer},
 };
 use hiroz_msgs::{
     rcl_interfaces::{IntegerRange, ParameterDescriptor},
