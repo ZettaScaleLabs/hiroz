@@ -22,6 +22,7 @@ zenoh-buffers = { workspace = true } # For ZBuf operations in tests
 tokio = { workspace = true, features = ["full"] }
 once_cell = { workspace = true } # For lazy static zenohd daemon
 serial_test = "3.0" # For sequential test execution
+trybuild = "1" # For the compile-fail cases of `ZPub::publish`
 tracing-subscriber = { version = "0.3", features = [
   "env-filter",
 ] } # For RUST_LOG in tests

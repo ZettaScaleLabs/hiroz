@@ -1,0 +1,16 @@
+error[E0277]: the trait bound `&Arc<hiroz_msgs::std_msgs::String>: Publishable<hiroz_msgs::std_msgs::String, NativeCdrSerdes<hiroz_msgs::std_msgs::String>>` is not satisfied
+ --> tests/ui/fail_ref_to_arc.rs:9:23
+  |
+9 |     let _ = p.publish(m);
+  |               ------- ^ unsatisfied trait bound
+  |               |
+  |               required by a bound introduced by this call
+  |
+  = help: the trait `Publishable<hiroz_msgs::std_msgs::String, NativeCdrSerdes<hiroz_msgs::std_msgs::String>>` is not implemented for `&Arc<hiroz_msgs::std_msgs::String>`
+          but it is implemented for `Arc<hiroz_msgs::std_msgs::String>`
+  = help: for that trait implementation, expected `Arc<hiroz_msgs::std_msgs::String>`, found `&Arc<hiroz_msgs::std_msgs::String>`
+note: required by a bound in `ZPub::<T, S>::publish`
+ --> $WORKSPACE/crates/hiroz/src/pubsub.rs
+  |
+  |     pub fn publish(&self, msg: impl Publishable<T, S>) -> Result<Published> {
+  |                                     ^^^^^^^^^^^^^^^^^ required by this bound in `ZPub::<T, S>::publish`

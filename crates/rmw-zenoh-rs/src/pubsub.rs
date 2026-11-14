@@ -64,7 +64,8 @@ pub struct PublisherImpl {
 impl PublisherImpl {
     pub fn publish(&self, msg: *const ::std::os::raw::c_void) -> Result<()> {
         let ros_msg = crate::msg::RosMessage::new(msg as *const crate::c_void, self.ts);
-        self.inner.publish(&ros_msg)
+        // The rmw contract is "sent or error": a wire publish with no outcome.
+        self.inner.publish_ref(&ros_msg)
     }
 
     pub fn publish_serialized_message(&self, msg: &[u8]) -> Result<()> {

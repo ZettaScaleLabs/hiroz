@@ -350,7 +350,8 @@ impl Builder for ZLifecycleNodeBuilder {
                         .lock()
                         .unwrap()
                         .trigger(t, |_| CallbackReturn::Success);
-                    let _ = te_cs.publish(&make_transition_event(t, start, goal));
+                    // The transition event goes over the wire.
+                    let _ = te_cs.publish_ref(&make_transition_event(t, start, goal));
                     true
                 } else {
                     warn!("change_state: invalid id={tid} label='{label}' from {current:?}");

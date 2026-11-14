@@ -154,7 +154,7 @@ pub struct ZPub<T: ZMessage, S: ZSerializer> {
     graph: Arc<Graph>,
     /// Intra-process bus channel for this topic, resolved once at build time.
     local_channel: Arc<crate::local_bus::Channel>,
-    /// When set, `publish_shared` and `publish_owned` use the bus alone and never
+    /// When set, `publish_shared` and `publish_moved` use the bus alone and never
     /// touch zenoh. The caller asserts this; it is not inferred.
     intra_process_only: bool,
     /// The locality restriction on the wire half, if any. A `Locality::Remote`
@@ -171,6 +171,79 @@ impl<T: ZMessage, S: ZSerializer> std::fmt::Debug for ZPub<T, S> {
             .finish_non_exhaustive()
     }
 }
+
+
+/// What may be handed to [`ZPub::publish`], and where each form goes.
+///
+/// Implemented for `&T` and `Arc<T>`. The impls cannot overlap: the trait
+/// carries the message type, so `Publishable<U> for &U` and
+/// `Publishable<&U> for &U` are different trait references.
+///
+/// # Why there is no impl for `T`
+///
+/// `clippy::needless_borrows_for_generic_args` fires on `publish(&expr)` when
+/// the unborrowed expression also satisfies the bound, and suggests dropping
+/// the `&`. An impl for `T` would make that suggestion select a different impl
+/// and move the message from the wire to the bus, with no error. Without the
+/// impl the suggestion does not compile.
+///
+/// Give a message away by name with [`ZPub::publish_moved`].
+///
+/// # Sealed
+///
+/// The trait is sealed: only `&T` and `Arc<T>` implement it, so a downstream
+/// type cannot add a route.
+///
+/// ```compile_fail,E0277
+/// use hiroz::{
+///     local_bus::Published,
+///     msg::{ZMessage, ZSerializer},
+///     pubsub::{Publishable, ZPub},
+/// };
+///
+/// struct Mine;
+///
+/// impl<T: ZMessage, S: ZSerializer> Publishable<T, S> for Mine {
+///     fn publish_to(self, _: &ZPub<T, S>) -> hiroz::Result<Published> {
+///         unimplemented!()
+///     }
+/// }
+/// ```
+pub trait Publishable<T: ZMessage, S: ZSerializer>: sealed::Sealed<T> + Sized {
+    /// Publish `self` through `publisher`, by the route its ownership selects.
+    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published>;
+}
+
+mod sealed {
+    /// Names the message type, so a reference to a downstream type does not
+    /// satisfy the seal merely by being a reference.
+    pub trait Sealed<T> {}
+    impl<T> Sealed<T> for &T {}
+    impl<T> Sealed<T> for std::sync::Arc<T> {}
+}
+
+impl<T, S> Publishable<T, S> for &T
+where
+    T: ZMessage + 'static,
+    S: for<'a> ZSerializer<Input<'a> = &'a T> + 'static,
+{
+    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published> {
+        publisher.publish_ref(self)?;
+        Ok(Published::Wire)
+    }
+}
+
+impl<T, S> Publishable<T, S> for Arc<T>
+where
+    T: ZMessage + Send + Sync + 'static,
+    S: for<'a> ZSerializer<Input<'a> = &'a T> + 'static,
+{
+    fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published> {
+        // `publish_shared` reports the route itself.
+        publisher.publish_shared(self)
+    }
+}
+
 
 #[derive(Debug)]
 pub struct ZPubBuilder<T, S = SerdeCdrSerdes<T>> {
@@ -307,11 +380,11 @@ impl<T, S> ZPubBuilder<T, S> {
         self
     }
 
-    /// **Prototype.** Restrict [`ZPub::publish_shared`] and [`ZPub::publish_owned`]
+    /// **Prototype.** Restrict [`ZPub::publish_shared`] and [`ZPub::publish_moved`]
     /// to the intra-process bus. The message goes to same-session subscribers and
     /// never to zenoh, so it is neither serialized nor transmitted.
     ///
-    /// [`ZPub::publish`] keeps its wire behaviour whatever this is set to.
+    /// [`ZPub::publish_ref`] keeps its wire behaviour whatever this is set to.
     ///
     /// The caller asserts the audience; it is not inferred. A plain zenoh
     /// subscriber declares no liveliness token, so the graph cannot see it, and a
@@ -579,17 +652,58 @@ where
         Attachment::with_clock(sn as _, self.gid, &self.clock)
     }
 
-    /// Serialize and publish `msg` on the topic. Blocks until the put completes.
+    /// Publish, with the argument's ownership choosing the route.
     ///
-    /// Use [`async_publish`](ZPub::async_publish) when calling from async code to
-    /// avoid blocking the executor.
+    /// This is the one publish name, in the shape rclcpp uses: there,
+    /// `publish(const&)` copies and `publish(unique_ptr)` moves, and the
+    /// overload picks the path. Rust has no overloading, so a trait carries it.
+    ///
+    /// | argument | route | equivalent to |
+    /// |---|---|---|
+    /// | `&T` | zenoh | [`ZPub::publish_ref`] |
+    /// | `Arc<T>` | the route this publisher was built with; see [`ZPub::publish_shared`] | [`ZPub::publish_shared`] |
+    ///
+    /// There is deliberately no `T` form: see [`Publishable`] for why an impl
+    /// on the bare value made a clippy suggestion reroute messages. Give a
+    /// message away with [`ZPub::publish_moved`].
+    ///
+    /// **The routing rules are unchanged.** A bus route still requires the
+    /// caller to have asserted the audience with
+    /// [`ZPubBuilder::with_intra_process_only`] or a `Locality::Remote`; without
+    /// one, an `Arc<T>` goes on the wire exactly as before. This method renames
+    /// nothing about who decides.
+    ///
+    /// The named methods remain, and stay the right choice when you want their
+    /// exact return type.
+    ///
+    /// # Blocking, and which route it applies to
+    ///
+    /// The two routes block differently, so one blanket statement would be
+    /// wrong for one of them:
+    ///
+    /// - **the wire** blocks until the put completes. Reach for
+    ///   [`async_publish`](ZPub::async_publish) from async code to avoid
+    ///   holding the executor.
+    /// - **the bus** does not serialize and never touches zenoh, but delivery
+    ///   is *synchronous and inline*: every subscriber callback has run before
+    ///   this returns. It is not the blocking `async_publish` avoids, and
+    ///   `async_publish` is wire-only — it cannot be used to escape it.
+    pub fn publish(&self, msg: impl Publishable<T, S>) -> Result<Published> {
+        msg.publish_to(self)
+    }
+
+    /// Publish over zenoh, always.
+    ///
+    /// [`ZPub::publish`] reaches this for a `&T` argument. Call it directly when
+    /// you want the wire whatever else is configured, or when you want the
+    /// `Result<()>` shape rather than [`Published`].
     #[tracing::instrument(name = "publish", skip(self, msg), fields(
         topic = %self.entity.topic,
         sn = self.sn.load(Ordering::Acquire),
         payload_len = tracing::field::Empty,
         used_shm = tracing::field::Empty
     ))]
-    pub fn publish(&self, msg: &T) -> Result<()> {
+    pub fn publish_ref(&self, msg: &T) -> Result<()> {
         use zenoh_buffers::buffer::Buffer;
 
         // Try direct SHM serialization if configured
@@ -722,7 +836,7 @@ where
     /// # Ordering against [`publish`](Self::publish)
     ///
     /// Bus delivery is synchronous: the callbacks have run when this returns. A
-    /// message sent with `publish` travels the wire and arrives later. The two
+    /// message sent with `publish_ref` travels the wire and arrives later. The two
     /// have no ordering guarantee between them on one topic.
     ///
     /// # QoS is not carried on the intra-process path
@@ -768,14 +882,14 @@ where
                 if let Some(e) = self.refuse_unservable_owned() {
                     return Err(e);
                 }
-                // Wire first, as in `publish_owned`. Bus delivery is synchronous, so
+                // Wire first, as in `publish_moved`. Bus delivery is synchronous, so
                 // a wire failure after it would return `Err` after the local
                 // subscribers ran, and a retry would deliver twice locally.
-                self.publish(&msg)?;
+                self.publish_ref(&msg)?;
                 Ok(Published::BusAndWire(self.local_channel.publish(msg)))
             }
             Route::WireOnly => {
-                self.publish(&msg)?;
+                self.publish_ref(&msg)?;
                 Ok(Published::Wire)
             }
         }
@@ -800,7 +914,7 @@ where
             format!(
                 "publish_shared on {}: {owned} subscriber(s) on this topic take the message \
                  by value, and a shared publish cannot serve them. The message would not \
-                 reach them. Use publish_owned() with a single owning subscriber, or build \
+                 reach them. Use publish_moved() with a single owning subscriber, or build \
                  the subscribers with build_with_shared_callback().",
                 self.entity.topic
             )
@@ -810,8 +924,9 @@ where
 
     /// Which routes this publisher's messages take.
     ///
-    /// Every publishing method reads this one decision, so they cannot disagree
-    /// on the route.
+    /// `publish_shared`, `publish_moved` and `publish(Arc<T>)` read this one
+    /// decision, so they cannot disagree on the route. `publish_ref` always uses
+    /// the wire.
     ///
     /// `with_intra_process_only()` wins over a locality: it asserts that this
     /// publisher has no wire at all.
@@ -843,7 +958,7 @@ where
                 "publish on a TRANSIENT_LOCAL, intra-process-only publisher for {}: \
                  the intra-process path has no durability cache, so a late-joining \
                  subscriber would be served a history this message is missing from. \
-                 Use publish(), or drop the transient-local durability.",
+                 Use publish_ref(), or drop the transient-local durability.",
                 self.entity.topic
             )
             .into(),
@@ -869,7 +984,7 @@ where
     /// An `intra_process_only` publisher with no listener returns
     /// `Bus(Delivery::NoTaker)` and drops the message. It has no wire to fall
     /// back to.
-    pub fn publish_owned(&self, msg: T) -> Result<Published>
+    pub fn publish_moved(&self, msg: T) -> Result<Published>
     where
         T: Send + Sync + 'static,
     {
@@ -877,9 +992,9 @@ where
             // The wire serializes from a reference and the bus takes ownership,
             // so the wire goes first and the value is given away afterwards.
             Route::BusAndWire => {
-                self.publish(&msg)?;
+                self.publish_ref(&msg)?;
                 Ok(Published::BusAndWire(
-                    match self.local_channel.publish_owned(msg) {
+                    match self.local_channel.publish_moved(msg) {
                         Ok(d) => d,
                         // No sole owning receiver: share it.
                         Err(returned) => self.local_channel.publish(Arc::new(returned)),
@@ -890,7 +1005,7 @@ where
                 if let Some(e) = self.refuse_durable_bus() {
                     return Err(e);
                 }
-                match self.local_channel.publish_owned(msg) {
+                match self.local_channel.publish_moved(msg) {
                     Ok(d) => Ok(Published::Bus(d)),
                     // Not exactly one owning receiver: share it. `publish_shared`
                     // refuses when only owned subscribers exist.
@@ -898,7 +1013,7 @@ where
                 }
             }
             Route::WireOnly => {
-                self.publish(&msg)?;
+                self.publish_ref(&msg)?;
                 Ok(Published::Wire)
             }
         }
@@ -1297,17 +1412,17 @@ where
 
     /// Build a subscriber whose callback receives the message **by value**.
     ///
-    /// The bus serves it only through [`ZPub::publish_owned`], and only when it is
+    /// The bus serves it only through [`ZPub::publish_moved`], and only when it is
     /// the sole subscriber of this type on the topic. It also has a wire half, so
-    /// an ordinary [`ZPub::publish`] reaches it after deserializing.
+    /// an ordinary [`ZPub::publish_ref`] reaches it after deserializing.
     ///
     /// When the bus cannot serve it, the publisher refuses with `Err` on two
     /// routes only: [`ZPub::publish_shared`] on any bus route, and
-    /// [`ZPub::publish_owned`] on an intra-process-only publisher.
+    /// [`ZPub::publish_moved`] on an intra-process-only publisher.
     ///
     /// # Known limit on a `Locality::Remote` publisher
     ///
-    /// [`ZPub::publish_owned`] does not refuse there. If a shared subscriber is
+    /// [`ZPub::publish_moved`] does not refuse there. If a shared subscriber is
     /// also registered, the shared subscriber receives the message and this
     /// subscriber receives nothing. If only owned subscribers are registered and
     /// there are two or more, none receives it and the result is
@@ -1323,7 +1438,7 @@ where
         let zid = self.session.zid();
         // Both halves run the same callback. Without the wire half this
         // subscriber would miss every message that does not arrive by
-        // `publish_owned` on the bus, including all remote traffic.
+        // `publish_moved` on the bus, including all remote traffic.
         //
         // It cannot deliver twice: a publisher uses the bus or the wire for one
         // message, unless its wire half is `Remote`-restricted and the audiences
