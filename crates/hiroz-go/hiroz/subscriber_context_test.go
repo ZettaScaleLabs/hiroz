@@ -58,6 +58,23 @@ func TestBuildWithTypedCallbackContextAlreadyCancelled(t *testing.T) {
 	}
 }
 
+// A nil handler is rejected before the C creator runs, as BuildWithCallback rejects it. The
+// typed wrapper would otherwise hide the nil inside a closure that panics on every sample.
+func TestBuildWithTypedCallbackContextNilHandler(t *testing.T) {
+	var creates atomic.Int32
+	original := createSubscriber
+	createSubscriber = func(subscriberCall) *cSubscriber { creates.Add(1); return nil }
+	t.Cleanup(func() { createSubscriber = original })
+
+	sub, err := BuildWithTypedCallbackContext[*MockTypedMessage](context.Background(), (&Node{}).CreateSubscriber("chatter"), nil)
+	if sub != nil || err == nil || !strings.Contains(err.Error(), "handler cannot be nil") {
+		t.Fatalf("want a nil-handler error and no subscriber, got sub=%v err=%v", sub, err)
+	}
+	if n := creates.Load(); n != 0 {
+		t.Errorf("a nil handler reached the C creator %d times, want 0", n)
+	}
+}
+
 func TestBuildWithTypedCallbackContextBuildFailure(t *testing.T) {
 	sub, err := BuildWithTypedCallbackContext(context.Background(), (&Node{}).CreateSubscriber("chatter"), func(*MockTypedMessage) {})
 	if sub != nil || !errors.Is(err, ErrBuildFailed) {
