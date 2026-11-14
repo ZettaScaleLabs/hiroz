@@ -5,13 +5,16 @@
 //! by the serde-based serializer/deserializer and can also be used directly
 //! for schema-driven (dynamic) message handling.
 
+use std::marker::PhantomData;
+
 #[cfg(target_endian = "little")]
 use bytemuck;
 use byteorder::{ByteOrder, ReadBytesExt};
-use std::marker::PhantomData;
 
-use crate::buffer::CdrBuffer;
-use crate::error::{Error, Result};
+use crate::{
+    buffer::CdrBuffer,
+    error::{Error, Result},
+};
 
 /// Low-level CDR writer with alignment handling.
 ///
@@ -367,6 +370,19 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
         Ok(len as usize)
     }
 
+    /// Read a sequence length prefix and reject a count above `max`, the maximum that the
+    /// message definition declares for a bounded sequence.
+    #[inline]
+    pub fn read_bounded_sequence_length(&mut self, max: usize) -> Result<usize> {
+        let len = self.read_sequence_length()?;
+        if len > max {
+            return Err(Error::Custom(format!(
+                "Sequence length {len} exceeds the declared maximum ({max})"
+            )));
+        }
+        Ok(len)
+    }
+
     /// Read raw bytes with length prefix.
     #[inline]
     pub fn read_byte_sequence(&mut self) -> Result<&'a [u8]> {
@@ -402,8 +418,9 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use byteorder::LittleEndian;
+
+    use super::*;
 
     #[test]
     fn test_writer_primitives() {
@@ -496,8 +513,9 @@ mod tests {
 
 #[cfg(kani)]
 mod kani_proofs {
-    use super::*;
     use byteorder::LittleEndian;
+
+    use super::*;
 
     /// For any u32 value, writing then reading it back via CdrWriter/CdrReader
     /// recovers the original value exactly.

@@ -168,15 +168,12 @@ fn dynamic_decoder_decodes_a_long_valid_sequence() {
     assert_eq!(values, expected);
 }
 
-/// Elements that take no bytes on the wire: a sequence of an empty message needs only its prefix.
+/// Elements that take no bytes on the wire: a sequence of them needs only its prefix.
 #[test]
 fn dynamic_decoder_decodes_zero_byte_elements() {
-    let empty = MessageSchema::builder("test_msgs/msg/Empty")
-        .build()
-        .expect("schema");
     let mut sample = vec![0x00, 0x01, 0x00, 0x00];
     sample.extend_from_slice(&3u32.to_le_bytes());
-    let element = Box::new(FieldType::Message(empty));
+    let element = Box::new(zero_byte_element());
     for (name, ty) in [
         ("seq", FieldType::Sequence(element.clone())),
         ("bounded", FieldType::BoundedSequence(element, 10)),
@@ -191,13 +188,21 @@ fn dynamic_decoder_decodes_zero_byte_elements() {
     }
 }
 
-fn empty_message() -> std::sync::Arc<MessageSchema> {
-    MessageSchema::builder("test_msgs/msg/Empty")
+/// An element that takes no bytes: a fixed array with no members. An empty message takes one
+/// byte, as in ROS 2.
+fn zero_byte_element() -> FieldType {
+    FieldType::Array(Box::new(FieldType::Uint8), 0)
+}
+
+/// A message that takes no bytes: its only field is a [`zero_byte_element`].
+fn zero_byte_message() -> std::sync::Arc<MessageSchema> {
+    MessageSchema::builder("test_msgs/msg/ZeroByte")
+        .field("none", zero_byte_element())
         .build()
         .expect("schema")
 }
 
-/// A sample for `Sequence(Sequence(Message(empty)))`: `outer` inner sequences, each declaring
+/// A sample for `Sequence(Sequence(zero-byte element))`: `outer` inner sequences, each declaring
 /// the hostile count. Every inner count costs four bytes, and no element has any bytes.
 fn nested_hostile_sample(outer: u32) -> Vec<u8> {
     let mut v = vec![0x00, 0x01, 0x00, 0x00];
@@ -214,10 +219,7 @@ fn nested_hostile_sample(outer: u32) -> Vec<u8> {
 fn dynamic_decoder_survives_a_hostile_zero_byte_sequence() {
     if is_child() {
         let schema = MessageSchema::builder("test_msgs/msg/EmptySeq")
-            .field(
-                "items",
-                FieldType::Sequence(Box::new(FieldType::Message(empty_message()))),
-            )
+            .field("items", FieldType::Sequence(Box::new(zero_byte_element())))
             .build()
             .expect("schema");
         limit_address_space();
@@ -230,7 +232,7 @@ fn dynamic_decoder_survives_a_hostile_zero_byte_sequence() {
         let msg = DynamicMessage::from_cdr(&valid, &schema).expect("valid sample");
         let items = elements(&msg, "items");
         assert!(
-            items.iter().all(|v| matches!(v, DynamicValue::Message(_))),
+            items.iter().all(|v| matches!(v, DynamicValue::Array(_))),
             "decoded values: {items:?}"
         );
         println!("next valid: {} elements", items.len());
@@ -247,7 +249,7 @@ fn dynamic_decoder_survives_a_hostile_zero_byte_sequence() {
 #[test]
 fn dynamic_decoder_survives_nested_hostile_zero_byte_sequences() {
     if is_child() {
-        let inner = FieldType::Sequence(Box::new(FieldType::Message(empty_message())));
+        let inner = FieldType::Sequence(Box::new(zero_byte_element()));
         let schema = MessageSchema::builder("test_msgs/msg/NestedEmptySeq")
             .field("items", FieldType::Sequence(Box::new(inner)))
             .build()
@@ -278,7 +280,7 @@ fn dynamic_decoder_survives_nested_hostile_zero_byte_sequences() {
     );
 }
 
-/// A sample for `Sequence(Sequence(Message(empty)))` with the given inner counts.
+/// A sample for `Sequence(Sequence(zero-byte element))` with the given inner counts.
 fn nested_sample(inner_counts: &[u32]) -> Vec<u8> {
     let mut v = vec![0x00, 0x01, 0x00, 0x00];
     v.extend_from_slice(&(inner_counts.len() as u32).to_le_bytes());
@@ -292,7 +294,7 @@ fn nested_sample(inner_counts: &[u32]) -> Vec<u8> {
 /// budget of 1,048,576. A decoder that gave every sequence a fresh budget would accept the sample.
 #[test]
 fn dynamic_decoder_shares_the_zero_byte_budget_across_sequences() {
-    let inner = FieldType::Sequence(Box::new(FieldType::Message(empty_message())));
+    let inner = FieldType::Sequence(Box::new(zero_byte_element()));
     let schema = MessageSchema::builder("test_msgs/msg/SharedBudget")
         .field("items", FieldType::Sequence(Box::new(inner)))
         .build()
@@ -312,10 +314,11 @@ fn dynamic_decoder_shares_the_zero_byte_budget_across_sequences() {
     );
 }
 
-/// A schema of `depth` levels of messages with no bytes. Each level holds two of the level below.
+/// A schema of `depth` levels of messages with no bytes. Each level holds two of the level below,
+/// and the lowest level holds a zero-byte element.
 /// The decoded value has `2^(depth + 1) - 1` messages, and the input has no byte for any of them.
 fn message_tree(depth: u32) -> std::sync::Arc<MessageSchema> {
-    let mut schema = empty_message();
+    let mut schema = zero_byte_message();
     for level in 0..depth {
         schema = MessageSchema::builder(&format!("test_msgs/msg/Tree{level}"))
             .field("left", FieldType::Message(schema.clone()))
@@ -326,16 +329,13 @@ fn message_tree(depth: u32) -> std::sync::Arc<MessageSchema> {
     schema
 }
 
-/// The budget is 1,048,576 values without data: a sequence of that many empty messages decodes
+/// The budget is 1,048,576 values without data: a sequence of that many zero-byte elements decodes
 /// and one more is an error. The child limits memory because the accepted case holds them all.
 #[test]
 fn dynamic_decoder_pins_the_zero_byte_budget() {
     if is_child() {
         let schema = MessageSchema::builder("test_msgs/msg/EmptySeq")
-            .field(
-                "items",
-                FieldType::Sequence(Box::new(FieldType::Message(empty_message()))),
-            )
+            .field("items", FieldType::Sequence(Box::new(zero_byte_element())))
             .build()
             .expect("schema");
         let sample = |count: u32| {
@@ -367,7 +367,8 @@ fn dynamic_decoder_pins_the_zero_byte_budget() {
 fn message_count(msg: &DynamicMessage) -> usize {
     let nested = (0..msg.schema().field_count()).map(|i| match msg.get_dynamic_by_index(i) {
         Ok(DynamicValue::Message(m)) => message_count(m),
-        other => panic!("expected a message, got {other:?}"),
+        Ok(DynamicValue::Array(_)) => 0,
+        other => panic!("expected a message or an array, got {other:?}"),
     });
     1 + nested.sum::<usize>()
 }
@@ -431,10 +432,7 @@ fn dynamic_decoder_survives_a_hostile_array_length() {
         let zero_byte = MessageSchema::builder("test_msgs/msg/HugeEmptyArray")
             .field(
                 "items",
-                FieldType::Array(
-                    Box::new(FieldType::Message(empty_message())),
-                    HOSTILE_LENGTH as usize,
-                ),
+                FieldType::Array(Box::new(zero_byte_element()), HOSTILE_LENGTH as usize),
             )
             .build()
             .expect("schema");
