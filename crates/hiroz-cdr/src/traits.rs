@@ -248,7 +248,7 @@ impl<T: CdrDeserialize> CdrDeserialize for Vec<T> {
     #[inline]
     fn cdr_deserialize<'de, BO: ByteOrder>(r: &mut CdrReader<'de, BO>) -> Result<Self> {
         let count = r.read_sequence_length()?;
-        let mut out = Vec::with_capacity(count);
+        let mut out = Vec::with_capacity(count.min(r.remaining()));
         for _ in 0..count {
             out.push(T::cdr_deserialize(r)?);
         }

@@ -213,6 +213,9 @@ jobs:
         shell: bash
 
       - name: Run tests
+        # A hostile-length test that cannot lower its address-space limit fails instead of skipping.
+        env:
+          HIROZ_REQUIRE_HOSTILE: "1"
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
             source /tmp/nix-dev-env.sh

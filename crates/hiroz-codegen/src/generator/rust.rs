@@ -1,7 +1,7 @@
-use hiroz_schema::type_name::dds_from_namespace;
 use std::collections::HashSet;
 
 use anyhow::Result;
+use hiroz_schema::type_name::dds_from_namespace;
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 
@@ -112,6 +112,11 @@ pub fn compute_plain_types(messages: &[ResolvedMessage]) -> HashSet<String> {
             if plain.contains(&key) {
                 continue;
             }
+            // An empty message takes one byte on the wire and none in memory, so a byte copy
+            // of its Rust layout is wrong. A type that holds one is not plain either.
+            if msg.parsed.fields.is_empty() {
+                continue;
+            }
             // All fields must individually be plain.
             if !msg
                 .parsed
@@ -164,6 +169,13 @@ fn generate_cdr_impls(
         .map(|f| generate_cdr_serialize_field(f, pkg, plain_types, ctx))
         .collect::<Result<Vec<_>>>()?;
 
+    // ROS 2 gives an empty message one `uint8` member, so it takes one byte on the wire.
+    let ser_fields = if fields.is_empty() {
+        vec![quote! { __w.write_u8(0); }]
+    } else {
+        ser_fields
+    };
+
     let ser_impl = quote! {
         impl ::hiroz_cdr::CdrSerialize for #name {
             fn cdr_serialize<BO, B>(
@@ -184,6 +196,12 @@ fn generate_cdr_impls(
         .iter()
         .map(|f| generate_cdr_deserialize_field(f, pkg, plain_types, ctx))
         .collect();
+
+    let de_fields = if fields.is_empty() {
+        vec![quote! { __r.read_u8()?; }]
+    } else {
+        de_fields
+    };
 
     let field_idents: Vec<Ident> = fields.iter().map(|f| escape_field_name(&f.name)).collect();
 
@@ -206,6 +224,12 @@ fn generate_cdr_impls(
         .iter()
         .map(|f| generate_cdr_size_field(f, pkg, plain_types, ctx))
         .collect::<Result<Vec<_>>>()?;
+
+    let size_fields = if fields.is_empty() {
+        vec![quote! { __p += 1; }]
+    } else {
+        size_fields
+    };
 
     let size_impl = quote! {
         impl ::hiroz_cdr::CdrSerializedSize for #name {
@@ -361,9 +385,10 @@ fn generate_cdr_deserialize_field(
                     };
                 }
             } else {
+                // `[x; N]` needs `Copy`, which a String or an empty message lacks.
                 quote! {
                     let #fname: #rust_elem_ty = {
-                        let mut __arr = [Default::default(); #n_lit];
+                        let mut __arr: #rust_elem_ty = ::std::array::from_fn(|_| Default::default());
                         for __slot in __arr.iter_mut() {
                             *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
                         }
@@ -379,10 +404,17 @@ fn generate_cdr_deserialize_field(
                 plain_types,
             );
             let base_ty = generate_base_type_tokens_with_context(ft, source_pkg, ctx);
+            let read_count = match &ft.array {
+                ArrayType::Bounded(max) => {
+                    let max = proc_macro2::Literal::usize_unsuffixed(*max);
+                    quote! { __r.read_bounded_sequence_length(#max)? }
+                }
+                _ => quote! { __r.read_sequence_length()? },
+            };
             if elem_plain && !matches!(ft.base_type.as_str(), "bool" | "string" | "wstring") {
                 quote! {
                     let #fname: Vec<#base_ty> = {
-                        let __count = __r.read_sequence_length()?;
+                        let __count = #read_count;
                         #[cfg(target_endian = "little")]
                         {
                             if __count > 0 {
@@ -393,7 +425,7 @@ fn generate_cdr_deserialize_field(
                         }
                         #[cfg(not(target_endian = "little"))]
                         {
-                            let mut __v = Vec::with_capacity(__count);
+                            let mut __v = Vec::with_capacity(__count.min(__r.remaining()));
                             for _ in 0..__count {
                                 __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
                             }
@@ -404,8 +436,8 @@ fn generate_cdr_deserialize_field(
             } else {
                 quote! {
                     let #fname: Vec<#base_ty> = {
-                        let __count = __r.read_sequence_length()?;
-                        let mut __v = Vec::with_capacity(__count);
+                        let __count = #read_count;
+                        let mut __v = Vec::with_capacity(__count.min(__r.remaining()));
                         for _ in 0..__count {
                             __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
                         }
@@ -721,20 +753,23 @@ fn generate_field_def_with_context(
     // Check if this is a ZBuf field (for Python bridge attribute)
     let is_zbuf = is_zbuf_field(field);
 
-    // Add attributes for large fixed arrays (>32 elements)
-    let serde_attributes = if let ArrayType::Fixed(n) = &field.field_type.array {
-        if *n > 32 {
+    // Add attributes for large fixed arrays (>32 elements), and the maximum of a bounded sequence
+    let serde_attributes = match &field.field_type.array {
+        ArrayType::Fixed(n) if *n > 32 => {
             // Generate a default value code string for the array
             let default_code = generate_array_default_code(&field.field_type, *n)?;
             quote! {
                 #[serde(with = "serde_big_array::BigArray")]
                 #[default(_code = #default_code)]
             }
-        } else {
-            quote! {}
         }
-    } else {
-        quote! {}
+        ArrayType::Bounded(max) => {
+            let decoder = format!("::hiroz_cdr::deserialize_bounded::<_, _, {max}>");
+            quote! {
+                #[serde(deserialize_with = #decoder)]
+            }
+        }
+        _ => quote! {},
     };
 
     // Add Python bridge attribute for ZBuf fields

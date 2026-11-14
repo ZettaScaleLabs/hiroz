@@ -5,8 +5,7 @@
 
 use std::sync::Arc;
 
-use super::error::DynamicError;
-use super::value::DynamicValue;
+use super::{error::DynamicError, value::DynamicValue};
 
 /// ROS 2 field types for dynamic messages.
 ///
@@ -223,6 +222,10 @@ impl MessageSchema {
 
     /// Fixed CDR size if all fields are fixed-size.
     pub fn fixed_cdr_size(&self) -> Option<usize> {
+        // ROS 2 gives an empty message one `uint8` member.
+        if self.fields.is_empty() {
+            return Some(1);
+        }
         let mut size = 0usize;
         for field in &self.fields {
             let field_size = field.field_type.fixed_size()?;
