@@ -41,11 +41,7 @@ func (b *barrier) free() { b.once.Do(func() { close(b.release) }) }
 
 func (b *barrier) waitEntered(t *testing.T, what string) {
 	t.Helper()
-	select {
-	case <-b.entered:
-	case <-time.After(barrierBound):
-		t.Fatalf("%s was not reached", what)
-	}
+	receiveBounded(t, b.entered, what)
 }
 
 func receiveBounded[V any](t *testing.T, ch <-chan V, what string) V {

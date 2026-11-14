@@ -217,10 +217,14 @@ func TestSendGoalContextPanicInSerializeLeavesNoRegistration(t *testing.T) {
 	held.inflight.leave()
 
 	c := openTestActionClient()
+	var recovered any
 	func() {
-		defer func() { _ = recover() }()
+		defer func() { recovered = recover() }()
 		_, _ = c.SendGoalContext(context.Background(), hookMsg(func() { panic("bad goal") }))
 	}()
+	if recovered != "bad goal" {
+		t.Fatalf("want the serializer panic to reach the caller, got %v", recovered)
+	}
 	if !closeReturns(c) {
 		t.Fatal("Close is blocked: the panicking call left a registration")
 	}
@@ -385,14 +389,6 @@ func TestGetResultWithContextKeepsGoalHandleAliveDuringWait(t *testing.T) {
 	})
 }
 
-// gateGoal holds SerializeCDR at a barrier.
-type gateGoal struct {
-	MockMessage
-	b *barrier
-}
-
-func (g *gateGoal) SerializeCDR() ([]byte, error) { g.b.hold(); return []byte{1}, nil }
-
 // Cancelling while the goal is serialised does not end the call: serialisation runs on the
 // caller's goroutine before the worker starts. The call returns when the serializer returns,
 // with the context error, and nothing is sent.
@@ -409,7 +405,7 @@ func TestSendGoalContextCancelDuringSerializeWaitsForSerializer(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	go func() { _, err := c.SendGoalContext(ctx, &gateGoal{b: b}); done <- err }()
+	go func() { _, err := c.SendGoalContext(ctx, hookMsg(b.hold)); done <- err }()
 	b.waitEntered(t, "the serializer")
 	cancel()
 	select {
