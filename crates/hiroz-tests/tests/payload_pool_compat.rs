@@ -300,13 +300,13 @@ fn a_pool_survives_a_subscriber_that_publishes_from_its_own_pool() -> hiroz::Res
                 let mut guard = p.lock().expect("pool lock");
                 guard.acquire().map(|slot| slot.into_shared())
             };
-            if let Some(shared) = shared {
-                if matches!(
+            if let Some(shared) = shared
+                && matches!(
                     out.publish_shared(shared),
                     Ok(Published::Bus(Delivery::Sent(1)))
-                ) {
-                    e.fetch_add(1, Ordering::SeqCst);
-                }
+                )
+            {
+                e.fetch_add(1, Ordering::SeqCst);
             }
         })?;
 
