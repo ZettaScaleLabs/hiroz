@@ -1773,3 +1773,52 @@ fn ownership_selects_the_route_through_the_generic_publish() -> hiroz::Result<()
     assert_eq!(got[1].data, "by arc");
     Ok(())
 }
+
+/// A borrowed `&T` on an intra-process-only publisher still goes on the wire, so
+/// another session receives a copy. An `Arc<T>` on the same publisher stays on
+/// the bus and the other session sees nothing. The borrowed message arriving is
+/// the positive control for the absence of the shared one.
+#[test]
+fn a_borrowed_message_on_a_bus_only_publisher_reaches_another_session() -> hiroz::Result<()> {
+    let router = TestRouter::new();
+    let ctx_tx = create_hiroz_context_with_router(&router)?;
+    let ctx_far = create_hiroz_context_with_router(&router)?;
+    let node_tx = ctx_tx.create_node("borrow_tx").build()?;
+    let node_far = ctx_far.create_node("borrow_far").build()?;
+
+    let far: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = far.clone();
+    let _sub = node_far
+        .create_sub::<RosString>("borrow_far_topic")
+        .build_with_callback(move |m: RosString| {
+            sink.lock().expect("lock").push(m.data);
+        })?;
+
+    let publisher = node_tx
+        .create_pub::<RosString>("borrow_far_topic")
+        .with_intra_process_only()
+        .build()?;
+    wait_for_ready(Duration::from_millis(800));
+
+    let shared = publisher.publish(Arc::new(RosString {
+        data: "shared".to_owned(),
+    }))?;
+    assert_eq!(shared, Published::Bus(Delivery::NoTaker));
+
+    let borrowed = publisher.publish(&RosString {
+        data: "borrowed".to_owned(),
+    })?;
+    assert_eq!(borrowed, Published::Wire);
+
+    assert!(
+        wait_until(|| !far.lock().expect("lock").is_empty()),
+        "the borrowed message never reached the other session"
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        *far.lock().expect("lock"),
+        vec!["borrowed".to_owned()],
+        "the other session must see the borrowed copy only, never the shared message"
+    );
+    Ok(())
+}
