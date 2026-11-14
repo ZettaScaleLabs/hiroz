@@ -5,6 +5,7 @@
 
 use std::{
     num::NonZeroUsize,
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -80,6 +81,10 @@ fn cache_replays_transient_local_history() {
     wait_until("the volatile cache to receive a live message", || {
         !volatile.is_empty()
     });
+    wait_until(
+        "the transient-local cache to receive the live message",
+        || durable.len() == 4,
+    );
     let seen: Vec<String> = everything(&volatile)
         .iter()
         .map(|m| m.data.clone())
@@ -127,28 +132,23 @@ fn cache_honours_locality() {
     );
 }
 
-/// A cache counts the messages that a gap in the sequence numbers of one publisher skips, and
-/// reports them as a `MessageLost` event on its own event manager.
+/// Publish one real message, forge sequence numbers 0, 1 and 5 on its key, and check that the
+/// cache reports exactly the gap 2, 3, 4.
 ///
-/// The test learns the topic key and a valid payload from one real publication, then puts three
-/// samples with a forged attachment: sequence numbers 0, 1 and 5. The first is the baseline, the
-/// second is contiguous, and the third skips 2, 3 and 4. Control in the same test: the count is 0
-/// after the contiguous sample, so the count of 3 is the gap and not a phantom loss.
-#[test]
-fn cache_reports_message_loss() {
-    const TOPIC: &str = "cache_parity_loss";
-    let (_ctx, node) = isolated_node("cache_loss");
-    let cache = node
-        .create_cache::<RosString>(&format!("/{TOPIC}"), 10)
-        .build()
-        .expect("cache");
+/// The cache is built by the caller, before the publisher, so each build path can run the same
+/// scenario.
+fn assert_cache_reports_gap(
+    node: &hiroz::node::ZNode,
+    topic: &str,
+    cache: hiroz::cache::ZCache<RosString>,
+) {
     let publisher = node
-        .create_pub::<RosString>(&format!("/{TOPIC}"))
+        .create_pub::<RosString>(&format!("/{topic}"))
         .build()
         .expect("publisher");
     let probe = node
         .session()
-        .declare_subscriber(format!("**/{TOPIC}/**"))
+        .declare_subscriber(format!("**/{topic}/**"))
         .wait()
         .expect("probe");
 
@@ -191,6 +191,42 @@ fn cache_reports_message_loss() {
         cache.len() == 4
     });
     assert_eq!(lost(), 3, "expected the gap 2, 3, 4 and no other loss");
+}
+
+/// A cache counts the messages that a gap in the sequence numbers of one publisher skips, and
+/// reports them as a `MessageLost` event on its own event manager.
+///
+/// The samples are forged with sequence numbers 0, 1 and 5. The first is the baseline, the
+/// second is contiguous, and the third skips 2, 3 and 4. Control in the same scenario: the count
+/// is 0 after the contiguous sample, so the count of 3 is the gap and not a phantom loss.
+#[test]
+fn cache_reports_message_loss() {
+    const TOPIC: &str = "cache_parity_loss";
+    let (_ctx, node) = isolated_node("cache_loss");
+    let cache = node
+        .create_cache::<RosString>(&format!("/{TOPIC}"), 10)
+        .build()
+        .expect("cache");
+    assert_cache_reports_gap(&node, TOPIC, cache);
+}
+
+/// A cache that takes its timestamps from the messages reports the same loss as one that takes
+/// them from Zenoh. The two build paths share a builder, and this test runs the loss scenario on
+/// the extractor path.
+#[test]
+fn cache_with_a_stamp_extractor_reports_message_loss() {
+    const TOPIC: &str = "cache_parity_stamp_loss";
+    let (_ctx, node) = isolated_node("cache_stamp_loss");
+    // Every message needs its own stamp, because the cache is keyed by stamp.
+    let next = AtomicU64::new(0);
+    let cache = node
+        .create_cache::<RosString>(&format!("/{TOPIC}"), 10)
+        .with_stamp(move |_: &RosString| {
+            UNIX_EPOCH + Duration::from_secs(next.fetch_add(1, Ordering::Relaxed))
+        })
+        .build()
+        .expect("cache");
+    assert_cache_reports_gap(&node, TOPIC, cache);
 }
 
 /// The locality of a cache restricts the buffer-group subscription as well as the topic one.
@@ -266,31 +302,33 @@ fn cache_locality_covers_the_buffer_group_key() {
     }
 }
 
+/// Run the remote-locality scenario for a cache built with `qos`.
+///
 /// A cache with `Locality::Remote` stores what a publisher on another session sends, and nothing
 /// that a publisher on its own session sends.
 ///
 /// Control in the same test: the cache with the default locality stores the local message, so the
 /// absence of that message in the restricted cache is the locality. The restricted cache must
 /// store a remote message, so it is not a cache that never receives anything.
-#[test]
-fn cache_with_remote_locality_stores_remote_messages_only() {
-    const TOPIC: &str = "/cache_parity_remote_locality";
-    let (_ctx_a, node_a, _ctx_b, node_b) = connected_nodes("cache_remote_locality");
+fn assert_remote_locality_stores_remote_only(topic: &str, name: &str, qos: QosProfile) {
+    let (_ctx_a, node_a, _ctx_b, node_b) = connected_nodes(name);
     let remote_only = node_a
-        .create_cache::<RosString>(TOPIC, 100)
+        .create_cache::<RosString>(topic, 100)
+        .with_qos(qos)
         .with_locality(Locality::Remote)
         .build()
         .expect("remote-only cache");
     let any = node_a
-        .create_cache::<RosString>(TOPIC, 100)
+        .create_cache::<RosString>(topic, 100)
+        .with_qos(qos)
         .build()
         .expect("default cache");
     let local_publisher = node_a
-        .create_pub::<RosString>(TOPIC)
+        .create_pub::<RosString>(topic)
         .build()
         .expect("local publisher");
     let remote_publisher = node_b
-        .create_pub::<RosString>(TOPIC)
+        .create_pub::<RosString>(topic)
         .build()
         .expect("remote publisher");
 
@@ -319,5 +357,31 @@ fn cache_with_remote_locality_stores_remote_messages_only() {
     assert!(
         kept.iter().all(|m| m.data == "remote"),
         "a cache restricted to remote publishers stored a local message"
+    );
+}
+
+/// A volatile cache with `Locality::Remote` stores remote messages only.
+#[test]
+fn cache_with_remote_locality_stores_remote_messages_only() {
+    assert_remote_locality_stores_remote_only(
+        "/cache_parity_remote_locality",
+        "cache_remote_locality",
+        QosProfile::default(),
+    );
+}
+
+/// The same holds for a transient-local cache, which subscribes through a different build path
+/// than the volatile one.
+#[test]
+fn transient_local_cache_with_remote_locality_stores_remote_messages_only() {
+    assert_remote_locality_stores_remote_only(
+        "/cache_parity_remote_locality_tl",
+        "cache_remote_locality_tl",
+        QosProfile {
+            durability: QosDurability::TransientLocal,
+            reliability: QosReliability::Reliable,
+            history: QosHistory::KeepLast(NonZeroUsize::new(10).unwrap()),
+            ..Default::default()
+        },
     );
 }

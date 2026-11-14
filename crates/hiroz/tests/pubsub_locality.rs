@@ -85,3 +85,32 @@ fn wait_for_subscription_follows_the_locality_across_sessions() {
         "a session-local publisher reported a subscriber on another session as ready"
     );
 }
+
+/// With a subscriber on the publisher's own session only, a `Locality::SessionLocal` publisher
+/// reports ready.
+///
+/// This is the positive case of the session-local arm. The negative waits elsewhere in this file
+/// cannot tell that arm from one that always counts nothing.
+#[test]
+fn wait_for_subscription_counts_a_same_session_subscriber_for_session_local() {
+    const TOPIC: &str = "/pubsub_locality_wait_session_local";
+    let (_ctx, node) = isolated_node("pubsub_locality_wait_sl");
+    let _subscriber = node
+        .create_sub::<RosString>(TOPIC)
+        .build()
+        .expect("subscriber");
+    let session_local = node
+        .create_pub::<RosString>(TOPIC)
+        .with_locality(Locality::SessionLocal)
+        .build()
+        .expect("session-local publisher");
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    assert!(
+        rt.block_on(session_local.wait_for_subscription(1, Duration::from_secs(10))),
+        "a session-local publisher never saw the subscriber on its own session"
+    );
+}

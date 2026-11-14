@@ -752,6 +752,23 @@ mod tests {
         assert_eq!(status.total_count, 1);
     }
 
+    /// A reordered arrival keeps its publisher in the table, so it is not the one evicted.
+    #[test]
+    fn message_loss_a_reordered_arrival_refreshes_recency() {
+        let mgr = Arc::new(Mutex::new(EventsManager::new(gid(1))));
+        let tracker = MessageLossTracker::with_capacity(mgr.clone(), 2);
+        tracker.observe(gid_n(1), 5);
+        tracker.observe(gid_n(2), 0);
+        tracker.observe(gid_n(1), 3); // reordered: below the baseline, refreshes only recency
+        tracker.observe(gid_n(3), 0); // evicts 2, not 1
+        tracker.observe(gid_n(1), 7); // baseline 5 kept: skips 6 -> 1 lost
+        let status = mgr
+            .lock()
+            .unwrap()
+            .take_event_status(ZenohEventType::MessageLost);
+        assert_eq!(status.total_count, 1);
+    }
+
     #[test]
     fn message_loss_is_counted_from_sequence_gaps() {
         // 0,1,2 contiguous → nothing lost. Then 5 skips 3 and 4.
