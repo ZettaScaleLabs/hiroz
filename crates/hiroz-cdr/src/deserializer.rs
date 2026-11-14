@@ -447,6 +447,13 @@ where
             seed.deserialize(&mut *self.de).map(Some)
         }
     }
+
+    /// The elements left, as the wire declares them. A serde collection caps what it reserves
+    /// from this hint.
+    #[inline]
+    fn size_hint(&self) -> Option<usize> {
+        Some(self.expected_count - self.element_counter)
+    }
 }
 
 impl<'de, 'a, BO> MapAccess<'de> for SequenceHelper<'a, 'de, BO>
