@@ -7,7 +7,7 @@
 
 use hiroz::{
     dynamic::{DynamicMessage, DynamicValue, FieldType, MessageSchema},
-    msg::{SerdeCdrSerdes, ZDeserializer, ZMessage, ZSerializer},
+    msg::{NativeCdrSerdes, SerdeCdrSerdes, ZDeserializer, ZMessage, ZSerializer},
 };
 use hiroz_msgs::{
     rcl_interfaces::{IntegerRange, ParameterDescriptor},
@@ -168,4 +168,25 @@ fn dynamic_empty_schema_has_a_fixed_size_of_one_byte() {
     assert_eq!(pair.fixed_cdr_size(), Some(2));
     let msg = DynamicMessage::new(&pair);
     assert_eq!(msg.to_cdr().expect("serialize").len() - HEADER.len(), 2);
+}
+
+/// The lifecycle requests have no fields, so each takes the one byte of an empty message.
+#[test]
+fn lifecycle_empty_requests_take_one_byte() {
+    use hiroz::lifecycle::msgs::{
+        GetAvailableStatesRequest, GetAvailableTransitionsRequest, GetStateRequest,
+    };
+
+    fn check<T>(request: T)
+    where
+        T: hiroz_cdr::CdrSerialize + hiroz_cdr::CdrDeserialize + hiroz_cdr::CdrSerializedSize,
+    {
+        let bytes = NativeCdrSerdes::<T>::serialize(&request);
+        assert_eq!(bytes, sample(&[0]));
+        NativeCdrSerdes::<T>::deserialize(&bytes[..]).expect("one byte decodes");
+        NativeCdrSerdes::<T>::deserialize(&HEADER[..]).expect_err("no byte is an error");
+    }
+    check(GetStateRequest::default());
+    check(GetAvailableStatesRequest::default());
+    check(GetAvailableTransitionsRequest::default());
 }
