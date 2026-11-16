@@ -30,6 +30,12 @@ pub enum Error {
     #[error("operation timed out after {0:?}")]
     Timeout(Duration),
 
+    /// A service query completed without any server reply.
+    ///
+    /// This does not prove that no server received or acted on the request.
+    #[error("service query completed without a response")]
+    NoServiceReply,
+
     /// A generic, message-carrying failure that has no dedicated variant.
     #[error("{0}")]
     Other(String),
@@ -48,6 +54,10 @@ impl Error {
     pub fn timeout(elapsed: Duration) -> zenoh::Error {
         Box::new(Error::Timeout(elapsed))
     }
+
+    pub(crate) fn no_service_reply() -> zenoh::Error {
+        Box::new(Error::NoServiceReply)
+    }
 }
 
 /// Returns `true` if `err` — or any error in its [`source`](std::error::Error::source)
@@ -63,6 +73,20 @@ pub fn is_timeout(err: &(dyn std::error::Error + 'static)) -> bool {
             return true;
         }
         current = e.source();
+    }
+    false
+}
+
+/// Returns `true` when a service query completed without any reply.
+///
+/// This does not prove that no server received or acted on the request.
+pub fn is_no_service_reply(err: &(dyn std::error::Error + 'static)) -> bool {
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err);
+    while let Some(error) = current {
+        if matches!(error.downcast_ref::<Error>(), Some(Error::NoServiceReply)) {
+            return true;
+        }
+        current = error.source();
     }
     false
 }
@@ -85,6 +109,13 @@ mod tests {
 
         let zenoh_err: zenoh::Error = zenoh::Error::from("plain failure");
         assert!(!is_timeout(&*zenoh_err));
+    }
+
+    #[test]
+    fn no_service_reply_is_distinct_from_timeout() {
+        let error = Error::no_service_reply();
+        assert!(is_no_service_reply(&*error));
+        assert!(!is_timeout(&*error));
     }
 
     #[test]

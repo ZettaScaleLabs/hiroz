@@ -6,6 +6,7 @@ use hiroz::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use zenoh::Wait;
 
 // Simple test service request
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -329,7 +330,7 @@ fn test_try_take_request_non_blocking() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_call_with_timeout_expires() {
+async fn no_server_query_has_no_reply() {
     let ctx = ZContextBuilder::default()
         .disable_multicast_scouting()
         .with_json("connect/endpoints", json!([]))
@@ -348,7 +349,78 @@ async fn test_call_with_timeout_expires() {
             Duration::from_millis(200),
         )
         .await;
-    assert!(result.is_err(), "expected error when no server is present");
+    let error = result.expect_err("expected error when no server is present");
+    assert!(hiroz::error::is_no_service_reply(&*error));
+    assert!(!hiroz::error::is_timeout(&*error));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_service_refusal_preserves_the_reply_error() {
+    let ctx = ZContextBuilder::default()
+        .disable_multicast_scouting()
+        .with_json("connect/endpoints", json!([]))
+        .build()
+        .unwrap();
+    let node = ctx.create_node("refusal_node").build().unwrap();
+    let _server = node
+        .create_service::<AddTwoInts>("refusal")
+        .build_with_callback(|query| {
+            query
+                .reply_err("capacity exhausted")
+                .wait()
+                .expect("failed to send refusal");
+        })
+        .unwrap();
+    let client = node.create_client::<AddTwoInts>("refusal").build().unwrap();
+
+    let error = client
+        .call_with_timeout(&AddTwoIntsRequest { a: 1, b: 2 }, Duration::from_secs(2))
+        .await
+        .expect_err("refusal unexpectedly succeeded");
+
+    assert!(!hiroz::error::is_timeout(&*error));
+    let refusal = error
+        .downcast_ref::<zenoh::query::ReplyError>()
+        .expect("service refusal must retain Zenoh reply details");
+    assert_eq!(refusal.payload().to_bytes().as_ref(), b"capacity exhausted");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pending_service_request_reports_the_outer_deadline() {
+    let ctx = ZContextBuilder::default()
+        .disable_multicast_scouting()
+        .with_json("connect/endpoints", json!([]))
+        .build()
+        .unwrap();
+    let node = ctx.create_node("pending_service_node").build().unwrap();
+    let mut server = node
+        .create_service::<AddTwoInts>("pending_service")
+        .build()
+        .unwrap();
+    let client = node
+        .create_client::<AddTwoInts>("pending_service")
+        .build()
+        .unwrap();
+
+    let (received_tx, received_rx) = tokio::sync::oneshot::channel();
+    let pending = tokio::spawn(async move {
+        let request = server.async_take_request().await.unwrap();
+        received_tx.send(()).unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        drop(request);
+    });
+    let error = client
+        .call_with_timeout(&AddTwoIntsRequest { a: 1, b: 2 }, Duration::from_millis(50))
+        .await
+        .expect_err("pending request unexpectedly succeeded");
+
+    assert!(hiroz::error::is_timeout(&*error));
+    assert!(!hiroz::error::is_no_service_reply(&*error));
+    tokio::time::timeout(Duration::from_secs(1), received_rx)
+        .await
+        .expect("server did not receive the timed-out request")
+        .expect("request receiver closed before confirming receipt");
+    pending.abort();
 }
 
 #[test]
