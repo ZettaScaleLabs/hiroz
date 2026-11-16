@@ -5,7 +5,8 @@
 
 use std::sync::Arc;
 
-use hiroz_cdr::{CdrReader, CdrWriter, LittleEndian};
+use byteorder::ByteOrder;
+use hiroz_cdr::{BigEndian, CdrReader, CdrWriter, LittleEndian};
 use zenoh_buffers::ZBuf;
 
 use crate::dynamic::error::DynamicError;
@@ -43,17 +44,21 @@ pub fn deserialize_cdr(
         ));
     }
     let header = &data[0..4];
-    let representation_identifier = &header[0..2];
-    if representation_identifier != [0x00, 0x01] {
-        return Err(DynamicError::DeserializationError(format!(
-            "Expected CDR_LE encapsulation ({:?}), found {:?}",
-            [0x00, 0x01],
-            representation_identifier
-        )));
+    let representation_identifier = [header[0], header[1]];
+    match representation_identifier {
+        [0x00, 0x01] => deserialize_payload::<LittleEndian>(&data[4..], schema),
+        [0x00, 0x00] => deserialize_payload::<BigEndian>(&data[4..], schema),
+        other => Err(DynamicError::DeserializationError(format!(
+            "Unsupported CDR encapsulation identifier: {other:?}"
+        ))),
     }
+}
 
-    let payload = &data[4..];
-    let mut reader = CdrReader::<LittleEndian>::new(payload);
+fn deserialize_payload<BO: ByteOrder>(
+    payload: &[u8],
+    schema: &Arc<MessageSchema>,
+) -> Result<DynamicMessage, DynamicError> {
+    let mut reader = CdrReader::<BO>::new(payload);
     deserialize_message(schema, &mut reader)
 }
 
@@ -132,9 +137,9 @@ fn serialize_value(
     Ok(())
 }
 
-fn deserialize_message(
+fn deserialize_message<BO: ByteOrder>(
     schema: &Arc<MessageSchema>,
-    reader: &mut CdrReader<LittleEndian>,
+    reader: &mut CdrReader<BO>,
 ) -> Result<DynamicMessage, DynamicError> {
     let mut values = Vec::with_capacity(schema.fields.len());
 
@@ -146,9 +151,9 @@ fn deserialize_message(
     Ok(DynamicMessage::from_values(schema, values))
 }
 
-fn deserialize_value(
+fn deserialize_value<BO: ByteOrder>(
     field_type: &FieldType,
-    reader: &mut CdrReader<LittleEndian>,
+    reader: &mut CdrReader<BO>,
 ) -> Result<DynamicValue, DynamicError> {
     match field_type {
         FieldType::Bool => Ok(DynamicValue::Bool(reader.read_bool().map_err(map_cdr_err)?)),

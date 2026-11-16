@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::dynamic::message::DynamicMessage;
 use crate::dynamic::schema::{FieldType, MessageSchema};
-use crate::dynamic::serialization::{CDR_HEADER_LE, deserialize_cdr, serialize_cdr};
+use crate::dynamic::serialization::{CDR_HEADER_BE, CDR_HEADER_LE, deserialize_cdr, serialize_cdr};
 use crate::dynamic::value::DynamicValue;
 
 fn create_point_schema() -> Arc<MessageSchema> {
@@ -295,4 +295,110 @@ fn test_zbuf_serialization() {
 
     // Check CDR header
     assert_eq!(&bytes[0..4], &CDR_HEADER_LE);
+}
+
+#[test]
+fn test_cdr_big_endian_fixed_vector_with_alignment() {
+    let nested = MessageSchema::builder("test_msgs/msg/Nested")
+        .field("id", FieldType::Int32)
+        .build()
+        .unwrap();
+    let schema = MessageSchema::builder("test_msgs/msg/TestRecord")
+        .field("flag", FieldType::Bool)
+        .field("count", FieldType::Uint16)
+        .field("label", FieldType::String)
+        .field("nested", FieldType::Message(nested))
+        .field("values", FieldType::Array(Box::new(FieldType::Float32), 2))
+        .build()
+        .unwrap();
+
+    // Hand-derived CDR_BE payload: bool, aligned uint16, string, nested int32,
+    // and an aligned float array. These bytes are independent of Hiroz's writer.
+    let big_endian = [
+        CDR_HEADER_BE[0],
+        CDR_HEADER_BE[1],
+        CDR_HEADER_BE[2],
+        CDR_HEADER_BE[3],
+        1,
+        0,
+        0x12,
+        0x34,
+        0,
+        0,
+        0,
+        4,
+        b'B',
+        b'E',
+        b'!',
+        0,
+        1,
+        2,
+        3,
+        4,
+        0x3f,
+        0x80,
+        0,
+        0,
+        0xc0,
+        0x20,
+        0,
+        0,
+    ];
+    let decoded = deserialize_cdr(&big_endian, &schema).unwrap();
+    assert!(decoded.get::<bool>("flag").unwrap());
+    assert_eq!(decoded.get::<u16>("count").unwrap(), 0x1234);
+    assert_eq!(decoded.get::<String>("label").unwrap(), "BE!");
+    assert_eq!(decoded.get::<i32>("nested.id").unwrap(), 0x01020304);
+    assert_eq!(
+        decoded.get_dynamic("values").unwrap(),
+        DynamicValue::Array(vec![
+            DynamicValue::Float32(1.0),
+            DynamicValue::Float32(-2.5),
+        ])
+    );
+
+    let little_endian = [
+        CDR_HEADER_LE[0],
+        CDR_HEADER_LE[1],
+        CDR_HEADER_LE[2],
+        CDR_HEADER_LE[3],
+        1,
+        0,
+        0x34,
+        0x12,
+        4,
+        0,
+        0,
+        0,
+        b'B',
+        b'E',
+        b'!',
+        0,
+        4,
+        3,
+        2,
+        1,
+        0,
+        0,
+        0x80,
+        0x3f,
+        0,
+        0,
+        0x20,
+        0xc0,
+    ];
+    let decoded_le = deserialize_cdr(&little_endian, &schema).unwrap();
+    assert_eq!(decoded_le.get::<u16>("count").unwrap(), 0x1234);
+    assert_eq!(decoded_le.get::<i32>("nested.id").unwrap(), 0x01020304);
+    assert_eq!(
+        decoded_le.get_dynamic("values").unwrap(),
+        decoded.get_dynamic("values").unwrap()
+    );
+}
+
+#[test]
+fn test_cdr_rejects_unsupported_encapsulation() {
+    let schema = create_string_schema();
+    let error = deserialize_cdr(&[0x00, 0x02, 0x00, 0x00], &schema).unwrap_err();
+    assert!(error.to_string().contains("Unsupported CDR encapsulation"));
 }
