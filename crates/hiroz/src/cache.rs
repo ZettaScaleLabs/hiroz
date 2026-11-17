@@ -130,12 +130,9 @@ pub struct ZCache<T: ZMessage> {
 }
 
 impl<T: ZMessage> ZCache<T> {
-    /// The event manager this cache raises endpoint events on.
-    ///
-    /// A cache raises [`MessageLost`](crate::event::ZenohEventType::MessageLost) when the
-    /// sequence numbers of a publisher skip. The loss tracker needs the attachment of each
-    /// sample, so a publisher that sends none is never reported as lossy. The cache raises
-    /// no other event type itself.
+    /// The event manager on which this cache raises
+    /// [`MessageLost`](crate::event::ZenohEventType::MessageLost), like `ZSub::events_mgr`.
+    /// See the [message cache chapter](https://zettascalelabs.github.io/hiroz/core-concepts/message-cache/).
     pub fn events_mgr(&self) -> &Arc<Mutex<EventsManager>> {
         &self.events_mgr
     }
@@ -316,30 +313,22 @@ impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
         self
     }
 
-    /// Apply a QoS profile to the underlying subscriber. A `TransientLocal` durability makes the
-    /// cache request the history of publishers that started earlier. That subscription drops a
-    /// sample that is not newer than one it already delivered from the same source. A volatile
-    /// cache does not drop reordered samples.
+    /// Apply a QoS profile to the underlying subscriber. `TransientLocal` replays history; see the
+    /// [message cache chapter](https://zettascalelabs.github.io/hiroz/core-concepts/message-cache/).
     pub fn with_qos(mut self, qos: crate::qos::QosProfile) -> Self {
         self.sub_builder = self.sub_builder.with_qos(qos);
         self
     }
 
-    /// Restrict the cache to samples from publishers of one locality: the same session, remote
-    /// sessions or both. The default is both. The restriction applies to the topic subscription
-    /// and to the buffer-group subscription alike.
-    ///
-    /// The restriction applies to live samples only. See
-    /// [`ZPubBuilder::with_locality`](crate::pubsub::ZPubBuilder::with_locality) for the history caveat.
+    /// Restrict the cache to publishers of one locality, as
+    /// [`ZSubBuilder::with_locality`](crate::pubsub::ZSubBuilder::with_locality) does.
     pub fn with_locality(mut self, locality: zenoh::sample::Locality) -> Self {
         self.sub_builder = self.sub_builder.with_locality(locality);
         self
     }
 
-    /// Set the encoding that the cache expects on received messages, as
-    /// [`ZSubBuilder::with_encoding`](crate::pubsub::ZSubBuilder::with_encoding) does for a
-    /// subscriber. A sample with a known, different encoding logs a warning. The check does not
-    /// reject the message.
+    /// Set the expected encoding, as
+    /// [`ZSubBuilder::with_encoding`](crate::pubsub::ZSubBuilder::with_encoding) does.
     pub fn with_encoding(mut self, encoding: crate::encoding::Encoding) -> Self {
         self.sub_builder = self.sub_builder.with_encoding(encoding);
         self

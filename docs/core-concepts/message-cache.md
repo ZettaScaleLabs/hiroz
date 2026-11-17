@@ -133,13 +133,13 @@ A cache shares the locality and encoding checks of `create_sub`, and a `Transien
 
 | Builder method | Effect |
 |---|---|
-| `with_qos(qos)` | A `TransientLocal` durability makes the cache request the history of publishers that started earlier. The cache stores the replayed messages like live ones. That subscription drops a sample that is not newer than one already delivered from the same source. The default durability is `Volatile`, and a volatile cache does not drop reordered samples. |
-| `with_locality(locality)` | Restricts the cache to publishers of one locality: `Locality::SessionLocal` (the same session), `Locality::Remote` or `Locality::Any`. The default is `Any`. The restriction applies to live samples only. See the rustdoc of `ZPubBuilder::with_locality` for `TransientLocal` history. |
-| `with_encoding(encoding)` | Sets the encoding that the cache expects. A sample with a known, different encoding logs a warning, and the check does not reject the message. A sample with an unknown encoding is logged at debug level only. |
+| `with_qos(qos)` | `TransientLocal` makes the cache request and store the history of publishers that started earlier. That subscription drops a sample that is not newer than one already delivered from the same source. The default, `Volatile`, does not drop reordered samples. |
+| `with_locality(locality)` | Restricts the cache to publishers of one locality. See [Locality](pubsub.md#locality). |
+| `with_encoding(encoding)` | Logs a warning for a sample with a known, different encoding. The message is still stored. An unknown encoding is logged at debug level only. |
 
 ### Message loss
 
-A cache tracks the sequence numbers that hiroz publishers send in the sample attachment. A gap raises a `MessageLost` event with the number of skipped messages. Read it with `cache.events_mgr()`, the same handle that `ZSub::events_mgr()` returns. A publisher that sends no attachment, such as a plain Zenoh peer, is never reported as lossy. The first sample of a publisher is a baseline, so a cache that joins late reports no loss for history it never received. The tracker keeps the baselines of at most 1024 publishers and drops the publisher heard from least recently. When that publisher sends again, its sample is a new baseline: it reports no loss, and a gap that fell inside the eviction goes unreported. The cache raises no other event type itself.
+A cache tracks the sequence numbers that hiroz publishers send in the sample attachment. A gap raises a `MessageLost` event on `cache.events_mgr()`, the same handle that `ZSub::events_mgr()` returns. A publisher that sends no attachment, such as a plain Zenoh peer, is never reported as lossy. The first sample of a publisher is a baseline, so a cache that joins late reports no loss for history it never received. The tracker holds a bounded number of publishers. A publisher evicted from it starts a new baseline when it sends again, so a gap that spans the eviction is not reported.
 
 ## Comparison with `message_filters::Cache<T>`
 
