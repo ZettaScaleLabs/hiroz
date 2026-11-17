@@ -73,7 +73,7 @@ impl<T: ZMessage, S: ZSerializer> ZLifecyclePublisher<T, S> {
             }
             return Ok(());
         }
-        self.inner.publish(msg)
+        self.inner.publish_ref(msg)
     }
 
     /// Returns `true` if this publisher is currently activated.

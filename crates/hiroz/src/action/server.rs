@@ -1043,7 +1043,7 @@ impl<A: ZAction> GoalHandle<A, Executing> {
             goal_id: self.info.goal_id,
             feedback,
         };
-        self.server.feedback_pub().publish(&msg)
+        self.server.feedback_pub().publish_ref(&msg)
     }
 
     /// Check if cancellation has been requested for this goal.

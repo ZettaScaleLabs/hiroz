@@ -1,0 +1,17 @@
+error[E0277]: the trait bound `hiroz_msgs::std_msgs::String: Publishable<hiroz_msgs::std_msgs::String, NativeCdrSerdes<hiroz_msgs::std_msgs::String>>` is not satisfied
+ --> tests/ui/fail_owned_message.rs:7:23
+  |
+7 |     let _ = p.publish(m);
+  |               ------- ^ the trait `Publishable<hiroz_msgs::std_msgs::String, NativeCdrSerdes<hiroz_msgs::std_msgs::String>>` is not implemented for `hiroz_msgs::std_msgs::String`
+  |               |
+  |               required by a bound introduced by this call
+  |
+note: required by a bound in `ZPub::<T, S>::publish`
+ --> $WORKSPACE/crates/hiroz/src/pubsub.rs
+  |
+  |     pub fn publish(&self, msg: impl Publishable<T, S>) -> Result<Published> {
+  |                                     ^^^^^^^^^^^^^^^^^ required by this bound in `ZPub::<T, S>::publish`
+help: consider borrowing here
+  |
+7 |     let _ = p.publish(&m);
+  |                       +

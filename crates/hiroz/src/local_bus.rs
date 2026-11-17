@@ -19,7 +19,7 @@
 //! | | here | not here |
 //! |---|---|---|
 //! | audience | every same-session subscriber registered on this channel | subscribers reached only over the wire |
-//! | type check | exact [`core::any::TypeId`] | any structural or version-tolerant match |
+//! | type check | exact [`TypeId`](core::any::TypeId) | any structural or version-tolerant match |
 //! | mutability | shared `Arc<T>`, or moved to a sole receiver | a receiver mutating a payload others still hold |
 //! | choosing the path | the caller asserts the audience | inferring it |
 //!
@@ -35,7 +35,7 @@
 //! "same session" true rather than "same process": two
 //! [`ZContext`](crate::context::ZContext)s in one process open two sessions and
 //! do not see each other's traffic. A publisher resolves its
-//! [`crate::local_bus::Channel`] once, at build time, and never touches the
+//! [`Channel`](crate::local_bus::Channel) once, at build time, and never touches the
 //! registry again.
 //!
 //! # Locking
@@ -161,6 +161,7 @@ pub struct Channel {
 /// A fallback to the wire must not follow it: the fallback re-enters the same
 /// callback with a fresh depth counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Delivery {
     /// This many callbacks returned normally. A callback that panicked is not
     /// counted, so the number of callbacks that ran can be higher.
@@ -171,7 +172,6 @@ pub enum Delivery {
     /// Refused: delivery is already nested `MAX_DELIVERY_DEPTH` deep.
     DepthExceeded,
 }
-
 
 /// Which routes one publish took, and what the bus did on its route.
 ///
@@ -322,7 +322,7 @@ impl Channel {
     /// of this type is registered, or another subscriber of the type is. The caller
     /// keeps the payload and can fall back. The bus does not downgrade to a shared
     /// delivery, because that would defeat the request for ownership.
-    pub fn publish_owned<T>(&self, payload: T) -> core::result::Result<Delivery, T>
+    pub fn publish_moved<T>(&self, payload: T) -> core::result::Result<Delivery, T>
     where
         T: Any + Send + 'static,
     {
@@ -356,7 +356,7 @@ impl Channel {
         let _depth_guard = DepthGuard;
 
         // A panicked callback delivered nothing, as on the shared path.
-        if invoke_isolated("local_bus::publish_owned", || cb(Box::new(payload))) {
+        if invoke_isolated("local_bus::publish_moved", || cb(Box::new(payload))) {
             Ok(Delivery::Sent(1))
         } else {
             Ok(Delivery::NoTaker)
@@ -521,7 +521,7 @@ pub fn subscriber_count(zid: ZenohId, topic: &str) -> usize {
 /// Register `callback` to receive messages of type `T` **by value**.
 ///
 /// Served only when it is the sole subscriber of that type on the channel; see
-/// [`Channel::publish_owned`]. Registering one beside a shared subscriber is
+/// [`Channel::publish_moved`]. Registering one beside a shared subscriber is
 /// allowed, but then the owned path cannot give anything away.
 pub fn subscribe_owned<T, F>(channel: Arc<Channel>, callback: F) -> LocalSubscription
 where

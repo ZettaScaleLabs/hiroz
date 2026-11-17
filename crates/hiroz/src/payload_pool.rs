@@ -32,7 +32,7 @@
 //! | many subscribers | yes | each gets a clone of one `Arc`, so fan-out costs one slot |
 //! | a callback that republishes from the same pool | yes | `into_shared` ends the pool's borrow before the publish |
 //! | a subscriber that stores its `Arc` | not while stored | counted in [`PoolStats::stuck`](crate::payload_pool::PoolStats::stuck) |
-//! | [`ZPub::publish_owned`](crate::pubsub::ZPub::publish_owned) | never | it takes `T` by value, so the allocation leaves the pool |
+//! | [`ZPub::publish_moved`](crate::pubsub::ZPub::publish_moved) | never | it takes `T` by value, so the allocation leaves the pool |
 //!
 //! `acquire` takes `&mut self`: share a pool across threads behind a lock, or
 //! give each thread its own. A message field that is a `ZBuf` is covered by the
