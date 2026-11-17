@@ -132,26 +132,26 @@ fn honest_sequence_reserves_once() {
     );
 }
 
-/// A count above the unread input reserves at most one element per unread byte.
+/// A count above the unread input reserves exactly one element per unread byte, and no more.
 #[test]
-fn truncated_sequence_reserves_at_most_the_unread_input() {
-    const NAME: &str = "truncated_sequence_reserves_at_most_the_unread_input";
+fn truncated_sequence_reserves_one_element_per_unread_byte() {
+    const NAME: &str = "truncated_sequence_reserves_one_element_per_unread_byte";
     // The count is declared as 100_000; two whole elements follow the alignment padding.
     let input = u64_body(100_000, 2);
+    // The bytes after the count: the padding and the two elements.
     let unread = input.len() - 4;
     let (decoded, stats) = measure(|| {
         let mut r = CdrReader::<LittleEndian>::new(&input);
         Vec::<u64>::cdr_deserialize(&mut r)
     });
     assert!(decoded.is_err(), "{NAME}: decode must fail");
-    assert!(
-        stats.allocs >= 1,
-        "{NAME}: the decoder must reserve, or the bound is not measured: {stats:?}"
-    );
-    assert!(
-        stats.largest <= unread * size_of::<u64>(),
-        "{NAME}: reserved {} bytes for {unread} unread bytes",
-        stats.largest
+    // The end-of-input error allocates nothing, so the one request is the reservation.
+    assert_eq!(stats.allocs, 1, "{NAME}: allocations: {stats:?}");
+    assert_eq!(stats.reallocs, 0, "{NAME}: reallocations: {stats:?}");
+    assert_eq!(
+        stats.largest,
+        unread * size_of::<u64>(),
+        "{NAME}: reserved bytes for {unread} unread bytes"
     );
 }
 

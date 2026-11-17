@@ -1,11 +1,8 @@
 //! Hostile sequence lengths in the decoders a subscriber uses.
 //!
-//! A decoder that reserves memory from a length it has just read aborts the process when the
-//! reservation fails. A test cannot catch an abort. The cases run in a child process under a
-//! lowered address-space limit. See the `hostile` module for the harness and its environment.
+//! The cases run in a child process under a lowered address-space limit. The `hostile` module
+//! holds the harness, its environment and the reason for the platform gate.
 
-// The file runs on 64-bit Linux only. A 32-bit process may reserve the hostile amount, and
-// `setrlimit` takes a narrower type there.
 #![cfg(all(target_os = "linux", target_pointer_width = "64", feature = "ros-msgs"))]
 
 use hiroz::dynamic::{DynamicMessage, DynamicValue, FieldType, MessageSchema};
