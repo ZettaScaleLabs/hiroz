@@ -179,36 +179,12 @@ impl<T: ZMessage, S: ZSerializer> std::fmt::Debug for ZPub<T, S> {
 /// carries the message type, so `Publishable<U> for &U` and
 /// `Publishable<&U> for &U` are different trait references.
 ///
-/// # Why there is no impl for `T`
-///
-/// `clippy::needless_borrows_for_generic_args` fires on `publish(&expr)` when
-/// the unborrowed expression also satisfies the bound, and suggests dropping
-/// the `&`. An impl for `T` would make that suggestion select a different impl
-/// and move the message from the wire to the bus, with no error. Without the
-/// impl the suggestion does not compile.
-///
+/// There is no impl for `T`: with one, clippy's suggestion to drop the `&` in
+/// `publish(&expr)` would silently move the message from the wire to the bus.
 /// Give a message away by name with [`ZPub::publish_moved`].
 ///
-/// # Sealed
-///
 /// The trait is sealed: only `&T` and `Arc<T>` implement it, so a downstream
-/// type cannot add a route.
-///
-/// ```compile_fail,E0277
-/// use hiroz::{
-///     local_bus::Published,
-///     msg::{ZMessage, ZSerializer},
-///     pubsub::{Publishable, ZPub},
-/// };
-///
-/// struct Mine;
-///
-/// impl<T: ZMessage, S: ZSerializer> Publishable<T, S> for Mine {
-///     fn publish_to(self, _: &ZPub<T, S>) -> hiroz::Result<Published> {
-///         unimplemented!()
-///     }
-/// }
-/// ```
+/// type cannot add a route. The compile-fail suite in `hiroz-tests` pins this.
 pub trait Publishable<T: ZMessage, S: ZSerializer>: sealed::Sealed<T> + Sized {
     /// Publish `self` through `publisher`, by the route its ownership selects.
     fn publish_to(self, publisher: &ZPub<T, S>) -> Result<Published>;
@@ -654,27 +630,15 @@ where
 
     /// Publish, with the argument's ownership choosing the route.
     ///
-    /// This is the one publish name, in the shape rclcpp uses: there,
-    /// `publish(const&)` copies and `publish(unique_ptr)` moves, and the
-    /// overload picks the path. Rust has no overloading, so a trait carries it.
-    ///
     /// | argument | route | equivalent to |
     /// |---|---|---|
     /// | `&T` | zenoh | [`ZPub::publish_ref`] |
     /// | `Arc<T>` | the route this publisher was built with; see [`ZPub::publish_shared`] | [`ZPub::publish_shared`] |
     ///
-    /// There is deliberately no `T` form: see [`Publishable`] for why an impl
-    /// on the bare value made a clippy suggestion reroute messages. Give a
-    /// message away with [`ZPub::publish_moved`].
-    ///
-    /// **The routing rules are unchanged.** A bus route still requires the
-    /// caller to have asserted the audience with
-    /// [`ZPubBuilder::with_intra_process_only`] or a `Locality::Remote`; without
-    /// one, an `Arc<T>` goes on the wire exactly as before. This method renames
-    /// nothing about who decides.
-    ///
-    /// The named methods remain, and stay the right choice when you want their
-    /// exact return type.
+    /// An `Arc<T>` takes the bus only when the publisher was built with
+    /// [`ZPubBuilder::with_intra_process_only`] or a `Locality::Remote`;
+    /// otherwise it goes on the wire. Give a message away with
+    /// [`ZPub::publish_moved`].
     ///
     /// # Blocking, and which route it applies to
     ///
