@@ -373,7 +373,7 @@ func serializeGoal(goal Message) ([]byte, error) {
 // It never reads a Message. It reads goalBytes until it returns, so the caller must not
 // change that storage while the call runs.
 func (c *ActionClient) sendGoalBytes(h *C.hiroz_action_client_t, goalBytes []byte) (*GoalHandle, error) {
-	// Pin the goal data to prevent GC relocation during the C call
+	// Pin the goal bytes while the C call reads them.
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 	pinner.Pin(&goalBytes[0])
@@ -481,10 +481,10 @@ func (c *ActionClient) SendGoalContext(ctx context.Context, goal Message) (*Goal
 // It refuses new calls of the registered kind. It then blocks until the registered calls
 // have returned, so that no goroutine holds the C handle when Close frees it.
 // Registered calls: GetResultWithContext, GetResult, GetTypedResult, GetTypedResultContext
-// and SendGoalContext. Close waits for the C call of each, not for its context. The reply
-// timeout of a result wait is 30 seconds, and the query behind it ends after 10 seconds.
-// The reply timeout of a goal send is 10 seconds. These timeouts do not bound the time to
-// submit the query. A call that Close drained can still succeed or fail: the C call decides.
+// and SendGoalContext. Close waits for the C call of each, not for its context. Each such
+// C call ends within 10 seconds, the fixed query timeout of the client. This bound does not
+// cover the time to submit the query. A call that Close drained can still succeed or fail:
+// the C call decides.
 // Unregistered calls: SendGoal and GoalHandle.Cancel. Close does not wait for them.
 // Do not run them concurrently with Close.
 func (c *ActionClient) Close() error {

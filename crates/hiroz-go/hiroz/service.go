@@ -30,7 +30,7 @@ type cServiceClient = C.hiroz_service_client_t
 // serviceCall makes the one blocking C call of a service request. A test replaces it to
 // run the call paths without a Zenoh session.
 var serviceCall = func(h *cServiceClient, req []byte, timeoutMs uint64) ([]byte, int32) {
-	// Pin the request data to prevent GC relocation during the C call
+	// Pin the request bytes while the C call reads them.
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 	pinner.Pin(&req[0])
@@ -187,8 +187,8 @@ func (c *ServiceClient) invoke(h *cServiceClient, requestBytes []byte, timeoutMs
 	return resp, nil
 }
 
-// serviceQueryCap is the longest a service client query runs. The client behind the C call
-// ends every query after this time, whatever timeout the caller passes.
+// serviceQueryCap mirrors the fixed query timeout of the C service client. A longer call
+// timeout has no effect.
 const serviceQueryCap = 10 * time.Second
 
 // callRawContext makes a service call that ends when ctx ends. CallTypedContext documents
