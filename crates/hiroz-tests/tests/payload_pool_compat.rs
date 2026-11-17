@@ -1,26 +1,6 @@
-//! Does `PayloadPool` compose with the rest of hiroz, or only with the bus?
-//!
-//! The pool's own unit tests establish that its arithmetic is right. They say
-//! nothing about whether a pooled message survives contact with a publisher, a
-//! transport, a QoS profile or a second subscriber — and those are the
-//! questions a user adopting it will actually hit.
-//!
-//! The property every test here turns on is the same one: **a slot returns to
-//! the pool when the last holder drops its `Arc`**. The wire, durability and
-//! remote-locality tests read `pool.stats().available` back at capacity after a
-//! publish as the evidence that nothing downstream retained the `Arc<T>`. The
-//! fan-out and re-entry tests assert on delivery and exhaustion instead.
-//!
-//! | test | property |
-//! |---|---|
-//! | `a_wire_publish_does_not_retain_the_pooled_buffer` | the transport copies; the slot returns |
-//! | `a_transient_local_wire_publisher_does_not_retain_it_either` | the durability cache holds serialized samples, not the `Arc` |
-//! | `two_subscribers_share_one_allocation_and_both_release_it` | fan-out costs one slot, not N |
-//! | `a_remote_locality_publisher_returns_the_slot_after_both_routes` | bus + wire together still release |
-//! | `a_pool_survives_a_subscriber_that_publishes_from_its_own_pool` | inline delivery does not deadlock the pool |
-//!
-//! Retaining the published `Arc` in `a_wire_publish_does_not_retain_the_pooled_buffer`
-//! turns that test red, so `available` can drop in this setting.
+//! `PayloadPool` with publishers, QoS and subscribers: a slot must return to
+//! the pool once the last holder drops its `Arc`. The table in the
+//! `payload_pool` module documentation lists the cases.
 
 mod common;
 
@@ -28,6 +8,7 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
+        mpsc,
     },
     time::{Duration, Instant},
 };
@@ -58,87 +39,60 @@ fn msg(s: &str) -> RosString {
     RosString { data: s.to_owned() }
 }
 
-/// The wire path must not hold the pooled `Arc<T>` after `publish` returns.
-///
-/// hiroz serializes into a fresh `ZBuf` (`ZBufWriter` + serde), so zenoh never
-/// receives the `Arc`. This asserts the slot is back after each publish. It
-/// checks the outer `Arc<T>` only, not the buffers inside a message.
+/// A wire publisher, volatile or `TRANSIENT_LOCAL`, does not hold the pooled
+/// `Arc<T>` after `publish_shared` returns. Serialization writes a new `ZBuf`,
+/// and the durability cache holds serialized samples. This checks the outer
+/// `Arc<T>` only, not the buffers inside a message.
 #[test]
 fn a_wire_publish_does_not_retain_the_pooled_buffer() -> hiroz::Result<()> {
     let router = TestRouter::new();
     let ctx = create_hiroz_context_with_router(&router)?;
     let node = ctx.create_node("pool_wire").build()?;
 
-    // A plain publisher: no locality restriction, so this goes on the wire.
-    let publisher = node.create_pub::<RosString>("pool_wire").build()?;
+    for (topic, durability) in [
+        ("pool_wire_volatile", QosDurability::Volatile),
+        ("pool_wire_tl", QosDurability::TransientLocal),
+    ] {
+        // No locality restriction, so this goes on the wire.
+        let publisher = node
+            .create_pub::<RosString>(topic)
+            .with_qos(QosProfile {
+                durability,
+                ..Default::default()
+            })
+            .build()?;
 
-    let mut pool = PayloadPool::new(2, || msg("init"));
-    assert_eq!(pool.stats().available, 2);
+        let mut pool = PayloadPool::new(2, || msg("init"));
+        for i in 0..8 {
+            let mut slot = pool.acquire().expect("a slot, every iteration");
+            slot.data = format!("m{i}");
+            assert_eq!(
+                publisher.publish_shared(slot.into_shared())?,
+                Published::Wire,
+                "{topic} iteration {i}: the wire route did not run"
+            );
+            assert_eq!(
+                pool.stats().available,
+                2,
+                "{topic} iteration {i}: the publisher still holds the pooled buffer"
+            );
+        }
+        assert_eq!(pool.stats().exhaustions, 0, "{topic}: the pool ran dry");
 
-    for i in 0..8 {
-        let mut slot = pool.acquire().expect("a slot, every iteration");
-        slot.data = format!("m{i}");
-        assert_eq!(
-            publisher.publish_shared(slot.into_shared())?,
-            Published::Wire,
-            "iteration {i}: the wire route did not run"
-        );
-
-        assert_eq!(
-            pool.stats().available,
-            2,
-            "iteration {i}: the transport is still holding the pooled buffer after publish \
-             returned, so the pool has lost a slot to the wire"
-        );
-    }
-    assert_eq!(pool.stats().exhaustions, 0, "the pool ran dry on the wire");
-    Ok(())
-}
-
-/// TRANSIENT_LOCAL keeps a history, and the question is *of what*.
-///
-/// The cache holds serialized samples, not the `Arc<T>`, so a durable publisher
-/// costs the pool nothing. Were it to retain the message itself, every send
-/// would permanently consume a slot and this pool of two would exhaust on the
-/// third iteration.
-#[test]
-fn a_transient_local_wire_publisher_does_not_retain_it_either() -> hiroz::Result<()> {
-    let router = TestRouter::new();
-    let ctx = create_hiroz_context_with_router(&router)?;
-    let node = ctx.create_node("pool_tl").build()?;
-
-    let publisher = node
-        .create_pub::<RosString>("pool_tl")
-        .with_qos(QosProfile {
-            durability: QosDurability::TransientLocal,
-            ..Default::default()
-        })
-        .build()?;
-
-    let mut pool = PayloadPool::new(2, || msg("init"));
-    for i in 0..8 {
-        let mut slot = pool.acquire().expect("a slot, every iteration");
-        slot.data = format!("m{i}");
-        assert_eq!(
-            publisher.publish_shared(slot.into_shared())?,
-            Published::Wire,
-            "iteration {i}: the wire route did not run"
-        );
+        // Positive control: a retained `Arc` does lower `available`.
+        let retained = pool.acquire().expect("a slot").into_shared();
+        publisher.publish_shared(Arc::clone(&retained))?;
         assert_eq!(
             pool.stats().available,
-            2,
-            "iteration {i}: the durability cache retained the pooled message itself"
+            1,
+            "{topic}: `available` did not see a retained Arc"
         );
     }
     Ok(())
 }
 
-/// Fan-out costs one slot, not one per subscriber.
-///
-/// Every subscriber is handed a clone of the same `Arc`, so the slot returns
-/// once the last callback returns. A pool of one therefore serves two
-/// subscribers indefinitely — which is the whole point of sharing rather than
-/// copying, and would be false if delivery cloned the payload per receiver.
+/// Fan-out costs one slot, not one per subscriber: every subscriber gets a
+/// clone of the same `Arc`, so a pool of one serves two subscribers.
 #[test]
 fn two_subscribers_share_one_allocation_and_both_release_it() -> hiroz::Result<()> {
     let router = TestRouter::new();
@@ -265,8 +219,8 @@ fn a_remote_locality_publisher_returns_the_slot_after_both_routes() -> hiroz::Re
 ///
 /// `Pooled::into_shared` consumes the guard, so the pool's borrow ends before
 /// `publish_shared` is called and a callback reached mid-publish can take the
-/// pool again. This pins that: the callback republishes from the *same* pool,
-/// on the publishing thread, and neither deadlocks nor panics.
+/// pool again. Here the callback republishes from the same pool, on the
+/// publishing thread.
 #[test]
 fn a_pool_survives_a_subscriber_that_publishes_from_its_own_pool() -> hiroz::Result<()> {
     let router = TestRouter::new();
@@ -315,18 +269,29 @@ fn a_pool_survives_a_subscriber_that_publishes_from_its_own_pool() -> hiroz::Res
         .with_intra_process_only()
         .build()?;
 
-    // The same pool the callback re-enters — that is the property under test.
-    // A separate `outer` pool here would have made the test pass without ever
-    // exercising re-entry.
-    for i in 0..5 {
-        let shared = {
-            let mut guard = inner_pool.lock().expect("pool lock");
-            let mut slot = guard.acquire().expect("outer slot");
-            slot.data = format!("m{i}");
-            slot.into_shared()
+    // The same pool the callback re-enters: that is the property under test.
+    // The loop runs on its own thread so a deadlock fails the join below
+    // instead of hanging the test.
+    let outer_pool = inner_pool.clone();
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let run = || -> hiroz::Result<()> {
+            for i in 0..5 {
+                let shared = {
+                    let mut guard = outer_pool.lock().expect("pool lock");
+                    let mut slot = guard.acquire().expect("outer slot");
+                    slot.data = format!("m{i}");
+                    slot.into_shared()
+                };
+                publisher.publish_shared(shared)?;
+            }
+            Ok(())
         };
-        publisher.publish_shared(shared)?;
-    }
+        let _ = done_tx.send(run());
+    });
+    done_rx
+        .recv_timeout(DEADLINE)
+        .expect("the publishing thread did not finish: re-entering the pool deadlocked")?;
 
     assert_eq!(
         echoes.load(Ordering::SeqCst),
