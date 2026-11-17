@@ -558,8 +558,9 @@ where
     /// or until `timeout` elapses.
     ///
     /// Only subscribers that the publisher's [`with_locality`](ZPubBuilder::with_locality)
-    /// admits count. A bus subscriber registers when it is built, so callers of
-    /// [`publish_shared`](Self::publish_shared) and [`publish_owned`](Self::publish_owned) need not wait.
+    /// admits count. Under `Locality::Remote` a same-session bus subscriber is not counted, although
+    /// [`publish_shared`](Self::publish_shared) and [`publish_owned`](Self::publish_owned) serve it.
+    /// It registers on the bus when built, so those callers need not wait.
     ///
     /// Returns `true` if the required number of subscribers appeared within the
     /// timeout, `false` otherwise.
