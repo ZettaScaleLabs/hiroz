@@ -1,7 +1,5 @@
-//! A cache applies the same subscriber checks as a plain subscriber.
-//!
-//! A control in the same test shows that the checked behaviour differs from the default, so a green
-//! result cannot come from a cache that never receives anything.
+//! A cache applies the same subscriber checks as a plain subscriber. Each test carries a positive
+//! control, so a cache that never receives anything fails it.
 
 use std::{
     num::NonZeroUsize,
@@ -28,11 +26,7 @@ fn message(text: &str) -> RosString {
 }
 
 /// A cache built with a transient-local QoS replays the history of a publisher that started
-/// earlier. A cache with the default QoS does not.
-///
-/// Control in the same test: the volatile cache receives a live message after the replay and
-/// holds nothing else, so the replay comes from the durability and the volatile subscription
-/// works.
+/// earlier. A cache with the default QoS receives only the later live message.
 #[test]
 fn cache_replays_transient_local_history() {
     const TOPIC: &str = "/cache_parity_transient_local";
@@ -93,42 +87,6 @@ fn cache_replays_transient_local_history() {
         seen,
         ["live"],
         "a volatile cache received history that was published before it existed"
-    );
-}
-
-/// A cache with `Locality::Remote` ignores a publisher on its own session. A cache with the
-/// default locality receives the same message.
-///
-/// Control in the same test: the default cache receives the message, so the empty cache is the
-/// locality and not a publisher that never delivered.
-#[test]
-fn cache_honours_locality() {
-    const TOPIC: &str = "/cache_parity_locality";
-    let (_ctx, node) = isolated_node("cache_locality");
-    let remote_only = node
-        .create_cache::<RosString>(TOPIC, 10)
-        .with_locality(Locality::Remote)
-        .build()
-        .expect("remote-only cache");
-    let any = node
-        .create_cache::<RosString>(TOPIC, 10)
-        .build()
-        .expect("default cache");
-    let publisher = node
-        .create_pub::<RosString>(TOPIC)
-        .build()
-        .expect("publisher");
-
-    publisher.publish(&message("local")).expect("publish");
-
-    wait_until("the default cache to receive the message", || {
-        any.len() == 1
-    });
-    std::thread::sleep(Duration::from_millis(500));
-    assert_eq!(
-        remote_only.len(),
-        0,
-        "a cache restricted to remote publishers received a local message"
     );
 }
 
@@ -193,12 +151,7 @@ fn assert_cache_reports_gap(
     assert_eq!(lost(), 3, "expected the gap 2, 3, 4 and no other loss");
 }
 
-/// A cache counts the messages that a gap in the sequence numbers of one publisher skips, and
-/// reports them as a `MessageLost` event on its own event manager.
-///
-/// The samples are forged with sequence numbers 0, 1 and 5. The first is the baseline, the
-/// second is contiguous, and the third skips 2, 3 and 4. Control in the same scenario: the count
-/// is 0 after the contiguous sample, so the count of 3 is the gap and not a phantom loss.
+/// A cache reports a sequence gap as a `MessageLost` event on its own event manager.
 #[test]
 fn cache_reports_message_loss() {
     const TOPIC: &str = "cache_parity_loss";
@@ -210,9 +163,7 @@ fn cache_reports_message_loss() {
     assert_cache_reports_gap(&node, TOPIC, cache);
 }
 
-/// A cache that takes its timestamps from the messages reports the same loss as one that takes
-/// them from Zenoh. The two build paths share a builder, and this test runs the loss scenario on
-/// the extractor path.
+/// The same loss scenario on the stamp-extractor build path.
 #[test]
 fn cache_with_a_stamp_extractor_reports_message_loss() {
     const TOPIC: &str = "cache_parity_stamp_loss";
@@ -232,11 +183,8 @@ fn cache_with_a_stamp_extractor_reports_message_loss() {
 /// The locality of a cache restricts the buffer-group subscription as well as the topic one.
 ///
 /// Both caches join the CPU buffer group. A plain put on the group key from the cache's own
-/// session must reach the default cache and must not reach the remote-only cache.
-///
-/// Controls in the same test: the default cache stores that put. The remote-only cache stores a
-/// put on the group key from another session. So the empty cache is the locality, and not a group
-/// key that nobody reads.
+/// session must reach the default cache and must not reach the remote-only cache. A put from
+/// another session must reach the remote-only cache.
 #[test]
 fn cache_locality_covers_the_buffer_group_key() {
     const TOPIC: &str = "cache_parity_group_locality";
@@ -306,11 +254,7 @@ fn cache_locality_covers_the_buffer_group_key() {
 /// Run the remote-locality scenario for a cache built with `qos`.
 ///
 /// A cache with `Locality::Remote` stores what a publisher on another session sends, and nothing
-/// that a publisher on its own session sends.
-///
-/// Control in the same test: the cache with the default locality stores the local message, so the
-/// absence of that message in the restricted cache is the locality. The restricted cache must
-/// store a remote message, so it is not a cache that never receives anything.
+/// that a publisher on its own session sends. A default cache stores the local message.
 fn assert_remote_locality_stores_remote_only(topic: &str, name: &str, qos: QosProfile) {
     let (_ctx_a, node_a, _ctx_b, node_b) = connected_nodes(name);
     let remote_only = node_a
@@ -371,8 +315,7 @@ fn cache_with_remote_locality_stores_remote_messages_only() {
     );
 }
 
-/// The same holds for a transient-local cache, which subscribes through a different build path
-/// than the volatile one.
+/// The same for a transient-local cache, which declares an advanced subscription.
 #[test]
 fn transient_local_cache_with_remote_locality_stores_remote_messages_only() {
     assert_remote_locality_stores_remote_only(

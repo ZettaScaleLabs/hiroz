@@ -10,9 +10,7 @@ use hiroz_msgs::std_msgs::String as RosString;
 use zenoh::sample::Locality;
 
 /// One session holds a subscriber and a `Locality::Remote` publisher. The publisher delivers to
-/// nobody, so it must not report a subscriber as ready. Control in the same test: an unrestricted
-/// publisher on the same topic reports the subscriber ready, so a graph that never shows the
-/// subscriber fails the control.
+/// nobody, so it must not report a subscriber as ready. An unrestricted publisher must.
 #[test]
 fn wait_for_subscription_ignores_subscribers_the_locality_excludes() {
     const TOPIC: &str = "/pubsub_locality_wait";
@@ -46,10 +44,7 @@ fn wait_for_subscription_ignores_subscribers_the_locality_excludes() {
 }
 
 /// With a subscriber on another session only, a `Locality::Remote` publisher reports ready and a
-/// `Locality::SessionLocal` publisher does not.
-///
-/// The remote publisher's wait comes first and must succeed. That proves the remote subscriber is
-/// in the graph before the session-local publisher's negative wait.
+/// `Locality::SessionLocal` publisher does not. The positive wait runs first.
 #[test]
 fn wait_for_subscription_follows_the_locality_across_sessions() {
     const TOPIC: &str = "/pubsub_locality_wait_remote";
@@ -85,10 +80,7 @@ fn wait_for_subscription_follows_the_locality_across_sessions() {
 }
 
 /// With a subscriber on the publisher's own session only, a `Locality::SessionLocal` publisher
-/// reports ready.
-///
-/// This is the positive case of the session-local arm. The negative waits elsewhere in this file
-/// cannot tell that arm from one that always counts nothing.
+/// reports ready: the positive case of the session-local arm.
 #[test]
 fn wait_for_subscription_counts_a_same_session_subscriber_for_session_local() {
     const TOPIC: &str = "/pubsub_locality_wait_session_local";

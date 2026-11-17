@@ -496,7 +496,7 @@ impl MessageLossTracker {
         Self {
             events_mgr,
             last_seen: Mutex::new(Baselines {
-                capacity: capacity.max(1),
+                capacity,
                 tick: 0,
                 map: HashMap::new(),
             }),
@@ -704,33 +704,22 @@ mod tests {
         g
     }
 
-    /// Publisher identity churn must not grow the tracker past its capacity.
+    /// Publisher identity churn does not grow the production tracker past
+    /// `MAX_TRACKED_PUBLISHERS`, and is not loss.
     #[test]
     fn message_loss_tracker_is_bounded_under_publisher_churn() {
         let mgr = Arc::new(Mutex::new(EventsManager::new(gid(1))));
-        let tracker = MessageLossTracker::with_capacity(mgr.clone(), 4);
-        for n in 0..100u32 {
-            tracker.observe(gid_n(n), 0);
-            assert!(tracker.tracked_publishers() <= 4);
-        }
-        assert_eq!(tracker.tracked_publishers(), 4);
-        let status = mgr
-            .lock()
-            .unwrap()
-            .take_event_status(ZenohEventType::MessageLost);
-        assert_eq!(status.total_count, 0, "churn alone is not loss");
-    }
-
-    /// The constructor that production code calls applies `MAX_TRACKED_PUBLISHERS`.
-    #[test]
-    fn message_loss_tracker_new_applies_the_production_bound() {
-        let mgr = Arc::new(Mutex::new(EventsManager::new(gid(1))));
-        let tracker = MessageLossTracker::new(mgr);
+        let tracker = MessageLossTracker::new(mgr.clone());
         let churn = u32::try_from(MAX_TRACKED_PUBLISHERS).unwrap() + 10;
         for n in 0..churn {
             tracker.observe(gid_n(n), 0);
         }
         assert_eq!(tracker.tracked_publishers(), MAX_TRACKED_PUBLISHERS);
+        let status = mgr
+            .lock()
+            .unwrap()
+            .take_event_status(ZenohEventType::MessageLost);
+        assert_eq!(status.total_count, 0, "churn alone is not loss");
     }
 
     /// The least recently seen publisher is evicted, and a returning one starts

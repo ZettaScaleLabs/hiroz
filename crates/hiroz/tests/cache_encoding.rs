@@ -64,10 +64,7 @@ fn mismatches(log: &Arc<Mutex<Vec<(tracing::Level, String)>>>) -> usize {
 }
 
 /// A CDR publisher and a consumer that expects Protobuf produce one warning per received message.
-///
-/// Control in the same test: the first phase uses a plain subscriber, which already checks the
-/// encoding. It shows that the capture sees the warning. The second phase replaces the subscriber
-/// with a cache, and the count must rise by one more.
+/// The plain-subscriber phase proves the capture sees the warning; the cache phase adds one more.
 #[test]
 fn cache_warns_on_encoding_mismatch() {
     const TOPIC: &str = "/cache_parity_encoding";
