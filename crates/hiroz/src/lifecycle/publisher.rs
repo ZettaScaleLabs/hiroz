@@ -73,7 +73,6 @@ impl<T: ZMessage, S: ZSerializer> ZLifecyclePublisher<T, S> {
             }
             return Ok(());
         }
-        // publish_ref: tail expression of a Result<()> function.
         self.inner.publish_ref(msg)
     }
 

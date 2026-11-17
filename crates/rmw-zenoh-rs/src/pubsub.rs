@@ -64,7 +64,7 @@ pub struct PublisherImpl {
 impl PublisherImpl {
     pub fn publish(&self, msg: *const ::std::os::raw::c_void) -> Result<()> {
         let ros_msg = crate::msg::RosMessage::new(msg as *const crate::c_void, self.ts);
-        // The rmw contract is "sent or error": a wire publish with no outcome.
+        // rmw reports sent or error, so use the wire route, which returns `Result<()>`.
         self.inner.publish_ref(&ros_msg)
     }
 

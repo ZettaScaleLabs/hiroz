@@ -1043,7 +1043,6 @@ impl<A: ZAction> GoalHandle<A, Executing> {
             goal_id: self.info.goal_id,
             feedback,
         };
-        // publish_ref: tail expression of a Result<()> function.
         self.server.feedback_pub().publish_ref(&msg)
     }
 

@@ -350,7 +350,6 @@ impl Builder for ZLifecycleNodeBuilder {
                         .lock()
                         .unwrap()
                         .trigger(t, |_| CallbackReturn::Success);
-                    // The transition event goes over the wire.
                     let _ = te_cs.publish_ref(&make_transition_event(t, start, goal));
                     true
                 } else {
