@@ -66,8 +66,7 @@ fn check_sample(
 
 /// Log a warning when `sample` carries a known encoding that differs from `expected`. A sample
 /// with an encoding that hiroz does not know is only logged at debug level, and no check runs
-/// without an expected encoding. The check never rejects a sample. Every subscriber build
-/// path calls this, so the cache and the subscriber check the same way.
+/// without an expected encoding. The check never rejects a sample.
 fn warn_on_encoding_mismatch(expected: Option<&crate::encoding::Encoding>, sample: &Sample) {
     let Some(expected) = expected else {
         return;
@@ -558,17 +557,9 @@ where
     /// Wait until at least `count` subscribers are matched on this publisher's topic,
     /// or until `timeout` elapses.
     ///
-    /// Only subscribers that the publisher's locality admits count. With
-    /// [`with_locality`](ZPubBuilder::with_locality) set to `Locality::Remote`, a subscriber on
-    /// the publisher's own session does not count, because the publisher does not deliver to it.
-    /// With `Locality::SessionLocal`, only subscribers on the publisher's own session count.
-    ///
-    /// With `Locality::Remote`, a same-session subscriber built with
-    /// [`build_with_shared_callback`](ZSubBuilder::build_with_shared_callback) or
-    /// [`build_with_owned_callback`](ZSubBuilder::build_with_owned_callback) is not counted, although
-    /// [`publish_shared`](Self::publish_shared) and [`publish_owned`](Self::publish_owned) can serve
-    /// it on the bus. It registers on the bus when it is built, unless its own locality is
-    /// `Remote`, so a caller of those methods has nothing to wait for.
+    /// Only subscribers that the publisher's [`with_locality`](ZPubBuilder::with_locality)
+    /// admits count. A bus subscriber registers when it is built, so callers of
+    /// [`publish_shared`](Self::publish_shared) and [`publish_owned`](Self::publish_owned) need not wait.
     ///
     /// Returns `true` if the required number of subscribers appeared within the
     /// timeout, `false` otherwise.
@@ -1240,24 +1231,18 @@ where
             &shared,
         )?;
         let h = shared.clone();
+        let mut sub_builder = self
+            .session
+            .declare_subscriber(key_expr.clone())
+            .callback(move |s: Sample| h(s));
+        if let Some(locality) = self.locality {
+            sub_builder = sub_builder.allowed_origin(locality);
+        }
+        // `.advanced()` keeps the origin set above.
         let base = if matches!(self.entity.qos.durability, QosDurability::TransientLocal) {
-            let mut sub_builder = self
-                .session
-                .declare_subscriber(key_expr.clone())
-                .callback(move |s: Sample| h(s))
-                .advanced();
-            if let Some(locality) = self.locality {
-                sub_builder = sub_builder.allowed_origin(locality);
-            }
-            RawBase::Advanced(apply_transient_local_sub(sub_builder, &self.entity.qos).wait()?)
+            let sub_builder = apply_transient_local_sub(sub_builder.advanced(), &self.entity.qos);
+            RawBase::Advanced(sub_builder.wait()?)
         } else {
-            let mut sub_builder = self
-                .session
-                .declare_subscriber(key_expr.clone())
-                .callback(move |s: Sample| h(s));
-            if let Some(locality) = self.locality {
-                sub_builder = sub_builder.allowed_origin(locality);
-            }
             RawBase::Plain(sub_builder.wait()?)
         };
 
