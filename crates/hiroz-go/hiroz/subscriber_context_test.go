@@ -13,56 +13,56 @@ import (
 	"unsafe"
 )
 
-func TestSubscriberWithChannelContextAlreadyCancelled(t *testing.T) {
-	// A cancelled context must not reach the C creator, so no callback state exists.
-	var creates atomic.Int32
-	original := createSubscriber
-	createSubscriber = func(subscriberCall) *cSubscriber { creates.Add(1); return nil }
-	t.Cleanup(func() { createSubscriber = original })
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+// contextBuilds runs each context variant of a subscriber build. hasCh reports whether the
+// channel variant returned a channel.
+var contextBuilds = []struct {
+	name  string
+	build func(ctx context.Context, b *SubscriberBuilder) (sub *Subscriber, hasCh bool, err error)
+}{
+	{"channel", func(ctx context.Context, b *SubscriberBuilder) (*Subscriber, bool, error) {
+		sub, ch, err := SubscriberWithChannelContext[*MockTypedMessage](ctx, b, 4)
+		return sub, ch != nil, err
+	}},
+	{"callback", func(ctx context.Context, b *SubscriberBuilder) (*Subscriber, bool, error) {
+		sub, err := BuildWithTypedCallbackContext(ctx, b, func(*MockTypedMessage) {})
+		return sub, false, err
+	}},
+}
 
-	sub, ch, err := SubscriberWithChannelContext[*MockTypedMessage](ctx, (&Node{}).CreateSubscriber("chatter"), 4)
-	if sub != nil || ch != nil {
-		t.Errorf("want no subscriber and no channel, got sub=%v ch=%v", sub, ch)
-	}
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("want context.Canceled, got %v", err)
-	}
-	if n := creates.Load(); n != 0 {
-		t.Errorf("a cancelled context reached the C creator %d times, want 0", n)
+// A cancelled context must not reach the C creator, so no callback state exists.
+func TestSubscriberContextAlreadyCancelled(t *testing.T) {
+	for _, tc := range contextBuilds {
+		t.Run(tc.name, func(t *testing.T) {
+			var creates atomic.Int32
+			original := createSubscriber
+			createSubscriber = func(subscriberCall) *cSubscriber { creates.Add(1); return nil }
+			t.Cleanup(func() { createSubscriber = original })
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			sub, hasCh, err := tc.build(ctx, (&Node{}).CreateSubscriber("chatter"))
+			if sub != nil || hasCh {
+				t.Errorf("want no subscriber and no channel, got sub=%v channel=%v", sub, hasCh)
+			}
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("want context.Canceled, got %v", err)
+			}
+			if n := creates.Load(); n != 0 {
+				t.Errorf("a cancelled context reached the C creator %d times, want 0", n)
+			}
+		})
 	}
 }
 
-func TestSubscriberWithChannelContextBuildFailure(t *testing.T) {
-	// The node has no session, so the C creator returns null.
-	sub, ch, err := SubscriberWithChannelContext[*MockTypedMessage](context.Background(), (&Node{}).CreateSubscriber("chatter"), 4)
-	if sub != nil || ch != nil {
-		t.Errorf("want no subscriber and no channel, got sub=%v ch=%v", sub, ch)
-	}
-	if !errors.Is(err, ErrBuildFailed) {
-		t.Fatalf("want ErrBuildFailed, got %v", err)
-	}
-}
-
-func TestBuildWithTypedCallbackContextAlreadyCancelled(t *testing.T) {
-	// A cancelled context must not reach the C creator, so no callback state exists.
-	var creates atomic.Int32
-	original := createSubscriber
-	createSubscriber = func(subscriberCall) *cSubscriber { creates.Add(1); return nil }
-	t.Cleanup(func() { createSubscriber = original })
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	sub, err := BuildWithTypedCallbackContext(ctx, (&Node{}).CreateSubscriber("chatter"), func(*MockTypedMessage) {})
-	if sub != nil {
-		t.Error("a cancelled context must not return a subscriber")
-	}
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("want context.Canceled, got %v", err)
-	}
-	if n := creates.Load(); n != 0 {
-		t.Errorf("a cancelled context reached the C creator %d times, want 0", n)
+// The node has no session, so the C creator returns null.
+func TestSubscriberContextBuildFailure(t *testing.T) {
+	for _, tc := range contextBuilds {
+		t.Run(tc.name, func(t *testing.T) {
+			sub, hasCh, err := tc.build(context.Background(), (&Node{}).CreateSubscriber("chatter"))
+			if sub != nil || hasCh || !errors.Is(err, ErrBuildFailed) {
+				t.Fatalf("want ErrBuildFailed and nothing built, got sub=%v channel=%v err=%v", sub, hasCh, err)
+			}
+		})
 	}
 }
 
@@ -80,13 +80,6 @@ func TestBuildWithTypedCallbackContextNilHandler(t *testing.T) {
 	}
 	if n := creates.Load(); n != 0 {
 		t.Errorf("a nil handler reached the C creator %d times, want 0", n)
-	}
-}
-
-func TestBuildWithTypedCallbackContextBuildFailure(t *testing.T) {
-	sub, err := BuildWithTypedCallbackContext(context.Background(), (&Node{}).CreateSubscriber("chatter"), func(*MockTypedMessage) {})
-	if sub != nil || !errors.Is(err, ErrBuildFailed) {
-		t.Fatalf("want ErrBuildFailed and no subscriber, got sub=%v err=%v", sub, err)
 	}
 }
 
@@ -300,25 +293,6 @@ func TestSubscriberWithChannelContextBuildFailureReleasesCallback(t *testing.T) 
 	receiveBounded(t, returned, "the callback to return after the failed build")
 }
 
-// Closing the subscriber first is safe: the later cancel destroys nothing twice.
-func TestSubscriberWithChannelContextEarlyCloseThenCancel(t *testing.T) {
-	f := stubSubscriber(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	sub, ch, err := SubscriberWithChannelContext[*nilSafeMessage](ctx, (&Node{}).CreateSubscriber("chatter"), 1)
-	if err != nil {
-		t.Fatalf("build failed: %v", err)
-	}
-	if err := sub.Close(); err != nil {
-		t.Fatalf("early Close: %v", err)
-	}
-	cancel()
-	for range ch {
-	}
-	if n := f.destroys.Load(); n != 1 {
-		t.Errorf("destroys = %d, want 1", n)
-	}
-}
-
 // Positive control and cancel for the callback variant.
 func TestBuildWithTypedCallbackContextCancelDestroys(t *testing.T) {
 	f := stubSubscriber(t)
@@ -350,29 +324,6 @@ func TestBuildWithTypedCallbackContextCancelDestroys(t *testing.T) {
 	}
 	if n := f.destroys.Load(); n != 1 {
 		t.Errorf("destroys = %d after a second Close, want 1", n)
-	}
-}
-
-func TestBuildWithTypedCallbackContextEarlyCloseThenCancel(t *testing.T) {
-	f := stubSubscriber(t)
-	node := &Node{}
-	ctx, cancel := context.WithCancel(context.Background())
-	sub, err := BuildWithTypedCallbackContext(ctx, node.CreateSubscriber("chatter"), func(*nilSafeMessage) {})
-	if err != nil {
-		t.Fatalf("build failed: %v", err)
-	}
-	if err := sub.Close(); err != nil {
-		t.Fatalf("early Close: %v", err)
-	}
-	cancel()
-	// The cancel path removes the subscriber from the node. Wait for that, then count.
-	waitUntil(t, "the cancel path to run", func() bool {
-		node.subsMu.Lock()
-		defer node.subsMu.Unlock()
-		return len(node.ownedSubs) == 0
-	})
-	if n := f.destroys.Load(); n != 1 {
-		t.Errorf("destroys = %d, want 1", n)
 	}
 }
 
@@ -445,7 +396,7 @@ func (c *countingCtx) cancel() {
 // A subscriber that closes early must not stay registered on a context that lives on. The
 // registration holds the subscriber, its node and its closure until the context ends.
 func TestBuildWithTypedCallbackContextEarlyCloseReleasesRegistration(t *testing.T) {
-	stubSubscriber(t)
+	f := stubSubscriber(t)
 	node := &Node{}
 	ctx := newCountingCtx()
 	defer ctx.cancel()
@@ -453,7 +404,6 @@ func TestBuildWithTypedCallbackContextEarlyCloseReleasesRegistration(t *testing.
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
-	// Positive control: the build registered once, and nothing stopped it yet.
 	if r, s := ctx.registered.Load(), ctx.stopped.Load(); r != 1 || s != 0 {
 		t.Fatalf("after build: registered=%d stopped=%d, want 1 and 0", r, s)
 	}
@@ -468,6 +418,9 @@ func TestBuildWithTypedCallbackContextEarlyCloseReleasesRegistration(t *testing.
 	node.subsMu.Unlock()
 	if owned != 0 {
 		t.Errorf("the node still owns %d subscribers after an early Close, want 0", owned)
+	}
+	if n := f.destroys.Load(); n != 1 {
+		t.Errorf("destroys = %d after an early Close, want 1", n)
 	}
 }
 

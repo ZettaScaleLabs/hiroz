@@ -118,7 +118,6 @@ func TestSubscriberWithChannelContextCloseDoesNotWaitForDecoder(t *testing.T) {
 		t.Fatalf("build failed: %v", err)
 	}
 
-	// Positive control: with the gate open a sample arrives.
 	f.deliver([]byte{1})
 	if v := receiveBounded(t, ch, "the control sample"); v == nil {
 		t.Fatal("the channel closed instead of delivering the control sample")

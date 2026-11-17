@@ -64,7 +64,6 @@ func TestCallTypedContextCancelReturnsCanceled(t *testing.T) {
 		t.Fatal("CallTypedContext did not return after cancel")
 	}
 
-	// Close waits for the call that is still inside the C layer.
 	closed := make(chan struct{})
 	go func() { _ = c.Close(); close(closed) }()
 	select {
@@ -109,6 +108,7 @@ func TestCallTypedContextPassesDeadlineAsTimeout(t *testing.T) {
 		got.Store(timeoutMs)
 		return []byte{7}, 0
 	})
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
 	defer cancel()
 
@@ -116,9 +116,10 @@ func TestCallTypedContextPassesDeadlineAsTimeout(t *testing.T) {
 	if err := CallTypedContext(ctx, openTestClient(), mockReq(), resp); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// The deadline was 800 ms when the call began. Only the time the call itself took is gone.
-	if ms := got.Load(); ms < 200 || ms > 800 {
-		t.Errorf("timeout passed to C = %d ms, want 200..800", ms)
+	// The timeout is what was left of the deadline, rounded up. At most the elapsed time is gone.
+	lo := uint64(max(0, (800*time.Millisecond-time.Since(start))/time.Millisecond))
+	if ms := got.Load(); ms < lo || ms > 800 {
+		t.Errorf("timeout passed to C = %d ms, want %d..800", ms, lo)
 	}
 	if len(resp.data) != 1 || resp.data[0] != 7 {
 		t.Errorf("response not deserialized: %v", resp.data)
@@ -147,6 +148,7 @@ func TestCallTypedContextServerTimeoutStaysServiceTimeout(t *testing.T) {
 	}
 }
 
+// A cancelled call runs neither the caller's serializer nor the C call.
 func TestCallTypedContextAlreadyCancelledSkipsCall(t *testing.T) {
 	var calls atomic.Int32
 	stubServiceCall(t, func([]byte, uint64) ([]byte, int32) { calls.Add(1); return []byte{1}, 0 })
@@ -154,11 +156,15 @@ func TestCallTypedContextAlreadyCancelledSkipsCall(t *testing.T) {
 	cancel()
 
 	c := openTestClient()
-	err := CallTypedContext(ctx, c, mockReq(), &MockMessage{})
+	serialised := 0
+	err := CallTypedContext(ctx, c, hookMsg(func() { serialised++ }), &MockMessage{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
-	_ = c.Close() // drains a worker that a regression would have started
+	if serialised != 0 {
+		t.Errorf("SerializeCDR ran %d times for a cancelled call", serialised)
+	}
+	_ = c.Close() // waits for any worker that started, so calls is final
 	if calls.Load() != 0 {
 		t.Error("a cancelled context must not reach the C call")
 	}

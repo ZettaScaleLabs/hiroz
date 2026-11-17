@@ -206,7 +206,6 @@ func TestSendGoalContextPanicInSerializeLeavesNoRegistration(t *testing.T) {
 		}
 	}
 
-	// Positive control: a registration that is still held blocks Close.
 	held := openTestActionClient()
 	if !held.inflight.enter() {
 		t.Fatal("could not register")
@@ -307,7 +306,7 @@ func TestGetResultWithContextAlreadyCancelledSkipsCall(t *testing.T) {
 	if err := GetTypedResultContext(ctx, h, &MockMessage{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("GetTypedResultContext: want context.Canceled, got %v", err)
 	}
-	_ = c.Close() // waits for any worker that started, so calls is final
+	_ = c.Close()
 	if n := calls.Load(); n != 0 {
 		t.Errorf("the C call ran %d times after ctx ended, want 0", n)
 	}
@@ -418,7 +417,7 @@ func TestSendGoalContextCancelDuringSerializeWaitsForSerializer(t *testing.T) {
 	if err := receiveBounded(t, done, "the call to return"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
-	_ = c.Close() // waits for any worker that started, so sends is final
+	_ = c.Close()
 	if n := sends.Load(); n != 0 {
 		t.Errorf("the goal was sent %d times for a call cancelled in the serializer, want 0", n)
 	}
