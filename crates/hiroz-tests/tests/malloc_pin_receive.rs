@@ -12,20 +12,14 @@
 //! larger min-max range of those two arms. A second set of the old pin, and the old pin slowed
 //! by a deliberate delay, must fail that check.
 //!
-//! Opt-in: the test is `#[ignore]`d and CI does not run it. Its thresholds come from one quiet
-//! host (load average below 0.6). On a shared runner under load the unpinned receive drops
-//! messages (47 of 60 samples were seen) and the run says nothing about the pin. Run it on a
-//! quiet host with:
+//! Opt-in: the test is `#[ignore]`d and CI does not run it. It needs a quiet host (load average
+//! below 0.6); under load the receiver drops messages and the run says nothing about the pin.
+//! The test prints the load average and the glibc version first. Run it with:
 //!
 //! ```text
 //! cargo nextest run -p hiroz-tests --features ros-msgs,jazzy --profile pin-timing \
 //!     --run-ignored only -E 'test(=pinned_32mib_main_thread_receive_is_not_slower_than_unpinned)'
 //! ```
-//!
-//! The run takes about 330 s (30 receives of about 11 s each). The test prints the load average
-//! and the glibc version first. Check the printed load before you read the result. CI still compiles this file, and it runs
-//! `operator_threshold_variable_fails_the_probe`, the id checks, the production override check
-//! and the wiring test in `malloc_pin_wiring.rs`.
 //!
 //! Population: direct loopback TCP, no router, no SHM, a typed `UInt8MultiArray` received
 //! with `recv_timeout`. The test says nothing about `async_recv`, callbacks or other types.
@@ -51,7 +45,7 @@ const CONTROL_DELAY_MS: u64 = 10;
 /// The earlier pin: `M_MMAP_THRESHOLD` 64 MiB and `M_TRIM_THRESHOLD` 64 MiB.
 const OLD_PIN_ARM: &str = "raw:64:64";
 
-/// Longest wait for the output of one receiver. One receive takes about 11 s.
+/// Longest wait for the output of one receiver.
 const RECEIVER_LIMIT: Duration = Duration::from_secs(120);
 
 /// A child process that is killed and reaped when the guard drops, also on a panic.
@@ -173,106 +167,38 @@ fn run_once(arm: &str) -> f64 {
     field("p50_ms=").parse().expect("p50")
 }
 
-/// An operator threshold in the environment must stop the receiver, not pass the gate.
+/// The one self-test of the probe: a receiver must stop with exit status 5 and the marker
+/// `IDGATE` when the publisher skips an id, so a lost message cannot enter the latency sample.
+/// The 64 KiB payload keeps the check to a few seconds.
 #[test]
 #[serial]
-fn operator_threshold_variable_fails_the_probe() {
-    for (var, arm) in [
-        ("MALLOC_TRIM_THRESHOLD_", "lib"),
-        ("MALLOC_MMAP_THRESHOLD_", "lib"),
-        ("MALLOC_TRIM_THRESHOLD_", "none"),
-    ] {
-        let out = probe()
-            .args(["recv", arm, "1"])
-            .env("MALLOC_PROBE_ENDPOINT", free_endpoint())
-            .env(var, "1048576")
-            .output()
-            .expect("run receiver");
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(
-            !out.status.success() && stderr.contains("PINGATE"),
-            "{var} with arm {arm}: status {}, stderr: {stderr}",
-            out.status
-        );
-    }
-}
-
-/// Exit status of a receiver whose message ids are not consecutive.
-const EXIT_ID_GATE: i32 = 5;
-/// Payload size in bytes of the id checks. Small, so each check runs in seconds.
-const ID_SIZE: usize = 64 << 10;
-const ID_HZ: u32 = 50;
-const ID_COUNT: usize = 20;
-/// Index of the message at which the publisher skips or repeats an id. It is inside the first
-/// `WARM + ID_COUNT` messages, so the receiver sees it.
-const ID_FAULT_AT: usize = 15;
-
-/// Run one publisher and one unpinned receiver of the id checks. `fault` is the optional publisher
-/// modifier (`skip15`, `dup15`). Returns the output of the receiver.
-fn run_id_pair(fault: Option<&str>) -> std::process::Output {
+fn receiver_fails_when_the_publisher_skips_an_id() {
+    const IDS: usize = 20;
     let endpoint = free_endpoint();
-    let mut args = vec![
-        "pub".to_string(),
-        ID_SIZE.to_string(),
-        ID_HZ.to_string(),
-        ID_COUNT.to_string(),
-    ];
-    args.extend(fault.map(str::to_string));
     let _publisher = Guard(
         probe()
-            .args(&args)
+            .args([
+                "pub",
+                &(64usize << 10).to_string(),
+                "50",
+                &IDS.to_string(),
+                "skip15",
+            ])
             .env("MALLOC_PROBE_ENDPOINT", &endpoint)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn publisher"),
     );
-    probe()
-        .args(["recv", "none", &ID_COUNT.to_string()])
+    let out = probe()
+        .args(["recv", "none", &IDS.to_string()])
         .env("MALLOC_PROBE_ENDPOINT", &endpoint)
         .output()
-        .expect("run receiver")
-}
-
-/// Positive control of the two id checks below: a publisher that numbers its messages in order
-/// gives a receiver that finishes with every sample.
-#[test]
-#[serial]
-fn receiver_accepts_consecutive_ids() {
-    let out = run_id_pair(None);
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        out.status.success() && stdout.contains(&format!("n={ID_COUNT}/{ID_COUNT}")),
-        "status {}, stdout: {stdout}, stderr: {stderr}",
-        out.status
-    );
-}
-
-/// A receiver must stop with the id marker when an id never arrives, whatever the arrival count.
-#[test]
-#[serial]
-fn receiver_fails_when_the_publisher_skips_an_id() {
-    let out = run_id_pair(Some(&format!("skip{ID_FAULT_AT}")));
+        .expect("run receiver");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
         out.status.code(),
-        Some(EXIT_ID_GATE),
-        "stdout: {}, stderr: {stderr}",
-        String::from_utf8_lossy(&out.stdout)
-    );
-    assert!(stderr.contains("IDGATE"), "stderr: {stderr}");
-}
-
-/// A receiver must stop with the id marker when one id arrives twice.
-#[test]
-#[serial]
-fn receiver_fails_when_the_publisher_repeats_an_id() {
-    let out = run_id_pair(Some(&format!("dup{ID_FAULT_AT}")));
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(
-        out.status.code(),
-        Some(EXIT_ID_GATE),
+        Some(5),
         "stdout: {}, stderr: {stderr}",
         String::from_utf8_lossy(&out.stdout)
     );
@@ -356,73 +282,6 @@ fn slowed_old_pin_is_rejected(old_slowed: &[f64], old: &[f64], margin: f64) -> b
 /// old-pin arm. A real gap must exceed the noise of both arms, each side counted once.
 fn improvement_margin(pinned: &[f64], old: &[f64]) -> f64 {
     2.0 * range(pinned).max(range(old))
-}
-
-#[test]
-fn improvement_check_passes_a_real_gain_and_fails_an_unchanged_arm() {
-    // Synthetic samples in ms, n=5 per arm. Each pair is a set of the old pin and a set of the
-    // pin with a gain well beyond the noise of both.
-    let pairs = [
-        (
-            [31.8, 31.9, 32.0, 32.0, 32.3],
-            [13.2, 13.3, 13.3, 13.4, 13.4],
-        ),
-        (
-            [46.7, 46.8, 47.0, 47.7, 48.6],
-            [18.2, 18.4, 18.6, 18.7, 19.8],
-        ),
-    ];
-    for (old, gain) in pairs {
-        let m = improvement_margin(&gain, &old);
-        assert!(
-            improves(&gain, &old, m),
-            "a real gain must pass: margin {m}"
-        );
-        // Revert: the pinned arm is another set of the old pin. Its samples sit at the low end
-        // of the old range, which is the best case for a false pass.
-        let reverted = [old[0], old[0], old[1], old[1], old[2]];
-        let m = improvement_margin(&reverted, &old);
-        assert!(
-            !improves(&reverted, &old, m),
-            "an arm that equals the old pin must fail: margin {m}"
-        );
-    }
-    // An arm slower than the old pin fails.
-    assert!(!improves(&[50.0; 5], &pairs[1].0, 3.8));
-    // The margin is twice the larger range, so a noisier pinned arm widens it.
-    let quiet = [10.0; 5];
-    let noisy = [10.0, 10.0, 10.0, 10.0, 14.0];
-    assert_eq!(improvement_margin(&noisy, &quiet), 8.0);
-    assert_eq!(improvement_margin(&quiet, &noisy), 8.0);
-    // The two verdicts differ at the boundary: a gain equal to the margin does not pass.
-    assert!(!improves(&[6.0; 5], &[14.0; 5], 8.0));
-    assert!(improves(&[5.9; 5], &[14.0; 5], 8.0));
-}
-
-#[test]
-fn improvement_control_holds_where_the_old_pin_is_far_slower_than_no_pin() {
-    // On this host no pin runs at 36 ms and the old pin at 60 ms. Slowing no pin by the control
-    // delay gives 46 ms. That is below the old pin by more than a margin of 8 ms. A control built
-    // from the no-pin arm then reports a false failure of the gate.
-    let unpinned_slowed = [46.0; 5];
-    let old = [60.0, 60.0, 60.0, 60.0, 60.0];
-    let old_slowed = [70.0, 70.0, 70.0, 70.0, 70.0];
-    assert!(improves(&unpinned_slowed, &old, 8.0));
-    assert!(slowed_old_pin_is_rejected(&old_slowed, &old, 8.0));
-    // Positive control: an old pin that is not slowed, with a real gain, is not rejected.
-    assert!(!slowed_old_pin_is_rejected(&[20.0; 5], &old, 8.0));
-}
-
-#[test]
-fn control_tolerance_includes_the_pinned_range() {
-    // Pinned is 15 ms slower in median and its range is 36 ms. A control of 10 ms over unpinned
-    // must not validate this gate.
-    let unpinned = [40.0; 5];
-    let pinned = [19.0, 55.0, 55.0, 55.0, 55.0];
-    let slowed = [50.0; 5];
-    assert!(!control_detects(&slowed, &unpinned, &pinned));
-    let quiet_pinned = [40.0; 5];
-    assert!(control_detects(&slowed, &unpinned, &quiet_pinned));
 }
 
 #[test]

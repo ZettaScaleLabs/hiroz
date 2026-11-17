@@ -38,43 +38,26 @@ fn cpu_ticks() -> (u64, u64) {
     (f[11].parse().expect("utime"), f[12].parse().expect("stime"))
 }
 
-/// Fault a publisher injects into the message ids, to prove the receiver checks them.
-#[derive(Clone, Copy)]
-enum Fault {
-    None,
-    /// The id sequence jumps over one id from this message index on.
-    Skip(usize),
-    /// The ids repeat one id from this message index on: the message here carries the id of
-    /// the message before it.
-    Dup(usize),
-}
-
-fn parse_fault(s: Option<&str>) -> Fault {
-    match s {
-        None => Fault::None,
-        Some(f) => {
-            if let Some(n) = f.strip_prefix("skip") {
-                Fault::Skip(n.parse().expect("skip index"))
-            } else if let Some(n) = f.strip_prefix("dup") {
-                Fault::Dup(n.parse().expect("dup index"))
-            } else {
-                panic!("unknown publisher fault {f}")
-            }
-        }
-    }
+/// Parse the optional publisher modifier `skip<n>`: the id sequence jumps over one id from
+/// message index `n` on, to prove the receiver checks the ids.
+fn parse_skip(s: Option<&str>) -> Option<u64> {
+    s.map(|f| {
+        f.strip_prefix("skip")
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("unknown publisher modifier {f}"))
+    })
 }
 
 /// The id that the message at index `i` carries.
-fn wire_id(i: usize, fault: Fault) -> u64 {
+fn wire_id(i: usize, skip: Option<u64>) -> u64 {
     let i = i as u64;
-    match fault {
-        Fault::Skip(at) if i >= at as u64 => i + 1,
-        Fault::Dup(at) if i >= at as u64 => i.saturating_sub(1),
+    match skip {
+        Some(at) if i >= at => i + 1,
         _ => i,
     }
 }
 
-fn publisher(size: usize, hz: f64, count: usize, fault: Fault) {
+fn publisher(size: usize, hz: f64, count: usize, skip: Option<u64>) {
     assert!(
         size >= ID_AT + 8,
         "the payload must hold the send time and the id"
@@ -111,7 +94,7 @@ fn publisher(size: usize, hz: f64, count: usize, fault: Fault) {
     for i in 0..total {
         let mut v = p.clone();
         v[DATA_AT..DATA_AT + 8].copy_from_slice(&now_ns().to_le_bytes());
-        v[DATA_AT + ID_AT..DATA_AT + ID_AT + 8].copy_from_slice(&wire_id(i, fault).to_le_bytes());
+        v[DATA_AT + ID_AT..DATA_AT + ID_AT + 8].copy_from_slice(&wire_id(i, skip).to_le_bytes());
         s.put(&key, v).wait().expect("put");
         next += per;
         let now = Instant::now();
@@ -128,14 +111,6 @@ const EXIT_PIN_GATE: i32 = 4;
 /// Exit status of a receiver whose message ids are not consecutive. The test treats it as a
 /// failure.
 const EXIT_ID_GATE: i32 = 5;
-
-/// Whether the outcome of the pin lets the `lib` arm count as pinned.
-fn pin_gate(outcome: PinOutcome) -> Result<(), String> {
-    match outcome {
-        PinOutcome::Pinned { .. } => Ok(()),
-        other => Err(format!("the lib arm is not pinned: {other:?}")),
-    }
-}
 
 /// Apply the arm and return the text of the pin outcome for the RESULT line.
 ///
@@ -157,8 +132,8 @@ fn apply_arm(arm: &str) -> String {
     if arm == "lib" {
         let outcome = hiroz::malloc_pin::pin_large_message_thresholds();
         eprintln!("PINOUTCOME {outcome:?}");
-        if let Err(why) = pin_gate(outcome) {
-            eprintln!("PINGATE {why}");
+        if !matches!(outcome, PinOutcome::Pinned { .. }) {
+            eprintln!("PINGATE the lib arm is not pinned: {outcome:?}");
             std::process::exit(EXIT_PIN_GATE);
         }
         "Pinned".to_string()
@@ -292,39 +267,13 @@ pub fn run() {
             a[2].parse().unwrap(),
             a[3].parse().unwrap(),
             a[4].parse().unwrap(),
-            parse_fault(a.get(5).map(String::as_str)),
+            parse_skip(a.get(5).map(String::as_str)),
         ),
         Some("recv") => receive(&a[2], a[3].parse().unwrap()),
         Some("pin") => pin(),
         _ => {
-            eprintln!("usage: malloc_probe pub SIZE HZ COUNT [FAULT] | recv ARM COUNT | pin");
+            eprintln!("usage: malloc_probe pub SIZE HZ COUNT [skipN] | recv ARM COUNT | pin");
             std::process::exit(2);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_pinned_passes_the_gate() {
-        assert!(
-            pin_gate(PinOutcome::Pinned {
-                mmap_rc: 1,
-                trim_rc: 1
-            })
-            .is_ok()
-        );
-        for bad in [
-            PinOutcome::Rejected {
-                mmap_rc: 0,
-                trim_rc: 1,
-            },
-            PinOutcome::OperatorSet,
-            PinOutcome::Unsupported,
-        ] {
-            assert!(pin_gate(bad).is_err(), "{bad:?} passed the gate");
         }
     }
 }

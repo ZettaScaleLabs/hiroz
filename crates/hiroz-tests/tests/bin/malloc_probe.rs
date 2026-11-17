@@ -6,7 +6,7 @@
 //! measurement lives in a separate binary.
 //!
 //! Usage:
-//!   malloc_probe pub  <size_bytes> <hz> <count> [skip<n>|dup<n>]
+//!   malloc_probe pub  <size_bytes> <hz> <count> [skip<n>]
 //!   malloc_probe recv <arm> <count>
 //!   malloc_probe pin
 //! Arms: `none`, `lib` (the pin of the library), `raw:<mmap_mib>:<trim_mib>` (a probe value),
@@ -15,8 +15,8 @@
 //!
 //! Every message carries its send time and a sequence id. The receiver exits with status 5 and
 //! the marker `IDGATE` when an id after the first arrival is not the next one. The publisher
-//! modifier `skip<n>` makes the id sequence jump over one id at message `n`, and `dup<n>` repeats
-//! an id there, so a test can prove the check fires. `pin` calls the production pin alone and
+//! modifier `skip<n>` makes the id sequence jump over one id at message `n`,
+//! so a test can prove the check fires. `pin` calls the production pin alone and
 //! prints `PIN outcome=<outcome>`.
 //!
 //! The probe measures Linux glibc behaviour. On another target, musl included, it compiles to a
