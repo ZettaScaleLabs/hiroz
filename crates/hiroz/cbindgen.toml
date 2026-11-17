@@ -5,6 +5,8 @@ cpp_compat = true
 
 [export]
 prefix = "hiroz_"
+# The payload pool's stuck threshold: Rust-only, not part of the C interface.
+exclude = ["STUCK_AFTER"]
 
 [export.rename]
 "CContext" = "context_t"
