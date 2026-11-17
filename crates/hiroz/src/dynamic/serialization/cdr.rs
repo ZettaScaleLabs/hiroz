@@ -8,13 +8,12 @@ use std::sync::Arc;
 use hiroz_cdr::{CdrReader, CdrWriter, LittleEndian};
 use zenoh_buffers::ZBuf;
 
+use crate::dynamic::error::DynamicError;
+use crate::dynamic::message::DynamicMessage;
+use crate::dynamic::schema::{FieldType, MessageSchema};
+use crate::dynamic::value::DynamicValue;
+
 use super::CDR_HEADER_LE;
-use crate::dynamic::{
-    error::DynamicError,
-    message::DynamicMessage,
-    schema::{FieldType, MessageSchema},
-    value::DynamicValue,
-};
 
 /// Serialize a dynamic message to CDR bytes.
 pub fn serialize_cdr(msg: &DynamicMessage) -> Result<Vec<u8>, DynamicError> {
@@ -103,7 +102,7 @@ fn deserialize_elements(
     reader: &mut CdrReader<LittleEndian>,
     budget: &mut ZeroByteBudget,
 ) -> Result<Vec<DynamicValue>, DynamicError> {
-    let mut values = Vec::with_capacity(count.min(reader.remaining()));
+    let mut values = Vec::with_capacity(reader.sequence_capacity(count));
     for _ in 0..count {
         values.push(deserialize_value(inner, reader, budget)?);
     }
@@ -114,9 +113,8 @@ fn serialize_message(
     msg: &DynamicMessage,
     writer: &mut CdrWriter<LittleEndian>,
 ) -> Result<(), DynamicError> {
-    // ROS 2 gives an empty message one `uint8` member, so it takes one byte on the wire.
     if msg.schema().fields.is_empty() {
-        writer.write_u8(0);
+        writer.write_empty_message();
     }
     for (field, value) in msg.schema().fields.iter().zip(msg.values().iter()) {
         serialize_value(value, &field.field_type, writer)?;
@@ -196,9 +194,8 @@ fn deserialize_message(
 ) -> Result<DynamicMessage, DynamicError> {
     let mut values = Vec::with_capacity(schema.fields.len());
 
-    // The one byte that ROS 2 writes for an empty message.
     if schema.fields.is_empty() {
-        reader.read_u8().map_err(map_cdr_err)?;
+        reader.read_empty_message().map_err(map_cdr_err)?;
     }
     for field in &schema.fields {
         let value = deserialize_value(&field.field_type, reader, budget)?;
@@ -208,8 +205,7 @@ fn deserialize_message(
     Ok(DynamicMessage::from_values(schema, values))
 }
 
-/// Decode one value. A value that consumes no input is charged to `budget`, so a count or a
-/// message tree that the input cannot back runs out of budget instead of growing without bound.
+/// Decode one value. A value that consumes no input is charged to `budget`.
 fn deserialize_value(
     field_type: &FieldType,
     reader: &mut CdrReader<LittleEndian>,

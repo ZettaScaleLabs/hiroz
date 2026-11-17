@@ -5,16 +5,13 @@
 //! by the serde-based serializer/deserializer and can also be used directly
 //! for schema-driven (dynamic) message handling.
 
-use std::marker::PhantomData;
-
 #[cfg(target_endian = "little")]
 use bytemuck;
 use byteorder::{ByteOrder, ReadBytesExt};
+use std::marker::PhantomData;
 
-use crate::{
-    buffer::CdrBuffer,
-    error::{Error, Result},
-};
+use crate::buffer::CdrBuffer;
+use crate::error::{Error, Result};
 
 /// Low-level CDR writer with alignment handling.
 ///
@@ -77,6 +74,12 @@ impl<'a, BO: ByteOrder, B: CdrBuffer> CdrWriter<'a, BO, B> {
     #[inline]
     pub fn write_u8(&mut self, v: u8) {
         self.buffer.push(v);
+    }
+
+    /// Write the one `uint8` member that ROS 2 gives a message with no fields.
+    #[inline]
+    pub fn write_empty_message(&mut self) {
+        self.write_u8(0);
     }
 
     #[inline]
@@ -355,8 +358,8 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
     ///
     /// # Limits
     /// Validates only the declared count, at most 100 million. It does not compare the count with
-    /// [`Self::remaining`], because valid elements can occupy zero bytes. A decoder should reserve
-    /// at most `count.min(self.remaining())` up front and grow as elements decode.
+    /// [`Self::remaining`], because valid elements can occupy zero bytes. A decoder reserves
+    /// [`Self::sequence_capacity`] up front and grows as elements decode.
     #[inline]
     pub fn read_sequence_length(&mut self) -> Result<usize> {
         const MAX_SEQUENCE_LENGTH: u32 = 100_000_000;
@@ -381,6 +384,19 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
             )));
         }
         Ok(len)
+    }
+
+    /// The initial capacity for a sequence that declares `count` elements: at most one element per
+    /// unread byte, so a count that the input cannot back reserves no more than the input size.
+    #[inline]
+    pub fn sequence_capacity(&self, count: usize) -> usize {
+        count.min(self.remaining())
+    }
+
+    /// Read the one `uint8` member that ROS 2 gives a message with no fields.
+    #[inline]
+    pub fn read_empty_message(&mut self) -> Result<()> {
+        self.read_u8().map(drop)
     }
 
     /// Read raw bytes with length prefix.
@@ -418,9 +434,8 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
 
 #[cfg(test)]
 mod tests {
-    use byteorder::LittleEndian;
-
     use super::*;
+    use byteorder::LittleEndian;
 
     #[test]
     fn test_writer_primitives() {
@@ -513,9 +528,8 @@ mod tests {
 
 #[cfg(kani)]
 mod kani_proofs {
-    use byteorder::LittleEndian;
-
     use super::*;
+    use byteorder::LittleEndian;
 
     /// For any u32 value, writing then reading it back via CdrWriter/CdrReader
     /// recovers the original value exactly.

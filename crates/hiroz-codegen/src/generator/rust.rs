@@ -1,7 +1,7 @@
+use hiroz_schema::type_name::dds_from_namespace;
 use std::collections::HashSet;
 
 use anyhow::Result;
-use hiroz_schema::type_name::dds_from_namespace;
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 
@@ -171,7 +171,7 @@ fn generate_cdr_impls(
 
     // ROS 2 gives an empty message one `uint8` member, so it takes one byte on the wire.
     let ser_fields = if fields.is_empty() {
-        vec![quote! { __w.write_u8(0); }]
+        vec![quote! { __w.write_empty_message(); }]
     } else {
         ser_fields
     };
@@ -198,7 +198,7 @@ fn generate_cdr_impls(
         .collect();
 
     let de_fields = if fields.is_empty() {
-        vec![quote! { __r.read_u8()?; }]
+        vec![quote! { __r.read_empty_message()?; }]
     } else {
         de_fields
     };
@@ -425,7 +425,7 @@ fn generate_cdr_deserialize_field(
                         }
                         #[cfg(not(target_endian = "little"))]
                         {
-                            let mut __v = Vec::with_capacity(__count.min(__r.remaining()));
+                            let mut __v = Vec::with_capacity(__r.sequence_capacity(__count));
                             for _ in 0..__count {
                                 __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
                             }
@@ -437,7 +437,7 @@ fn generate_cdr_deserialize_field(
                 quote! {
                     let #fname: Vec<#base_ty> = {
                         let __count = #read_count;
-                        let mut __v = Vec::with_capacity(__count.min(__r.remaining()));
+                        let mut __v = Vec::with_capacity(__r.sequence_capacity(__count));
                         for _ in 0..__count {
                             __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
                         }

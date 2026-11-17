@@ -333,15 +333,14 @@ pub struct GetStateRequest {}
 
 impl CdrSerialize for GetStateRequest {
     fn cdr_serialize<BO: byteorder::ByteOrder, B: CdrBuffer>(&self, w: &mut CdrWriter<'_, BO, B>) {
-        // ROS 2 gives an empty message one `uint8` member.
-        w.write_u8(0);
+        w.write_empty_message();
     }
 }
 impl CdrDeserialize for GetStateRequest {
     fn cdr_deserialize<'de, BO: byteorder::ByteOrder>(
         r: &mut CdrReader<'de, BO>,
     ) -> hiroz_cdr::Result<Self> {
-        r.read_u8()?;
+        r.read_empty_message()?;
         Ok(GetStateRequest {})
     }
 }
@@ -405,15 +404,14 @@ pub struct GetAvailableStatesRequest {}
 
 impl CdrSerialize for GetAvailableStatesRequest {
     fn cdr_serialize<BO: byteorder::ByteOrder, B: CdrBuffer>(&self, w: &mut CdrWriter<'_, BO, B>) {
-        // ROS 2 gives an empty message one `uint8` member.
-        w.write_u8(0);
+        w.write_empty_message();
     }
 }
 impl CdrDeserialize for GetAvailableStatesRequest {
     fn cdr_deserialize<'de, BO: byteorder::ByteOrder>(
         r: &mut CdrReader<'de, BO>,
     ) -> hiroz_cdr::Result<Self> {
-        r.read_u8()?;
+        r.read_empty_message()?;
         Ok(GetAvailableStatesRequest {})
     }
 }
@@ -477,15 +475,14 @@ pub struct GetAvailableTransitionsRequest {}
 
 impl CdrSerialize for GetAvailableTransitionsRequest {
     fn cdr_serialize<BO: byteorder::ByteOrder, B: CdrBuffer>(&self, w: &mut CdrWriter<'_, BO, B>) {
-        // ROS 2 gives an empty message one `uint8` member.
-        w.write_u8(0);
+        w.write_empty_message();
     }
 }
 impl CdrDeserialize for GetAvailableTransitionsRequest {
     fn cdr_deserialize<'de, BO: byteorder::ByteOrder>(
         r: &mut CdrReader<'de, BO>,
     ) -> hiroz_cdr::Result<Self> {
-        r.read_u8()?;
+        r.read_empty_message()?;
         Ok(GetAvailableTransitionsRequest {})
     }
 }

@@ -295,9 +295,8 @@ where
     where
         V: Visitor<'de>,
     {
-        // The one byte that ROS 2 writes for an empty message.
         if fields.is_empty() {
-            self.reader.read_u8()?;
+            self.reader.read_empty_message()?;
         }
         visitor.visit_seq(SequenceHelper::new(self, fields.len()))
     }

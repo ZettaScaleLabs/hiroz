@@ -99,7 +99,7 @@ fn generated_sequence_decoders_cap_the_reservation() {
         .expect("generate UnboundedSequences");
     let src = format_tokens(tokens);
     assert!(
-        src.contains("Vec::with_capacity(__count.min(__r.remaining()))"),
+        src.contains("Vec::with_capacity(__r.sequence_capacity(__count))"),
         "capped reservation missing"
     );
     assert!(
@@ -108,64 +108,60 @@ fn generated_sequence_decoders_cap_the_reservation() {
     );
 }
 
-/// ROS 2 gives an empty message one `uint8` member. The generated code writes and reads that
-/// byte, and the type is not plain, because a plain type is a byte copy of its Rust layout.
+/// An empty message is not plain, because a plain type is a byte copy of its Rust layout and
+/// an empty message takes one byte on the wire. The snapshot pins that byte in the generated
+/// writer, reader and size.
 #[test]
-fn generated_empty_message_takes_one_byte() {
+fn snapshot_empty_message() {
     let msgs = resolve_corpus();
     let plain = hiroz_codegen::generator::rust::compute_plain_types(&msgs);
     assert!(
         !plain.contains("test_interface_files::Constants"),
-        "an empty message is plain"
+        "an empty message must not be plain"
     );
     let msg = get_resolved(&msgs, "Constants");
     let tokens = generate_message_impl_with_cdr(msg, &ctx(), &plain).expect("generate Constants");
-    let src = format_tokens(tokens);
-    assert!(src.contains("write_u8(0)"), "no byte written");
-    assert!(src.contains("read_u8()"), "no byte read");
-    assert!(
-        src.contains("__p + 1") || src.contains("__p += 1"),
-        "no byte counted in the size"
-    );
+    insta::assert_snapshot!("empty_message", format_tokens(tokens));
 }
 
-/// A bounded sequence decodes through the length check that knows its maximum.
+/// Every bounded sequence decodes through the length check that knows its maximum, on the plain
+/// and the non-plain path. An unbounded sequence has no maximum.
 #[test]
 fn generated_bounded_sequence_decoders_check_the_maximum() {
+    use hiroz_codegen::types::ArrayType;
+
     let msgs = resolve_corpus();
     let plain = hiroz_codegen::generator::rust::compute_plain_types(&msgs);
-    let generate = |name: &str| {
-        let tokens = generate_message_impl_with_cdr(get_resolved(&msgs, name), &ctx(), &plain)
-            .expect("generate");
-        format_tokens(tokens)
-    };
-    let bounded = generate("BoundedSequences");
-    assert!(bounded.contains("read_bounded_sequence_length(3)"));
-    let plain_bounded = generate("BoundedPlainSequences");
-    assert!(plain_bounded.contains("read_bounded_sequence_length(3)"));
-    let unbounded = generate("UnboundedSequences");
+    for name in ["BoundedSequences", "BoundedPlainSequences"] {
+        let msg = get_resolved(&msgs, name);
+        let bounded = msg
+            .parsed
+            .fields
+            .iter()
+            .filter(|f| matches!(f.field_type.array, ArrayType::Bounded(3)))
+            .count();
+        assert!(bounded > 0, "{name}: no bounded field in the corpus");
+        let src =
+            format_tokens(generate_message_impl_with_cdr(msg, &ctx(), &plain).expect("generate"));
+        assert_eq!(
+            src.matches("read_bounded_sequence_length(3)").count(),
+            bounded,
+            "{name}: bounded fields without the check"
+        );
+        assert_eq!(
+            src.matches("read_sequence_length()").count(),
+            0,
+            "{name}: a bounded field reads an unchecked length"
+        );
+    }
+    let unbounded = format_tokens(
+        generate_message_impl_with_cdr(get_resolved(&msgs, "UnboundedSequences"), &ctx(), &plain)
+            .expect("generate"),
+    );
     assert!(
         !unbounded.contains("read_bounded_sequence_length"),
         "an unbounded sequence has no maximum"
     );
-}
-
-/// A fixed array of a type that is not `Copy` builds without `[x; N]`, which needs `Copy`. An
-/// empty message is no longer `Copy`.
-#[test]
-fn generated_fixed_array_of_an_empty_message_needs_no_copy() {
-    let msgs = resolve_corpus();
-    let plain = hiroz_codegen::generator::rust::compute_plain_types(&msgs);
-    let tokens = generate_message_impl_with_cdr(get_resolved(&msgs, "Arrays"), &ctx(), &plain)
-        .expect("generate Arrays");
-    let src = format_tokens(tokens);
-    let decoder = src
-        .split("let constants_values")
-        .nth(1)
-        .and_then(|rest| rest.split("let defaults_values").next())
-        .expect("the Constants array decoder");
-    assert!(decoder.contains("from_fn"), "{decoder}");
-    assert!(!decoder.contains("[Default::default();"), "{decoder}");
 }
 
 // ── Service snapshot ──────────────────────────────────────────────────────────

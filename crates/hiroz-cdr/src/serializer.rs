@@ -300,9 +300,8 @@ where
 
     #[inline]
     fn serialize_struct(self, _name: &'static str, len: usize) -> Result<Self::SerializeStruct> {
-        // ROS 2 gives an empty message one `uint8` member.
         if len == 0 {
-            (&mut *self).serialize_u8(0)?;
+            self.writer.write_empty_message();
         }
         Ok(self)
     }
