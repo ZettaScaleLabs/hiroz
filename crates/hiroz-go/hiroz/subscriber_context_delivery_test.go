@@ -162,3 +162,33 @@ func TestBuildWithTypedCallbackContextDestroyDoesNotWaitForRunningHandler(t *tes
 		t.Errorf("Close: %v", err)
 	}
 }
+
+// With the real library, a cancel destroys the subscriber and closes the channel.
+func TestSubscriberWithChannelContextCancelClosesChannelRealLibrary(t *testing.T) {
+	node, pub := ctxDeliveryFixture(t, "/ctx_delivery_cancel")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sub, ch, err := SubscriberWithChannelContext[*ctxDeliveryMsg](ctx, node.CreateSubscriber("/ctx_delivery_cancel"), 16)
+	if err != nil {
+		t.Fatalf("subscriber: %v", err)
+	}
+	defer sub.Close()
+	if _, ok := ctxAwait(t, pub, ch); !ok {
+		t.Fatal("no message received before cancel")
+	}
+
+	cancel()
+	drained := make(chan struct{})
+	go func() {
+		for range ch {
+		}
+		close(drained)
+	}()
+	receiveBounded(t, drained, "the channel to close after cancel")
+	node.subsMu.Lock()
+	owned := len(node.ownedSubs)
+	node.subsMu.Unlock()
+	if owned != 0 {
+		t.Errorf("the node still owns %d subscribers after cancel, want 0", owned)
+	}
+}
