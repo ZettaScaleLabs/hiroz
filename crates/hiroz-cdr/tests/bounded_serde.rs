@@ -39,11 +39,11 @@ fn a_count_over_the_maximum_is_an_error() {
     assert!(err.to_string().contains("maximum"), "{err}");
 }
 
-/// The count is known before any element. A truncated sample with a count over the maximum
+/// The count is known before any element. A truncated sample with a count one over the maximum
 /// reports the maximum, not the missing bytes.
 #[test]
 fn a_truncated_sample_over_the_maximum_names_the_maximum() {
-    let mut bytes = 9u32.to_le_bytes().to_vec();
+    let mut bytes = 3u32.to_le_bytes().to_vec();
     bytes.extend_from_slice(&1u32.to_le_bytes());
     let err = decode(&bytes).expect_err("a count over the maximum");
     assert!(err.to_string().contains("maximum"), "{err}");
