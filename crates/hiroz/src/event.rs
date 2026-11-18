@@ -453,6 +453,11 @@ pub fn update_shared_event_status(
 /// publisher makes a gap detectable: receiving `n` when `n - 2` was the last
 /// means one sample never arrived.
 ///
+/// The tracker holds the last sequence of at most 1024 publishers. When it is
+/// full, a new publisher evicts the one heard from least recently. The evicted
+/// publisher's next sample is a new baseline, so a gap that spans the eviction
+/// is not reported.
+///
 /// [`Attachment`]: crate::attachment::Attachment
 ///
 /// # What this does *not* count
