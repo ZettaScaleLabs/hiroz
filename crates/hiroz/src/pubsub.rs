@@ -287,8 +287,8 @@ impl<T, S> ZPubBuilder<T, S> {
     ///
     /// # Transient-local history
     ///
-    /// With `TransientLocal` QoS the locality restricts live samples only. The history query and
-    /// the queryable ignore it, so a subscriber outside the locality still receives the stored history.
+    /// With `TransientLocal` QoS the locality restricts live samples only. The queryable ignores
+    /// it, so a transient-local subscriber outside the locality still receives the stored history.
     ///
     /// # Example
     ///

@@ -346,7 +346,7 @@ Common presets:
 
 Publishers and subscribers take a `Locality`, which `hiroz::prelude` exports. `with_locality` restricts an entity to peers of one locality: `SessionLocal` (the same Zenoh session), `Remote` (other sessions) or `Any` (the default). On a publisher it limits the subscribers that receive a message sent with `publish`. A `Remote` or intra-process-only publisher that uses `publish_shared` or `publish_owned` also serves same-session subscribers on the local bus. On a subscriber it limits the publishers that the subscriber receives from, on the topic key and on the buffer-group key. `ZPub::wait_for_subscription` counts only the subscribers that the publisher's locality admits.
 
-With `TransientLocal` QoS the locality restricts live messages only. The history query and the queryable ignore it, so an entity outside the locality still receives the stored history.
+With `TransientLocal` QoS the locality restricts live messages only. The history query and the queryable ignore it, so a transient-local subscriber outside the locality still receives the stored history. A volatile subscriber requests no history.
 
 ```rust
 use hiroz::prelude::*;
