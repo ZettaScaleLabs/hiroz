@@ -185,8 +185,7 @@ fn dynamic_decoder_decodes_zero_byte_elements() {
     }
 }
 
-/// An element that takes no bytes: a fixed array with no members. An empty message takes one
-/// byte, as in ROS 2.
+/// An element that takes no bytes: a fixed array with no members.
 fn zero_byte_element() -> FieldType {
     FieldType::Array(Box::new(FieldType::Uint8), 0)
 }

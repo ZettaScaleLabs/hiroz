@@ -295,9 +295,6 @@ where
     where
         V: Visitor<'de>,
     {
-        if fields.is_empty() {
-            self.reader.read_empty_message()?;
-        }
         visitor.visit_seq(SequenceHelper::new(self, fields.len()))
     }
 
@@ -445,13 +442,6 @@ where
             self.element_counter += 1;
             seed.deserialize(&mut *self.de).map(Some)
         }
-    }
-
-    /// The elements left, as the wire declares them. A serde collection caps what it reserves
-    /// from this hint.
-    #[inline]
-    fn size_hint(&self) -> Option<usize> {
-        Some(self.expected_count - self.element_counter)
     }
 }
 

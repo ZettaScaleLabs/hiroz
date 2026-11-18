@@ -34,9 +34,8 @@ pub fn serialize_cdr_to_zbuf(msg: &DynamicMessage) -> Result<ZBuf, DynamicError>
 
 /// Deserialize a dynamic message from CDR bytes.
 ///
-/// An empty message takes one byte, as in ROS 2. A bounded sequence with more elements than its
-/// maximum is an error. A value that consumes no input, such as a fixed array with no members,
-/// counts against a budget of 1,048,576 values per call, and input that needs more is an error.
+/// A value that consumes no input, such as a fixed array with no members, counts against a budget
+/// of 1,048,576 values per call, and input that needs more is an error.
 pub fn deserialize_cdr(
     data: &[u8],
     schema: &Arc<MessageSchema>,
@@ -113,9 +112,6 @@ fn serialize_message(
     msg: &DynamicMessage,
     writer: &mut CdrWriter<LittleEndian>,
 ) -> Result<(), DynamicError> {
-    if msg.schema().fields.is_empty() {
-        writer.write_empty_message();
-    }
     for (field, value) in msg.schema().fields.iter().zip(msg.values().iter()) {
         serialize_value(value, &field.field_type, writer)?;
     }
@@ -194,9 +190,6 @@ fn deserialize_message(
 ) -> Result<DynamicMessage, DynamicError> {
     let mut values = Vec::with_capacity(schema.fields.len());
 
-    if schema.fields.is_empty() {
-        reader.read_empty_message().map_err(map_cdr_err)?;
-    }
     for field in &schema.fields {
         let value = deserialize_value(&field.field_type, reader, budget)?;
         values.push(value);
@@ -270,15 +263,14 @@ fn deserialize_value_inner(
         }
 
         // Bounded sequence
-        FieldType::BoundedSequence(inner, max) => {
-            let len = reader
-                .read_bounded_sequence_length(*max)
-                .map_err(map_cdr_err)?;
+        FieldType::BoundedSequence(inner, _max) => {
+            // Same handling as unbounded sequence for deserialization
             if matches!(**inner, FieldType::Uint8) {
-                let bytes = reader.read_bytes(len).map_err(map_cdr_err)?.to_vec();
+                let bytes = reader.read_byte_sequence().map_err(map_cdr_err)?.to_vec();
                 return Ok(DynamicValue::Bytes(bytes));
             }
 
+            let len = reader.read_sequence_length().map_err(map_cdr_err)?;
             Ok(DynamicValue::Array(deserialize_elements(
                 inner, len, reader, budget,
             )?))

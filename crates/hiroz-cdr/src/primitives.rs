@@ -76,12 +76,6 @@ impl<'a, BO: ByteOrder, B: CdrBuffer> CdrWriter<'a, BO, B> {
         self.buffer.push(v);
     }
 
-    /// Write the one `uint8` member that ROS 2 gives a message with no fields.
-    #[inline]
-    pub fn write_empty_message(&mut self) {
-        self.write_u8(0);
-    }
-
     #[inline]
     pub fn write_i16(&mut self, v: i16) {
         self.align(2);
@@ -373,30 +367,11 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
         Ok(len as usize)
     }
 
-    /// Read a sequence length prefix and reject a count above `max`, the maximum that the
-    /// message definition declares for a bounded sequence.
-    #[inline]
-    pub fn read_bounded_sequence_length(&mut self, max: usize) -> Result<usize> {
-        let len = self.read_sequence_length()?;
-        if len > max {
-            return Err(Error::Custom(format!(
-                "Sequence length {len} exceeds the declared maximum ({max})"
-            )));
-        }
-        Ok(len)
-    }
-
     /// The initial capacity for a sequence that declares `count` elements: at most one element per
     /// unread byte, so a count that the input cannot back reserves no more than the input size.
     #[inline]
     pub fn sequence_capacity(&self, count: usize) -> usize {
         count.min(self.remaining())
-    }
-
-    /// Read the one `uint8` member that ROS 2 gives a message with no fields.
-    #[inline]
-    pub fn read_empty_message(&mut self) -> Result<()> {
-        self.read_u8().map(drop)
     }
 
     /// Read raw bytes with length prefix.
