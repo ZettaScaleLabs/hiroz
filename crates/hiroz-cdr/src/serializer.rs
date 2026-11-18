@@ -299,7 +299,10 @@ where
     }
 
     #[inline]
-    fn serialize_struct(self, _name: &'static str, _len: usize) -> Result<Self::SerializeStruct> {
+    fn serialize_struct(self, _name: &'static str, len: usize) -> Result<Self::SerializeStruct> {
+        if len == 0 {
+            self.writer.write_empty_message();
+        }
         Ok(self)
     }
 

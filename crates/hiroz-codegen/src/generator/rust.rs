@@ -112,6 +112,11 @@ pub fn compute_plain_types(messages: &[ResolvedMessage]) -> HashSet<String> {
             if plain.contains(&key) {
                 continue;
             }
+            // An empty message takes one byte on the wire and none in memory, so a byte copy
+            // of its Rust layout is wrong. A type that holds one is not plain either.
+            if msg.parsed.fields.is_empty() {
+                continue;
+            }
             // All fields must individually be plain.
             if !msg
                 .parsed
@@ -164,6 +169,13 @@ fn generate_cdr_impls(
         .map(|f| generate_cdr_serialize_field(f, pkg, plain_types, ctx))
         .collect::<Result<Vec<_>>>()?;
 
+    // ROS 2 gives an empty message one `uint8` member, so it takes one byte on the wire.
+    let ser_fields = if fields.is_empty() {
+        vec![quote! { __w.write_empty_message(); }]
+    } else {
+        ser_fields
+    };
+
     let ser_impl = quote! {
         impl ::hiroz_cdr::CdrSerialize for #name {
             fn cdr_serialize<BO, B>(
@@ -184,6 +196,12 @@ fn generate_cdr_impls(
         .iter()
         .map(|f| generate_cdr_deserialize_field(f, pkg, plain_types, ctx))
         .collect();
+
+    let de_fields = if fields.is_empty() {
+        vec![quote! { __r.read_empty_message()?; }]
+    } else {
+        de_fields
+    };
 
     let field_idents: Vec<Ident> = fields.iter().map(|f| escape_field_name(&f.name)).collect();
 
@@ -206,6 +224,12 @@ fn generate_cdr_impls(
         .iter()
         .map(|f| generate_cdr_size_field(f, pkg, plain_types, ctx))
         .collect::<Result<Vec<_>>>()?;
+
+    let size_fields = if fields.is_empty() {
+        vec![quote! { __p += 1; }]
+    } else {
+        size_fields
+    };
 
     let size_impl = quote! {
         impl ::hiroz_cdr::CdrSerializedSize for #name {
@@ -361,9 +385,10 @@ fn generate_cdr_deserialize_field(
                     };
                 }
             } else {
+                // `[x; N]` needs `Copy`, which a String or an empty message lacks.
                 quote! {
                     let #fname: #rust_elem_ty = {
-                        let mut __arr = [Default::default(); #n_lit];
+                        let mut __arr: #rust_elem_ty = ::std::array::from_fn(|_| Default::default());
                         for __slot in __arr.iter_mut() {
                             *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
                         }

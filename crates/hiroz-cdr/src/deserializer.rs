@@ -295,6 +295,9 @@ where
     where
         V: Visitor<'de>,
     {
+        if fields.is_empty() {
+            self.reader.read_empty_message()?;
+        }
         visitor.visit_seq(SequenceHelper::new(self, fields.len()))
     }
 

@@ -332,19 +332,21 @@ impl ServiceTypeInfo for ChangeState {
 pub struct GetStateRequest {}
 
 impl CdrSerialize for GetStateRequest {
-    fn cdr_serialize<BO: byteorder::ByteOrder, B: CdrBuffer>(&self, _w: &mut CdrWriter<'_, BO, B>) {
+    fn cdr_serialize<BO: byteorder::ByteOrder, B: CdrBuffer>(&self, w: &mut CdrWriter<'_, BO, B>) {
+        w.write_empty_message();
     }
 }
 impl CdrDeserialize for GetStateRequest {
     fn cdr_deserialize<'de, BO: byteorder::ByteOrder>(
-        _r: &mut CdrReader<'de, BO>,
+        r: &mut CdrReader<'de, BO>,
     ) -> hiroz_cdr::Result<Self> {
+        r.read_empty_message()?;
         Ok(GetStateRequest {})
     }
 }
 impl CdrSerializedSize for GetStateRequest {
     fn cdr_serialized_size(&self, pos: usize) -> usize {
-        pos
+        pos + 1
     }
 }
 
@@ -401,19 +403,21 @@ impl ServiceTypeInfo for GetState {
 pub struct GetAvailableStatesRequest {}
 
 impl CdrSerialize for GetAvailableStatesRequest {
-    fn cdr_serialize<BO: byteorder::ByteOrder, B: CdrBuffer>(&self, _w: &mut CdrWriter<'_, BO, B>) {
+    fn cdr_serialize<BO: byteorder::ByteOrder, B: CdrBuffer>(&self, w: &mut CdrWriter<'_, BO, B>) {
+        w.write_empty_message();
     }
 }
 impl CdrDeserialize for GetAvailableStatesRequest {
     fn cdr_deserialize<'de, BO: byteorder::ByteOrder>(
-        _r: &mut CdrReader<'de, BO>,
+        r: &mut CdrReader<'de, BO>,
     ) -> hiroz_cdr::Result<Self> {
+        r.read_empty_message()?;
         Ok(GetAvailableStatesRequest {})
     }
 }
 impl CdrSerializedSize for GetAvailableStatesRequest {
     fn cdr_serialized_size(&self, pos: usize) -> usize {
-        pos
+        pos + 1
     }
 }
 
@@ -470,19 +474,21 @@ impl ServiceTypeInfo for GetAvailableStates {
 pub struct GetAvailableTransitionsRequest {}
 
 impl CdrSerialize for GetAvailableTransitionsRequest {
-    fn cdr_serialize<BO: byteorder::ByteOrder, B: CdrBuffer>(&self, _w: &mut CdrWriter<'_, BO, B>) {
+    fn cdr_serialize<BO: byteorder::ByteOrder, B: CdrBuffer>(&self, w: &mut CdrWriter<'_, BO, B>) {
+        w.write_empty_message();
     }
 }
 impl CdrDeserialize for GetAvailableTransitionsRequest {
     fn cdr_deserialize<'de, BO: byteorder::ByteOrder>(
-        _r: &mut CdrReader<'de, BO>,
+        r: &mut CdrReader<'de, BO>,
     ) -> hiroz_cdr::Result<Self> {
+        r.read_empty_message()?;
         Ok(GetAvailableTransitionsRequest {})
     }
 }
 impl CdrSerializedSize for GetAvailableTransitionsRequest {
     fn cdr_serialized_size(&self, pos: usize) -> usize {
-        pos
+        pos + 1
     }
 }
 

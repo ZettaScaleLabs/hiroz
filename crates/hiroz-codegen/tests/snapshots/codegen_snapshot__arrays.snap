@@ -1,6 +1,5 @@
 ---
 source: crates/hiroz-codegen/tests/codegen_snapshot.rs
-assertion_line: 80
 expression: format_tokens(tokens)
 ---
 #[derive(Debug, Clone, Default, ::serde::Serialize, ::serde::Deserialize)]
@@ -532,7 +531,7 @@ impl ::hiroz_cdr::CdrDeserialize for Arrays {
         BO: ::byteorder::ByteOrder,
     {
         let bool_values: [bool; 3] = {
-            let mut __arr = [Default::default(); 3];
+            let mut __arr: [bool; 3] = ::std::array::from_fn(|_| Default::default());
             for __slot in __arr.iter_mut() {
                 *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
             }
@@ -555,7 +554,7 @@ impl ::hiroz_cdr::CdrDeserialize for Arrays {
             }
         };
         let char_values: [i8; 3] = {
-            let mut __arr = [Default::default(); 3];
+            let mut __arr: [i8; 3] = ::std::array::from_fn(|_| Default::default());
             for __slot in __arr.iter_mut() {
                 *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
             }
@@ -722,35 +721,41 @@ impl ::hiroz_cdr::CdrDeserialize for Arrays {
             }
         };
         let string_values: [::std::string::String; 3] = {
-            let mut __arr = [Default::default(); 3];
+            let mut __arr: [::std::string::String; 3] = ::std::array::from_fn(|_| Default::default());
             for __slot in __arr.iter_mut() {
                 *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
             }
             __arr
         };
         let basic_types_values: [super::test_interface_files::BasicTypes; 3] = {
-            let mut __arr = [Default::default(); 3];
+            let mut __arr: [super::test_interface_files::BasicTypes; 3] = ::std::array::from_fn(|
+                _|
+            Default::default());
             for __slot in __arr.iter_mut() {
                 *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
             }
             __arr
         };
         let constants_values: [super::test_interface_files::Constants; 3] = {
-            let mut __arr = [Default::default(); 3];
+            let mut __arr: [super::test_interface_files::Constants; 3] = ::std::array::from_fn(|
+                _|
+            Default::default());
             for __slot in __arr.iter_mut() {
                 *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
             }
             __arr
         };
         let defaults_values: [super::test_interface_files::Defaults; 3] = {
-            let mut __arr = [Default::default(); 3];
+            let mut __arr: [super::test_interface_files::Defaults; 3] = ::std::array::from_fn(|
+                _|
+            Default::default());
             for __slot in __arr.iter_mut() {
                 *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
             }
             __arr
         };
         let bool_values_default: [bool; 3] = {
-            let mut __arr = [Default::default(); 3];
+            let mut __arr: [bool; 3] = ::std::array::from_fn(|_| Default::default());
             for __slot in __arr.iter_mut() {
                 *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
             }
@@ -773,7 +778,7 @@ impl ::hiroz_cdr::CdrDeserialize for Arrays {
             }
         };
         let char_values_default: [i8; 3] = {
-            let mut __arr = [Default::default(); 3];
+            let mut __arr: [i8; 3] = ::std::array::from_fn(|_| Default::default());
             for __slot in __arr.iter_mut() {
                 *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
             }
@@ -940,7 +945,7 @@ impl ::hiroz_cdr::CdrDeserialize for Arrays {
             }
         };
         let string_values_default: [::std::string::String; 3] = {
-            let mut __arr = [Default::default(); 3];
+            let mut __arr: [::std::string::String; 3] = ::std::array::from_fn(|_| Default::default());
             for __slot in __arr.iter_mut() {
                 *__slot = ::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?;
             }

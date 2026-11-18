@@ -76,6 +76,12 @@ impl<'a, BO: ByteOrder, B: CdrBuffer> CdrWriter<'a, BO, B> {
         self.buffer.push(v);
     }
 
+    /// Write the one `uint8` member that ROS 2 gives a message with no fields.
+    #[inline]
+    pub fn write_empty_message(&mut self) {
+        self.write_u8(0);
+    }
+
     #[inline]
     pub fn write_i16(&mut self, v: i16) {
         self.align(2);
@@ -256,6 +262,12 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
     #[inline]
     pub fn read_u8(&mut self) -> Result<u8> {
         Ok(self.read_bytes(1)?[0])
+    }
+
+    /// Read the one `uint8` member that ROS 2 gives a message with no fields.
+    #[inline]
+    pub fn read_empty_message(&mut self) -> Result<()> {
+        self.read_u8().map(drop)
     }
 
     #[inline]

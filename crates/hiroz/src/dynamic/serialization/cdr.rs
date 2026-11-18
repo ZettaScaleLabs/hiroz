@@ -34,6 +34,8 @@ pub fn serialize_cdr_to_zbuf(msg: &DynamicMessage) -> Result<ZBuf, DynamicError>
 
 /// Deserialize a dynamic message from CDR bytes.
 ///
+/// An empty message takes one byte, as in ROS 2.
+///
 /// A value that consumes no input, such as a fixed array with no members, counts against a budget
 /// of 1,048,576 values per call, and input that needs more is an error.
 pub fn deserialize_cdr(
@@ -112,6 +114,9 @@ fn serialize_message(
     msg: &DynamicMessage,
     writer: &mut CdrWriter<LittleEndian>,
 ) -> Result<(), DynamicError> {
+    if msg.schema().fields.is_empty() {
+        writer.write_empty_message();
+    }
     for (field, value) in msg.schema().fields.iter().zip(msg.values().iter()) {
         serialize_value(value, &field.field_type, writer)?;
     }
@@ -190,6 +195,9 @@ fn deserialize_message(
 ) -> Result<DynamicMessage, DynamicError> {
     let mut values = Vec::with_capacity(schema.fields.len());
 
+    if schema.fields.is_empty() {
+        reader.read_empty_message().map_err(map_cdr_err)?;
+    }
     for field in &schema.fields {
         let value = deserialize_value(&field.field_type, reader, budget)?;
         values.push(value);
