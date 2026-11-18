@@ -89,6 +89,32 @@ fn snapshot_nested() {
     insta::assert_snapshot!("nested", format_tokens(tokens));
 }
 
+/// Every generated sequence decoder caps its reservation at the unread input. With the real plain
+/// types, a primitive sequence takes the plain path, so the text includes its big-endian branch,
+/// which no host in CI compiles.
+#[test]
+fn generated_sequence_decoders_cap_the_reservation() {
+    let msgs = resolve_corpus();
+    let plain = hiroz_codegen::generator::rust::compute_plain_types(&msgs);
+    let msg = get_resolved(&msgs, "UnboundedSequences");
+    let tokens =
+        generate_message_impl_with_cdr(msg, &ctx(), &plain).expect("generate UnboundedSequences");
+    let src = format_tokens(tokens);
+    let plain_paths = src.matches("read_pod_slice::<").count();
+    let capped = src
+        .matches("Vec::with_capacity(__r.sequence_capacity(__count))")
+        .count();
+    assert!(plain_paths > 0, "no plain sequence path generated");
+    assert!(
+        capped > plain_paths,
+        "capped reservations: {capped}, plain paths: {plain_paths}"
+    );
+    assert!(
+        !src.contains("with_capacity(__count)"),
+        "a reservation takes the declared count"
+    );
+}
+
 // ── Service snapshot ──────────────────────────────────────────────────────────
 
 #[test]

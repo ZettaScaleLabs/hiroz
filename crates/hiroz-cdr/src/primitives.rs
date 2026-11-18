@@ -350,9 +350,10 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
 
     /// Read a sequence length prefix.
     ///
-    /// # Safety
-    /// Includes a sanity check to prevent absurd allocations from malformed data.
-    /// Maximum sequence length is 100 million elements (~400MB for float32 arrays).
+    /// # Limits
+    /// Validates only the declared count, at most 100 million. It does not compare the count with
+    /// [`Self::remaining`], because valid elements can occupy zero bytes. A decoder reserves
+    /// [`Self::sequence_capacity`] up front and grows as elements decode.
     #[inline]
     pub fn read_sequence_length(&mut self) -> Result<usize> {
         const MAX_SEQUENCE_LENGTH: u32 = 100_000_000;
@@ -364,6 +365,14 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
             )));
         }
         Ok(len as usize)
+    }
+
+    /// The initial capacity for a sequence that declares `count` elements: at most one element per
+    /// unread byte. The cap counts elements, not bytes, so an element type larger than one byte can
+    /// still reserve more memory than the unread input holds.
+    #[inline]
+    pub fn sequence_capacity(&self, count: usize) -> usize {
+        count.min(self.remaining())
     }
 
     /// Read raw bytes with length prefix.
