@@ -80,6 +80,22 @@ fn snapshot_arrays() {
     insta::assert_snapshot!("arrays", format_tokens(tokens));
 }
 
+/// An empty message is not plain, because a plain type is a byte copy of its Rust layout and
+/// an empty message takes one byte on the wire. The snapshot pins that byte in the generated
+/// writer, reader and size.
+#[test]
+fn snapshot_empty_message() {
+    let msgs = resolve_corpus();
+    let plain = hiroz_codegen::generator::rust::compute_plain_types(&msgs);
+    assert!(
+        !plain.contains("test_interface_files::Constants"),
+        "an empty message must not be plain"
+    );
+    let msg = get_resolved(&msgs, "Constants");
+    let tokens = generate_message_impl_with_cdr(msg, &ctx(), &plain).expect("generate Constants");
+    insta::assert_snapshot!("empty_message", format_tokens(tokens));
+}
+
 #[test]
 fn snapshot_nested() {
     let msgs = resolve_corpus();

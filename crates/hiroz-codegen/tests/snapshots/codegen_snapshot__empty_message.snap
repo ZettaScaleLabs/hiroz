@@ -1,0 +1,99 @@
+---
+source: crates/hiroz-codegen/tests/codegen_snapshot.rs
+expression: format_tokens(tokens)
+---
+#[derive(Debug, Clone, Default, ::serde::Serialize, ::serde::Deserialize)]
+#[cfg_attr(
+    feature = "python_registry",
+    derive(::hiroz_derive::FromPyMessage, ::hiroz_derive::IntoPyMessage)
+)]
+#[cfg_attr(
+    feature = "python_registry",
+    ros_msg(module = "hiroz_msgs_py.types.test_interface_files")
+)]
+pub struct Constants {}
+impl Constants {
+    pub const BOOL_CONST: bool = true;
+    pub const BYTE_CONST: u8 = 50;
+    pub const CHAR_CONST: i8 = 100;
+    pub const FLOAT32_CONST: f32 = 1.125;
+    pub const FLOAT64_CONST: f64 = 1.125;
+    pub const INT8_CONST: i8 = -50;
+    pub const UINT8_CONST: u8 = 200;
+    pub const INT16_CONST: i16 = -1000;
+    pub const UINT16_CONST: u16 = 2000;
+    pub const INT32_CONST: i32 = -30000;
+    pub const UINT32_CONST: u32 = 60000;
+    pub const INT64_CONST: i64 = -40000000;
+    pub const UINT64_CONST: u64 = 50000000;
+}
+impl ::hiroz::MessageTypeInfo for Constants {
+    fn type_name() -> &'static str {
+        "test_interface_files::msg::dds_::Constants_"
+    }
+    fn type_hash() -> ::hiroz::entity::TypeHash {
+        ::hiroz::entity::TypeHash::from_rihs_string(
+                "RIHS01_b72f1a454ff7936bbaabe3a92f8fdff0bf15287f7d2862aef9f705ff018c9ab4",
+            )
+            .expect("Invalid RIHS hash")
+    }
+    fn message_schema() -> Option<::std::sync::Arc<::hiroz::dynamic::MessageSchema>> {
+        static SCHEMA: ::std::sync::OnceLock<
+            ::std::sync::Arc<::hiroz::dynamic::MessageSchema>,
+        > = ::std::sync::OnceLock::new();
+        Some(
+            SCHEMA
+                .get_or_init(|| {
+                    ::hiroz::dynamic::MessageSchema::builder(
+                            "test_interface_files/msg/Constants",
+                        )
+                        .build()
+                        .expect("generated message schema must be valid")
+                })
+                .clone(),
+        )
+    }
+}
+impl ::hiroz::ros_msg::WithTypeInfo for Constants {}
+impl crate::size_estimation::SizeEstimation for Constants {
+    fn estimated_cdr_size(&self) -> usize {
+        let size = 0usize;
+        size + 16
+    }
+}
+impl Constants {
+    /// Get an accurate estimate of the serialized CDR size.
+    ///
+    /// This implementation accounts for dynamic fields (Vec, String, ZBuf)
+    /// and provides a conservative but accurate upper bound for SHM allocation.
+    pub fn estimated_serialized_size(&self) -> usize {
+        4 + crate::size_estimation::SizeEstimation::estimated_cdr_size(self)
+    }
+}
+impl ::hiroz_cdr::CdrSerialize for Constants {
+    fn cdr_serialize<BO, B>(&self, __w: &mut ::hiroz_cdr::CdrWriter<'_, BO, B>)
+    where
+        BO: ::byteorder::ByteOrder,
+        B: ::hiroz_cdr::CdrBuffer,
+    {
+        __w.write_empty_message();
+    }
+}
+impl ::hiroz_cdr::CdrDeserialize for Constants {
+    fn cdr_deserialize<'__de, BO>(
+        __r: &mut ::hiroz_cdr::CdrReader<'__de, BO>,
+    ) -> ::hiroz_cdr::Result<Self>
+    where
+        BO: ::byteorder::ByteOrder,
+    {
+        __r.read_empty_message()?;
+        Ok(Self {})
+    }
+}
+impl ::hiroz_cdr::CdrSerializedSize for Constants {
+    fn cdr_serialized_size(&self, __pos: usize) -> usize {
+        let mut __p = __pos;
+        __p += 1;
+        __p
+    }
+}
