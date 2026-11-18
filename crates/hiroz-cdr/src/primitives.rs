@@ -381,7 +381,8 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
     }
 
     /// The initial capacity for a sequence that declares `count` elements: at most one element per
-    /// unread byte, so a count that the input cannot back reserves no more than the input size.
+    /// unread byte. The cap counts elements, not bytes, so an element type larger than one byte can
+    /// still reserve more memory than the unread input holds.
     #[inline]
     pub fn sequence_capacity(&self, count: usize) -> usize {
         count.min(self.remaining())
