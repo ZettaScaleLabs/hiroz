@@ -184,12 +184,9 @@ server, err := node.CreateServiceServer("add_two_ints").
 // Client
 client, err := node.CreateServiceClient("add_two_ints").
     Build(&example_interfaces.AddTwoInts{})
-respBytes, err := client.Call(&example_interfaces.AddTwoIntsRequest{A: 5, B: 3})
-// client.CallWithTimeout(req, 10*time.Second) for a custom timeout
 var resp example_interfaces.AddTwoIntsResponse
-if err := resp.DeserializeCDR(respBytes); err != nil {
-    // handle error
-}
+err = hiroz.CallTyped(client, &example_interfaces.AddTwoIntsRequest{A: 5, B: 3}, &resp)
+// hiroz.CallTypedWithTimeout(client, req, &resp, 10*time.Second) for a custom timeout
 // use resp.Sum
 ```
 
@@ -310,6 +307,24 @@ resp := &example_interfaces.AddTwoIntsResponse{}
 err := hiroz.CallTyped(client, &example_interfaces.AddTwoIntsRequest{A: 5, B: 3}, resp)
 // hiroz.CallTypedWithTimeout(client, req, resp, 10*time.Second)
 ```
+
+### Context variants
+
+The calls in this table have a variant that ends when a `context.Context` ends.
+
+| Call | Context variant | When ctx ends | What `Close` waits for |
+|------|-----------------|---------------|------------------------|
+| `hiroz.CallTyped` | `hiroz.CallTypedContext(ctx, client, req, resp)` | returns at once; the C call runs on until its timeout | `ServiceClient.Close` waits for the C call, at most 10 s |
+| `client.WaitForService(timeout)` | `client.WaitForServiceContext(ctx)` | returns within one 250 ms wait slice | `ServiceClient.Close` ends the wait within one slice |
+| `client.SendGoal(goal)` | `client.SendGoalContext(ctx, goal)` | returns at once; a goal that the server accepts later is closed, not cancelled on the server | `ActionClient.Close` waits for the C send, at most 10 s |
+| `handle.GetResult()`, `hiroz.GetTypedResult` | `handle.GetResultWithContext(ctx)`, `hiroz.GetTypedResultContext(ctx, handle, result)` | returns at once; the C wait runs on | `ActionClient.Close` waits for the C wait, at most 10 s. It does not wait for `GoalHandle.Cancel` |
+
+Other blocking calls, such as `CallTypedWithTimeout`, keep their timeout argument. For all context variants:
+
+- A context that has already ended returns the context error, and nothing starts. A call that starts after `Close` has begun returns a closed-client error.
+- Your `SerializeCDR` and `DeserializeCDR` run to their end. `Close` does not wait for them.
+- A result that arrives together with the cancel can be returned instead of the context error.
+- A context deadline sets the timeout of `CallTypedContext`, up to 10 seconds.
 
 ### Action
 

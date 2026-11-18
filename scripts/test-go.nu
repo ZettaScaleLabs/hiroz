@@ -88,8 +88,9 @@ def test-codegen [] {
 }
 
 # Test hiroz-go runtime library
-def test-runtime [] {
+def test-runtime [--race] {
     log-step "Testing hiroz-go (runtime library)"
+    let flags = if $race { ["-race"] } else { [] }
 
     # Format check
     log-step "Running gofmt on runtime library"
@@ -107,7 +108,7 @@ def test-runtime [] {
     # Pure Go serialization tests (always available)
     log-step "Running testdata tests (serialization logic)"
     cd $RUNTIME_DIR
-    let test_result = (go test -v ./testdata | complete)
+    let test_result = (go test -v ...$flags ./testdata | complete)
     if $test_result.exit_code != 0 {
         print "❌ Testdata tests failed:"
         print $test_result.stdout
@@ -128,7 +129,7 @@ def test-runtime [] {
         log-step "Running hiroz FFI tests (QoS, types, handlers, subscribers)"
         cd $RUNTIME_DIR
         let ffi_result = (with-env {CGO_LDFLAGS: $"-L($lib_dir)"} {
-            go test -v -count=1 ./hiroz/ | complete
+            go test -v ...$flags -count=1 ./hiroz/ | complete
         })
         if $ffi_result.exit_code != 0 {
             print "❌ hiroz FFI tests failed:"
@@ -332,7 +333,7 @@ def main [
     --vet-only        # Only run go vet
     --ffi-only        # Only run the hiroz FFI tests
     --integration     # Run integration tests (requires zenohd + libhiroz.a)
-    --race            # Enable race detector in all Go test runs
+    --race            # Run the runtime tests and the integration tests with the race detector
 ] {
     log-header "Go Binding Health Test Suite"
 
@@ -364,18 +365,24 @@ def main [
     if $codegen_only {
         test-codegen
     } else if $runtime_only {
-        test-runtime
+        test-runtime --race=$race
     } else if $examples_only {
         test-examples
     } else if $vet_only {
         test-vet
     } else if $ffi_only {
-        test-runtime  # includes FFI tests when library is present
+        # The caller asked for the FFI tests, so a missing library is a failure, not a skip.
+        if not (has-ffi-library) {
+            print "❌ --ffi-only needs the Rust FFI library, and it is not built"
+            print "   Build with: cargo build -p hiroz --features ffi"
+            exit 1
+        }
+        test-runtime --race=$race
     } else if $integration {
         test-integration --race=$race
     } else {
         test-codegen
-        test-runtime
+        test-runtime --race=$race
         test-examples
         test-vet
     }
