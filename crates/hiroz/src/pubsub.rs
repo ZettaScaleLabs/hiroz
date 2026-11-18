@@ -276,7 +276,7 @@ impl<T, S> ZPubBuilder<T, S> {
     /// # This makes the publisher invisible off-process
     ///
     /// A [`Locality::SessionLocal`](zenoh::sample::Locality::SessionLocal)
-    /// publisher is not reachable from any other process, including
+    /// publisher sends no live sample to any other process, including
     /// `ros2 topic echo`. Set it only where the subscriber is in the same context.
     ///
     /// # Serialization still happens
@@ -284,6 +284,11 @@ impl<T, S> ZPubBuilder<T, S> {
     /// The message is still CDR-encoded on publish and decoded on receive. This
     /// setting removes the transport, not the serialization. Publisher SHM is
     /// wasted work under it, so pair it with [`without_shm`](Self::without_shm).
+    ///
+    /// # Transient-local history
+    ///
+    /// With `TransientLocal` QoS the locality restricts live samples only. The queryable ignores
+    /// it, so a transient-local subscriber outside the locality still receives the stored history.
     ///
     /// # Example
     ///
@@ -520,6 +525,11 @@ where
     /// Wait until at least `count` subscribers are matched on this publisher's topic,
     /// or until `timeout` elapses.
     ///
+    /// Only subscribers that the publisher's [`with_locality`](ZPubBuilder::with_locality)
+    /// admits count. Under `Locality::Remote` a same-session bus subscriber is not counted, although
+    /// [`publish_shared`](Self::publish_shared) and [`publish_owned`](Self::publish_owned) serve it.
+    /// It registers on the bus when built, so those callers need not wait.
+    ///
     /// Returns `true` if the required number of subscribers appeared within the
     /// timeout, `false` otherwise.
     ///
@@ -541,11 +551,7 @@ where
             let notified = self.graph.change_notify.notified();
             tokio::pin!(notified);
 
-            let n = self
-                .graph
-                .get_entities_by_topic(EndpointKind::Subscription, &self.entity.topic)
-                .len();
-            if n >= count {
+            if self.admitted_subscribers() >= count {
                 return true;
             }
 
@@ -560,13 +566,25 @@ where
                 .is_err()
             {
                 // Timeout — do one final check in case a late notification was missed.
-                return self
-                    .graph
-                    .get_entities_by_topic(EndpointKind::Subscription, &self.entity.topic)
-                    .len()
-                    >= count;
+                return self.admitted_subscribers() >= count;
             }
         }
+    }
+
+    /// Count the subscribers on this topic that the publisher's locality admits.
+    fn admitted_subscribers(&self) -> usize {
+        self.graph
+            .get_entities_by_topic(EndpointKind::Subscription, &self.entity.topic)
+            .iter()
+            .filter(|entity| {
+                let local = self.graph.is_entity_local(entity);
+                match self.locality {
+                    Some(zenoh::sample::Locality::Remote) => !local,
+                    Some(zenoh::sample::Locality::SessionLocal) => local,
+                    _ => true,
+                }
+            })
+            .count()
     }
 
     fn new_attachment(&self) -> Attachment {
