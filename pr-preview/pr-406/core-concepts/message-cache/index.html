@@ -2867,16 +2867,16 @@
 </tr>
 <tr>
 <td><code>with_locality(locality)</code></td>
-<td>Restricts the cache to publishers of one locality. See <a href="../pubsub/#locality">Locality</a>.</td>
+<td>Restricts the cache to publishers of one locality, on the topic key and on the buffer-group key, as <code>create_sub</code> does. With <code>TransientLocal</code> QoS it restricts live samples only: the history query ignores it, so the cache still stores history from publishers outside the locality.</td>
 </tr>
 <tr>
 <td><code>with_encoding(encoding)</code></td>
-<td>Logs a warning for a sample with a known, different encoding. The message is still stored. An unknown encoding is logged at debug level only.</td>
+<td>Logs a warning for a sample with a known, different encoding. The mismatch does not drop the message. An unknown encoding is logged at debug level only.</td>
 </tr>
 </tbody>
 </table>
 <h3 id="message-loss">Message loss<a class="headerlink" href="#message-loss" title="Permanent link">&para;</a></h3>
-<p>A cache tracks the sequence numbers that hiroz publishers send in the sample attachment. A gap raises a <code>MessageLost</code> event on <code>cache.events_mgr()</code>, the same handle that <code>ZSub::events_mgr()</code> returns. A publisher that sends no attachment, such as a plain Zenoh peer, is never reported as lossy. The first sample of a publisher is a baseline, so a cache that joins late reports no loss for history it never received. The tracker holds a bounded number of publishers. A publisher evicted from it starts a new baseline when it sends again, so a gap that spans the eviction is not reported.</p>
+<p>A cache tracks the sequence numbers that hiroz publishers send in the sample attachment. A gap raises a <code>MessageLost</code> event on <code>cache.events_mgr()</code>, a handle of the same type that <code>ZSub::events_mgr()</code> returns. Each cache has its own event manager. A publisher that sends no attachment, such as a plain Zenoh peer, is never reported as lossy. The first sample of a publisher is a baseline, so a cache that joins late reports no loss for history it never received.</p>
 <h2 id="comparison-with-message_filterscachet">Comparison with <code>message_filters::Cache&lt;T&gt;</code><a class="headerlink" href="#comparison-with-message_filterscachet" title="Permanent link">&para;</a></h2>
 <p><code>ZCache&lt;T&gt;</code> covers the core <code>message_filters::Cache&lt;T&gt;</code> API with some differences:</p>
 <table>
