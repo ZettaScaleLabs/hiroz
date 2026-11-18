@@ -3,6 +3,7 @@ package hiroz
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,6 +11,20 @@ import (
 
 // The tests in this file cancel a call while the real C call is in flight. The other context
 // tests replace the C calls with stubs.
+
+// ctxDeliveryMsg decodes into its receiver, like every generated message type. Calling
+// DeserializeCDR on a nil *ctxDeliveryMsg dereferences nil.
+type ctxDeliveryMsg struct{ Value string }
+
+func (m *ctxDeliveryMsg) TypeName() string { return "test/CtxDeliveryMsg" }
+func (m *ctxDeliveryMsg) TypeHash() string {
+	return "RIHS01_" + strings.Repeat("cd", 32)
+}
+func (m *ctxDeliveryMsg) SerializeCDR() ([]byte, error) { return []byte(m.Value), nil }
+func (m *ctxDeliveryMsg) DeserializeCDR(data []byte) error {
+	m.Value = string(data)
+	return nil
+}
 
 func realNode(t *testing.T, name string) *Node {
 	t.Helper()
