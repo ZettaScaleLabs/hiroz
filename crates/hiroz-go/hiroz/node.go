@@ -98,26 +98,26 @@ func (b *NodeBuilder) Build() (*Node, error) {
 // Matches rclpy's Node.destroy_subscription(). After this call the subscriber is closed
 // and must not be used again. Returns nil if sub was not found (already closed or not owned).
 func (n *Node) DestroySubscriber(sub *Subscriber) error {
-	n.subsMu.Lock()
-	idx := -1
-	for i, s := range n.ownedSubs {
-		if s == sub { //nolint:gocritic // pointer comparison is intentional
-			idx = i
-			break
-		}
-	}
-	if idx >= 0 {
-		last := len(n.ownedSubs) - 1
-		n.ownedSubs[idx] = n.ownedSubs[last]
-		n.ownedSubs[last] = nil
-		n.ownedSubs = n.ownedSubs[:last]
-	}
-	n.subsMu.Unlock()
-
-	if idx >= 0 {
+	if n.disown(sub) {
 		return sub.Close()
 	}
 	return nil
+}
+
+// disown removes sub from node ownership without closing it. It reports whether sub was owned.
+func (n *Node) disown(sub *Subscriber) bool {
+	n.subsMu.Lock()
+	defer n.subsMu.Unlock()
+	for i, s := range n.ownedSubs {
+		if s == sub { //nolint:gocritic // pointer comparison is intentional
+			last := len(n.ownedSubs) - 1
+			n.ownedSubs[i] = n.ownedSubs[last]
+			n.ownedSubs[last] = nil
+			n.ownedSubs = n.ownedSubs[:last]
+			return true
+		}
+	}
+	return false
 }
 
 // CreatePublisher creates a new publisher builder

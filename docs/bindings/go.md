@@ -318,6 +318,8 @@ The calls in this table have a variant that ends when a `context.Context` ends.
 | `client.WaitForService(timeout)` | `client.WaitForServiceContext(ctx)` | returns within one 250 ms wait slice | `ServiceClient.Close` ends the wait within one slice |
 | `client.SendGoal(goal)` | `client.SendGoalContext(ctx, goal)` | returns at once; a goal that the server accepts later is closed, not cancelled on the server | `ActionClient.Close` waits for the C send, at most 10 s |
 | `handle.GetResult()`, `hiroz.GetTypedResult` | `handle.GetResultWithContext(ctx)`, `hiroz.GetTypedResultContext(ctx, handle, result)` | returns at once; the C wait runs on | `ActionClient.Close` waits for the C wait, at most 10 s. It does not wait for `GoalHandle.Cancel` |
+| `hiroz.BuildWithTypedCallback` | `hiroz.BuildWithTypedCallbackContext(ctx, builder, handler)` | the subscriber is destroyed; a running callback runs on | `Subscriber.Close` does not wait for a running callback |
+| `hiroz.SubscriberWithChannel` | `hiroz.SubscriberWithChannelContext[T](ctx, builder, size)` | the subscriber is destroyed, then the channel closes | `Subscriber.Close` closes the channel; it does not wait for a running decoder |
 
 Other blocking calls, such as `CallTypedWithTimeout`, keep their timeout argument. For all context variants:
 
@@ -325,6 +327,9 @@ Other blocking calls, such as `CallTypedWithTimeout`, keep their timeout argumen
 - Your `SerializeCDR` and `DeserializeCDR` run to their end. `Close` does not wait for them.
 - A result that arrives together with the cancel can be returned instead of the context error.
 - A context deadline sets the timeout of `CallTypedContext`, up to 10 seconds.
+- A subscriber callback can run after a cancel. Make the handler safe to run after the cancel.
+- Neither a cancel nor `Close` releases a subscriber's callback. The subscriber keeps it reachable until the process ends.
+- `SubscriberWithChannelContext` has no cleanup function. Pass a context that you cancel, or close the subscriber.
 
 ### Action
 
