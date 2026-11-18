@@ -3310,18 +3310,6 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 <td>returns at once; the C wait runs on</td>
 <td><code>ActionClient.Close</code> waits for the C wait, at most 10 s. It does not wait for <code>GoalHandle.Cancel</code></td>
 </tr>
-<tr>
-<td><code>hiroz.BuildWithTypedCallback</code></td>
-<td><code>hiroz.BuildWithTypedCallbackContext(ctx, builder, handler)</code></td>
-<td>the subscriber is destroyed; a running callback runs on</td>
-<td><code>Subscriber.Close</code> does not wait for a running callback</td>
-</tr>
-<tr>
-<td><code>hiroz.SubscriberWithChannel</code></td>
-<td><code>hiroz.SubscriberWithChannelContext[T](ctx, builder, size)</code></td>
-<td>the subscriber is destroyed, then the channel closes</td>
-<td><code>Subscriber.Close</code> closes the channel; it does not wait for a running decoder</td>
-</tr>
 </tbody>
 </table>
 <p>Other blocking calls, such as <code>CallTypedWithTimeout</code>, keep their timeout argument. For all context variants:</p>
@@ -3330,9 +3318,6 @@ accDescr: Go code calls through CGO into a C FFI layer that bridges to the Rust 
 <li>Your <code>SerializeCDR</code> and <code>DeserializeCDR</code> run to their end. <code>Close</code> does not wait for them.</li>
 <li>A result that arrives together with the cancel can be returned instead of the context error.</li>
 <li>A context deadline sets the timeout of <code>CallTypedContext</code>, up to 10 seconds.</li>
-<li>A subscriber callback can run after a cancel. Make the handler safe to run after the cancel.</li>
-<li>Neither a cancel nor <code>Close</code> releases a subscriber's callback. The subscriber keeps it reachable until the process ends.</li>
-<li><code>SubscriberWithChannelContext</code> has no cleanup function. Pass a context that you cancel, or close the subscriber.</li>
 </ul>
 <h3 id="action">Action<a class="headerlink" href="#action" title="Permanent link">&para;</a></h3>
 <div class="language-go highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1">// Typed server</span>
