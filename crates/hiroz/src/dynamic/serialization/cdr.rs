@@ -36,6 +36,8 @@ pub fn serialize_cdr_to_zbuf(msg: &DynamicMessage) -> Result<ZBuf, DynamicError>
 ///
 /// A value that consumes no input, such as a fixed array with no members, counts against a budget
 /// of 1,048,576 values per call, and input that needs more is an error.
+///
+/// A bounded sequence with more elements than its maximum is an error.
 pub fn deserialize_cdr(
     data: &[u8],
     schema: &Arc<MessageSchema>,
@@ -263,14 +265,15 @@ fn deserialize_value_inner(
         }
 
         // Bounded sequence
-        FieldType::BoundedSequence(inner, _max) => {
-            // Same handling as unbounded sequence for deserialization
+        FieldType::BoundedSequence(inner, max) => {
+            let len = reader
+                .read_bounded_sequence_length(*max)
+                .map_err(map_cdr_err)?;
             if matches!(**inner, FieldType::Uint8) {
-                let bytes = reader.read_byte_sequence().map_err(map_cdr_err)?.to_vec();
+                let bytes = reader.read_bytes(len).map_err(map_cdr_err)?.to_vec();
                 return Ok(DynamicValue::Bytes(bytes));
             }
 
-            let len = reader.read_sequence_length().map_err(map_cdr_err)?;
             Ok(DynamicValue::Array(deserialize_elements(
                 inner, len, reader, budget,
             )?))

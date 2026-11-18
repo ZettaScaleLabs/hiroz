@@ -102,8 +102,8 @@ fn assert_child_survives(name: &str, markers: &[&str]) {
 }
 
 /// The dynamic decoder must consume elements before growing its output array. The
-/// `BoundedSequence` arm decodes through the same helper as the unbounded one and does not check
-/// the bound, so its case reaches the reservation whatever bound the schema states.
+/// `BoundedSequence` arm decodes through the same helper as the unbounded one. Its schema states a
+/// bound above the hostile count, so the case passes the bound check and reaches the reservation.
 #[test]
 fn dynamic_decoder_survives_a_hostile_sequence_length() {
     if is_child() {

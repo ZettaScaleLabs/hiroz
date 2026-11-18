@@ -115,6 +115,46 @@ fn generated_sequence_decoders_cap_the_reservation() {
     );
 }
 
+/// Every bounded sequence decodes through the length check that knows its maximum, on the plain
+/// and the non-plain path. An unbounded sequence has no maximum.
+#[test]
+fn generated_bounded_sequence_decoders_check_the_maximum() {
+    use hiroz_codegen::types::ArrayType;
+
+    let msgs = resolve_corpus();
+    let plain = hiroz_codegen::generator::rust::compute_plain_types(&msgs);
+    for name in ["BoundedSequences", "BoundedPlainSequences"] {
+        let msg = get_resolved(&msgs, name);
+        let bounded = msg
+            .parsed
+            .fields
+            .iter()
+            .filter(|f| matches!(f.field_type.array, ArrayType::Bounded(3)))
+            .count();
+        assert!(bounded > 0, "{name}: no bounded field in the corpus");
+        let src =
+            format_tokens(generate_message_impl_with_cdr(msg, &ctx(), &plain).expect("generate"));
+        assert_eq!(
+            src.matches("read_bounded_sequence_length(3)").count(),
+            bounded,
+            "{name}: bounded fields without the check"
+        );
+        assert_eq!(
+            src.matches("read_sequence_length()").count(),
+            0,
+            "{name}: a bounded field reads an unchecked length"
+        );
+    }
+    let unbounded = format_tokens(
+        generate_message_impl_with_cdr(get_resolved(&msgs, "UnboundedSequences"), &ctx(), &plain)
+            .expect("generate"),
+    );
+    assert!(
+        !unbounded.contains("read_bounded_sequence_length"),
+        "an unbounded sequence has no maximum"
+    );
+}
+
 // ── Service snapshot ──────────────────────────────────────────────────────────
 
 #[test]

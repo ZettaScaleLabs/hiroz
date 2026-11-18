@@ -25,6 +25,56 @@ pub mod zbuf_writer;
 
 use std::cell::RefCell;
 
+/// Deserialize a bounded sequence: a `Vec` with at most `MAX` elements. A longer sequence is an
+/// error, reported as soon as the declared count is known. Generated message types name it in
+/// `#[serde(deserialize_with = ...)]`.
+pub fn deserialize_bounded<'de, D, T, const MAX: usize>(
+    deserializer: D,
+) -> std::result::Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    struct Visitor<T, const MAX: usize>(std::marker::PhantomData<T>);
+
+    impl<'de, T: serde::Deserialize<'de>, const MAX: usize> serde::de::Visitor<'de>
+        for Visitor<T, MAX>
+    {
+        type Value = Vec<T>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "a sequence of at most {MAX} elements")
+        }
+
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> std::result::Result<Vec<T>, A::Error> {
+            use serde::de::Error;
+            let too_long = |len: usize| {
+                A::Error::custom(format!(
+                    "Sequence length {len} exceeds the declared maximum ({MAX})"
+                ))
+            };
+            let hint = seq.size_hint();
+            if let Some(len) = hint.filter(|len| *len > MAX) {
+                return Err(too_long(len));
+            }
+            // A format without a count hint is checked one element past the maximum.
+            let mut values = Vec::with_capacity(hint.unwrap_or(0).min(4096));
+            while let Some(value) = seq.next_element()? {
+                if values.len() == MAX {
+                    return Err(too_long(MAX + 1));
+                }
+                values.push(value);
+            }
+            Ok(values)
+        }
+    }
+
+    deserializer.deserialize_seq(Visitor::<T, MAX>(std::marker::PhantomData))
+}
+
 // Thread-local for zero-copy ZBuf deserialization bypass.
 // When set with the source payload ZBuf, ZBuf::Deserialize creates sub-ZSlices
 // instead of copying bytes, enabling zero-copy deserialization.

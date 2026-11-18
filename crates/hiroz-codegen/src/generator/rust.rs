@@ -379,10 +379,17 @@ fn generate_cdr_deserialize_field(
                 plain_types,
             );
             let base_ty = generate_base_type_tokens_with_context(ft, source_pkg, ctx);
+            let read_count = match &ft.array {
+                ArrayType::Bounded(max) => {
+                    let max = proc_macro2::Literal::usize_unsuffixed(*max);
+                    quote! { __r.read_bounded_sequence_length(#max)? }
+                }
+                _ => quote! { __r.read_sequence_length()? },
+            };
             if elem_plain && !matches!(ft.base_type.as_str(), "bool" | "string" | "wstring") {
                 quote! {
                     let #fname: Vec<#base_ty> = {
-                        let __count = __r.read_sequence_length()?;
+                        let __count = #read_count;
                         #[cfg(target_endian = "little")]
                         {
                             if __count > 0 {
@@ -404,7 +411,7 @@ fn generate_cdr_deserialize_field(
             } else {
                 quote! {
                     let #fname: Vec<#base_ty> = {
-                        let __count = __r.read_sequence_length()?;
+                        let __count = #read_count;
                         let mut __v = Vec::with_capacity(__r.sequence_capacity(__count));
                         for _ in 0..__count {
                             __v.push(::hiroz_cdr::CdrDeserialize::cdr_deserialize(__r)?);
@@ -721,20 +728,23 @@ fn generate_field_def_with_context(
     // Check if this is a ZBuf field (for Python bridge attribute)
     let is_zbuf = is_zbuf_field(field);
 
-    // Add attributes for large fixed arrays (>32 elements)
-    let serde_attributes = if let ArrayType::Fixed(n) = &field.field_type.array {
-        if *n > 32 {
+    // Add attributes for large fixed arrays (>32 elements), and the maximum of a bounded sequence
+    let serde_attributes = match &field.field_type.array {
+        ArrayType::Fixed(n) if *n > 32 => {
             // Generate a default value code string for the array
             let default_code = generate_array_default_code(&field.field_type, *n)?;
             quote! {
                 #[serde(with = "serde_big_array::BigArray")]
                 #[default(_code = #default_code)]
             }
-        } else {
-            quote! {}
         }
-    } else {
-        quote! {}
+        ArrayType::Bounded(max) => {
+            let decoder = format!("::hiroz_cdr::deserialize_bounded::<_, _, {max}>");
+            quote! {
+                #[serde(deserialize_with = #decoder)]
+            }
+        }
+        _ => quote! {},
     };
 
     // Add Python bridge attribute for ZBuf fields

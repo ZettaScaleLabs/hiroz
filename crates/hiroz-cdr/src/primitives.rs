@@ -367,6 +367,19 @@ impl<'a, BO: ByteOrder> CdrReader<'a, BO> {
         Ok(len as usize)
     }
 
+    /// Read a sequence length prefix and reject a count above `max`, the maximum that the
+    /// message definition declares for a bounded sequence.
+    #[inline]
+    pub fn read_bounded_sequence_length(&mut self, max: usize) -> Result<usize> {
+        let len = self.read_sequence_length()?;
+        if len > max {
+            return Err(Error::Custom(format!(
+                "Sequence length {len} exceeds the declared maximum ({max})"
+            )));
+        }
+        Ok(len)
+    }
+
     /// The initial capacity for a sequence that declares `count` elements: at most one element per
     /// unread byte, so a count that the input cannot back reserves no more than the input size.
     #[inline]
