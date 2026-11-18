@@ -45,7 +45,7 @@
 
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use parking_lot::RwLock;
@@ -54,6 +54,7 @@ use zenoh::Result;
 use zenoh::liveliness::LivelinessToken;
 
 use crate::Builder;
+use crate::event::EventsManager;
 use crate::msg::{SerdeCdrSerdes, ZDeserializer, ZMessage};
 use crate::pubsub::ZSubBuilder;
 
@@ -125,9 +126,17 @@ pub struct ZCache<T: ZMessage> {
     inner: Arc<RwLock<CacheInner<T>>>,
     _sub: crate::pubsub::RawSubscriptions,
     _lv_token: LivelinessToken,
+    events_mgr: Arc<Mutex<EventsManager>>,
 }
 
 impl<T: ZMessage> ZCache<T> {
+    /// The event manager on which this cache raises
+    /// [`MessageLost`](crate::event::ZenohEventType::MessageLost), like `ZSub::events_mgr`.
+    /// See the [message cache chapter](https://zettascalelabs.github.io/hiroz/core-concepts/message-cache/).
+    pub fn events_mgr(&self) -> &Arc<Mutex<EventsManager>> {
+        &self.events_mgr
+    }
+
     /// All messages with timestamp in `[t_start, t_end]`, inclusive, ordered
     /// by timestamp ascending.
     ///
@@ -295,38 +304,36 @@ impl<T: ZMessage, S> ZCacheBuilder<T, S, ZenohStamp> {
             stamp: ExtractorStamp(extractor, PhantomData),
         }
     }
-
-    /// Maximum number of messages to retain. Oldest are evicted when full.
-    pub fn with_capacity(mut self, capacity: usize) -> Self {
-        self.capacity = capacity;
-        self
-    }
-
-    /// Apply a QoS profile to the underlying subscriber.
-    pub fn with_qos(mut self, qos: crate::qos::QosProfile) -> Self {
-        self.sub_builder = self.sub_builder.with_qos(qos);
-        self
-    }
-}
-
-impl<T: ZMessage, S, F> ZCacheBuilder<T, S, ExtractorStamp<T, F>>
-where
-    F: Fn(&T) -> SystemTime + Send + Sync + 'static,
-{
-    /// Maximum number of messages to retain. Oldest are evicted when full.
-    pub fn with_capacity(mut self, capacity: usize) -> Self {
-        self.capacity = capacity;
-        self
-    }
-
-    /// Apply a QoS profile to the underlying subscriber.
-    pub fn with_qos(mut self, qos: crate::qos::QosProfile) -> Self {
-        self.sub_builder = self.sub_builder.with_qos(qos);
-        self
-    }
 }
 
 impl<T: ZMessage, S, Stamp> ZCacheBuilder<T, S, Stamp> {
+    /// Maximum number of messages to retain. Oldest are evicted when full.
+    pub fn with_capacity(mut self, capacity: usize) -> Self {
+        self.capacity = capacity;
+        self
+    }
+
+    /// Apply a QoS profile to the underlying subscriber. `TransientLocal` replays history; see the
+    /// [message cache chapter](https://zettascalelabs.github.io/hiroz/core-concepts/message-cache/).
+    pub fn with_qos(mut self, qos: crate::qos::QosProfile) -> Self {
+        self.sub_builder = self.sub_builder.with_qos(qos);
+        self
+    }
+
+    /// Restrict the cache to publishers of one locality, as
+    /// [`ZSubBuilder::with_locality`](crate::pubsub::ZSubBuilder::with_locality) does.
+    pub fn with_locality(mut self, locality: zenoh::sample::Locality) -> Self {
+        self.sub_builder = self.sub_builder.with_locality(locality);
+        self
+    }
+
+    /// Set the expected encoding, as
+    /// [`ZSubBuilder::with_encoding`](crate::pubsub::ZSubBuilder::with_encoding) does.
+    pub fn with_encoding(mut self, encoding: crate::encoding::Encoding) -> Self {
+        self.sub_builder = self.sub_builder.with_encoding(encoding);
+        self
+    }
+
     /// Overrides the node's buffer-group default. The setting holds before or after
     /// [`with_stamp`](ZCacheBuilder::with_stamp). See [`BufferGroup`](crate::BufferGroup).
     pub fn with_buffer_group(mut self, group: crate::BufferGroup) -> Self {
@@ -355,7 +362,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, lv_token) =
+        let (sub, lv_token, events_mgr) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -387,6 +394,7 @@ where
             inner,
             _sub: sub,
             _lv_token: lv_token,
+            events_mgr,
         })
     }
 }
@@ -412,7 +420,7 @@ where
         let inner = Arc::new(RwLock::new(CacheInner::<T>::new(capacity)));
         let inner_cb = inner.clone();
 
-        let (sub, lv_token) =
+        let (sub, lv_token, events_mgr) =
             sub_builder.build_raw_subscriber(move |sample: zenoh::sample::Sample| {
                 let payload = sample.payload().to_bytes();
                 match S::deserialize(&payload) {
@@ -429,6 +437,7 @@ where
             inner,
             _sub: sub,
             _lv_token: lv_token,
+            events_mgr,
         })
     }
 }

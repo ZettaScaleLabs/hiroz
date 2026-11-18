@@ -127,6 +127,20 @@ let cache = node
     .build()?;
 ```
 
+## Subscriber Options
+
+A cache shares the locality and encoding checks of `create_sub`, and a `TransientLocal` cache requests history as a subscriber does. A volatile cache keeps a plain subscription, not the advanced one that `create_sub` declares, so that it stores reordered samples.
+
+| Builder method | Effect |
+|---|---|
+| `with_qos(qos)` | `TransientLocal` makes the cache request and store the history of publishers that started earlier. That subscription drops a sample that is not newer than one already delivered from the same source. The default, `Volatile`, does not drop reordered samples. |
+| `with_locality(locality)` | Restricts the cache to publishers of one locality, on the topic key and on the buffer-group key, as `create_sub` does. With `TransientLocal` QoS it restricts live samples only: the history query ignores it, so the cache still stores history from publishers outside the locality. |
+| `with_encoding(encoding)` | Logs a warning for a sample with a known, different encoding. The mismatch does not drop the message. An unknown encoding is logged at debug level only. |
+
+### Message loss
+
+A cache tracks the sequence numbers that hiroz publishers send in the sample attachment. A gap raises a `MessageLost` event on `cache.events_mgr()`, a handle of the same type that `ZSub::events_mgr()` returns. Each cache has its own event manager. A publisher that sends no attachment, such as a plain Zenoh peer, is never reported as lossy. The first sample of a publisher is a baseline, so a cache that joins late reports no loss for history it never received.
+
 ## Comparison with `message_filters::Cache<T>`
 
 `ZCache<T>` covers the core `message_filters::Cache<T>` API with some differences:
