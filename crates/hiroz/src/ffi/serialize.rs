@@ -7,6 +7,13 @@ use std::ffi::c_char;
 /// Serialize a message to CDR format
 /// Input: type_name (C string), raw message bytes from Go
 /// Output: CDR serialized bytes via out_ptr/out_len
+///
+/// # Safety
+/// `type_name` must be a valid null-terminated C string, or null.
+/// `msg_data` must be valid for reads of `msg_len` bytes.
+/// `out_ptr` and `out_len` must each be valid for writes.
+/// On success, the buffer written to `*out_ptr` must be freed with
+/// `hiroz_free_bytes(*out_ptr, *out_len)`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_serialize(
     type_name: *const c_char,
@@ -41,6 +48,13 @@ pub unsafe extern "C" fn hiroz_serialize(
 }
 
 /// Deserialize CDR bytes to raw format for Go
+///
+/// # Safety
+/// `type_name` must be a valid null-terminated C string, or null.
+/// `cdr_data` must be valid for reads of `cdr_len` bytes.
+/// `out_ptr` and `out_len` must each be valid for writes.
+/// On success, the buffer written to `*out_ptr` must be freed with
+/// `hiroz_free_bytes(*out_ptr, *out_len)`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_deserialize(
     type_name: *const c_char,
@@ -74,11 +88,21 @@ pub unsafe extern "C" fn hiroz_deserialize(
 }
 
 /// Free bytes allocated by serialize/deserialize
+///
+/// # Safety
+/// `ptr` must be a buffer this crate returned through an out-parameter, or null,
+/// and `len` must be exactly the length it reported alongside it. Passing any other
+/// pointer, or a mismatched length, is undefined behaviour. Each buffer must be
+/// freed at most once.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hiroz_free_bytes(ptr: *mut u8, len: usize) {
     if !ptr.is_null() && len > 0 {
         unsafe {
-            let _ = Box::from_raw(std::slice::from_raw_parts_mut(ptr, len));
+            // `slice_from_raw_parts_mut` builds the fat pointer directly.
+            // Taking `&mut [u8]` first, as `slice::from_raw_parts_mut` does,
+            // asserts a unique reference the caller has not promised, and
+            // clippy's `implicit_slice_from_raw_parts` flags the reborrow.
+            let _ = Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len));
         }
     }
 }

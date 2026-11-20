@@ -31,6 +31,7 @@ pub mod goal_state {
 /// # Examples
 ///
 /// ```no_run
+/// # use hiroz::Builder;
 /// # use hiroz::action::*;
 /// # use hiroz::qos::QosProfile;
 /// # use hiroz_msgs::action_tutorials_interfaces::action::Fibonacci;
@@ -290,6 +291,7 @@ impl<'a, A: ZAction> Builder for ZActionClientBuilder<'a, A> {
 /// # Simple Goal Send/Receive
 ///
 /// ```no_run
+/// # use hiroz::Builder;
 /// # use hiroz::action::*;
 /// # use hiroz_msgs::action_tutorials_interfaces::{FibonacciGoal, action::Fibonacci};
 /// # #[tokio::main]
@@ -307,6 +309,7 @@ impl<'a, A: ZAction> Builder for ZActionClientBuilder<'a, A> {
 ///
 /// ```no_run
 /// # use hiroz::action::*;
+/// # use hiroz::action::client::{GoalHandle, goal_state};
 /// # use hiroz_msgs::action_tutorials_interfaces::action::Fibonacci;
 /// # #[tokio::main]
 /// # async fn main() -> zenoh::Result<()> {
@@ -325,6 +328,7 @@ impl<'a, A: ZAction> Builder for ZActionClientBuilder<'a, A> {
 ///
 /// ```no_run
 /// # use hiroz::action::*;
+/// # use hiroz::action::client::{GoalHandle, ZActionClient, goal_state};
 /// # use hiroz_msgs::action_tutorials_interfaces::action::Fibonacci;
 /// # #[tokio::main]
 /// # async fn main() -> zenoh::Result<()> {
@@ -397,6 +401,7 @@ impl<A: ZAction> ZActionClient<A> {
     ///
     /// ```no_run
     /// # use hiroz::action::*;
+    /// # use hiroz::action::client::ZActionClient;
     /// # use hiroz_msgs::action_tutorials_interfaces::{FibonacciGoal, action::Fibonacci};
     /// # #[tokio::main]
     /// # async fn main() -> zenoh::Result<()> {
@@ -541,6 +546,7 @@ struct GoalChannels<A: ZAction> {
 ///
 /// ```no_run
 /// # use hiroz::action::*;
+/// # use hiroz::action::client::{GoalHandle, goal_state};
 /// # use hiroz_msgs::action_tutorials_interfaces::action::Fibonacci;
 /// # #[tokio::main]
 /// # async fn main() -> zenoh::Result<()> {
