@@ -7,44 +7,30 @@
 
 ## Build Issues
 
-??? question "Build fails with 'package not found' or missing ROS 2 packages"
-    **Root Cause:** ROS 2 environment not sourced or packages not installed.
+??? question "Build fails with 'feature requested package ... but it was not found in assets/DISTRO'"
+    **Root Cause:** `hiroz-msgs` generates messages entirely from `hiroz-codegen`'s bundled asset trees (`crates/hiroz-codegen/assets/<distro>/`) — it does not read a system ROS 2 installation. An enabled package feature (e.g. `test_msgs`) has no matching package directory under the selected distro's tree.
 
     **Solutions:**
 
-    1. **Source ROS 2 environment:**
+    1. **Check which distro is selected** (`humble`, `jazzy`, or `lyrical` — defaults to `jazzy`):
        ```bash
-       source /opt/ros/jazzy/setup.bash
-       # or for rolling:
-       source /opt/ros/rolling/setup.bash
+       cargo build -p hiroz-msgs --no-default-features --features core_msgs,jazzy
        ```
 
-    2. **Verify environment variables:**
+    2. **Confirm the package exists in that distro's bundled tree:**
        ```bash
-       echo $AMENT_PREFIX_PATH
-       echo $CMAKE_PREFIX_PATH
+       ls crates/hiroz-codegen/assets/jazzy/example_interfaces
        ```
 
-    3. **Check package installation:**
-       ```bash
-       ros2 pkg prefix example_interfaces
-       # If fails, install:
-       sudo apt install ros-jazzy-example-interfaces
-       ```
+    3. **Only `humble`, `jazzy`, and `lyrical` ship a real asset tree today** — `rolling`/`kilted` features exist but have no bundled packages yet, so any package feature will fail for them.
 
-    4. **Clean and rebuild:**
+    4. **Clean and rebuild after changing feature flags:**
        ```bash
        cargo clean -p hiroz-msgs
        cargo build -p hiroz-msgs
        ```
 
-    **Common Error Messages:**
-
-    | Error | Solution |
-    |-------|----------|
-    | "Package X not found" | Source ROS 2 environment |
-    | "Cannot find ament_index" | Install ROS 2 or use bundled msgs |
-    | "AMENT_PREFIX_PATH not set" | Run `source /opt/ros/jazzy/setup.bash` |
+    If the package is genuinely missing from a distro that should carry it, that's a gap in the bundled asset tree, not a local environment problem — file an issue rather than trying to source a system ROS 2 install.
 
 ??? question "Compiler error: cannot find crate hiroz_msgs"
     **Root Cause:** `hiroz-msgs` is not part of default workspace members.
