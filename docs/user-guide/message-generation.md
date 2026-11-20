@@ -144,6 +144,28 @@ impl WithTypeInfo for std_msgs::String {
 !!! note
     Type hashes are critical for ROS 2 interoperability. They ensure nodes agree on message structure before exchanging data.
 
+### Go Schema Descriptors
+
+Generated Go messages expose `TypeDescriptionJSON()` when the generator has a
+complete descriptor, including its referenced types. The descriptor uses the same
+type identity as the message's `TypeHash()`; changing its name changes its RIHS
+hash even when the serialized fields stay identical.
+
+For compatibility, generated service request and response components retain
+historical hiroz descriptor names such as `std_srvs/msg/SetBoolRequest` and
+`std_srvs/msg/SetBoolResponse`. These differ from the canonical ROS component names
+`std_srvs/srv/SetBool_Request` and `std_srvs/srv/SetBool_Response`. Action payloads
+likewise retain names such as `nav2_msgs/msg/FollowPathFeedback`, rather than
+`nav2_msgs/action/FollowPath_Feedback`. Schema discovery for these generated
+components therefore uses their historical names.
+
+Service and action protocol wrappers retain their existing canonical identities
+and hashes. Normal service RPC's compound hash already includes canonical request
+and response names. The component naming difference does not indicate a missing
+RPC endpoint. Canonicalizing the standalone component descriptors requires a
+coordinated component hash migration; renaming only `TypeDescriptionJSON()` would
+make it disagree with `TypeHash()` and fail schema registration.
+
 ## Build Process
 
 ### hiroz-msgs Build Script
