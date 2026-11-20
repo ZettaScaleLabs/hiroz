@@ -88,7 +88,7 @@ def test-codegen [] {
 }
 
 # Test hiroz-go runtime library
-def test-runtime [] {
+def test-runtime [--require-ffi] {
     log-step "Testing hiroz-go (runtime library)"
 
     # Format check
@@ -136,10 +136,40 @@ def test-runtime [] {
             print $ffi_result.stderr
             exit 1
         }
+        # `go test` exits 0 for a package that has no test files. It prints
+        # `? <pkg> [no test files]` and reports success. A deleted test file, or
+        # one excluded by a build tag, would therefore pass this step having run
+        # nothing -- the same silent skip this flag exists to stop, reached by a
+        # different route. Count the run events instead of trusting the status.
+        let ran = ($ffi_result.stdout | lines | filter {|l| $l | str starts-with "=== RUN" } | length)
+        if $ran == 0 {
+            print $ffi_result.stdout
+            error make {
+                msg: ("hiroz FFI tests ran 0 tests. `go test` exits 0 when a package has no "
+                    + "test files, so this is a silent skip and not a pass. "
+                    + "Check that crates/hiroz-go/hiroz/*_test.go exist and no build tag "
+                    + "excludes them -- see issue #270.")
+            }
+        }
         print $ffi_result.stdout
-        log-success "hiroz FFI tests pass"
+        log-success $"hiroz FFI tests pass \(($ran) tests ran)"
         cd ../..
+    } else if $require_ffi {
+        # Only when the FFI tests were explicitly asked for -- which is what CI
+        # does. Letting that path pass without a library meant the "Go FFI
+        # tests" step reported success having run nothing, so the FFI surface
+        # was never exercised by any check. That is how a missing re-entrancy
+        # guard in `RawPublisher::publish_bytes` shipped unnoticed, on the path
+        # `rmw-zenoh-rs` publishes through. See #270.
+        error make {
+            msg: ("hiroz FFI tests cannot run: no libhiroz.a in target/release or target/debug. "
+                + "Build it first with `cargo build -p hiroz --features ffi --release`. "
+                + "This is a failure, not a skip -- see issue #270.")
+        }
     } else {
+        # Default and --runtime-only keep skipping, so a Go-only contributor
+        # without a Rust toolchain can still run the suite. Only the explicit
+        # --ffi-only contract is enforced.
         print ""
         log-warning "Skipping hiroz FFI tests (Rust library not built)"
         print "   Build with: cargo build -p hiroz --features ffi --release"
@@ -370,7 +400,7 @@ def main [
     } else if $vet_only {
         test-vet
     } else if $ffi_only {
-        test-runtime  # includes FFI tests when library is present
+        test-runtime --require-ffi  # FFI tests are the point here: absence is a failure
     } else if $integration {
         test-integration --race=$race
     } else {
