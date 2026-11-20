@@ -734,19 +734,31 @@ impl Resolver {
             }],
         };
 
-        // CancelGoal_Response: return_code (int8)
+        // CancelGoal_Response: return_code (int8) + goals_canceling (GoalInfo[])
         let response_desc = TypeDescription {
             type_name: "action_msgs/srv/CancelGoal_Response".to_string(),
-            fields: vec![FieldDescription {
-                name: "return_code".to_string(),
-                field_type: FieldTypeDescription {
-                    type_id: 2, // int8
-                    capacity: 0,
-                    string_capacity: 0,
-                    nested_type_name: String::new(),
+            fields: vec![
+                FieldDescription {
+                    name: "return_code".to_string(),
+                    field_type: FieldTypeDescription {
+                        type_id: 2, // int8
+                        capacity: 0,
+                        string_capacity: 0,
+                        nested_type_name: String::new(),
+                    },
+                    default_value: String::new(),
                 },
-                default_value: String::new(),
-            }],
+                FieldDescription {
+                    name: "goals_canceling".to_string(),
+                    field_type: FieldTypeDescription {
+                        type_id: 145, // NESTED_TYPE_UNBOUNDED_SEQUENCE
+                        capacity: 0,
+                        string_capacity: 0,
+                        nested_type_name: "action_msgs/msg/GoalInfo".to_string(),
+                    },
+                    default_value: String::new(),
+                },
+            ],
         };
 
         // Get dependencies
@@ -760,6 +772,28 @@ impl Resolver {
         // Get Time (GoalInfo contains Time)
         if let Some(time_desc) = self.type_descriptions.get("builtin_interfaces/Time") {
             deps.insert(time_desc.type_name.clone(), time_desc.clone());
+        }
+
+        // GoalInfo also nests UUID — required for a matching RIHS hash.
+        if let Some(uuid_desc) = self.type_descriptions.get("unique_identifier_msgs/UUID") {
+            deps.insert(uuid_desc.type_name.clone(), uuid_desc.clone());
+        } else {
+            // Fallback matching calculate_status_hash when UUID isn't resolved yet.
+            use crate::hashing::TypeId;
+            let uuid_desc = TypeDescription {
+                type_name: "unique_identifier_msgs/msg/UUID".to_string(),
+                fields: vec![FieldDescription {
+                    name: "uuid".to_string(),
+                    field_type: FieldTypeDescription {
+                        type_id: TypeId::UINT8_ARRAY,
+                        capacity: 16,
+                        string_capacity: 0,
+                        nested_type_name: String::new(),
+                    },
+                    default_value: String::new(),
+                }],
+            };
+            deps.insert(uuid_desc.type_name.clone(), uuid_desc);
         }
 
         // Get ServiceEventInfo
