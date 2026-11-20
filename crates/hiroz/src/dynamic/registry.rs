@@ -158,7 +158,8 @@ fn convert_base_type(
     // Check if it's a primitive type
     match base_type {
         "bool" => return Ok(FieldType::Bool),
-        "int8" | "byte" => return Ok(FieldType::Int8),
+        "byte" => return Ok(FieldType::Byte),
+        "int8" => return Ok(FieldType::Int8),
         "int16" => return Ok(FieldType::Int16),
         "int32" => return Ok(FieldType::Int32),
         "int64" => return Ok(FieldType::Int64),

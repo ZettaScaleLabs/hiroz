@@ -421,7 +421,7 @@ fn parameter_value_schema()
         .field("string_value", FieldType::String)
         .field(
             "byte_array_value",
-            FieldType::Sequence(Box::new(FieldType::Uint8)),
+            FieldType::Sequence(Box::new(FieldType::Byte)),
         )
         .field(
             "bool_array_value",

@@ -692,7 +692,7 @@ fn json_to_dynamic_value(
                 .map_err(|_| "value out of range for i32")?,
         )),
         FieldType::Int64 => Ok(DynamicValue::Int64(value.as_i64().ok_or("expected i64")?)),
-        FieldType::Uint8 => Ok(DynamicValue::Uint8(
+        FieldType::Byte | FieldType::Uint8 => Ok(DynamicValue::Uint8(
             u8::try_from(value.as_u64().ok_or("expected u8")?)
                 .map_err(|_| "value out of range for u8")?,
         )),
