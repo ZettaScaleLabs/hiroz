@@ -32,6 +32,7 @@ pub trait ZAction: Send + Sync + 'static {
     type Goal: ZMessage + Clone + Send + Sync + serde::Serialize + for<'de> serde::Deserialize<'de>;
     type Result: ZMessage
         + Clone
+        + Default
         + Send
         + Sync
         + serde::Serialize
