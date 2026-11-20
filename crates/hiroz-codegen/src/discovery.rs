@@ -1,77 +1,64 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::parser::{action::parse_action_file, msg::parse_msg_file, srv::parse_srv_file};
 use crate::types::{ParsedAction, ParsedMessage, ParsedService};
 
-/// Discover and parse all messages in a package directory
-pub fn discover_messages(package_path: &Path, package_name: &str) -> Result<Vec<ParsedMessage>> {
-    let mut messages = Vec::new();
-
-    let msg_dir = package_path.join("msg");
-    if msg_dir.exists() && msg_dir.is_dir() {
-        for entry in fs::read_dir(&msg_dir)
-            .with_context(|| format!("Failed to read msg directory: {:?}", msg_dir))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-
-            if path.extension().and_then(|s| s.to_str()) == Some("msg") {
-                let msg = parse_msg_file(&path, package_name)
-                    .with_context(|| format!("Failed to parse message file: {:?}", path))?;
-                messages.push(msg);
-            }
+/// The files in `package_path/<kind>` with extension `kind`, sorted by path.
+///
+/// Sorted because `read_dir` order is unspecified: it differs between
+/// filesystems, and between two copies of the same tree (a build sandbox, a
+/// fresh checkout), which would make the generated code differ as well.
+fn interface_files(package_path: &Path, kind: &str) -> Result<Vec<PathBuf>> {
+    let dir = package_path.join(kind);
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    for entry in fs::read_dir(&dir)
+        .with_context(|| format!("Failed to read {} directory: {:?}", kind, dir))?
+    {
+        let path = entry?.path();
+        if path.extension().and_then(|s| s.to_str()) == Some(kind) {
+            files.push(path);
         }
     }
+    files.sort();
+    Ok(files)
+}
 
-    Ok(messages)
+/// Discover and parse all messages in a package directory
+pub fn discover_messages(package_path: &Path, package_name: &str) -> Result<Vec<ParsedMessage>> {
+    interface_files(package_path, "msg")?
+        .iter()
+        .map(|path| {
+            parse_msg_file(path, package_name)
+                .with_context(|| format!("Failed to parse message file: {:?}", path))
+        })
+        .collect()
 }
 
 /// Discover and parse all services in a package directory
 pub fn discover_services(package_path: &Path, package_name: &str) -> Result<Vec<ParsedService>> {
-    let mut services = Vec::new();
-
-    let srv_dir = package_path.join("srv");
-    if srv_dir.exists() && srv_dir.is_dir() {
-        for entry in fs::read_dir(&srv_dir)
-            .with_context(|| format!("Failed to read srv directory: {:?}", srv_dir))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-
-            if path.extension().and_then(|s| s.to_str()) == Some("srv") {
-                let srv = parse_srv_file(&path, package_name)
-                    .with_context(|| format!("Failed to parse service file: {:?}", path))?;
-                services.push(srv);
-            }
-        }
-    }
-
-    Ok(services)
+    interface_files(package_path, "srv")?
+        .iter()
+        .map(|path| {
+            parse_srv_file(path, package_name)
+                .with_context(|| format!("Failed to parse service file: {:?}", path))
+        })
+        .collect()
 }
 
 /// Discover and parse all actions in a package directory
 pub fn discover_actions(package_path: &Path, package_name: &str) -> Result<Vec<ParsedAction>> {
-    let mut actions = Vec::new();
-
-    let action_dir = package_path.join("action");
-    if action_dir.exists() && action_dir.is_dir() {
-        for entry in fs::read_dir(&action_dir)
-            .with_context(|| format!("Failed to read action directory: {:?}", action_dir))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-
-            if path.extension().and_then(|s| s.to_str()) == Some("action") {
-                let action = parse_action_file(&path, package_name)
-                    .with_context(|| format!("Failed to parse action file: {:?}", path))?;
-                actions.push(action);
-            }
-        }
-    }
-
-    Ok(actions)
+    interface_files(package_path, "action")?
+        .iter()
+        .map(|path| {
+            parse_action_file(path, package_name)
+                .with_context(|| format!("Failed to parse action file: {:?}", path))
+        })
+        .collect()
 }
 
 /// Discover package name from package.xml or directory name
@@ -180,6 +167,23 @@ mod tests {
 
         let messages = discover_messages(temp_dir.path(), "test_pkg").unwrap();
         assert_eq!(messages.len(), 2);
+    }
+
+    #[test]
+    fn test_discover_messages_sorted() {
+        let temp_dir = TempDir::new().unwrap();
+        let msg_dir = temp_dir.path().join("msg");
+        fs::create_dir(&msg_dir).unwrap();
+
+        // Created out of order: the result must not depend on directory order.
+        for name in ["Zone", "Alpha", "Zones", "Middle"] {
+            fs::write(msg_dir.join(format!("{name}.msg")), "int32 value\n").unwrap();
+        }
+        fs::write(msg_dir.join("README.md"), "not a message\n").unwrap();
+
+        let messages = discover_messages(temp_dir.path(), "test_pkg").unwrap();
+        let names: Vec<_> = messages.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, ["Alpha", "Middle", "Zone", "Zones"]);
     }
 
     #[test]

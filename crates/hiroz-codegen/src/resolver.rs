@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 
 use anyhow::{Result, bail};
 
@@ -11,7 +11,7 @@ pub struct Resolver {
     /// Map of package/name -> TypeDescription for resolved types
     type_descriptions: BTreeMap<String, TypeDescription>,
     /// Map of package/name -> ResolvedMessage for fully resolved messages
-    resolved_messages: HashMap<String, ResolvedMessage>,
+    resolved_messages: BTreeMap<String, ResolvedMessage>,
     /// Humble compatibility mode (no ServiceEventInfo, placeholder type hashes)
     is_humble: bool,
     /// External packages whose types are assumed resolved (from hiroz_msgs)
@@ -24,7 +24,7 @@ impl Resolver {
     pub fn new(is_humble: bool) -> Self {
         Self {
             type_descriptions: BTreeMap::new(),
-            resolved_messages: HashMap::new(),
+            resolved_messages: BTreeMap::new(),
             is_humble,
             external_packages: HashSet::new(),
         }
@@ -35,7 +35,7 @@ impl Resolver {
     pub fn with_external_packages(is_humble: bool, external_packages: HashSet<String>) -> Self {
         Self {
             type_descriptions: BTreeMap::new(),
-            resolved_messages: HashMap::new(),
+            resolved_messages: BTreeMap::new(),
             is_humble,
             external_packages,
         }
@@ -1083,6 +1083,40 @@ mod tests {
 
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].parsed.name, "Empty");
+    }
+
+    #[test]
+    fn test_resolve_messages_order_is_deterministic() {
+        // Generated code follows this order, so it must not depend on the
+        // input order or on hashing (a HashMap's order varies per process).
+        let names = ["Zone", "Alpha", "Zones", "Middle", "Beta", "Omega", "Gamma", "Delta"];
+        let messages: Vec<ParsedMessage> = names
+            .iter()
+            .map(|name| ParsedMessage {
+                name: name.to_string(),
+                package: "test_msgs".to_string(),
+                fields: vec![],
+                constants: vec![],
+                source: "".to_string(),
+                path: PathBuf::new(),
+            })
+            .collect();
+
+        let resolve = |messages: Vec<ParsedMessage>| -> Vec<String> {
+            Resolver::new(false)
+                .resolve_messages(messages)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.parsed.name)
+                .collect()
+        };
+        let forward = resolve(messages.clone());
+        let reversed = resolve(messages.into_iter().rev().collect());
+
+        let mut sorted: Vec<String> = names.iter().map(|n| n.to_string()).collect();
+        sorted.sort();
+        assert_eq!(forward, sorted);
+        assert_eq!(reversed, sorted);
     }
 
     #[test]
